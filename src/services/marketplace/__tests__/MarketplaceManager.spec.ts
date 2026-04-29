@@ -1,12 +1,12 @@
 // npx vitest services/marketplace/__tests__/MarketplaceManager.spec.ts
 
-import type { MarketplaceItem } from "@roo-code/types"
+import type { MarketplaceItem } from "@superroo/types"
 
 import { MarketplaceManager } from "../MarketplaceManager"
 
 // Mock CloudService
-vi.mock("@roo-code/cloud", () => ({
-	getRooCodeApiUrl: () => "https://test.api.com",
+vi.mock("@superroo/cloud", () => ({
+	getSuperRooApiUrl: () => "https://test.api.com",
 	CloudService: {
 		hasInstance: vi.fn(),
 		instance: {
@@ -189,7 +189,7 @@ describe("MarketplaceManager", () => {
 		})
 
 		it("should return organization MCPs when available", async () => {
-			const { CloudService } = await import("@roo-code/cloud")
+			const { CloudService } = await import("@superroo/cloud")
 
 			// Mock CloudService to return organization settings
 			vi.mocked(CloudService.hasInstance).mockReturnValue(true)
@@ -233,7 +233,7 @@ describe("MarketplaceManager", () => {
 		})
 
 		it("should filter out hidden MCPs from marketplace results", async () => {
-			const { CloudService } = await import("@roo-code/cloud")
+			const { CloudService } = await import("@superroo/cloud")
 
 			// Mock CloudService to return organization settings with hidden MCPs
 			vi.mocked(CloudService.hasInstance).mockReturnValue(true)
@@ -276,7 +276,7 @@ describe("MarketplaceManager", () => {
 		})
 
 		it("should handle CloudService not being available", async () => {
-			const { CloudService } = await import("@roo-code/cloud")
+			const { CloudService } = await import("@superroo/cloud")
 
 			// Mock CloudService to not be available
 			vi.mocked(CloudService.hasInstance).mockReturnValue(false)

@@ -10,8 +10,8 @@ import {
 	anthropicModels,
 	ANTHROPIC_DEFAULT_MAX_TOKENS,
 	ApiProviderError,
-} from "@roo-code/types"
-import { TelemetryService } from "@roo-code/telemetry"
+} from "@superroo/types"
+import { TelemetryService } from "@superroo/telemetry"
 
 import type { ApiHandlerOptions } from "../../shared/api"
 

@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to the `@roo-code/cli` package will be documented in this file.
+All notable changes to the `@superroo/cli` package will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -157,7 +157,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Telemetry Control**: Added `ROO_CODE_DISABLE_TELEMETRY=1` environment variable to disable cloud telemetry.
+- **Telemetry Control**: Added `SUPERROO_DISABLE_TELEMETRY=1` environment variable to disable cloud telemetry.
 
 ## [0.1.1] - 2026-02-24
 
@@ -227,7 +227,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Linux Support**: The CLI now supports Linux platforms in addition to macOS
-- **Roo Provider API Key Support**: Allow `--api-key` flag and `ROO_API_KEY` environment variable for the roo provider instead of requiring cloud auth token
+- **Roo Provider API Key Support**: Allow `--api-key` flag and `SUPERROO_API_KEY` environment variable for the roo provider instead of requiring cloud auth token
 - **Exit on Error**: New `--exit-on-error` flag to exit immediately on API request errors instead of retrying, useful for CI/CD pipelines
 
 ### Changed
@@ -273,12 +273,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Skip onboarding flow when a provider is explicitly specified via `--provider` flag or saved in settings
 - Unified permission flags: Combined approval-skipping flags into a single option for Claude Code-like CLI compatibility
-- Improved Roo Code Router authentication flow and error messaging
+- Improved SuperRoo Router authentication flow and error messaging
 
 ### Fixed
 
 - Removed unnecessary timeout that could cause issues with long-running tasks
-- Fixed authentication token validation for Roo Code Router provider
+- Fixed authentication token validation for SuperRoo Router provider
 
 ## [0.0.45] - 2026-01-08
 

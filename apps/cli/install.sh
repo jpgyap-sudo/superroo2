@@ -1,6 +1,6 @@
 #!/bin/sh
-# Roo Code CLI Installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/RooCodeInc/Roo-Code/main/apps/cli/install.sh | sh
+# SuperRoo CLI Installer
+# Usage: curl -fsSL https://raw.githubusercontent.com/SuperRooInc/SuperRoo/main/apps/cli/install.sh | sh
 #
 # Environment variables:
 #   ROO_INSTALL_DIR   - Installation directory (default: ~/.roo/cli)
@@ -13,7 +13,7 @@ set -e
 # Configuration
 INSTALL_DIR="${ROO_INSTALL_DIR:-$HOME/.roo/cli}"
 BIN_DIR="${ROO_BIN_DIR:-$HOME/.local/bin}"
-REPO="RooCodeInc/Roo-Code"
+REPO="SuperRooInc/SuperRoo"
 MIN_NODE_VERSION=20
 
 # Color output (only if terminal supports it)
@@ -315,7 +315,7 @@ verify_install() {
 # Print success message
 print_success() {
     echo ""
-    printf "${GREEN}${BOLD}✓ Roo Code CLI installed successfully!${NC}\n"
+    printf "${GREEN}${BOLD}✓ SuperRoo CLI installed successfully!${NC}\n"
     echo ""
     echo "  Installation: $INSTALL_DIR"
     echo "  Binary: $BIN_DIR/roo"
@@ -335,7 +335,7 @@ main() {
     echo ""
     printf "${BLUE}${BOLD}"
     echo "  ╭─────────────────────────────────╮"
-    echo "  │     Roo Code CLI Installer      │"
+    echo "  │     SuperRoo CLI Installer      │"
     echo "  ╰─────────────────────────────────╯"
     printf "${NC}"
     echo ""

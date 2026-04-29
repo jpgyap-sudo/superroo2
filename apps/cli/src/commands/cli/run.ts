@@ -5,7 +5,7 @@ import { fileURLToPath } from "url"
 import { createElement } from "react"
 import pWaitFor from "p-wait-for"
 
-import { setLogger } from "@roo-code/vscode-shim"
+import { setLogger } from "@superroo/vscode-shim"
 
 import {
 	FlagOptions,
@@ -229,7 +229,7 @@ export async function run(promptArg: string | undefined, flagOptions: FlagOption
 		terminalShell,
 	}
 
-	// Roo Code Cloud Authentication
+	// SuperRoo Cloud Authentication
 
 	if (isOnboardingEnabled) {
 		let { onboardingProviderChoice } = settings
@@ -261,15 +261,15 @@ export async function run(promptArg: string | undefined, flagOptions: FlagOption
 				// If an explicit API key was provided via flag or env var, fall through
 				// to the general API key resolution below instead of exiting.
 				if (!flagOptions.apiKey && !getApiKeyFromEnv(extensionHostOptions.provider)) {
-					console.error("[CLI] Your Roo Code Router token is not valid.")
+					console.error("[CLI] Your SuperRoo Router token is not valid.")
 					console.error("[CLI] Please run: roo auth login")
-					console.error("[CLI] Or use --api-key or set ROO_API_KEY to provide your own API key.")
+					console.error("[CLI] Or use --api-key or set SUPERROO_API_KEY to provide your own API key.")
 					process.exit(1)
 				}
 			}
 		}
 		// If no rooToken, fall through to the general API key resolution below
-		// which will check flagOptions.apiKey and ROO_API_KEY env var.
+		// which will check flagOptions.apiKey and SUPERROO_API_KEY env var.
 	}
 
 	// Validations
@@ -288,7 +288,7 @@ export async function run(promptArg: string | undefined, flagOptions: FlagOption
 
 	if (!extensionHostOptions.apiKey) {
 		if (extensionHostOptions.provider === "roo") {
-			console.error("[CLI] Error: Authentication with Roo Code Cloud failed or was cancelled.")
+			console.error("[CLI] Error: Authentication with SuperRoo Cloud failed or was cancelled.")
 			console.error("[CLI] Please run: roo auth login")
 			console.error("[CLI] Or use --api-key to provide your own API key.")
 		} else {

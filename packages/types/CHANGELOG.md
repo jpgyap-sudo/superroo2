@@ -1,4 +1,4 @@
-# @roo-code/types
+# @superroo/types
 
 ## 0.0.1
 

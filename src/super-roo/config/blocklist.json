@@ -1,0 +1,70 @@
+{
+	"$schema": "./blocklist.schema.json",
+	"description": "Hard blocklist of dangerous commands and patterns. Source: roo_super_architecture_pack/autonomous.md. Edit as data, not code.",
+	"version": 1,
+	"commandPatterns": [
+		"rm\\s+-rf\\s+/(?:\\s|$)",
+		"rm\\s+-rf\\s+/\\*",
+		"rm\\s+-rf\\s+~",
+		"rm\\s+-rf\\s+\\.git(?:\\s|$)",
+		"rm\\s+-rf\\s+node_modules\\s+package-lock\\.json",
+		"chmod\\s+-R\\s+777\\s+/",
+		"ufw\\s+disable",
+		"iptables\\s+-F",
+		":\\(\\)\\s*\\{\\s*:\\s*\\|\\s*:\\s*&\\s*\\}\\s*;\\s*:",
+		"mkfs\\.",
+		"dd\\s+if=.*of=/dev/[sh]d",
+		"\\bcat\\s+\\.env(?:\\s|$|/|\\.|\\*)",
+		"\\bprintenv\\b",
+		"\\benv\\b\\s*$"
+	],
+	"sqlPatterns": [
+		"DROP\\s+DATABASE",
+		"DROP\\s+SCHEMA",
+		"TRUNCATE\\s+TABLE",
+		"ALTER\\s+DATABASE",
+		"DELETE\\s+FROM\\s+\\w+\\s*;?\\s*$"
+	],
+	"pathPatterns": [
+		"^/etc/",
+		"^/boot/",
+		"^/sys/",
+		"^/proc/",
+		"^/dev/"
+	],
+	"capabilityRules": {
+		"OFF": [],
+		"SAFE": ["read.file", "network.crawl"],
+		"AUTO": [
+			"read.file",
+			"write.file",
+			"execute.command",
+			"database.sql.read",
+			"database.sql.write",
+			"database.sql.migrate",
+			"git.commit",
+			"git.push",
+			"deploy.staging",
+			"network.crawl",
+			"supabase.manage.local",
+			"telegram.send"
+		],
+		"FULL_AUTONOMOUS": [
+			"read.file",
+			"write.file",
+			"execute.command",
+			"database.sql.read",
+			"database.sql.write",
+			"database.sql.migrate",
+			"database.sql.admin",
+			"git.commit",
+			"git.push",
+			"deploy.staging",
+			"deploy.production",
+			"network.crawl",
+			"supabase.manage.local",
+			"supabase.manage.remote",
+			"telegram.send"
+		]
+	}
+}

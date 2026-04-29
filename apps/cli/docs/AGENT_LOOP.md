@@ -1,6 +1,6 @@
 # CLI Agent Loop
 
-This document explains how the Roo Code CLI detects and tracks the agent loop state.
+This document explains how the SuperRoo CLI detects and tracks the agent loop state.
 
 ## Overview
 
@@ -299,10 +299,10 @@ client.sendMessage({
 
 ## Type Guards
 
-The CLI uses type guards from `@roo-code/types` for categorization:
+The CLI uses type guards from `@superroo/types` for categorization:
 
 ```typescript
-import { isIdleAsk, isInteractiveAsk, isResumableAsk, isNonBlockingAsk } from "@roo-code/types"
+import { isIdleAsk, isInteractiveAsk, isResumableAsk, isNonBlockingAsk } from "@superroo/types"
 
 const ask = message.ask
 if (isInteractiveAsk(ask)) {

@@ -10,9 +10,9 @@ import type {
 	AuthService,
 	AuthServiceEvents,
 	AuthState,
-} from "@roo-code/types"
+} from "@superroo/types"
 
-import { getClerkBaseUrl, getRooCodeApiUrl, PRODUCTION_CLERK_BASE_URL } from "./config.js"
+import { getClerkBaseUrl, getSuperRooApiUrl, PRODUCTION_CLERK_BASE_URL } from "./config.js"
 import { getUserAgent } from "./utils.js"
 import { importVscode } from "./importVscode.js"
 import { InvalidClientTokenError } from "./errors.js"
@@ -266,8 +266,8 @@ export class WebAuthService extends EventEmitter<AuthServiceEvents> implements A
 			const state = crypto.randomBytes(16).toString("hex")
 			await this.context.globalState.update(AUTH_STATE_KEY, state)
 			const packageJSON = this.context.extension?.packageJSON
-			const publisher = packageJSON?.publisher ?? "RooVeterinaryInc"
-			const name = packageJSON?.name ?? "roo-cline"
+			const publisher = packageJSON?.publisher ?? "SuperRoo"
+			const name = packageJSON?.name ?? "superroo"
 			const params = new URLSearchParams({
 				state,
 				auth_redirect: `${vscode.env.uriScheme}://${publisher}.${name}`,
@@ -275,24 +275,24 @@ export class WebAuthService extends EventEmitter<AuthServiceEvents> implements A
 
 			// Use landing page URL if slug is provided, otherwise use provider sign-up or sign-in URL based on parameter
 			const url = landingPageSlug
-				? `${getRooCodeApiUrl()}/l/${landingPageSlug}?${params.toString()}`
+				? `${getSuperRooApiUrl()}/l/${landingPageSlug}?${params.toString()}`
 				: useProviderSignup
-					? `${getRooCodeApiUrl()}/extension/provider-sign-up?${params.toString()}`
-					: `${getRooCodeApiUrl()}/extension/sign-in?${params.toString()}`
+					? `${getSuperRooApiUrl()}/extension/provider-sign-up?${params.toString()}`
+					: `${getSuperRooApiUrl()}/extension/sign-in?${params.toString()}`
 
 			await vscode.env.openExternal(vscode.Uri.parse(url))
 		} catch (error) {
 			const context = landingPageSlug ? ` (landing page: ${landingPageSlug})` : ""
-			this.log(`[auth] Error initiating Roo Code Cloud auth${context}: ${error}`)
-			throw new Error(`Failed to initiate Roo Code Cloud authentication${context}: ${error}`)
+			this.log(`[auth] Error initiating SuperRoo Cloud auth${context}: ${error}`)
+			throw new Error(`Failed to initiate SuperRoo Cloud authentication${context}: ${error}`)
 		}
 	}
 
 	/**
-	 * Handle the callback from Roo Code Cloud
+	 * Handle the callback from SuperRoo Cloud
 	 *
 	 * This method is called when the user is redirected back to the extension
-	 * after authenticating with Roo Code Cloud.
+	 * after authenticating with SuperRoo Cloud.
 	 *
 	 * @param code The authorization code from the callback
 	 * @param state The state parameter from the callback
@@ -309,7 +309,7 @@ export class WebAuthService extends EventEmitter<AuthServiceEvents> implements A
 			const vscode = await importVscode()
 
 			if (vscode) {
-				vscode.window.showInformationMessage("Invalid Roo Code Cloud sign in url")
+				vscode.window.showInformationMessage("Invalid SuperRoo Cloud sign in url")
 			}
 
 			return
@@ -345,14 +345,14 @@ export class WebAuthService extends EventEmitter<AuthServiceEvents> implements A
 			const vscode = await importVscode()
 
 			if (vscode) {
-				vscode.window.showInformationMessage("Successfully authenticated with Roo Code Cloud")
+				vscode.window.showInformationMessage("Successfully authenticated with SuperRoo Cloud")
 			}
 
-			this.log("[auth] Successfully authenticated with Roo Code Cloud")
+			this.log("[auth] Successfully authenticated with SuperRoo Cloud")
 		} catch (error) {
-			this.log(`[auth] Error handling Roo Code Cloud callback: ${error}`)
+			this.log(`[auth] Error handling SuperRoo Cloud callback: ${error}`)
 			this.changeState("logged-out")
-			throw new Error(`Failed to handle Roo Code Cloud callback: ${error}`)
+			throw new Error(`Failed to handle SuperRoo Cloud callback: ${error}`)
 		}
 	}
 
@@ -380,13 +380,13 @@ export class WebAuthService extends EventEmitter<AuthServiceEvents> implements A
 			const vscode = await importVscode()
 
 			if (vscode) {
-				vscode.window.showInformationMessage("Logged out from Roo Code Cloud")
+				vscode.window.showInformationMessage("Logged out from SuperRoo Cloud")
 			}
 
-			this.log("[auth] Logged out from Roo Code Cloud")
+			this.log("[auth] Logged out from SuperRoo Cloud")
 		} catch (error) {
-			this.log(`[auth] Error logging out from Roo Code Cloud: ${error}`)
-			throw new Error(`Failed to log out from Roo Code Cloud: ${error}`)
+			this.log(`[auth] Error logging out from SuperRoo Cloud: ${error}`)
+			throw new Error(`Failed to log out from SuperRoo Cloud: ${error}`)
 		}
 	}
 

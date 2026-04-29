@@ -1,4 +1,4 @@
-import { RooCodeSettings } from "@roo-code/types"
+import { SuperRooSettings } from "@superroo/types"
 
 import type { SupportedProvider } from "@/types/index.js"
 
@@ -8,7 +8,7 @@ const envVarMap: Record<SupportedProvider, string> = {
 	gemini: "GOOGLE_API_KEY",
 	openrouter: "OPENROUTER_API_KEY",
 	"vercel-ai-gateway": "VERCEL_AI_GATEWAY_API_KEY",
-	roo: "ROO_API_KEY",
+	roo: "SUPERROO_API_KEY",
 }
 
 export function getEnvVarName(provider: SupportedProvider): string {
@@ -24,8 +24,8 @@ export function getProviderSettings(
 	provider: SupportedProvider,
 	apiKey: string | undefined,
 	model: string | undefined,
-): RooCodeSettings {
-	const config: RooCodeSettings = { apiProvider: provider }
+): SuperRooSettings {
+	const config: SuperRooSettings = { apiProvider: provider }
 
 	switch (provider) {
 		case "anthropic":

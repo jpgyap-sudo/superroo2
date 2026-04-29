@@ -78,7 +78,7 @@ export const isInternalProvider = (key: string): key is InternalProvider =>
 /**
  * CustomProvider
  *
- * Custom providers are completely configurable within Roo Code settings.
+ * Custom providers are completely configurable within SuperRoo settings.
  */
 
 export const customProviders = ["openai"] as const
@@ -627,7 +627,7 @@ export const MODELS_BY_PROVIDER: Record<
 		models: Object.keys(openAiNativeModels),
 	},
 	"qwen-code": { id: "qwen-code", label: "Qwen Code", models: Object.keys(qwenCodeModels) },
-	roo: { id: "roo", label: "Roo Code Router", models: [] },
+	roo: { id: "roo", label: "SuperRoo Router", models: [] },
 	sambanova: {
 		id: "sambanova",
 		label: "SambaNova",

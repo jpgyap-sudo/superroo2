@@ -1,0 +1,28 @@
+SUPER ROO – CLAUDE PROMPT PACK
+
+Use one phase at a time.
+
+PHASE 1 – FOUNDATION
+(see instructions from assistant)
+
+PHASE 2 – AGENTS
+(see instructions)
+
+PHASE 3 – DASHBOARD
+(see instructions)
+
+PHASE 4 – TELEGRAM
+(see instructions)
+
+PHASE 5 – DEPLOY
+(see instructions)
+
+PHASE 6 – CRAWLER
+(see instructions)
+
+BONUS – AUTONOMOUS LOOP
+(see instructions)
+
+IMPORTANT:
+- Do NOT combine phases
+- Execute step by step

@@ -50,9 +50,9 @@ export function generateRoomodesJsonSchema(): Record<string, unknown> {
 		target: "jsonSchema7",
 	}) as Record<string, unknown>
 
-	jsonSchema["$id"] = "https://github.com/RooCodeInc/Roo-Code/blob/main/schemas/roomodes.json"
-	jsonSchema["title"] = "Roo Code Custom Modes"
-	jsonSchema["description"] = "Schema for .roomodes configuration files used by Roo Code to define custom modes."
+	jsonSchema["$id"] = "https://github.com/SuperRooInc/SuperRoo/blob/main/schemas/roomodes.json"
+	jsonSchema["title"] = "SuperRoo Custom Modes"
+	jsonSchema["description"] = "Schema for .roomodes configuration files used by SuperRoo to define custom modes."
 
 	return jsonSchema
 }

@@ -28,7 +28,7 @@
 		"invalidImageFormat": "Format gambar tidak valid diterima",
 		"unknownError": "Terjadi kesalahan yang tidak diketahui",
 		"roo": {
-			"authRequired": "Autentikasi Roo Code Cloud diperlukan untuk menghasilkan gambar. Silakan masuk ke Roo Code Cloud."
+			"authRequired": "Autentikasi SuperRoo Cloud diperlukan untuk menghasilkan gambar. Silakan masuk ke SuperRoo Cloud."
 		}
 	}
 }

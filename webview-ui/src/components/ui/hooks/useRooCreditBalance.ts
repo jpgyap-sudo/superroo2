@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react"
 
-import type { ExtensionMessage } from "@roo-code/types"
+import type { ExtensionMessage } from "@superroo/types"
 
 import { vscode } from "@src/utils/vscode"
 
 /**
- * Hook to fetch Roo Code Cloud credit balance
+ * Hook to fetch SuperRoo Cloud credit balance
  * Returns the balance in dollars or null if unavailable
  */
 export const useRooCreditBalance = () => {

@@ -3,7 +3,7 @@ import {
 	type OrganizationAllowList,
 	type RouterModels,
 	rooDefaultModelId,
-} from "@roo-code/types"
+} from "@superroo/types"
 
 import { useAppTranslation } from "@src/i18n/TranslationContext"
 import { vscode } from "@src/utils/vscode"
@@ -56,8 +56,8 @@ export const Roo = ({
 				defaultModelId={rooDefaultModelId}
 				models={routerModels?.roo ?? {}}
 				modelIdKey="apiModelId"
-				serviceName="Roo Code Router"
-				serviceUrl="https://app.roocode.com"
+				serviceName="SuperRoo Router"
+				serviceUrl="https://app.superroo.com"
 				organizationAllowList={organizationAllowList}
 				errorMessage={modelValidationError}
 				simplifySettings={simplifySettings}

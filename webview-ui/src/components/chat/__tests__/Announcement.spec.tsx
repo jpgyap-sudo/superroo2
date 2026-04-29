@@ -34,16 +34,16 @@ vi.mock("@src/i18n/TranslationContext", () => ({
 			const translations: Record<string, string> = {
 				"chat:announcement.release.heading": "What's New:",
 				"chat:announcement.release.gpt55":
-					"GPT-5.5 via OpenAI Codex: Added GPT-5.5 support in the OpenAI Codex provider so you can use the latest model straight from Roo Code.",
+					"GPT-5.5 via OpenAI Codex: Added GPT-5.5 support in the OpenAI Codex provider so you can use the latest model straight from SuperRoo.",
 				"chat:announcement.release.claudeOpus47":
 					"Claude Opus 4.7 on Vertex AI: Added Claude Opus 4.7 to the Vertex AI provider for Anthropic's newest flagship reasoning model.",
 				"chat:announcement.release.checkpointNav":
 					"Previous Checkpoint Navigation: Added controls in chat to jump back through prior checkpoints, with full i18n support.",
-				"chat:announcement.handoff.heading": "The Roo Code plugin is not going away.",
+				"chat:announcement.handoff.heading": "The SuperRoo plugin is not going away.",
 			}
 
 			if (key === "chat:announcement.title") {
-				return `Roo Code ${options?.version ?? ""} Released`
+				return `SuperRoo ${options?.version ?? ""} Released`
 			}
 
 			return translations[key] ?? key
@@ -55,10 +55,10 @@ describe("Announcement", () => {
 	it("renders the v3.53.0 announcement title and highlights", () => {
 		render(<Announcement hideAnnouncement={vi.fn()} />)
 
-		expect(screen.getByText("Roo Code 3.53.0 Released")).toBeInTheDocument()
+		expect(screen.getByText("SuperRoo 3.53.0 Released")).toBeInTheDocument()
 		expect(
 			screen.getByText(
-				"GPT-5.5 via OpenAI Codex: Added GPT-5.5 support in the OpenAI Codex provider so you can use the latest model straight from Roo Code.",
+				"GPT-5.5 via OpenAI Codex: Added GPT-5.5 support in the OpenAI Codex provider so you can use the latest model straight from SuperRoo.",
 			),
 		).toBeInTheDocument()
 		expect(

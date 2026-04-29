@@ -158,7 +158,7 @@ export type TelemetryEvent = {
 }
 
 /**
- * RooCodeTelemetryEvent
+ * SuperRooTelemetryEvent
  */
 
 export const rooCodeTelemetryEventSchema = z.discriminatedUnion("type", [
@@ -237,7 +237,7 @@ export const rooCodeTelemetryEventSchema = z.discriminatedUnion("type", [
 	}),
 ])
 
-export type RooCodeTelemetryEvent = z.infer<typeof rooCodeTelemetryEventSchema>
+export type SuperRooTelemetryEvent = z.infer<typeof rooCodeTelemetryEventSchema>
 
 /**
  * TelemetryEventSubscription

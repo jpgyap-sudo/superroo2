@@ -9,8 +9,8 @@ vi.mock("@src/i18n/TranslationContext", () => ({
 			const translations: Record<string, string> = {
 				"cloud:title": "Cloud",
 				"settings:common.done": "Done",
-				"cloud:signIn": "Connect to Roo Code Cloud",
-				"cloud:cloudBenefitsTitle": "Try Roo Code Cloud",
+				"cloud:signIn": "Connect to SuperRoo Cloud",
+				"cloud:cloudBenefitsTitle": "Try SuperRoo Cloud",
 				"cloud:cloudBenefitProvider": "Access free and paid models that work great with Roo",
 				"cloud:cloudBenefitCloudAgents": "Give tasks to autonomous Cloud agents",
 				"cloud:cloudBenefitTriggers": "Get code reviews on GitHub, start tasks from Slack and more",
@@ -19,13 +19,13 @@ vi.mock("@src/i18n/TranslationContext", () => ({
 				"cloud:cloudBenefitMetrics": "Get a holistic view of your token consumption",
 				"cloud:logOut": "Log out",
 				"cloud:connect": "Get started",
-				"cloud:visitCloudWebsite": "Visit Roo Code Cloud",
+				"cloud:visitCloudWebsite": "Visit SuperRoo Cloud",
 				"cloud:taskSync": "Task sync",
-				"cloud:taskSyncDescription": "Sync your tasks for viewing and sharing on Roo Code Cloud",
+				"cloud:taskSyncDescription": "Sync your tasks for viewing and sharing on SuperRoo Cloud",
 				"cloud:taskSyncManagedByOrganization": "Task sync is managed by your organization",
 				"cloud:usageMetricsAlwaysReported": "Model usage info is always reported when logged in",
 				"cloud:profilePicture": "Profile picture",
-				"cloud:cloudUrlPillLabel": "Roo Code Cloud URL: ",
+				"cloud:cloudUrlPillLabel": "SuperRoo Cloud URL: ",
 			}
 			return translations[key] || key
 		},
@@ -64,10 +64,10 @@ Object.defineProperty(window, "IMAGES_BASE_URI", {
 
 describe("CloudView", () => {
 	it("should display benefits when user is not authenticated", () => {
-		render(<CloudView userInfo={null} isAuthenticated={false} cloudApiUrl="https://app.roocode.com" />)
+		render(<CloudView userInfo={null} isAuthenticated={false} cloudApiUrl="https://app.superroo.com" />)
 
 		// Check that the benefits section is displayed
-		expect(screen.getByRole("heading", { name: "Try Roo Code Cloud" })).toBeInTheDocument()
+		expect(screen.getByRole("heading", { name: "Try SuperRoo Cloud" })).toBeInTheDocument()
 		expect(screen.getByText("Access free and paid models that work great with Roo")).toBeInTheDocument()
 		expect(screen.getByText("Give tasks to autonomous Cloud agents")).toBeInTheDocument()
 		expect(screen.getByText("Get code reviews on GitHub, start tasks from Slack and more")).toBeInTheDocument()
@@ -87,7 +87,7 @@ describe("CloudView", () => {
 			email: "test@example.com",
 		}
 
-		render(<CloudView userInfo={mockUserInfo} isAuthenticated={true} cloudApiUrl="https://app.roocode.com" />)
+		render(<CloudView userInfo={mockUserInfo} isAuthenticated={true} cloudApiUrl="https://app.superroo.com" />)
 
 		// Check that the benefits section is NOT displayed
 		expect(screen.queryByText("Access free and paid models that work great with Roo")).not.toBeInTheDocument()
@@ -114,10 +114,10 @@ describe("CloudView", () => {
 			email: "test@example.com",
 		}
 
-		render(<CloudView userInfo={mockUserInfo} isAuthenticated={true} cloudApiUrl="https://app.roocode.com" />)
+		render(<CloudView userInfo={mockUserInfo} isAuthenticated={true} cloudApiUrl="https://app.superroo.com" />)
 
 		// Check that the cloud URL pill is NOT displayed for production URL
-		expect(screen.queryByText(/Roo Code Cloud URL:/)).not.toBeInTheDocument()
+		expect(screen.queryByText(/SuperRoo Cloud URL:/)).not.toBeInTheDocument()
 	})
 
 	it("should display cloud URL pill when pointing to non-production environment", () => {
@@ -126,19 +126,19 @@ describe("CloudView", () => {
 			email: "test@example.com",
 		}
 
-		render(<CloudView userInfo={mockUserInfo} isAuthenticated={true} cloudApiUrl="https://staging.roocode.com" />)
+		render(<CloudView userInfo={mockUserInfo} isAuthenticated={true} cloudApiUrl="https://staging.superroo.com" />)
 
 		// Check that the cloud URL pill is displayed with the staging URL
-		expect(screen.getByText(/Roo Code Cloud URL:/)).toBeInTheDocument()
-		expect(screen.getByText("https://staging.roocode.com")).toBeInTheDocument()
+		expect(screen.getByText(/SuperRoo Cloud URL:/)).toBeInTheDocument()
+		expect(screen.getByText("https://staging.superroo.com")).toBeInTheDocument()
 	})
 
 	it("should display cloud URL pill for non-authenticated users when not pointing to production", () => {
-		render(<CloudView userInfo={null} isAuthenticated={false} cloudApiUrl="https://dev.roocode.com" />)
+		render(<CloudView userInfo={null} isAuthenticated={false} cloudApiUrl="https://dev.superroo.com" />)
 
 		// Check that the cloud URL pill is displayed even when not authenticated
-		expect(screen.getByText(/Roo Code Cloud URL:/)).toBeInTheDocument()
-		expect(screen.getByText("https://dev.roocode.com")).toBeInTheDocument()
+		expect(screen.getByText(/SuperRoo Cloud URL:/)).toBeInTheDocument()
+		expect(screen.getByText("https://dev.superroo.com")).toBeInTheDocument()
 	})
 
 	it("should not display cloud URL pill when cloudApiUrl is undefined", () => {
@@ -150,7 +150,7 @@ describe("CloudView", () => {
 		render(<CloudView userInfo={mockUserInfo} isAuthenticated={true} />)
 
 		// Check that the cloud URL pill is NOT displayed when cloudApiUrl is undefined
-		expect(screen.queryByText(/Roo Code Cloud URL:/)).not.toBeInTheDocument()
+		expect(screen.queryByText(/SuperRoo Cloud URL:/)).not.toBeInTheDocument()
 	})
 
 	it("should disable task sync toggle for organization users", () => {
@@ -161,7 +161,7 @@ describe("CloudView", () => {
 			organizationName: "Test Organization",
 		}
 
-		render(<CloudView userInfo={mockUserInfo} isAuthenticated={true} cloudApiUrl="https://app.roocode.com" />)
+		render(<CloudView userInfo={mockUserInfo} isAuthenticated={true} cloudApiUrl="https://app.superroo.com" />)
 
 		// Check that the task sync toggle is disabled for organization users
 		const taskSyncToggle = screen.getByTestId("task-sync-toggle")
@@ -186,7 +186,7 @@ describe("CloudView", () => {
 			// No organizationId - regular user
 		}
 
-		render(<CloudView userInfo={mockUserInfo} isAuthenticated={true} cloudApiUrl="https://app.roocode.com" />)
+		render(<CloudView userInfo={mockUserInfo} isAuthenticated={true} cloudApiUrl="https://app.superroo.com" />)
 
 		// Check that the task sync toggle is enabled for non-organization users
 		const taskSyncToggle = screen.getByTestId("task-sync-toggle")
@@ -206,7 +206,7 @@ describe("CloudView", () => {
 		}
 
 		// Test with task sync enabled
-		render(<CloudView userInfo={mockUserInfo} isAuthenticated={true} cloudApiUrl="https://app.roocode.com" />)
+		render(<CloudView userInfo={mockUserInfo} isAuthenticated={true} cloudApiUrl="https://app.superroo.com" />)
 
 		// Check that the toggle shows the current state (enabled in this case)
 		const taskSyncToggle = screen.getByTestId("task-sync-toggle")

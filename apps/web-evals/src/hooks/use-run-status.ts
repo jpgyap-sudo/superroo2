@@ -1,8 +1,8 @@
 import { useState, useCallback, useRef } from "react"
 import { useQuery, keepPreviousData } from "@tanstack/react-query"
 
-import { type TokenUsage, type ToolUsage, RooCodeEventName, taskEventSchema } from "@roo-code/types"
-import type { Run, Task, TaskMetrics } from "@roo-code/evals"
+import { type TokenUsage, type ToolUsage, SuperRooEventName, taskEventSchema } from "@superroo/types"
+import type { Run, Task, TaskMetrics } from "@superroo/evals"
 
 import { getHeartbeat } from "@/actions/heartbeat"
 import { getRunners } from "@/actions/runners"
@@ -73,10 +73,10 @@ export const useRunStatus = (run: Run): RunStatus => {
 		}
 
 		switch (eventName) {
-			case RooCodeEventName.TaskStarted:
+			case SuperRooEventName.TaskStarted:
 				startTimes.current.set(taskId, Date.now())
 				break
-			case RooCodeEventName.TaskTokenUsageUpdated: {
+			case SuperRooEventName.TaskTokenUsageUpdated: {
 				const startTime = startTimes.current.get(taskId)
 				const duration = startTime ? Date.now() - startTime : undefined
 				tokenUsage.current.set(taskId, { ...payload[1], duration })
@@ -89,8 +89,8 @@ export const useRunStatus = (run: Run): RunStatus => {
 				setUsageUpdatedAt(Date.now())
 				break
 			}
-			case RooCodeEventName.EvalPass:
-			case RooCodeEventName.EvalFail:
+			case SuperRooEventName.EvalPass:
+			case SuperRooEventName.EvalFail:
 				setTasksUpdatedAt(Date.now())
 				break
 		}

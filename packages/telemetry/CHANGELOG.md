@@ -1,3 +1,3 @@
-# @roo-code/telemetry
+# @superroo/telemetry
 
 ## 0.0.1

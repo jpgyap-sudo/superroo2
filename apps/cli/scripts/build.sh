@@ -1,5 +1,5 @@
 #!/bin/bash
-# Roo Code CLI Local Build Script
+# SuperRoo CLI Local Build Script
 #
 # Usage:
 #   ./apps/cli/scripts/build.sh [options]
@@ -116,7 +116,7 @@ build() {
     pnpm bundle
 
     step "3/6" "Building CLI..."
-    pnpm --filter @roo-code/cli build
+    pnpm --filter @superroo/cli build
 
     info "Build complete"
 }
@@ -146,7 +146,7 @@ create_tarball() {
     node -e "
       const pkg = require('$CLI_DIR/package.json');
       const newPkg = {
-        name: '@roo-code/cli',
+        name: '@superroo/cli',
         version: '$VERSION',
         type: 'module',
         dependencies: {
@@ -340,7 +340,7 @@ main() {
     echo ""
     printf "${BLUE}${BOLD}"
     echo "  ╭─────────────────────────────────╮"
-    echo "  │   Roo Code CLI Local Build      │"
+    echo "  │   SuperRoo CLI Local Build      │"
     echo "  ╰─────────────────────────────────╯"
     printf "${NC}"
     echo ""

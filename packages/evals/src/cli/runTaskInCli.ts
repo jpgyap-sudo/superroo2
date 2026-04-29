@@ -4,8 +4,8 @@ import * as os from "node:os"
 import pWaitFor from "p-wait-for"
 import { execa } from "execa"
 
-import { type ToolUsage, TaskCommandName, RooCodeEventName, IpcMessageType } from "@roo-code/types"
-import { IpcClient } from "@roo-code/ipc"
+import { type ToolUsage, TaskCommandName, SuperRooEventName, IpcMessageType } from "@superroo/types"
+import { IpcClient } from "@superroo/ipc"
 
 import { updateTask, createTaskMetrics, updateTaskMetrics, createToolError } from "../db/index"
 import { EVALS_REPO_PATH } from "../exercises/index"
@@ -14,7 +14,7 @@ import { type RunTaskOptions } from "./types"
 import { mergeToolUsage, waitForSubprocessWithTimeout } from "./utils"
 
 /**
- * Run a task using the Roo Code CLI (headless mode).
+ * Run a task using the SuperRoo CLI (headless mode).
  * Uses the same IPC protocol as VSCode since the CLI loads the same extension bundle.
  */
 export const runTaskWithCli = async ({ run, task, publish, logger, jobToken }: RunTaskOptions) => {
@@ -25,11 +25,11 @@ export const runTaskWithCli = async ({ run, task, publish, logger, jobToken }: R
 
 	const env: Record<string, string> = {
 		...(process.env as Record<string, string>),
-		ROO_CODE_IPC_SOCKET_PATH: ipcSocketPath,
+		SUPERROO_IPC_SOCKET_PATH: ipcSocketPath,
 	}
 
 	if (jobToken) {
-		env.ROO_CODE_CLOUD_TOKEN = jobToken
+		env.SUPERROO_CLOUD_TOKEN = jobToken
 	}
 
 	const controller = new AbortController()
@@ -37,7 +37,7 @@ export const runTaskWithCli = async ({ run, task, publish, logger, jobToken }: R
 
 	const cliArgs = [
 		"--filter",
-		"@roo-code/cli",
+		"@superroo/cli",
 		"start",
 		"--prompt-file",
 		promptSourcePath,
@@ -173,7 +173,7 @@ export const runTaskWithCli = async ({ run, task, publish, logger, jobToken }: R
 
 	// For CLI mode, we don't need verbose IPC message logging since we're logging stdout instead.
 	// We only track what's needed for metrics and task state management.
-	const ignoreEventsForBroadcast = [RooCodeEventName.Message]
+	const ignoreEventsForBroadcast = [SuperRooEventName.Message]
 	let isApiUnstable = false
 
 	client.on(IpcMessageType.TaskEvent, async (taskEvent) => {
@@ -181,7 +181,7 @@ export const runTaskWithCli = async ({ run, task, publish, logger, jobToken }: R
 
 		// Track API instability for retry logic.
 		if (
-			eventName === RooCodeEventName.Message &&
+			eventName === SuperRooEventName.Message &&
 			payload[0].message.say &&
 			["api_req_retry_delayed", "api_req_retried"].includes(payload[0].message.say)
 		) {
@@ -196,18 +196,18 @@ export const runTaskWithCli = async ({ run, task, publish, logger, jobToken }: R
 		// Handle task lifecycle events.
 		// For CLI mode, we already created taskMetrics before connecting to IPC,
 		// but we still want to capture the rooTaskId from TaskStarted if we receive it.
-		if (eventName === RooCodeEventName.TaskStarted) {
+		if (eventName === SuperRooEventName.TaskStarted) {
 			taskStartedAt = Date.now()
 			rooTaskId = payload[0]
 			logger.info(`received TaskStarted event, rooTaskId: ${rooTaskId}`)
 		}
 
-		if (eventName === RooCodeEventName.TaskToolFailed) {
+		if (eventName === SuperRooEventName.TaskToolFailed) {
 			const [_taskId, toolName, error] = payload
 			await createToolError({ taskId: task.id, toolName, error })
 		}
 
-		if (eventName === RooCodeEventName.TaskTokenUsageUpdated || eventName === RooCodeEventName.TaskCompleted) {
+		if (eventName === SuperRooEventName.TaskTokenUsageUpdated || eventName === SuperRooEventName.TaskCompleted) {
 			// In CLI mode, taskMetricsId is always set before we register event handlers.
 			const duration = Date.now() - taskStartedAt
 
@@ -229,11 +229,11 @@ export const runTaskWithCli = async ({ run, task, publish, logger, jobToken }: R
 			})
 		}
 
-		if (eventName === RooCodeEventName.TaskAborted) {
+		if (eventName === SuperRooEventName.TaskAborted) {
 			taskAbortedAt = Date.now()
 		}
 
-		if (eventName === RooCodeEventName.TaskCompleted) {
+		if (eventName === SuperRooEventName.TaskCompleted) {
 			taskFinishedAt = Date.now()
 		}
 	})

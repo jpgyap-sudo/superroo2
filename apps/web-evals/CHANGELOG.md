@@ -1,3 +1,3 @@
-# @roo-code/web-evals
+# @superroo/web-evals
 
 ## 0.0.1

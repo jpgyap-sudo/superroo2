@@ -275,9 +275,9 @@ describe("handleOpenAIError (backward compatibility)", () => {
 		const error = new Error("Authentication failed") as any
 		error.status = 401
 
-		const result = handleOpenAIError(error, "Roo Code Cloud")
+		const result = handleOpenAIError(error, "SuperRoo Cloud")
 
-		expect(result.message).toBe("Roo Code Cloud completion error: Authentication failed")
+		expect(result.message).toBe("SuperRoo Cloud completion error: Authentication failed")
 		expect((result as any).status).toBe(401)
 	})
 })

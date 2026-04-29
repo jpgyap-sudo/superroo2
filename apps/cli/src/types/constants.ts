@@ -1,4 +1,4 @@
-import { reasoningEffortsExtended } from "@roo-code/types"
+import { reasoningEffortsExtended } from "@superroo/types"
 
 export const DEFAULT_FLAGS = {
 	mode: "code",
@@ -22,6 +22,6 @@ export const ASCII_ROO = `  _,'   ___
         //   \\\\
       ,/'     \`\\_,`
 
-export const AUTH_BASE_URL = process.env.ROO_AUTH_BASE_URL ?? "https://app.roocode.com"
+export const AUTH_BASE_URL = process.env.SUPERROO_AUTH_BASE_URL ?? "https://app.superroo.com"
 
-export const SDK_BASE_URL = process.env.ROO_SDK_BASE_URL ?? "https://cloud-api.roocode.com"
+export const SDK_BASE_URL = process.env.SUPERROO_SDK_BASE_URL ?? "https://cloud-api.superroo.com"

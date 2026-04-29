@@ -27,7 +27,7 @@ import {
 	providerSettingsSchema,
 	getModelId,
 	EVALS_SETTINGS,
-} from "@roo-code/types"
+} from "@superroo/types"
 
 import { createRun } from "@/actions/runs"
 import { getExercises } from "@/actions/exercises"
@@ -52,7 +52,7 @@ import { loadRooLastModelSelection, saveRooLastModelSelection } from "@/lib/roo-
 import { normalizeCreateRunForSubmit } from "@/lib/normalize-create-run"
 
 import { useOpenRouterModels } from "@/hooks/use-open-router-models"
-import { useRooCodeCloudModels } from "@/hooks/use-roo-code-cloud-models"
+import { useSuperRooCloudModels } from "@/hooks/use-superroo-cloud-models"
 
 import {
 	Button,
@@ -123,7 +123,7 @@ export function NewRun() {
 	])
 
 	const openRouter = useOpenRouterModels()
-	const rooCodeCloud = useRooCodeCloudModels()
+	const rooCodeCloud = useSuperRooCloudModels()
 	const models = provider === "openrouter" ? openRouter.data : rooCodeCloud.data
 	const searchValue = provider === "openrouter" ? openRouter.searchValue : rooCodeCloud.searchValue
 	const setSearchValue = provider === "openrouter" ? openRouter.setSearchValue : rooCodeCloud.setSearchValue
@@ -416,9 +416,9 @@ export function NewRun() {
 			try {
 				const baseValues = normalizeCreateRunForSubmit(values, selectedExercises, suite)
 
-				// Validate jobToken for Roo Code Cloud provider
+				// Validate jobToken for SuperRoo Cloud provider
 				if (provider === "roo" && !baseValues.jobToken?.trim()) {
-					toast.error("Roo Code Cloud Token is required")
+					toast.error("SuperRoo Cloud Token is required")
 					return
 				}
 
@@ -571,7 +571,7 @@ export function NewRun() {
 									onValueChange={(value) => setModelSource(value as "roo" | "openrouter" | "other")}>
 									<TabsList className="mb-2">
 										<TabsTrigger value="other">Import</TabsTrigger>
-										<TabsTrigger value="roo">Roo Code Cloud</TabsTrigger>
+										<TabsTrigger value="roo">SuperRoo Cloud</TabsTrigger>
 										<TabsTrigger value="openrouter">OpenRouter</TabsTrigger>
 									</TabsList>
 								</Tabs>
@@ -781,18 +781,18 @@ export function NewRun() {
 							render={({ field }) => (
 								<FormItem>
 									<div className="flex items-center gap-1">
-										<FormLabel>Roo Code Cloud Token</FormLabel>
+										<FormLabel>SuperRoo Cloud Token</FormLabel>
 										<Tooltip>
 											<TooltipTrigger asChild>
 												<Info className="size-4 text-muted-foreground cursor-help" />
 											</TooltipTrigger>
 											<TooltipContent side="right" className="max-w-xs">
 												<p>
-													If you have access to the Roo Code Cloud repository and the
+													If you have access to the SuperRoo Cloud repository and the
 													decryption key for the .env.* files, generate a token with:
 												</p>
 												<code className="text-xs block mt-1">
-													pnpm --filter @roo-code-cloud/auth production:create-auth-token
+													pnpm --filter @superroo-cloud/auth production:create-auth-token
 													[email] [org] [ttl]
 												</code>
 											</TooltipContent>
