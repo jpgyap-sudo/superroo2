@@ -492,9 +492,9 @@ function rowToIncident(row: HealingIncidentRow): IncidentRecord {
 		severity: row.severity as BugSeverity,
 		status: row.status as IncidentStatus,
 		rootCauseCategory: row.root_cause_category as RootCauseCategory | null,
-		affectedFiles: JSON.parse(row.affected_files) as string[],
+		affectedFiles: safeJsonParse<string[]>(row.affected_files, []),
 		recommendedAction: row.recommended_action,
-		evidence: JSON.parse(row.evidence) as Record<string, unknown>,
+		evidence: safeJsonParse<Record<string, unknown>>(row.evidence, {}),
 		autoFixAllowed: row.auto_fix_allowed === 1,
 		fixAttempts: row.fix_attempts ?? 0,
 		createdAt: row.created_at,
@@ -509,9 +509,20 @@ function rowToHealingAction(row: HealingActionRow): HealingActionRecord {
 		actionType: row.action_type,
 		actorAgent: row.actor_agent,
 		summary: row.summary,
-		input: JSON.parse(row.input) as Record<string, unknown>,
-		output: JSON.parse(row.output) as Record<string, unknown>,
+		input: safeJsonParse<Record<string, unknown>>(row.input, {}),
+		output: safeJsonParse<Record<string, unknown>>(row.output, {}),
 		createdAt: row.created_at,
+	}
+}
+
+/**
+ * Safely parse JSON with fallback for corrupted data.
+ */
+function safeJsonParse<T>(json: string, fallback: T): T {
+	try {
+		return JSON.parse(json) as T
+	} catch {
+		return fallback
 	}
 }
 
