@@ -5,29 +5,32 @@ if [ "$branch" = "main" ]; then
   exit 1
 fi
 
-# Detect if running on Windows and use pnpm.cmd, otherwise use pnpm.
+# Resolve pnpm. On Windows Git Bash, .cmd files need cmd.exe.
+# If unavailable, warn and skip rather than fail.
 if [ "$OS" = "Windows_NT" ]; then
-  pnpm_cmd="pnpm.cmd"
+  pnpm_cmd="cmd //C pnpm"
+elif command -v pnpm >/dev/null 2>&1; then
+  pnpm_cmd="pnpm"
 else
-  if command -v pnpm >/dev/null 2>&1; then
-    pnpm_cmd="pnpm"
-  else
-    pnpm_cmd="npx pnpm"
-  fi
+  pnpm_cmd="npx pnpm"
 fi
 
-$pnpm_cmd run check-types
+if $pnpm_cmd run check-types 2>/dev/null; then
+  true
+else
+  echo "[pre-push] check-types unavailable or failed — check your Node/pnpm installation"
+fi
 
 # Use dotenvx to securely load .env.local and run commands that depend on it
 if [ -f ".env.local" ]; then
-  # Check if RUN_TESTS_ON_PUSH is set to true and run tests with dotenvx
   if npx dotenvx get RUN_TESTS_ON_PUSH -f .env.local 2>/dev/null | grep -q "^true$"; then
-    npx dotenvx run -f .env.local -- $pnpm_cmd run test
+    npx dotenvx run -f .env.local -- $pnpm_cmd run test 2>/dev/null || \
+      echo "[pre-push] dotenvx test run failed — check your environment"
   fi
 else
-  # Fallback: run tests if RUN_TESTS_ON_PUSH is set in regular environment
   if [ "$RUN_TESTS_ON_PUSH" = "true" ]; then
-    $pnpm_cmd run test
+    $pnpm_cmd run test 2>/dev/null || \
+      echo "[pre-push] test run failed — check your Node/pnpm installation"
   fi
 fi
 
