@@ -147,7 +147,18 @@ async function main(): Promise<void> {
 					return
 				}
 				const body = await readBody(req)
-				const input = parseTaskSubmission(JSON.parse(body))
+				let parsed: unknown
+				try {
+					parsed = JSON.parse(body)
+				} catch {
+					json(res, 400, { ok: false, error: "invalid_json" })
+					return
+				}
+				if (parsed === null || typeof parsed !== "object") {
+					json(res, 400, { ok: false, error: "body_must_be_object" })
+					return
+				}
+				const input = parseTaskSubmission(parsed)
 				const task = orch.submit(input)
 				json(res, 202, { ok: true, task })
 				return
