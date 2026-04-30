@@ -29,6 +29,7 @@ export const SuperRooTaskSchema = z.object({
 	requiredCapabilities: z.array(z.string()).default([]),
 	payload: z.record(z.unknown()).default({}),
 	maxIterations: z.number().int().positive().max(50).default(5),
+	codedBy: z.string().optional(),
 	workspacePath: z.string().optional(),
 	repo: z
 		.object({
@@ -76,6 +77,7 @@ export function superRooTaskToTaskInput(task: SuperRooTask): TaskInputRaw {
 		featureId: task.featureId,
 		bugId: task.bugId,
 		requiredCapabilities: task.requiredCapabilities,
+		codedBy: task.codedBy,
 		payload: {
 			...task.payload,
 			superRooSource: task.source,

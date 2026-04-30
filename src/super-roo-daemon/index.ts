@@ -22,6 +22,7 @@ interface DaemonConfig {
 	selfImprove: boolean
 	crawlerEnabled: boolean
 	token?: string
+	codedBy?: string
 }
 
 const startedAt = Date.now()
@@ -37,6 +38,7 @@ function readConfig(): DaemonConfig {
 		selfImprove: process.env.SUPERROO_SELF_IMPROVE === "true",
 		crawlerEnabled: process.env.SUPERROO_CRAWLER_ENABLED === "true",
 		token: process.env.SUPERROO_DAEMON_TOKEN || undefined,
+		codedBy: process.env.SUPERROO_CODER_ID || undefined,
 	}
 }
 
@@ -95,6 +97,7 @@ async function main(): Promise<void> {
 		selfImprove: config.selfImprove,
 		workspaceRoot: config.workspaceRoot,
 		crawlerEnabled: config.crawlerEnabled,
+		codedBy: config.codedBy,
 		githubToken: process.env.GITHUB_TOKEN,
 		repoOwner: process.env.SUPERROO_REPO_OWNER,
 		repoName: process.env.SUPERROO_REPO_NAME,
@@ -159,6 +162,8 @@ async function main(): Promise<void> {
 					return
 				}
 				const input = parseTaskSubmission(parsed)
+				// Fallback: stamp the daemon's own coder ID if the submission didn't include one.
+				if (!input.codedBy && config.codedBy) input.codedBy = config.codedBy
 				const task = orch.submit(input)
 				json(res, 202, { ok: true, task })
 				return

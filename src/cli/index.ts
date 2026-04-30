@@ -15,6 +15,7 @@ interface AutonomousCliOptions {
 	mode?: "safe" | "auto"
 	autoApprove?: boolean
 	deploy?: boolean
+	coder?: string
 }
 
 interface DeployCliOptions {
@@ -35,10 +36,11 @@ interface StatusCliOptions {
 	project?: string
 }
 
-function createPhase3Orchestrator(projectPath?: string) {
+function createPhase3Orchestrator(projectPath?: string, codedBy?: string) {
 	const runtime = createDefaultRuntime({
 		source: "cli",
 		workspaceRoot: projectPath || process.cwd(),
+		codedBy: codedBy ?? process.env.SUPERROO_CODER_ID,
 	})
 	return new Phase3Orchestrator(runtime)
 }
@@ -86,12 +88,15 @@ program
 	.option("--mode <mode>", "Autonomy mode for local Phase 3 runner: safe or auto", "safe")
 	.option("--auto-approve", "Allow safe auto-approved actions")
 	.option("--no-deploy", "Run without deployment")
+	.option("--coder <name>", "Coder identity stamp for this session (e.g. 'claude-sonnet-4-6')")
 	.action(async (options: AutonomousCliOptions) => {
+		const codedBy = options.coder ?? process.env.SUPERROO_CODER_ID
 		const result = await runAutonomous({
 			task: {
 				source: SuperRooTaskSource.CLI,
 				goal: "Run autonomous coding loop",
 				workspacePath: options.project,
+				codedBy,
 				payload: {
 					hours: Number(options.hours ?? "1"),
 					autoApprove: Boolean(options.autoApprove),
@@ -107,7 +112,7 @@ program
 			return
 		}
 
-		const orchestrator = createPhase3Orchestrator(options.project)
+		const orchestrator = createPhase3Orchestrator(options.project, codedBy)
 		await orchestrator.runAutonomous({ safeMode: options.mode !== "auto" })
 		await runAutonomousCommand(options)
 	})
@@ -157,8 +162,10 @@ program
 program
 	.command("task <goal...>")
 	.description("Submit one shared SuperRooTask")
-	.action(async (goal: string[]) => {
-		const task = normalizeSuperRooTask({ source: SuperRooTaskSource.CLI, goal: goal.join(" ") })
+	.option("--coder <name>", "Coder identity stamp for this task (e.g. 'claude-sonnet-4-6')")
+	.action(async (goal: string[], options: { coder?: string }) => {
+		const codedBy = options.coder ?? process.env.SUPERROO_CODER_ID
+		const task = normalizeSuperRooTask({ source: SuperRooTaskSource.CLI, goal: goal.join(" "), codedBy })
 		const submitted = await postTaskToDaemon(task)
 		console.log(JSON.stringify(submitted ?? task, null, 2))
 	})

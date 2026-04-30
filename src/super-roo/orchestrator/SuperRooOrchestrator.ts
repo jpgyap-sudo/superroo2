@@ -221,14 +221,16 @@ export class SuperRooOrchestrator {
 		}
 
 		this.currentAbort = new AbortController()
-		this.events.info("agent.invoked", `Invoking agent: ${agent.name}`, { taskId: task.id, agent: agent.name })
+		const codedBy = task.codedBy ?? this.config.codedBy
+		this.events.info("agent.invoked", `Invoking agent: ${agent.name}`, { taskId: task.id, agent: agent.name, codedBy })
 		try {
 			const result = await agent.run({
 				task,
 				safetyMode: this.safety.getMode(),
+				codedBy,
 				signal: this.currentAbort.signal,
 				emit: (level, type, message, data) =>
-					this.events.emit(level, type, message, { taskId: task.id, agent: agent.name, data }),
+					this.events.emit(level, type, message, { taskId: task.id, agent: agent.name, codedBy, data }),
 			})
 			this.events.info("agent.completed", `Agent ${agent.name} done: ${result.summary}`, {
 				taskId: task.id,

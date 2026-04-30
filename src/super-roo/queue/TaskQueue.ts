@@ -38,6 +38,7 @@ interface TaskRow {
 	attempts: number
 	error: string | null
 	result_summary: string | null
+	coded_by: string | null
 	created_at: number
 	updated_at: number
 	started_at: number | null
@@ -60,6 +61,7 @@ function rowToTask(r: TaskRow): Task {
 		attempts: r.attempts,
 		error: r.error ?? undefined,
 		resultSummary: r.result_summary ?? undefined,
+		codedBy: r.coded_by ?? undefined,
 		createdAt: r.created_at,
 		updatedAt: r.updated_at,
 		startedAt: r.started_at ?? undefined,
@@ -85,11 +87,11 @@ export class TaskQueue {
 			.prepare(
 				`INSERT INTO tasks
 					(id, agent, goal, priority, status, parent_task_id, feature_id, bug_id,
-					 required_capabilities, payload, max_iterations, attempts,
+					 required_capabilities, payload, max_iterations, attempts, coded_by,
 					 created_at, updated_at)
 				 VALUES
 					(@id, @agent, @goal, @priority, 'pending', @parentTaskId, @featureId, @bugId,
-					 @requiredCapabilities, @payload, @maxIterations, 0, @now, @now)`,
+					 @requiredCapabilities, @payload, @maxIterations, 0, @codedBy, @now, @now)`,
 			)
 			.run({
 				id,
@@ -102,6 +104,7 @@ export class TaskQueue {
 				requiredCapabilities: JSON.stringify(parsed.requiredCapabilities),
 				payload: JSON.stringify(parsed.payload),
 				maxIterations: parsed.maxIterations,
+				codedBy: parsed.codedBy ?? null,
 				now,
 			})
 

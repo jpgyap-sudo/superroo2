@@ -49,6 +49,7 @@ export class EventLog {
 			agent?: string
 			featureId?: string
 			bugId?: string
+			codedBy?: string
 			data?: Record<string, unknown>
 		} = {},
 	): LogEvent {

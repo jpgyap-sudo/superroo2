@@ -105,20 +105,35 @@ Format: `[DATE] [AUTHOR] — Description`
 
 ---
 
-## Planned / In Progress
+---
 
-### Coder Signature System
-**Status:** Proposed
-**Why:** With multiple AI coders working in parallel, every task, event, and
-commit should carry a `codedBy` field so any contributor can trace changes.
+### Coder Signature System — Implemented (Coder: Claude Sonnet 4.6)
 
-Proposed implementation:
-1. Add optional `codedBy?: string` to `TaskInputRaw` and `Task` types
-2. Propagate it through `AgentRunContext` so agents can stamp their work
-3. Include it in `EventLog` events (`extra.codedBy`)
-4. The CLI/daemon accepts `--coder <name>` or `SUPERROO_CODER_ID` env var
-5. Commit messages already use `Co-Authored-By:` for traceability
+**Status:** Shipped 2026-04-30
+**Why:** Multiple AI coders debug in parallel; every task, event, and session
+needs a `codedBy` stamp so any contributor can trace who changed what and why.
 
-This does NOT require changing the DB schema immediately — `codedBy` can
-live inside the existing `payload` JSON column until Phase 3 dashboarding
-makes it worth promoting to a first-class column.
+**What was changed:**
+
+| Layer | Change |
+|---|---|
+| `src/super-roo/types/index.ts` | `codedBy?: string` added to `TaskInputRaw`, `Task`, `LogEvent`, `AgentRunContext`, `OrchestratorConfig` |
+| `src/super-roo/memory/MemoryStore.ts` | Migration v2: `ALTER TABLE tasks ADD COLUMN coded_by TEXT` + same on `events`; index on `events.coded_by` |
+| `src/super-roo/logging/EventLog.ts` | `codedBy?` added to `emit()` extra param; persisted to DB |
+| `src/super-roo/queue/TaskQueue.ts` | `TaskRow.coded_by`, `rowToTask()` mapping, INSERT includes `coded_by` |
+| `src/super-roo/orchestrator/SuperRooOrchestrator.ts` | `codedBy = task.codedBy ?? config.codedBy` threaded through `AgentRunContext` and all emitted events |
+| `src/super-roo-daemon/index.ts` | Reads `SUPERROO_CODER_ID` env → `DaemonConfig.codedBy` → stamps tasks that don't supply their own |
+| `src/super-roo/core/types.ts` | `SuperRooRuntime.codedBy?: string` |
+| `src/super-roo/core/createDefaultRuntime.ts` | Accepts and forwards `codedBy` from input |
+| `src/core/SuperRooTask.ts` | `codedBy?: string` in schema + `superRooTaskToTaskInput` carries it |
+| `src/cli/index.ts` | `--coder <name>` on `autonomous` and `task` commands; falls back to `SUPERROO_CODER_ID` env var |
+
+**Usage:**
+```bash
+# via CLI flag
+superroo autonomous --coder "claude-sonnet-4-6"
+superroo task "fix the login bug" --coder "claude-opus-4-7"
+
+# via env var (preferred for daemon/VPS)
+SUPERROO_CODER_ID=claude-sonnet-4-6 superroo autonomous
+```

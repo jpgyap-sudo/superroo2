@@ -101,6 +101,8 @@ export const TaskInputSchema = z.object({
 	payload: z.record(z.unknown()).default({}),
 	/** Cap loop iterations for this task. autonomous.md default is 5. */
 	maxIterations: z.number().int().positive().max(50).default(5),
+	/** Identity of the coder (human or AI) who submitted this task. */
+	codedBy: z.string().optional(),
 })
 
 /**
@@ -118,6 +120,8 @@ export interface TaskInputRaw {
 	requiredCapabilities?: string[]
 	payload?: Record<string, unknown>
 	maxIterations?: number
+	/** Identity of the coder (human or AI) who submitted this task. */
+	codedBy?: string
 }
 
 /** Fully-resolved task input (post-parse). All schema-defaulted fields populated. */
@@ -131,6 +135,7 @@ export interface TaskInput {
 	requiredCapabilities: string[]
 	payload: Record<string, unknown>
 	maxIterations: number
+	codedBy?: string
 }
 
 export interface Task extends TaskInput {
@@ -306,6 +311,8 @@ export interface LogEvent {
 	agent?: string
 	featureId?: string
 	bugId?: string
+	/** Identity of the coder (human or AI) responsible for the action that produced this event. */
+	codedBy?: string
 	/** Arbitrary structured data; persisted as JSON. Keep small. */
 	data?: Record<string, unknown>
 }
@@ -319,6 +326,8 @@ export interface AgentRunContext {
 	task: Task
 	/** Current safety mode at dispatch time (informational; orchestrator already gated). */
 	safetyMode: SafetyMode
+	/** Identity of the coder (human or AI) running this session. Stamped on all emitted events. */
+	codedBy?: string
 	/** Agents may emit events through this. */
 	emit: (level: EventLevel, type: EventType, message: string, data?: Record<string, unknown>) => void
 	/** Cooperative cancellation — agents should poll this. */
@@ -382,6 +391,8 @@ export interface OrchestratorConfig {
 	healthUrl?: string
 	/** Max rollback versions to keep. Default 5. */
 	maxRollbackVersions?: number
+	/** Identity of the coder (human or AI) running this session — stamped on tasks and events. */
+	codedBy?: string
 
 	// ── Phase 6: Crawler ──
 	/** Enable the data crawler agent. */

@@ -3,6 +3,8 @@ export type SuperRooSource = "cli" | "vscode" | "telegram" | "scheduler"
 export interface SuperRooRuntime {
 	source: SuperRooSource
 	workspaceRoot: string
+	/** Identity of the coder (human or AI) driving this session. */
+	codedBy?: string
 	log: (message: string) => void
 	warn: (message: string) => void
 	error: (message: string, error?: unknown) => void

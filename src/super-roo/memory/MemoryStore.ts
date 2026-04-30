@@ -136,6 +136,17 @@ const MIGRATIONS: Migration[] = [
 			`)
 		},
 	},
+	{
+		version: 2,
+		description: "add coded_by to tasks and events for coder signature tracking",
+		up: (db) => {
+			db.exec(`
+				ALTER TABLE tasks ADD COLUMN coded_by TEXT;
+				ALTER TABLE events ADD COLUMN coded_by TEXT;
+				CREATE INDEX idx_events_coded_by ON events(coded_by);
+			`)
+		},
+	},
 ]
 
 export class MemoryStore {
@@ -264,8 +275,8 @@ export class MemoryStore {
 	insertEvent(ev: LogEvent): void {
 		this.db
 			.prepare(
-				`INSERT INTO events (id, at, level, type, message, task_id, agent, feature_id, bug_id, data)
-				 VALUES (@id, @at, @level, @type, @message, @taskId, @agent, @featureId, @bugId, @data)`,
+				`INSERT INTO events (id, at, level, type, message, task_id, agent, feature_id, bug_id, coded_by, data)
+				 VALUES (@id, @at, @level, @type, @message, @taskId, @agent, @featureId, @bugId, @codedBy, @data)`,
 			)
 			.run({
 				id: ev.id,
@@ -277,6 +288,7 @@ export class MemoryStore {
 				agent: ev.agent ?? null,
 				featureId: ev.featureId ?? null,
 				bugId: ev.bugId ?? null,
+				codedBy: ev.codedBy ?? null,
 				data: ev.data ? JSON.stringify(ev.data) : null,
 			})
 	}
@@ -301,7 +313,7 @@ export class MemoryStore {
 		const rows = this.db
 			.prepare(
 				`SELECT id, at, level, type, message, task_id as taskId, agent, feature_id as featureId,
-				        bug_id as bugId, data
+				        bug_id as bugId, coded_by as codedBy, data
 				 FROM events ${whereSql} ORDER BY at DESC LIMIT @limit`,
 			)
 			.all({ ...params, limit }) as Array<{
@@ -314,6 +326,7 @@ export class MemoryStore {
 			agent: string | null
 			featureId: string | null
 			bugId: string | null
+			codedBy: string | null
 			data: string | null
 		}>
 		return rows.map((r) => ({
@@ -326,6 +339,7 @@ export class MemoryStore {
 			agent: r.agent ?? undefined,
 			featureId: r.featureId ?? undefined,
 			bugId: r.bugId ?? undefined,
+			codedBy: r.codedBy ?? undefined,
 			data: r.data ? (JSON.parse(r.data) as Record<string, unknown>) : undefined,
 		}))
 	}
