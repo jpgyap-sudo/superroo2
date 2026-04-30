@@ -70,6 +70,11 @@ describe("CLI", () => {
 		expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("========== SuperRoo Status =========="))
 	})
 
+	it("invokes Phase 3 orchestrator during autonomous command", async () => {
+		await runCli("autonomous")
+		expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Starting Phase 3 autonomous safe-mode loop..."))
+	})
+
 	it("exits with error on unknown command", async () => {
 		await runCli("unknown")
 		expect(errorSpy).toHaveBeenCalledWith("error: unknown command 'unknown'")

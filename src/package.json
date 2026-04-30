@@ -169,6 +169,21 @@
 				"command": "superroo.toggleAutoApprove",
 				"title": "%command.toggleAutoApprove.title%",
 				"category": "%configuration.title%"
+			},
+			{
+				"command": "superroo.status",
+				"title": "SuperRoo: Show Status",
+				"category": "%configuration.title%"
+			},
+			{
+				"command": "superroo.autonomousSafe",
+				"title": "SuperRoo: Run Autonomous Safe Mode",
+				"category": "%configuration.title%"
+			},
+			{
+				"command": "superroo.checkVps",
+				"title": "SuperRoo: Check VPS Deployment",
+				"category": "%configuration.title%"
 			}
 		],
 		"menus": {
@@ -450,6 +465,11 @@
 		"deploy": "tsx cli/index.ts deploy",
 		"check-vps": "tsx cli/index.ts check-vps",
 		"debug-api": "tsx cli/index.ts debug-api",
+		"superroo:cli": "node dist/cli/index.js status",
+		"superroo:autonomous": "node dist/cli/index.js autonomous --mode safe",
+		"superroo:check-vps": "node dist/cli/index.js check-vps",
+		"superroo:deploy": "node dist/cli/index.js deploy",
+		"superroo:debug-api": "node dist/cli/index.js debug-api",
 		"vscode:prepublish": "pnpm bundle --production",
 		"vsix": "mkdirp ../bin && vsce package --no-dependencies --out ../bin",
 		"publish:marketplace": "vsce publish --no-dependencies && ovsx publish --no-dependencies",

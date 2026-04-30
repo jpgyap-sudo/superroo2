@@ -47,6 +47,7 @@ import {
 	registerTerminalActions,
 	CodeActionProvider,
 } from "./activate"
+import { registerSuperRooCommands } from "./super-roo-host/registerSuperRooCommands"
 import { initializeI18n } from "./i18n"
 import { flushModels, initializeModelCacheRefresh, refreshModels } from "./api/providers/fetchers/modelCache"
 
@@ -316,6 +317,9 @@ export async function activate(context: vscode.ExtensionContext) {
 	}
 
 	registerCommands({ context, outputChannel, provider })
+
+	// Register Phase 3 SuperRoo commands (shared core — safe skeleton, no deploy yet)
+	registerSuperRooCommands(context)
 
 	/**
 	 * We use the text document content provider API to show the left side for diff

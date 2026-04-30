@@ -6,6 +6,8 @@ import { runDeployCommand } from "../core/commands/deploy"
 import { runCheckVpsCommand } from "../core/commands/check-vps"
 import { runDebugApiCommand } from "../core/commands/debug-api"
 import { runStatusCommand } from "../core/commands/status"
+import { SuperRooOrchestrator as Phase3Orchestrator } from "../super-roo/core/SuperRooOrchestrator"
+import { createDefaultRuntime } from "../super-roo/core/createDefaultRuntime"
 
 interface AutonomousCliOptions {
 	project?: string
@@ -30,6 +32,14 @@ interface DebugApiCliOptions {
 
 interface StatusCliOptions {
 	project?: string
+}
+
+function createPhase3Orchestrator(projectPath?: string) {
+	const runtime = createDefaultRuntime({
+		source: "cli",
+		workspaceRoot: projectPath || process.cwd(),
+	})
+	return new Phase3Orchestrator(runtime)
 }
 
 const program = new Command()
@@ -63,8 +73,8 @@ program
 	.description("SuperRoo CLI automation worker for coding, debugging, deployment, and VPS checks")
 	.version("0.1.0")
 	.configureOutput({
-		writeOut: (str) => console.log(str.trimEnd()),
-		writeErr: (str) => console.error(str.trimEnd()),
+		writeOut: (str: string) => console.log(str.trimEnd()),
+		writeErr: (str: string) => console.error(str.trimEnd()),
 	})
 
 program
@@ -75,6 +85,9 @@ program
 	.option("--auto-approve", "Allow safe auto-approved actions")
 	.option("--no-deploy", "Run without deployment")
 	.action(async (options: AutonomousCliOptions) => {
+		const orchestrator = createPhase3Orchestrator(options.project)
+		await orchestrator.runAutonomous({ safeMode: true })
+
 		const result = await runAutonomous({
 			task: {
 				source: SuperRooTaskSource.CLI,
@@ -102,6 +115,8 @@ program
 	.option("-p, --project <path>", "Project path to deploy")
 	.option("--script <command>", "Deploy command", "pnpm deploy")
 	.action(async (options: DeployCliOptions) => {
+		const orchestrator = createPhase3Orchestrator(options.project)
+		await orchestrator.deploy({ args: options.script ? ["--script", options.script] : [] })
 		await runDeployCommand(options)
 	})
 
@@ -111,6 +126,8 @@ program
 	.option("--url <url>", "Health check URL")
 	.option("--retries <number>", "Number of retries", "3")
 	.action(async (options: CheckVpsCliOptions) => {
+		const orchestrator = createPhase3Orchestrator()
+		await orchestrator.checkVps({ args: options.url ? ["--url", options.url] : [] })
 		await runCheckVpsCommand(options)
 	})
 
@@ -119,6 +136,8 @@ program
 	.description("Run API configuration diagnostics for Claude/Kimi/OpenRouter/etc.")
 	.option("-p, --project <path>", "Project path to inspect")
 	.action(async (options: DebugApiCliOptions) => {
+		const orchestrator = createPhase3Orchestrator(options.project)
+		await orchestrator.debugApi({})
 		await runDebugApiCommand(options)
 	})
 
@@ -127,6 +146,8 @@ program
 	.description("Show project git, dependency, test, and deploy status")
 	.option("-p, --project <path>", "Project path to inspect")
 	.action(async (options: StatusCliOptions) => {
+		const orchestrator = createPhase3Orchestrator(options.project)
+		await orchestrator.status()
 		await runStatusCommand(options)
 	})
 
