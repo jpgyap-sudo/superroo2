@@ -1,24 +1,35 @@
-/**
- * Super Roo — Core autonomous loop entry point.
- *
- * Shared between the VS Code extension (src/extension.ts) and the CLI
- * (src/cli/index.ts).  Keeps the orchestration brain headless so it can be
- * driven from any surface: extension host, terminal, or future Telegram bot.
- *
- * Phase 1 stub: logs intent.  Phase 2 will wire in:
- *   1. read autonomous.md
- *   2. inspect project files
- *   3. run agents via SuperRooOrchestrator
- *   4. test
- *   5. commit
- *   6. deploy
- *   7. send Telegram report
- */
+import {
+	normalizeSuperRooTask,
+	type RunAutonomousOptions,
+	SuperRooTaskSource,
+	superRooTaskToTaskInput,
+} from "./SuperRooTask"
 
-export async function runAutonomous() {
+/**
+ * SuperRoo core autonomous entry point.
+ *
+ * VS Code, CLI, daemon, Telegram, and GitHub should all arrive here with a
+ * SuperRooTask-shaped command. This keeps the orchestration brain headless and
+ * gives every surface the same task language.
+ */
+export async function runAutonomous(options: RunAutonomousOptions = {}) {
 	console.log("Starting SuperRoo autonomous mode...")
 
-	// Phase 2 wiring will go here.
+	const source = options.source ?? SuperRooTaskSource.CLI
+	const task =
+		typeof options.task === "string"
+			? normalizeSuperRooTask({ source, goal: options.task })
+			: normalizeSuperRooTask({ source, goal: "Run autonomous coding loop", ...options.task })
+	const taskInput = superRooTaskToTaskInput(task)
+
+	if (options.submit) {
+		options.submit(taskInput)
+		console.log(`Submitted SuperRoo task from ${task.source}: ${task.goal}`)
+	} else {
+		console.log(`Prepared SuperRoo task from ${task.source}: ${task.goal}`)
+	}
 
 	console.log("Autonomous mode finished.")
+
+	return { task, taskInput }
 }

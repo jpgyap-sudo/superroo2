@@ -11,7 +11,8 @@ import * as http from "node:http"
 import * as path from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { SafetyMode, SuperRooOrchestrator, type TaskInputRaw } from "../super-roo"
+import { parseTaskSubmission } from "../core/SuperRooTask"
+import { SafetyMode, SuperRooOrchestrator } from "../super-roo"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -150,7 +151,7 @@ async function main(): Promise<void> {
 					return
 				}
 				const body = await readBody(req)
-				const input = JSON.parse(body) as TaskInputRaw
+				const input = parseTaskSubmission(JSON.parse(body))
 				const task = orch.submit(input)
 				json(res, 202, { ok: true, task })
 				return
@@ -183,4 +184,3 @@ main().catch((err) => {
 	console.error("[superroo-daemon] fatal", err)
 	process.exit(1)
 })
-

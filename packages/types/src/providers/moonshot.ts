@@ -3,7 +3,7 @@ import type { ModelInfo } from "../model.js"
 // https://platform.moonshot.ai/
 export type MoonshotModelId = keyof typeof moonshotModels
 
-export const moonshotDefaultModelId: MoonshotModelId = "kimi-k2-0905-preview"
+export const moonshotDefaultModelId: MoonshotModelId = "kimi-k2.6"
 
 export const moonshotModels = {
 	"kimi-k2-0711-preview": {
@@ -40,7 +40,7 @@ export const moonshotModels = {
 		description: `Kimi K2 Turbo is a high-speed version of the state-of-the-art Kimi K2 mixture-of-experts (MoE) language model, with the same 32 billion activated parameters and 1 trillion total parameters, optimized for output speeds of up to 60 tokens per second, peaking at 100 tokens per second.`,
 	},
 	"kimi-k2-thinking": {
-		maxTokens: 16_000, // Recommended ≥ 16,000
+		maxTokens: 16_000, // Recommended >= 16,000
 		contextWindow: 262_144, // 262,144 tokens
 		supportsImages: false, // Text-only (no image/vision support)
 		supportsPromptCache: true,
@@ -65,6 +65,19 @@ export const moonshotModels = {
 		defaultTemperature: 1.0,
 		description:
 			"Kimi K2.5 is the latest generation of Moonshot AI's Kimi series, featuring improved reasoning capabilities and enhanced performance across diverse tasks.",
+	},
+	"kimi-k2.6": {
+		maxTokens: 16_384,
+		contextWindow: 262_144,
+		supportsImages: false,
+		supportsPromptCache: true,
+		inputPrice: 0.6, // $0.60 per million tokens (cache miss)
+		outputPrice: 3.0, // $3.00 per million tokens
+		cacheReadsPrice: 0.1, // $0.10 per million tokens (cache hit)
+		supportsTemperature: true,
+		defaultTemperature: 1.0,
+		description:
+			"Kimi K2.6 is the next-generation Moonshot AI model with enhanced reasoning, coding, and long-context capabilities.",
 	},
 } as const satisfies Record<string, ModelInfo>
 
