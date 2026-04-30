@@ -1,12 +1,68 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg id="Layer_1" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" xmlns:i="http://ns.adobe.com/AdobeIllustrator/10.0/" version="1.1" viewBox="0 0 96 96">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
   <defs>
-    <style>
-      .cls-1 {
-        fill: #000;
-        stroke-width: 0px;
-      }
-    </style>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="ear" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#0ea5e9"/>
+    </linearGradient>
+    <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#e2e8f0"/>
+      <stop offset="100%" stop-color="#cbd5e1"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#22d3ee" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#22d3ee" stop-opacity="0"/>
+    </radialGradient>
   </defs>
-  <path class="cls-1" d="M78.99,21.9l-1.73,6.24c-.09.33-.44.52-.77.42l-28.11-8.71c-.19-.06-.41-.02-.56.11l-28.95,23.22c-.08.07-.18.11-.29.13l-17.25,2.66c-.31.05-.53.32-.52.63l.11,2.47c.01.31.26.56.57.58l20.08,1.23c.11,0,.22-.02.31-.06l14.64-7.4c.21-.11.46-.08.64.06l9.37,7.03c.16.12.25.3.24.49l-.09,11.65c0,.13.04.25.11.35l14.74,21.15c.11.16.3.26.5.26h5.03c.46,0,.76-.5.54-.9l-10.87-19.92c-.1-.18-.1-.4,0-.58l5.51-10.48c.06-.11.15-.2.26-.26l19.56-9.92c.2-.1.43-.09.62.04l5.6,3.73c.1.07.22.1.34.1h5.15c.48,0,.77-.52.52-.93l-14.2-23.52c-.28-.46-.97-.36-1.11.15Z"/>
+
+  <!-- Rounded background -->
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#bg)"/>
+
+  <!-- Subtle outer glow ring -->
+  <rect x="8" y="8" width="112" height="112" rx="24" fill="none" stroke="#38bdf8" stroke-width="1.5" opacity="0.25"/>
+
+  <!-- Ears -->
+  <polygon points="36,34 28,10 52,22" fill="url(#ear)"/>
+  <polygon points="92,34 100,10 76,22" fill="url(#ear)"/>
+  <polygon points="36,34 32,18 48,26" fill="#0ea5e9" opacity="0.4"/>
+  <polygon points="92,34 96,18 80,26" fill="#0ea5e9" opacity="0.4"/>
+
+  <!-- Head -->
+  <ellipse cx="64" cy="66" rx="38" ry="34" fill="url(#face)"/>
+
+  <!-- Eyes (futuristic visor / code brackets style) -->
+  <path d="M 42 62 Q 52 56 62 62 Q 52 68 42 62 Z" fill="#0f172a"/>
+  <path d="M 66 62 Q 76 56 86 62 Q 76 68 66 62 Z" fill="#0f172a"/>
+
+  <!-- Eye glow / pupils -->
+  <circle cx="52" cy="62" r="3.5" fill="#22d3ee"/>
+  <circle cx="76" cy="62" r="3.5" fill="#22d3ee"/>
+
+  <!-- Code bracket markings (innovative tech detail) -->
+  <path d="M 48 58 L 44 62 L 48 66" fill="none" stroke="#22d3ee" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>
+  <path d="M 80 58 L 84 62 L 80 66" fill="none" stroke="#22d3ee" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>
+
+  <!-- Nose -->
+  <polygon points="60,74 64,78 68,74" fill="#f472b6"/>
+
+  <!-- Mouth -->
+  <path d="M 64 78 L 64 82 M 64 82 Q 56 88 52 82 M 64 82 Q 72 88 76 82" fill="none" stroke="#64748b" stroke-width="1.6" stroke-linecap="round"/>
+
+  <!-- Whiskers -->
+  <line x1="30" y1="68" x2="14" y2="64" stroke="#94a3b8" stroke-width="1.2" stroke-linecap="round" opacity="0.6"/>
+  <line x1="30" y1="74" x2="12" y2="76" stroke="#94a3b8" stroke-width="1.2" stroke-linecap="round" opacity="0.6"/>
+  <line x1="98" y1="68" x2="114" y2="64" stroke="#94a3b8" stroke-width="1.2" stroke-linecap="round" opacity="0.6"/>
+  <line x1="98" y1="74" x2="116" y2="76" stroke="#94a3b8" stroke-width="1.2" stroke-linecap="round" opacity="0.6"/>
+
+  <!-- Circuit / node accent on cheek (tech vibe) -->
+  <circle cx="36" cy="82" r="2" fill="#38bdf8" opacity="0.8"/>
+  <circle cx="92" cy="82" r="2" fill="#38bdf8" opacity="0.8"/>
+  <line x1="36" y1="82" x2="36" y2="90" stroke="#38bdf8" stroke-width="1" opacity="0.5"/>
+  <line x1="92" y1="82" x2="92" y2="90" stroke="#38bdf8" stroke-width="1" opacity="0.5"/>
+
+  <!-- Soft chin shadow -->
+  <ellipse cx="64" cy="98" rx="18" ry="6" fill="#000" opacity="0.08"/>
 </svg>

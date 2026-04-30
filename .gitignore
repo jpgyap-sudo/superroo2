@@ -31,6 +31,7 @@ docs/_site/
 .env
 .env.*
 !.env.*.sample
+!.env.example
 
 # Logging
 logs
