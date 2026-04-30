@@ -43,7 +43,10 @@ async function postTaskToDaemon(task: unknown): Promise<unknown> {
 		headers.authorization = `Bearer ${process.env.SUPERROO_DAEMON_TOKEN}`
 	}
 
-	const response = await fetch(new URL("/tasks", daemonUrl), {
+	// Use string join so a base-path in SUPERROO_DAEMON_URL is preserved.
+	// new URL("/tasks", base) would strip the base path for absolute-path args.
+	const url = daemonUrl.replace(/\/$/, "") + "/tasks"
+	const response = await fetch(url, {
 		method: "POST",
 		headers,
 		body: JSON.stringify(task),
@@ -72,7 +75,19 @@ program
 	.option("--auto-approve", "Allow safe auto-approved actions")
 	.option("--no-deploy", "Run without deployment")
 	.action(async (options: AutonomousCliOptions) => {
-		const result = await runAutonomous({ task: "Run autonomous coding loop", source: SuperRooTaskSource.CLI })
+		const result = await runAutonomous({
+			task: {
+				source: SuperRooTaskSource.CLI,
+				goal: "Run autonomous coding loop",
+				workspacePath: options.project,
+				payload: {
+					hours: Number(options.hours ?? "1"),
+					autoApprove: Boolean(options.autoApprove),
+					deploy: Boolean(options.deploy),
+				},
+			},
+			source: SuperRooTaskSource.CLI,
+		})
 		const submitted = await postTaskToDaemon(result.task)
 		if (submitted) {
 			console.log(JSON.stringify(submitted, null, 2))
@@ -119,11 +134,6 @@ program
 	.command("task <goal...>")
 	.description("Submit one shared SuperRooTask")
 	.action(async (goal: string[]) => {
-		if (!goal.length) {
-			console.error("Usage: superroo task <goal>")
-			process.exit(1)
-		}
-
 		const task = normalizeSuperRooTask({ source: SuperRooTaskSource.CLI, goal: goal.join(" ") })
 		const submitted = await postTaskToDaemon(task)
 		console.log(JSON.stringify(submitted ?? task, null, 2))
@@ -133,7 +143,7 @@ if (process.argv.length <= 2) {
 	program.outputHelp()
 } else {
 	program.parseAsync(process.argv).catch((error: unknown) => {
-	console.error("[superroo] fatal error:", error)
-	process.exit(1)
+		console.error("[superroo] fatal error:", error)
+		process.exit(1)
 	})
 }

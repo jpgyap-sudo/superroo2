@@ -9,13 +9,9 @@
 
 import * as http from "node:http"
 import * as path from "node:path"
-import { fileURLToPath } from "node:url"
 
 import { parseTaskSubmission } from "../core/SuperRooTask"
 import { SafetyMode, SuperRooOrchestrator } from "../super-roo"
-
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
 
 interface DaemonConfig {
 	host: string
