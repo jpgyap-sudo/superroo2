@@ -69,7 +69,7 @@ export async function getLatestCliVersion(fetchImpl: typeof fetch = fetch): Prom
 	const response = await fetchImpl(RELEASES_URL, {
 		headers: {
 			Accept: "application/vnd.github+json",
-			"User-Agent": "roo-cli",
+			"User-Agent": "superroo-cli",
 		},
 	})
 
@@ -111,7 +111,7 @@ export async function getLatestCliVersion(fetchImpl: typeof fetch = fetch): Prom
 
 export function runUpgradeInstaller(version?: string, spawnImpl: typeof spawn = spawn): Promise<void> {
 	return new Promise((resolve, reject) => {
-		const env = version ? { ...process.env, ROO_VERSION: version } : process.env
+		const env = version ? { ...process.env, SUPERROO_VERSION: version } : process.env
 		const child = spawnImpl("sh", ["-c", INSTALL_SCRIPT_COMMAND], { stdio: "inherit", env })
 
 		child.once("error", (error) => {
@@ -141,11 +141,11 @@ export async function upgrade(options: UpgradeOptions = {}): Promise<void> {
 	console.log(`Latest version: ${latestVersion}`)
 
 	if (compareVersions(latestVersion, currentVersion) <= 0) {
-		console.log("Roo CLI is already up to date.")
+		console.log("SuperRoo CLI is already up to date.")
 		return
 	}
 
-	console.log(`Upgrading Roo CLI from ${currentVersion} to ${latestVersion}...`)
+	console.log(`Upgrading SuperRoo CLI from ${currentVersion} to ${latestVersion}...`)
 	if (runInstaller) {
 		await runInstaller()
 	} else {
