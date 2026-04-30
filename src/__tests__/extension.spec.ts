@@ -33,6 +33,7 @@ vi.mock("vscode", () => ({
 	},
 	commands: {
 		executeCommand: vi.fn(),
+		registerCommand: vi.fn(),
 	},
 	env: {
 		language: "en",
