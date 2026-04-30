@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-pnpm build
-node dist/cli/index.js status
-node dist/cli/index.js autonomous --mode safe
-node dist/cli/index.js check-vps --url http://localhost:3000
+cd "$(dirname "$0")/.."
+
+pnpm --filter superroo check-types
+pnpm --filter superroo bundle
+node src/dist/cli/index.js --help
+node src/dist/cli/index.js status --project .
+node src/dist/cli/index.js task "smoke test cli contract"
+node src/dist/cli/index.js autonomous --mode safe --hours 1 --no-deploy

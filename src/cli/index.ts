@@ -12,6 +12,7 @@ import { createDefaultRuntime } from "../super-roo/core/createDefaultRuntime"
 interface AutonomousCliOptions {
 	project?: string
 	hours?: string
+	mode?: "safe" | "auto"
 	autoApprove?: boolean
 	deploy?: boolean
 }
@@ -82,12 +83,10 @@ program
 	.description("Run autonomous coding/debug/test/deploy loop")
 	.option("-p, --project <path>", "Project path to operate on")
 	.option("--hours <number>", "Maximum runtime in hours", "1")
+	.option("--mode <mode>", "Autonomy mode for local Phase 3 runner: safe or auto", "safe")
 	.option("--auto-approve", "Allow safe auto-approved actions")
 	.option("--no-deploy", "Run without deployment")
 	.action(async (options: AutonomousCliOptions) => {
-		const orchestrator = createPhase3Orchestrator(options.project)
-		await orchestrator.runAutonomous({ safeMode: true })
-
 		const result = await runAutonomous({
 			task: {
 				source: SuperRooTaskSource.CLI,
@@ -97,6 +96,7 @@ program
 					hours: Number(options.hours ?? "1"),
 					autoApprove: Boolean(options.autoApprove),
 					deploy: Boolean(options.deploy),
+					mode: options.mode ?? "safe",
 				},
 			},
 			source: SuperRooTaskSource.CLI,
@@ -106,6 +106,9 @@ program
 			console.log(JSON.stringify(submitted, null, 2))
 			return
 		}
+
+		const orchestrator = createPhase3Orchestrator(options.project)
+		await orchestrator.runAutonomous({ safeMode: options.mode !== "auto" })
 		await runAutonomousCommand(options)
 	})
 

@@ -1,4 +1,5 @@
 import path from "node:path"
+import { readFile } from "node:fs/promises"
 import { fileExistsAtPath } from "../utils/fs"
 import { logStep, logWarn } from "./utils/logger"
 import { runShell, runShellArgs } from "./utils/shell"
@@ -15,9 +16,7 @@ export class SuperRooCore {
 	public readonly allowDeploy: boolean
 
 	constructor(options: SuperRooCoreOptions = {}) {
-		this.projectPath = path.resolve(
-			options.projectPath || process.env.SUPERROO_DEFAULT_PROJECT || process.cwd(),
-		)
+		this.projectPath = path.resolve(options.projectPath || process.env.SUPERROO_DEFAULT_PROJECT || process.cwd())
 		this.autoApprove = Boolean(options.autoApprove)
 		this.allowDeploy = Boolean(options.allowDeploy)
 	}
@@ -62,6 +61,11 @@ export class SuperRooCore {
 	}
 
 	async runBuild(): Promise<void> {
+		if (await this.isSuperRooWorkspace()) {
+			await runShellArgs("pnpm", ["--filter", "superroo", "bundle"], { cwd: this.projectPath })
+			return
+		}
+
 		if (await fileExistsAtPath(path.join(this.projectPath, "pnpm-lock.yaml"))) {
 			await runShellArgs("pnpm", ["build"], { cwd: this.projectPath })
 			return
@@ -71,6 +75,18 @@ export class SuperRooCore {
 	}
 
 	async runTests(): Promise<void> {
+		if (await this.isSuperRooWorkspace()) {
+			await runShellArgs(
+				"pnpm",
+				["--filter", "superroo", "test", "cli", path.join("core", "__tests__", "SuperRooTask.test.ts")],
+				{
+					cwd: this.projectPath,
+					allowFailure: true,
+				},
+			)
+			return
+		}
+
 		if (await fileExistsAtPath(path.join(this.projectPath, "pnpm-lock.yaml"))) {
 			await runShellArgs("pnpm", ["test"], { cwd: this.projectPath, allowFailure: true })
 			return
@@ -91,5 +107,19 @@ export class SuperRooCore {
 			cwd: this.projectPath,
 			allowFailure: true,
 		})
+	}
+
+	private async isSuperRooWorkspace(): Promise<boolean> {
+		const extensionPackagePath = path.join(this.projectPath, "src", "package.json")
+		if (!(await fileExistsAtPath(extensionPackagePath))) {
+			return false
+		}
+
+		try {
+			const packageJson = JSON.parse(await readFile(extensionPackagePath, "utf8")) as { name?: string }
+			return packageJson.name === "superroo"
+		} catch {
+			return false
+		}
 	}
 }
