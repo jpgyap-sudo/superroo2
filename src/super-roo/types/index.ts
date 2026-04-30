@@ -241,6 +241,103 @@ export const BugStatus = {
 
 export type BugStatus = (typeof BugStatus)[keyof typeof BugStatus]
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Self-Healing Incidents (healing bus types)
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const IncidentStatus = {
+	NEW: "new",
+	INVESTIGATING: "investigating",
+	QUEUED_FOR_FIX: "queued_for_fix",
+	FIXING: "fixing",
+	FIX_READY: "fix_ready",
+	DEPLOYED: "deployed",
+	VERIFYING: "verifying",
+	VERIFIED: "verified",
+	REOPENED: "reopened",
+	BLOCKED: "blocked",
+	NEEDS_HUMAN_APPROVAL: "needs_human_approval",
+} as const
+
+export type IncidentStatus = (typeof IncidentStatus)[keyof typeof IncidentStatus]
+
+export const RootCauseCategory = {
+	ENV_MISSING: "ENV_MISSING",
+	DB_SCHEMA_MISMATCH: "DB_SCHEMA_MISMATCH",
+	API_AUTH_FAILURE: "API_AUTH_FAILURE",
+	API_RATE_LIMIT: "API_RATE_LIMIT",
+	BROKEN_ROUTE: "BROKEN_ROUTE",
+	FRONTEND_CORS: "FRONTEND_CORS",
+	WORKER_CRASH: "WORKER_CRASH",
+	STALE_DATA: "STALE_DATA",
+	TRADING_GATE_BLOCKED: "TRADING_GATE_BLOCKED",
+	DEPLOY_DRIFT: "DEPLOY_DRIFT",
+	TEST_FAILURE: "TEST_FAILURE",
+	SECURITY_RISK: "SECURITY_RISK",
+	UNKNOWN: "UNKNOWN",
+} as const
+
+export type RootCauseCategory = (typeof RootCauseCategory)[keyof typeof RootCauseCategory]
+
+export interface IncidentRecord {
+	id: string
+	fingerprint: string
+	featureKey: string | null
+	sourceAgent: string
+	title: string
+	symptom: string
+	severity: BugSeverity
+	status: IncidentStatus
+	rootCauseCategory: RootCauseCategory | null
+	affectedFiles: string[]
+	recommendedAction: string | null
+	evidence: Record<string, unknown>
+	autoFixAllowed: boolean
+	fixAttempts: number
+	createdAt: number
+	updatedAt: number
+}
+
+export interface HealingActionRecord {
+	id: string
+	incidentId: string
+	actionType: string
+	actorAgent: string
+	summary: string
+	input: Record<string, unknown>
+	output: Record<string, unknown>
+	createdAt: number
+}
+
+export interface IncidentInputRaw {
+	fingerprint?: string
+	featureKey?: string
+	sourceAgent?: string
+	title: string
+	symptom: string
+	severity?: BugSeverity
+	status?: IncidentStatus
+	rootCauseCategory?: RootCauseCategory
+	affectedFiles?: string[]
+	recommendedAction?: string
+	evidence?: Record<string, unknown>
+	autoFixAllowed?: boolean
+	fixAttempts?: number
+}
+
+export interface RepairPlan {
+	incidentId: string
+	featureKey: string | null
+	severity: BugSeverity
+	rootCauseCategory: RootCauseCategory
+	affectedFiles: string[]
+	diagnosticSteps: string[]
+	safePatchPlan: string[]
+	testsToRun: string[]
+	approvalRequired: boolean
+	approvalReason?: string
+}
+
 export interface BugRecord {
 	id: string
 	title: string
@@ -341,6 +438,8 @@ export interface AgentRunResult {
 	followups?: TaskInputRaw[]
 	/** Bug records the agent wants persisted. */
 	bugs?: Array<Omit<BugRecord, "id" | "createdAt" | "updatedAt" | "fixAttempts" | "status"> & { status?: BugStatus }>
+	/** Arbitrary data returned by the agent for consumers. */
+	data?: Record<string, unknown>
 	error?: string
 }
 
@@ -397,6 +496,19 @@ export interface OrchestratorConfig {
 	// ── Phase 6: Crawler ──
 	/** Enable the data crawler agent. */
 	crawlerEnabled?: boolean
+
+	// ── Phase 7: Self-Healing ──
+	/** Enable the self-healing loop. Default: true */
+	healingEnabled?: boolean
+	/** Milliseconds between healing cycles. Default: 30000 (30s) */
+	healingCycleIntervalMs?: number
+	/** Auto-fix policies by severity. */
+	healingAutoFixPolicies?: {
+		low?: boolean
+		medium?: boolean
+		high?: boolean
+		critical?: boolean
+	}
 	/** API keys for crawler data sources (e.g. { openai: "...", alphavantage: "..." }). */
 	crawlerApiKeys?: Record<string, string>
 	/** Crawl interval in ms. Default 5 minutes. */

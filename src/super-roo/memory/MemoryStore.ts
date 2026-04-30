@@ -147,6 +147,50 @@ const MIGRATIONS: Migration[] = [
 			`)
 		},
 	},
+	{
+		version: 3,
+		description: "add healing_incidents and healing_actions tables for self-healing",
+		up: (db) => {
+			db.exec(`
+				CREATE TABLE healing_incidents (
+					id TEXT PRIMARY KEY,
+					fingerprint TEXT NOT NULL UNIQUE,
+					feature_key TEXT,
+					source_agent TEXT NOT NULL DEFAULT 'unknown_agent',
+					title TEXT NOT NULL,
+					symptom TEXT NOT NULL,
+					severity TEXT NOT NULL DEFAULT 'medium',
+					status TEXT NOT NULL DEFAULT 'new',
+					root_cause_category TEXT,
+					affected_files TEXT NOT NULL DEFAULT '[]',
+					recommended_action TEXT,
+					evidence TEXT NOT NULL DEFAULT '{}',
+					auto_fix_allowed INTEGER NOT NULL DEFAULT 0,
+					fix_attempts INTEGER NOT NULL DEFAULT 0,
+					created_at INTEGER NOT NULL,
+					updated_at INTEGER NOT NULL
+				);
+				CREATE INDEX idx_healing_incidents_status ON healing_incidents(status);
+				CREATE INDEX idx_healing_incidents_fingerprint ON healing_incidents(fingerprint);
+				CREATE INDEX idx_healing_incidents_feature ON healing_incidents(feature_key);
+				CREATE INDEX idx_healing_incidents_created ON healing_incidents(created_at);
+
+				CREATE TABLE healing_actions (
+					id TEXT PRIMARY KEY,
+					incident_id TEXT NOT NULL,
+					action_type TEXT NOT NULL,
+					actor_agent TEXT NOT NULL,
+					summary TEXT NOT NULL,
+					input TEXT NOT NULL DEFAULT '{}',
+					output TEXT NOT NULL DEFAULT '{}',
+					created_at INTEGER NOT NULL,
+					FOREIGN KEY (incident_id) REFERENCES healing_incidents(id) ON DELETE CASCADE
+				);
+				CREATE INDEX idx_healing_actions_incident ON healing_actions(incident_id);
+				CREATE INDEX idx_healing_actions_created ON healing_actions(created_at);
+			`)
+		},
+	},
 ]
 
 export class MemoryStore {

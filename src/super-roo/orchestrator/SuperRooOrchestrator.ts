@@ -36,6 +36,7 @@ import { InfiniteImprovementLoop } from "../ml/loop/InfiniteImprovementLoop"
 import { FileImporter } from "../import/FileImporter"
 import { DeployOrchestrator } from "../deploy/DeployOrchestrator"
 import { CrawlerAgent } from "../crawler/CrawlerAgent"
+import { SelfHealingLoop, HealingBus } from "../healing"
 
 export class SuperRooOrchestrator {
 	readonly memory: MemoryStore
@@ -46,6 +47,8 @@ export class SuperRooOrchestrator {
 	readonly agents: AgentRegistry
 
 	readonly mlLoop: InfiniteImprovementLoop
+	readonly healingLoop: SelfHealingLoop
+	readonly healingBus: HealingBus
 	readonly fileImporter: FileImporter
 	readonly deploy: DeployOrchestrator | null
 	readonly crawler: CrawlerAgent | null
@@ -66,6 +69,19 @@ export class SuperRooOrchestrator {
 		this.features = new FeatureRegistry(this.memory, this.events)
 		this.agents = new AgentRegistry()
 		this.mlLoop = new InfiniteImprovementLoop(this)
+		this.healingLoop = new SelfHealingLoop(this, {
+			cycleIntervalMs: config.healingCycleIntervalMs ?? 30000,
+			maxPerCycle: 10,
+			autoFixPolicies: {
+				low: config.healingAutoFixPolicies?.low ?? true,
+				medium: config.healingAutoFixPolicies?.medium ?? false,
+				high: config.healingAutoFixPolicies?.high ?? false,
+				critical: config.healingAutoFixPolicies?.critical ?? false,
+			},
+			suggestionOnly: false,
+			maxRetries: 3,
+		})
+		this.healingBus = this.healingLoop.getHealingBus()
 		this.fileImporter = new FileImporter(config.workspaceRoot ?? process.cwd())
 		this.deploy = config.githubToken
 			? new DeployOrchestrator({
@@ -92,6 +108,7 @@ export class SuperRooOrchestrator {
 		this.running = true
 		const recovered = this.queue.recoverOrphanedRunningTasks()
 		this.mlLoop.start()
+		this.healingLoop.start()
 		this.crawler?.start()
 		this.events.info("orchestrator.started", "Super Roo orchestrator started", {
 			data: {
@@ -100,6 +117,7 @@ export class SuperRooOrchestrator {
 				schemaVersion: this.memory.getSchemaVersion(),
 				recoveredOrphans: recovered,
 				mlLoop: true,
+				healingLoop: true,
 				crawler: !!this.crawler,
 				deploy: !!this.deploy,
 			},
@@ -111,6 +129,7 @@ export class SuperRooOrchestrator {
 		this.running = false
 		this.currentAbort?.abort()
 		await this.mlLoop.stop()
+		await this.healingLoop.stop()
 		await this.crawler?.stop()
 		if (this.loopHandle) {
 			try {

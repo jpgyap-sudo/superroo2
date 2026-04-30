@@ -230,7 +230,6 @@ export const ApiConfigSelector = ({
 								iconClass="codicon-settings-gear"
 								title={t("chat:edit")}
 								onClick={handleEditClick}
-								tooltip={false}
 							/>
 							<IconButton
 								iconClass={lockApiConfigAcrossModes ? "codicon-lock" : "codicon-unlock"}
@@ -239,7 +238,6 @@ export const ApiConfigSelector = ({
 										? t("chat:unlockApiConfigAcrossModes")
 										: t("chat:lockApiConfigAcrossModes")
 								}
-								className={lockApiConfigAcrossModes ? "text-vscode-focusBorder" : "opacity-60"}
 								onClick={onToggleLockApiConfig}
 							/>
 						</div>

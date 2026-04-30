@@ -42,7 +42,6 @@
 		"sonnet",
 		"ai",
 		"llama",
-		"superroo",
 		"superroo"
 	],
 	"activationEvents": [
@@ -65,7 +64,8 @@
 				{
 					"type": "webview",
 					"id": "superroo.SidebarProvider",
-					"name": "%views.sidebar.name%"
+					"name": "%views.sidebar.name%",
+					"icon": "assets/icons/icon.svg"
 				}
 			]
 		},
@@ -168,6 +168,11 @@
 			{
 				"command": "superroo.toggleAutoApprove",
 				"title": "%command.toggleAutoApprove.title%",
+				"category": "%configuration.title%"
+			},
+			{
+				"command": "superroo.focusPanel",
+				"title": "%command.focusPanel.title%",
 				"category": "%configuration.title%"
 			},
 			{

@@ -49,6 +49,35 @@ export { capabilityForSupabaseRequest, inferSqlIntent } from "./agents"
 
 export * from "./types"
 
+// Self-Healing module
+export {
+	HealingBus,
+	SelfHealingLoop,
+	makeIncidentFingerprint,
+	severityRank,
+	classifyRootCause,
+	classifyFromText,
+	isSecurityRisk,
+	requiresHumanApproval,
+	getDiagnosticSteps,
+	buildRepairPlan,
+	severityToPriority,
+	summarizeRepairPlan,
+	SelfHealingAgent,
+	createReportIncidentTask,
+	createRunHealingCycleTask,
+} from "./healing"
+export type {
+	HealingBusConfig,
+	IncidentFilter,
+	ClassificationResult,
+	ClassificationPattern,
+	RepairPlanOptions,
+	SelfHealingConfig,
+	SelfHealingStats,
+	SelfHealingAgentOptions,
+} from "./healing"
+
 // Machine Learning (deep learning + infinite improvement)
 export {
 	Tensor,

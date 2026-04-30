@@ -63,9 +63,9 @@ let outputChannel: vscode.OutputChannel
 let extensionContext: vscode.ExtensionContext
 let cloudService: CloudService | undefined
 
-let authStateChangedHandler: ((data: { state: AuthState; previousState: AuthState }) => Promise<void>) | undefined
-let settingsUpdatedHandler: (() => void) | undefined
-let userInfoHandler: ((data: { userInfo: CloudUserInfo }) => Promise<void>) | undefined
+let authStateChangedHandler: ((data: { state: AuthState; previousState: AuthState }) => void) | undefined
+let settingsUpdatedHandler: ((data: Record<string, never>) => void) | undefined
+let userInfoHandler: ((data: { userInfo: CloudUserInfo }) => void) | undefined
 
 /**
  * Check if we should auto-open the SuperRoo sidebar after switching to a worktree.
@@ -359,7 +359,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	registerCodeActions(context)
 	registerTerminalActions(context)
 
-	// Allows other extensions to activate once Roo is ready.
+	// Allows other extensions to activate once SuperRoo is ready.
 	vscode.commands.executeCommand(`${Package.name}.activationCompleted`)
 
 	// Implements the `SuperRooAPI` interface.
@@ -439,7 +439,7 @@ export async function deactivate() {
 			}
 
 			if (userInfoHandler) {
-				CloudService.instance.off("user-info", userInfoHandler as any)
+				CloudService.instance.off("user-info", userInfoHandler)
 			}
 
 			outputChannel.appendLine("CloudService event handlers cleaned up")

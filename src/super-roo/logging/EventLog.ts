@@ -40,7 +40,7 @@ export class EventLog {
 		this.mirror = opts.mirrorToConsole ?? false
 	}
 
-	emit(
+emit(
 		level: EventLevel,
 		type: EventType,
 		message: string,
@@ -49,6 +49,7 @@ export class EventLog {
 			agent?: string
 			featureId?: string
 			bugId?: string
+			incidentId?: string
 			codedBy?: string
 			data?: Record<string, unknown>
 		} = {},

@@ -4,11 +4,11 @@ import { z } from "zod"
  * CodeAction
  */
 
-export const codeActionIds = ["explainCode", "fixCode", "improveCode", "addToContext", "newTask"] as const
+export const codeActionIds = ["explainCode", "fixCode", "improveCode", "addToContext"] as const
 
 export type CodeActionId = (typeof codeActionIds)[number]
 
-export type CodeActionName = "EXPLAIN" | "FIX" | "IMPROVE" | "ADD_TO_CONTEXT" | "NEW_TASK"
+export type CodeActionName = "EXPLAIN" | "FIX" | "IMPROVE" | "ADD_TO_CONTEXT"
 
 /**
  * TerminalAction

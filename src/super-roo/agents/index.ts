@@ -33,3 +33,6 @@ export type {
 	SqlIntent,
 } from "./SupabaseRunner"
 export { capabilityForSupabaseRequest, inferSqlIntent } from "./SupabaseRunner"
+
+export { SelfHealingAgent, createReportIncidentTask, createRunHealingCycleTask } from "./SelfHealingAgent"
+export type { SelfHealingAgentOptions } from "./SelfHealingAgent"
