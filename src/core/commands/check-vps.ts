@@ -28,6 +28,9 @@ export async function runCheckVpsCommand(options: CheckVpsOptions): Promise<void
 		} catch (error) {
 			logWarn(`Health check failed: ${(error as Error).message}`)
 		}
+		if (attempt < retries) {
+			await new Promise((resolve) => setTimeout(resolve, 2000))
+		}
 	}
 
 	throw new Error(`Health check failed after ${retries} attempts: ${url}`)

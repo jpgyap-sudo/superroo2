@@ -12,7 +12,11 @@ export interface RunShellResult {
 	stderr: string
 }
 
-export async function runShellArgs(command: string, args: string[] = [], options: RunShellOptions = {}): Promise<RunShellResult> {
+export async function runShellArgs(
+	command: string,
+	args: string[] = [],
+	options: RunShellOptions = {},
+): Promise<RunShellResult> {
 	const cwd = options.cwd || process.cwd()
 
 	try {
@@ -21,7 +25,6 @@ export async function runShellArgs(command: string, args: string[] = [], options
 			env: process.env,
 			stdio: options.inheritStdio ? "inherit" : "pipe",
 			reject: false,
-			all: true,
 		} as any)
 
 		const finalCode = result.exitCode ?? 1
