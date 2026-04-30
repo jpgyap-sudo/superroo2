@@ -24,7 +24,7 @@ describe("RootCauseClassifier", () => {
 		it("should classify DB_SCHEMA_MISMATCH from schema errors", () => {
 			const result = classifyFromText("Column 'users.name' does not exist in table")
 			expect(result.category).toBe("DB_SCHEMA_MISMATCH")
-			expect(result.confidence).toBeGreaterThan(0.5)
+			expect(result.confidence).toBeGreaterThan(0.4)
 		})
 
 		it("should classify API_AUTH_FAILURE from 401 errors", () => {

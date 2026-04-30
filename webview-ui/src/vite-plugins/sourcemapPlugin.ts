@@ -92,6 +92,11 @@ export function sourcemapPlugin(): Plugin {
 							fs.writeFileSync(mapPath, JSON.stringify(mapContent, null, 2))
 							console.log(`Updated source map for ${jsFile}`)
 						} catch (error) {
+							if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+								console.warn(`Source map disappeared before processing ${jsFile}; skipping`)
+								continue
+							}
+
 							console.error(`Error processing source map for ${jsFile}:`, error)
 						}
 					} else {

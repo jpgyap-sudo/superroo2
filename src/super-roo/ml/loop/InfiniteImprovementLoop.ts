@@ -55,6 +55,7 @@ export class InfiniteImprovementLoop {
 	private codeLearner: CodeLearner
 	private debugLearner: DebugLearner
 	private testLearner: TestLearner
+	private wakeSleep: (() => void) | null = null
 
 	constructor(
 		private readonly orchestrator: SuperRooOrchestrator,
@@ -83,6 +84,7 @@ export class InfiniteImprovementLoop {
 	async stop(): Promise<void> {
 		if (!this.running) return
 		this.running = false
+		this.wakeSleep?.()
 		if (this.handle) {
 			try {
 				await this.handle
@@ -100,15 +102,36 @@ export class InfiniteImprovementLoop {
 	// ── Core loop ─────────────────────────────────────────────────────────────
 
 	private async loop(): Promise<void> {
+		let consecutiveFailures = 0
+		const maxConsecutiveFailures = 5
+
 		while (this.running && this.stats.iteration < this.config.maxIterations) {
 			this.stats.iteration++
 			try {
 				await this.observeAndLearn()
 				await this.predictAndAct()
+				consecutiveFailures = 0
 				await this.sleep(this.config.idleSleepMs)
 			} catch (err) {
+				consecutiveFailures++
 				const msg = err instanceof Error ? err.message : String(err)
-				this.orchestrator.events.error("ml.loop.error", `Loop error: ${msg}`)
+				this.orchestrator.events.error(
+					"ml.loop.error",
+					`Loop error (${consecutiveFailures}/${maxConsecutiveFailures}): ${msg}`,
+				)
+
+				if (consecutiveFailures >= maxConsecutiveFailures) {
+					this.orchestrator.events.error(
+						"ml.loop.fatal",
+						`Too many consecutive failures (${consecutiveFailures}), stopping loop`,
+					)
+					this.running = false
+					break
+				}
+
+				// Exponential backoff on error
+				const backoffMs = Math.min(this.config.idleSleepMs * Math.pow(2, consecutiveFailures - 1), 60000)
+				await this.sleep(backoffMs)
 			}
 		}
 	}
@@ -125,16 +148,62 @@ export class InfiniteImprovementLoop {
 		this.stats.totalSamples = codeSamples.length + debugSamples.length + testSamples.length
 
 		if (this.stats.totalSamples < this.config.minSamples) {
-			this.orchestrator.events.debug("ml.loop.observe", `Waiting for more samples (${this.stats.totalSamples}/${this.config.minSamples})`)
+			this.orchestrator.events.debug(
+				"ml.loop.observe",
+				`Waiting for more samples (${this.stats.totalSamples}/${this.config.minSamples})`,
+			)
 			return
 		}
 
-		// Train each learner
-		const codeLoss = this.codeLearner.train(codeSamples)
-		const debugLoss = this.debugLearner.train(debugSamples)
-		const testLoss = this.testLearner.train(testSamples)
+		// Train each learner with error handling
+		let codeLoss: { qualityLoss: number; successLoss: number; bugRiskLoss: number }
+		let debugLoss: { causeLoss: number; complexityLoss: number; fixSuccessLoss: number }
+		let testLoss: { failLoss: number; timeLoss: number; coverageLoss: number }
 
-		const avgLoss = (codeLoss.qualityLoss + debugLoss.causeLoss + testLoss.failLoss) / 3
+		try {
+			codeLoss = this.codeLearner.train(codeSamples)
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err)
+			this.orchestrator.events.error("ml.loop.train_error", `CodeLearner training failed: ${msg}`)
+			codeLoss = { qualityLoss: NaN, successLoss: NaN, bugRiskLoss: NaN }
+		}
+
+		try {
+			debugLoss = this.debugLearner.train(debugSamples)
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err)
+			this.orchestrator.events.error("ml.loop.train_error", `DebugLearner training failed: ${msg}`)
+			debugLoss = { causeLoss: NaN, complexityLoss: NaN, fixSuccessLoss: NaN }
+		}
+
+		try {
+			testLoss = this.testLearner.train(testSamples)
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err)
+			this.orchestrator.events.error("ml.loop.train_error", `TestLearner training failed: ${msg}`)
+			testLoss = { failLoss: NaN, timeLoss: NaN, coverageLoss: NaN }
+		}
+
+		// Validate losses are finite numbers
+		const allLosses = [
+			codeLoss.qualityLoss,
+			codeLoss.successLoss,
+			codeLoss.bugRiskLoss,
+			debugLoss.causeLoss,
+			debugLoss.complexityLoss,
+			debugLoss.fixSuccessLoss,
+			testLoss.failLoss,
+			testLoss.timeLoss,
+			testLoss.coverageLoss,
+		].filter((v) => !Number.isNaN(v))
+
+		if (allLosses.length === 0) {
+			this.orchestrator.events.warn("ml.loop.train_error", "All training losses are NaN, models may be corrupted")
+			this.stats.lastTrainLoss = NaN
+			return
+		}
+
+		const avgLoss = allLosses.reduce((a, b) => a + b, 0) / allLosses.length
 		this.stats.lastTrainLoss = avgLoss
 
 		this.orchestrator.events.info("ml.loop.learn", `Trained on ${this.stats.totalSamples} samples`, {
@@ -221,7 +290,8 @@ export class InfiniteImprovementLoop {
 		const capsCount = task.requiredCapabilities.length
 		const hasWrite = task.requiredCapabilities.includes("write.file") ? 1 : 0
 		const hasExecute = task.requiredCapabilities.includes("execute.command") ? 1 : 0
-		const priorityScore = task.priority === "critical" ? 1 : task.priority === "high" ? 0.75 : task.priority === "normal" ? 0.5 : 0.25
+		const priorityScore =
+			task.priority === "critical" ? 1 : task.priority === "high" ? 0.75 : task.priority === "normal" ? 0.5 : 0.25
 		const attempts = task.attempts
 		const isFollowup = task.parentTaskId ? 1 : 0
 
@@ -271,6 +341,25 @@ export class InfiniteImprovementLoop {
 	}
 
 	private sleep(ms: number): Promise<void> {
-		return new Promise((resolve) => setTimeout(resolve, ms))
+		if (!this.running) return Promise.resolve()
+
+		return new Promise((resolve) => {
+			const timeout = setTimeout(() => {
+				if (this.wakeSleep === wake) {
+					this.wakeSleep = null
+				}
+				resolve()
+			}, ms)
+
+			const wake = () => {
+				clearTimeout(timeout)
+				if (this.wakeSleep === wake) {
+					this.wakeSleep = null
+				}
+				resolve()
+			}
+
+			this.wakeSleep = wake
+		})
 	}
 }

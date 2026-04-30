@@ -123,7 +123,10 @@ export class Tensor {
 		if (other.rows === 1 && other.cols === 1) {
 			return this.add(other.get(0, 0))
 		}
-		throw new Error(`Shape mismatch in add: [${this.rows},${this.cols}] vs [${other.rows},${other.cols}]`)
+		throw new Error(
+			`Tensor shape mismatch in 'add': Cannot add tensors with shapes [${this.rows},${this.cols}] and [${other.rows},${other.cols}]. ` +
+				"Ensure both tensors have the same dimensions, or one is a scalar (1,1) or row vector (1,cols).",
+		)
 	}
 
 	sub(other: Tensor | number): Tensor {
@@ -149,7 +152,10 @@ export class Tensor {
 		if (other.rows === 1 && other.cols === 1) {
 			return this.sub(other.get(0, 0))
 		}
-		throw new Error(`Shape mismatch in sub: [${this.rows},${this.cols}] vs [${other.rows},${other.cols}]`)
+		throw new Error(
+			`Tensor shape mismatch in 'sub': Cannot subtract tensors with shapes [${this.rows},${this.cols}] and [${other.rows},${other.cols}]. ` +
+				"Ensure both tensors have the same dimensions, or one is a scalar (1,1) or row vector (1,cols).",
+		)
 	}
 
 	mul(other: Tensor | number): Tensor {
@@ -175,7 +181,10 @@ export class Tensor {
 		if (other.rows === 1 && other.cols === 1) {
 			return this.mul(other.get(0, 0))
 		}
-		throw new Error(`Shape mismatch in mul: [${this.rows},${this.cols}] vs [${other.rows},${other.cols}]`)
+		throw new Error(
+			`Tensor shape mismatch in 'mul': Cannot multiply tensors with shapes [${this.rows},${this.cols}] and [${other.rows},${other.cols}]. ` +
+				"Ensure both tensors have the same dimensions, or one is a scalar (1,1) or row vector (1,cols).",
+		)
 	}
 
 	div(other: Tensor | number): Tensor {
@@ -201,7 +210,10 @@ export class Tensor {
 		if (other.rows === 1 && other.cols === 1) {
 			return this.div(other.get(0, 0))
 		}
-		throw new Error(`Shape mismatch in div: [${this.rows},${this.cols}] vs [${other.rows},${other.cols}]`)
+		throw new Error(
+			`Tensor shape mismatch in 'div': Cannot divide tensors with shapes [${this.rows},${this.cols}] and [${other.rows},${other.cols}]. ` +
+				"Ensure both tensors have the same dimensions, or one is a scalar (1,1) or row vector (1,cols).",
+		)
 	}
 
 	pow(exp: number): Tensor {
@@ -252,8 +264,24 @@ export class Tensor {
 
 	matmul(other: Tensor): Tensor {
 		if (this.cols !== other.rows) {
-			throw new Error(`Matmul shape mismatch: [${this.rows},${this.cols}] × [${other.rows},${other.cols}]`)
+			throw new Error(
+				`Tensor shape mismatch in 'matmul': Cannot multiply [${this.rows},${this.cols}] × [${other.rows},${other.cols}]. ` +
+					`The number of columns in the first tensor (${this.cols}) must equal the number of rows in the second tensor (${other.rows}).`,
+			)
 		}
+
+		// Use optimized matrix multiplication for large matrices
+		const LARGE_MATRIX_THRESHOLD = 64
+		const useOptimization =
+			this.rows > LARGE_MATRIX_THRESHOLD ||
+			this.cols > LARGE_MATRIX_THRESHOLD ||
+			other.cols > LARGE_MATRIX_THRESHOLD
+
+		if (useOptimization) {
+			return this.matmulOptimized(other)
+		}
+
+		// Standard matrix multiplication for smaller matrices
 		const out = new Tensor(this.rows, other.cols, "zeros")
 		for (let i = 0; i < this.rows; i++) {
 			for (let k = 0; k < this.cols; k++) {
@@ -261,6 +289,37 @@ export class Tensor {
 				if (aik === 0) continue
 				for (let j = 0; j < other.cols; j++) {
 					out.data[i * other.cols + j] += aik * other.get(k, j)
+				}
+			}
+		}
+		return out
+	}
+
+	/**
+	 * Optimized matrix multiplication using tiling for cache efficiency.
+	 * Improves performance for large matrices by reducing cache misses.
+	 */
+	private matmulOptimized(other: Tensor): Tensor {
+		const out = new Tensor(this.rows, other.cols, "zeros")
+		const TILE_SIZE = 32 // Tune based on typical CPU cache line size
+
+		for (let i0 = 0; i0 < this.rows; i0 += TILE_SIZE) {
+			for (let j0 = 0; j0 < other.cols; j0 += TILE_SIZE) {
+				for (let k0 = 0; k0 < this.cols; k0 += TILE_SIZE) {
+					// Process tile
+					const iMax = Math.min(i0 + TILE_SIZE, this.rows)
+					const jMax = Math.min(j0 + TILE_SIZE, other.cols)
+					const kMax = Math.min(k0 + TILE_SIZE, this.cols)
+
+					for (let i = i0; i < iMax; i++) {
+						for (let k = k0; k < kMax; k++) {
+							const aik = this.get(i, k)
+							if (aik === 0) continue
+							for (let j = j0; j < jMax; j++) {
+								out.data[i * other.cols + j] += aik * other.get(k, j)
+							}
+						}
+					}
 				}
 			}
 		}

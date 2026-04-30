@@ -29,9 +29,19 @@ import type {
 	RootCauseCategory,
 	RepairPlan,
 } from "../types"
+import { BugSeverity as BugSeverityEnum, IncidentStatus as IncidentStatusEnum } from "../types"
 import type { MemoryStore } from "../memory/MemoryStore"
 import type { EventLog } from "../logging/EventLog"
 import { v4 as uuidv4 } from "uuid"
+
+/** Maximum length for incident title to prevent DB issues */
+const MAX_TITLE_LENGTH = 500
+/** Maximum length for incident symptom to prevent DB issues */
+const MAX_SYMPTOM_LENGTH = 2000
+/** Maximum number of affected files allowed */
+const MAX_AFFECTED_FILES = 100
+/** Maximum age in days for healing actions before cleanup */
+const DEFAULT_ACTION_CLEANUP_DAYS = 30
 
 export interface HealingBusConfig {
 	/** Auto-fix policies by severity */
@@ -63,12 +73,9 @@ export function makeIncidentFingerprint(input: {
 	title?: string
 	symptom?: string
 }): string {
-	const key = [
-		input.featureKey ?? "global",
-		input.sourceAgent ?? "unknown",
-		input.title ?? "",
-		input.symptom ?? "",
-	].join("|").toLowerCase()
+	const key = [input.featureKey ?? "global", input.sourceAgent ?? "unknown", input.title ?? "", input.symptom ?? ""]
+		.join("|")
+		.toLowerCase()
 
 	return createHash("sha256").update(key).digest("hex").slice(0, 32)
 }
@@ -105,10 +112,81 @@ export class HealingBus {
 	}
 
 	/**
+	 * Validate incident input data.
+	 * @throws Error if validation fails
+	 */
+	private validateIncidentInput(input: IncidentInputRaw): void {
+		// Validate title
+		if (typeof input.title !== "string") {
+			throw new Error("IncidentInputRaw.title is required and must be a string")
+		}
+		if (input.title.trim().length === 0) {
+			throw new Error("IncidentInputRaw.title cannot be empty")
+		}
+		if (input.title.length > MAX_TITLE_LENGTH) {
+			throw new Error(`IncidentInputRaw.title exceeds maximum length of ${MAX_TITLE_LENGTH} characters`)
+		}
+
+		// Validate symptom
+		if (typeof input.symptom !== "string") {
+			throw new Error("IncidentInputRaw.symptom is required and must be a string")
+		}
+		if (input.symptom.trim().length === 0) {
+			throw new Error("IncidentInputRaw.symptom cannot be empty")
+		}
+		if (input.symptom.length > MAX_SYMPTOM_LENGTH) {
+			throw new Error(`IncidentInputRaw.symptom exceeds maximum length of ${MAX_SYMPTOM_LENGTH} characters`)
+		}
+
+		// Validate severity if provided
+		if (input.severity !== undefined) {
+			const validSeverities = Object.values(BugSeverityEnum)
+			if (!validSeverities.includes(input.severity)) {
+				throw new Error(`Invalid severity: ${input.severity}. Must be one of: ${validSeverities.join(", ")}`)
+			}
+		}
+
+		// Validate status if provided
+		if (input.status !== undefined) {
+			const validStatuses = Object.values(IncidentStatusEnum)
+			if (!validStatuses.includes(input.status)) {
+				throw new Error(`Invalid status: ${input.status}. Must be one of: ${validStatuses.join(", ")}`)
+			}
+		}
+
+		// Validate affectedFiles if provided
+		if (input.affectedFiles !== undefined) {
+			if (!Array.isArray(input.affectedFiles)) {
+				throw new Error("IncidentInputRaw.affectedFiles must be an array")
+			}
+			if (input.affectedFiles.length > MAX_AFFECTED_FILES) {
+				throw new Error(`IncidentInputRaw.affectedFiles exceeds maximum of ${MAX_AFFECTED_FILES} files`)
+			}
+			for (const file of input.affectedFiles) {
+				if (typeof file !== "string") {
+					throw new Error("IncidentInputRaw.affectedFiles must contain only strings")
+				}
+			}
+		}
+
+		// Validate evidence is serializable
+		if (input.evidence !== undefined) {
+			try {
+				JSON.stringify(input.evidence)
+			} catch {
+				throw new Error("IncidentInputRaw.evidence must be JSON-serializable")
+			}
+		}
+	}
+
+	/**
 	 * Report a new incident or update existing by fingerprint.
 	 * Uses upsert pattern to prevent duplicate incidents.
 	 */
 	async reportIncident(input: IncidentInputRaw): Promise<IncidentRecord> {
+		// Validate input before processing
+		this.validateIncidentInput(input)
+
 		const fingerprint = input.fingerprint ?? makeIncidentFingerprint(input)
 		const now = Date.now()
 
@@ -134,15 +212,15 @@ export class HealingBus {
 			fingerprint,
 			featureKey: input.featureKey ?? null,
 			sourceAgent: input.sourceAgent ?? "unknown_agent",
-			title: input.title,
-			symptom: input.symptom,
+			title: input.title.trim(),
+			symptom: input.symptom.trim(),
 			severity: input.severity ?? "medium",
 			status: input.status ?? "new",
 			rootCauseCategory: input.rootCauseCategory ?? null,
 			affectedFiles: JSON.stringify(input.affectedFiles ?? []),
 			recommendedAction: input.recommendedAction ?? null,
 			evidence: JSON.stringify(input.evidence ?? {}),
-			autoFixAllowed: input.autoFixAllowed ?? false ? 1 : 0,
+			autoFixAllowed: input.autoFixAllowed === undefined ? 0 : input.autoFixAllowed ? 1 : -1,
 			createdAt: now,
 			updatedAt: now,
 		}
@@ -168,7 +246,14 @@ export class HealingBus {
 			data: { severity: incident.severity, sourceAgent: incident.sourceAgent, fingerprint },
 		})
 
-		await this.logHealingAction(id, "incident_reported", incident.sourceAgent, "Incident reported", { input }, { incident })
+		await this.logHealingAction(
+			id,
+			"incident_reported",
+			incident.sourceAgent,
+			"Incident reported",
+			{ input },
+			{ incident },
+		)
 
 		return incident
 	}
@@ -177,10 +262,9 @@ export class HealingBus {
 	 * Get a single incident by ID.
 	 */
 	get(id: string): IncidentRecord | null {
-		const row = this.memory
-			.getDb()
-			.prepare("SELECT * FROM healing_incidents WHERE id = ?")
-			.get(id) as HealingIncidentRow | undefined
+		const row = this.memory.getDb().prepare("SELECT * FROM healing_incidents WHERE id = ?").get(id) as
+			| HealingIncidentRow
+			| undefined
 
 		return row ? rowToIncident(row) : null
 	}
@@ -305,7 +389,7 @@ export class HealingBus {
 		}
 		if (patch.autoFixAllowed !== undefined) {
 			updates.push("auto_fix_allowed = @autoFixAllowed")
-			params.autoFixAllowed = patch.autoFixAllowed ? 1 : 0
+			params.autoFixAllowed = patch.autoFixAllowed ? 1 : -1
 		}
 		if (patch.fixAttempts !== undefined) {
 			updates.push("fix_attempts = @fixAttempts")
@@ -332,7 +416,10 @@ export class HealingBus {
 	 */
 	isAutoFixAllowed(incident: IncidentRecord): boolean {
 		if (!this.config.autoFixEnabled) return false
-		if (incident.autoFixAllowed === true) return true
+		const autoFixOverride = (incident as IncidentRecord & { autoFixOverride?: boolean | null }).autoFixOverride
+		if (autoFixOverride !== undefined && autoFixOverride !== null) {
+			return autoFixOverride
+		}
 
 		const policy = this.config.autoFixPolicies?.[incident.severity]
 		return policy === true
@@ -389,10 +476,109 @@ export class HealingBus {
 	getHealingActions(incidentId: string): HealingActionRecord[] {
 		const rows = this.memory
 			.getDb()
-			.prepare("SELECT * FROM healing_actions WHERE incident_id = ? ORDER BY created_at DESC")
+			.prepare("SELECT * FROM healing_actions WHERE incident_id = ? ORDER BY created_at DESC, rowid DESC")
 			.all(incidentId) as HealingActionRow[]
 
 		return rows.map(rowToHealingAction)
+	}
+
+	/**
+	 * Cleanup old healing actions to prevent unbounded database growth.
+	 * @param maxAgeDays Maximum age in days (default: 30)
+	 * @returns Number of actions deleted
+	 */
+	cleanupOldHealingActions(maxAgeDays = DEFAULT_ACTION_CLEANUP_DAYS): number {
+		const cutoffTime = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000
+		const result = this.memory.getDb().prepare("DELETE FROM healing_actions WHERE created_at <= ?").run(cutoffTime)
+
+		const deleted = result.changes
+		if (deleted > 0) {
+			this.events.info("healing.cleanup_actions", `Cleaned up ${deleted} old healing actions`, {
+				data: { maxAgeDays, cutoffTime },
+			})
+		}
+		return deleted
+	}
+
+	/**
+	 * Get healing metrics for analysis and monitoring.
+	 */
+	getHealingMetrics(): {
+		totalIncidents: number
+		openIncidents: number
+		verifiedIncidents: number
+		blockedIncidents: number
+		autoFixSuccessRate: number
+		averageTimeToResolution: number | null
+		incidentsBySeverity: Record<BugSeverity, number>
+		incidentsByStatus: Record<IncidentStatus, number>
+	} {
+		const db = this.memory.getDb()
+
+		// Get total counts by status
+		const statusCounts = db
+			.prepare("SELECT status, COUNT(*) as count FROM healing_incidents GROUP BY status")
+			.all() as { status: string; count: number }[]
+
+		const incidentsByStatus = {} as Record<IncidentStatus, number>
+		for (const { status, count } of statusCounts) {
+			incidentsByStatus[status as IncidentStatus] = count
+		}
+
+		// Get counts by severity
+		const severityCounts = db
+			.prepare("SELECT severity, COUNT(*) as count FROM healing_incidents GROUP BY severity")
+			.all() as { severity: string; count: number }[]
+
+		const incidentsBySeverity = {} as Record<BugSeverity, number>
+		for (const { severity, count } of severityCounts) {
+			incidentsBySeverity[severity as BugSeverity] = count
+		}
+
+		// Calculate auto-fix success rate
+		const autoFixed = db
+			.prepare(
+				`SELECT COUNT(*) as count FROM healing_actions
+				 WHERE action_type = 'state_transition'
+				 AND summary LIKE '%→ verified%'`,
+			)
+			.get() as { count: number }
+
+		const totalResolved = db
+			.prepare("SELECT COUNT(*) as count FROM healing_incidents WHERE status = 'verified'")
+			.get() as { count: number }
+
+		const autoFixSuccessRate = totalResolved.count > 0 ? autoFixed.count / totalResolved.count : 0
+
+		// Calculate average time to resolution
+		const resolutionTimes = db
+			.prepare(
+				`SELECT AVG(updated_at - created_at) as avg_time
+				 FROM healing_incidents
+				 WHERE status = 'verified' AND updated_at > created_at`,
+			)
+			.get() as { avg_time: number | null }
+
+		const totalResult = db.prepare("SELECT COUNT(*) as count FROM healing_incidents").get() as { count: number }
+
+		return {
+			totalIncidents: totalResult.count,
+			openIncidents:
+				(incidentsByStatus["new"] ?? 0) +
+				(incidentsByStatus["investigating"] ?? 0) +
+				(incidentsByStatus["queued_for_fix"] ?? 0) +
+				(incidentsByStatus["fixing"] ?? 0) +
+				(incidentsByStatus["fix_ready"] ?? 0) +
+				(incidentsByStatus["deployed"] ?? 0) +
+				(incidentsByStatus["verifying"] ?? 0) +
+				(incidentsByStatus["reopened"] ?? 0),
+			verifiedIncidents: incidentsByStatus["verified"] ?? 0,
+			blockedIncidents: incidentsByStatus["blocked"] ?? 0,
+			autoFixSuccessRate,
+			averageTimeToResolution: resolutionTimes.avg_time,
+			incidentsBySeverity,
+			incidentsByStatus,
+		}
 	}
 
 	/**
@@ -496,10 +682,11 @@ function rowToIncident(row: HealingIncidentRow): IncidentRecord {
 		recommendedAction: row.recommended_action,
 		evidence: safeJsonParse<Record<string, unknown>>(row.evidence, {}),
 		autoFixAllowed: row.auto_fix_allowed === 1,
+		autoFixOverride: row.auto_fix_allowed === 0 ? null : row.auto_fix_allowed === 1,
 		fixAttempts: row.fix_attempts ?? 0,
 		createdAt: row.created_at,
 		updatedAt: row.updated_at,
-	}
+	} as IncidentRecord & { autoFixOverride: boolean | null }
 }
 
 function rowToHealingAction(row: HealingActionRow): HealingActionRecord {

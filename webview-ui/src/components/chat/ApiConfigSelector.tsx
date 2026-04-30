@@ -238,6 +238,7 @@ export const ApiConfigSelector = ({
 										? t("chat:unlockApiConfigAcrossModes")
 										: t("chat:lockApiConfigAcrossModes")
 								}
+								className={lockApiConfigAcrossModes ? "text-vscode-focusBorder" : "opacity-60"}
 								onClick={onToggleLockApiConfig}
 							/>
 						</div>

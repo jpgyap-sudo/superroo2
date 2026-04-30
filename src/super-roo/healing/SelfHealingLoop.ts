@@ -20,13 +20,7 @@
  *   queued_for_fix → needs_human_approval
  */
 
-import type {
-	IncidentRecord,
-	IncidentStatus,
-	RootCauseCategory,
-	TaskInputRaw,
-	TaskPriority,
-} from "../types"
+import type { IncidentRecord, IncidentStatus, RootCauseCategory, TaskInputRaw, TaskPriority } from "../types"
 import type { SuperRooOrchestrator } from "../orchestrator/SuperRooOrchestrator"
 import { HealingBus } from "./HealingBus"
 import { classifyRootCause, requiresHumanApproval } from "./RootCauseClassifier"
@@ -48,6 +42,14 @@ export interface SelfHealingConfig {
 	suggestionOnly: boolean
 	/** Max retry attempts for reopened incidents */
 	maxRetries: number
+	/** Max consecutive failures before circuit breaker opens. Default: 5 */
+	circuitBreakerThreshold?: number
+	/** Milliseconds to wait after circuit breaker opens. Default: 300000 (5m) */
+	circuitBreakerTimeoutMs?: number
+	/** Max backoff delay between cycles on error. Default: 300000 (5m) */
+	maxBackoffMs?: number
+	/** Cleanup old healing actions every N cycles. Default: 10 */
+	cleanupIntervalCycles?: number
 }
 
 export interface SelfHealingStats {
@@ -60,6 +62,10 @@ export interface SelfHealingStats {
 	incidentsVerified: number
 	lastCycleAt: number | null
 	isRunning: boolean
+	/** Number of consecutive cycle failures */
+	consecutiveFailures: number
+	/** Whether circuit breaker is currently open */
+	circuitBreakerOpen: boolean
 }
 
 export class SelfHealingLoop {
@@ -75,13 +81,19 @@ export class SelfHealingLoop {
 		incidentsVerified: 0,
 		lastCycleAt: null,
 		isRunning: false,
+		consecutiveFailures: 0,
+		circuitBreakerOpen: false,
 	}
 
 	private healingBus: HealingBus
+	private currentBackoffMs = 0
+	private cycleCount = 0
+	private readonly config: Required<SelfHealingConfig>
+	private wakeSleep: (() => void) | null = null
 
 	constructor(
 		private readonly orchestrator: SuperRooOrchestrator,
-		private readonly config: SelfHealingConfig = {
+		config: SelfHealingConfig = {
 			cycleIntervalMs: 30000,
 			maxPerCycle: 10,
 			autoFixPolicies: {
@@ -92,11 +104,22 @@ export class SelfHealingLoop {
 			},
 			suggestionOnly: false,
 			maxRetries: 3,
+			circuitBreakerThreshold: 5,
+			circuitBreakerTimeoutMs: 300000,
+			maxBackoffMs: 300000,
+			cleanupIntervalCycles: 10,
 		},
 	) {
+		this.config = {
+			circuitBreakerThreshold: 5,
+			circuitBreakerTimeoutMs: 300000,
+			maxBackoffMs: 300000,
+			cleanupIntervalCycles: 10,
+			...config,
+		}
 		this.healingBus = new HealingBus(orchestrator.memory, orchestrator.events, {
-			autoFixEnabled: !config.suggestionOnly,
-			autoFixPolicies: config.autoFixPolicies,
+			autoFixEnabled: !this.config.suggestionOnly,
+			autoFixPolicies: this.config.autoFixPolicies,
 		})
 	}
 
@@ -122,6 +145,7 @@ export class SelfHealingLoop {
 		if (!this.running) return
 		this.running = false
 		this.stats.isRunning = false
+		this.wakeSleep?.()
 		if (this.handle) {
 			try {
 				await this.handle
@@ -146,17 +170,75 @@ export class SelfHealingLoop {
 
 	private async loop(): Promise<void> {
 		while (this.running) {
+			// Circuit breaker check
+			if (this.stats.circuitBreakerOpen) {
+				this.orchestrator.events.warn("healing.loop.circuit_breaker", "Circuit breaker is open, skipping cycle")
+				await this.sleep(this.config.circuitBreakerTimeoutMs)
+				this.stats.circuitBreakerOpen = false
+				this.stats.consecutiveFailures = 0
+				this.currentBackoffMs = 0
+				this.orchestrator.events.info(
+					"healing.loop.circuit_breaker",
+					"Circuit breaker closed, resuming normal operation",
+				)
+				continue
+			}
+
+			let cycleSuccess = false
 			try {
 				await this.runHealingCycle()
 				this.stats.cyclesCompleted++
 				this.stats.lastCycleAt = Date.now()
+				this.stats.consecutiveFailures = 0
+				this.currentBackoffMs = 0
+				cycleSuccess = true
 			} catch (err) {
+				this.stats.consecutiveFailures++
 				const msg = err instanceof Error ? err.message : String(err)
-				this.orchestrator.events.error("healing.loop.cycle_error", `Healing cycle failed: ${msg}`)
+				this.orchestrator.events.error(
+					"healing.loop.cycle_error",
+					`Healing cycle failed (${this.stats.consecutiveFailures} consecutive): ${msg}`,
+				)
+
+				// Check if circuit breaker should open
+				if (this.stats.consecutiveFailures >= this.config.circuitBreakerThreshold) {
+					this.stats.circuitBreakerOpen = true
+					this.orchestrator.events.error(
+						"healing.loop.circuit_breaker",
+						`Circuit breaker opened after ${this.stats.consecutiveFailures} failures`,
+					)
+				}
 			}
 
-			await this.sleep(this.config.cycleIntervalMs)
+			// Cleanup old healing actions periodically
+			this.cycleCount++
+			if (cycleSuccess && this.cycleCount % this.config.cleanupIntervalCycles === 0) {
+				try {
+					const deleted = this.healingBus.cleanupOldHealingActions()
+					this.orchestrator.events.debug("healing.loop.cleanup", `Cleaned up ${deleted} old healing actions`)
+				} catch (cleanupErr) {
+					const msg = cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)
+					this.orchestrator.events.warn("healing.loop.cleanup_error", `Failed to cleanup old actions: ${msg}`)
+				}
+			}
+
+			// Calculate backoff delay for next cycle
+			const delay = cycleSuccess ? this.config.cycleIntervalMs : this.getBackoffDelay()
+			await this.sleep(delay)
 		}
+	}
+
+	/**
+	 * Calculate exponential backoff delay with jitter.
+	 */
+	private getBackoffDelay(): number {
+		const baseDelay = Math.min(
+			this.config.cycleIntervalMs * Math.pow(2, this.stats.consecutiveFailures - 1),
+			this.config.maxBackoffMs,
+		)
+		// Add jitter (±25%) to prevent thundering herd
+		const jitter = baseDelay * 0.25 * (Math.random() * 2 - 1)
+		return Math.floor(baseDelay + jitter)
 	}
 
 	/**
@@ -167,11 +249,23 @@ export class SelfHealingLoop {
 		const actions: string[] = []
 
 		for (const incident of incidents) {
-			const action = await this.processIncident(incident)
-			if (action) {
-				actions.push(`${incident.id}: ${action}`)
+			try {
+				const action = await this.processIncident(incident)
+				if (action) {
+					actions.push(`${incident.id}: ${action}`)
+				}
+				this.stats.incidentsProcessed++
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err)
+				this.orchestrator.events.error(
+					"healing.loop.incident_error",
+					`Failed to process incident ${incident.id}: ${msg}`,
+					{
+						incidentId: incident.id,
+					},
+				)
+				// Continue processing other incidents - don't let one failure stop the cycle
 			}
-			this.stats.incidentsProcessed++
 		}
 
 		return { processed: incidents.length, actions }
@@ -205,7 +299,7 @@ export class SelfHealingLoop {
 				return await this.processReopenedIncident(incident)
 			default:
 				return null
-			}
+		}
 	}
 
 	// ────────────────────────────────────────────────────────────────────────────
@@ -214,12 +308,9 @@ export class SelfHealingLoop {
 
 	private async processNewIncident(incident: IncidentRecord): Promise<string> {
 		// Transition to investigating
-		await this.healingBus.transitionState(
-			incident.id,
-			"investigating",
-			"self_healing_loop",
-			{ reason: "Starting investigation" },
-		)
+		await this.healingBus.transitionState(incident.id, "investigating", "self_healing_loop", {
+			reason: "Starting investigation",
+		})
 
 		// Classify root cause
 		const classification = classifyRootCause(incident)
@@ -254,23 +345,17 @@ export class SelfHealingLoop {
 
 		if (autoFixAllowed) {
 			// Queue for automatic fix
-			await this.healingBus.transitionState(
-				incident.id,
-				"queued_for_fix",
-				"self_healing_loop",
-				{ autoFixAllowed: true },
-			)
+			await this.healingBus.transitionState(incident.id, "queued_for_fix", "self_healing_loop", {
+				autoFixAllowed: true,
+			})
 			this.stats.incidentsQueuedForFix++
 			return "queued_for_auto_fix"
 		}
 
 		// Requires human approval
-		await this.healingBus.transitionState(
-			incident.id,
-			"needs_human_approval",
-			"self_healing_loop",
-			{ reason: requiresHumanApproval(category) ? "category_requires_approval" : "auto_fix_disabled" },
-		)
+		await this.healingBus.transitionState(incident.id, "needs_human_approval", "self_healing_loop", {
+			reason: requiresHumanApproval(category) ? "category_requires_approval" : "auto_fix_disabled",
+		})
 		this.stats.incidentsNeedHumanApproval++
 
 		// Create a task for human review
@@ -281,12 +366,9 @@ export class SelfHealingLoop {
 
 	private async processQueuedIncident(incident: IncidentRecord): Promise<string> {
 		// Transition to fixing and queue a coder task
-		await this.healingBus.transitionState(
-			incident.id,
-			"fixing",
-			"self_healing_loop",
-			{ reason: "Starting automated fix" },
-		)
+		await this.healingBus.transitionState(incident.id, "fixing", "self_healing_loop", {
+			reason: "Starting automated fix",
+		})
 
 		// Queue a fix task
 		this.queueFixTask(incident)
@@ -303,12 +385,10 @@ export class SelfHealingLoop {
 		const timeoutMs = 10 * 60 * 1000 // 10 minutes
 
 		if (elapsed > timeoutMs) {
-			await this.healingBus.transitionState(
-				incident.id,
-				"blocked",
-				"self_healing_loop",
-				{ reason: "fix_timeout", elapsedMs: elapsed },
-			)
+			await this.healingBus.transitionState(incident.id, "blocked", "self_healing_loop", {
+				reason: "fix_timeout",
+				elapsedMs: elapsed,
+			})
 			this.stats.incidentsBlocked++
 			return "blocked_timeout"
 		}
@@ -318,24 +398,18 @@ export class SelfHealingLoop {
 
 	private async processFixReadyIncident(incident: IncidentRecord): Promise<string> {
 		// Mark as deployed (in real impl, this would be done by deploy checker)
-		await this.healingBus.transitionState(
-			incident.id,
-			"deployed",
-			"self_healing_loop",
-			{ reason: "Fix ready for deployment" },
-		)
+		await this.healingBus.transitionState(incident.id, "deployed", "self_healing_loop", {
+			reason: "Fix ready for deployment",
+		})
 
 		return "marked_deployed"
 	}
 
 	private async processDeployedIncident(incident: IncidentRecord): Promise<string> {
 		// Start verification
-		await this.healingBus.transitionState(
-			incident.id,
-			"verifying",
-			"self_healing_loop",
-			{ reason: "Starting verification" },
-		)
+		await this.healingBus.transitionState(incident.id, "verifying", "self_healing_loop", {
+			reason: "Starting verification",
+		})
 
 		// Queue a verification task
 		this.queueVerificationTask(incident)
@@ -352,12 +426,10 @@ export class SelfHealingLoop {
 
 		if (elapsed > timeoutMs) {
 			// Verification timed out - reopen
-			await this.healingBus.transitionState(
-				incident.id,
-				"reopened",
-				"self_healing_loop",
-				{ reason: "verification_timeout", elapsedMs: elapsed },
-			)
+			await this.healingBus.transitionState(incident.id, "reopened", "self_healing_loop", {
+				reason: "verification_timeout",
+				elapsedMs: elapsed,
+			})
 			return "reopened_timeout"
 		}
 
@@ -369,23 +441,19 @@ export class SelfHealingLoop {
 		const fixAttempts = incident.fixAttempts ?? 0
 
 		if (fixAttempts >= this.config.maxRetries) {
-			await this.healingBus.transitionState(
-				incident.id,
-				"blocked",
-				"self_healing_loop",
-				{ reason: "max_retries_exceeded", attempts: fixAttempts },
-			)
+			await this.healingBus.transitionState(incident.id, "blocked", "self_healing_loop", {
+				reason: "max_retries_exceeded",
+				attempts: fixAttempts,
+			})
 			this.stats.incidentsBlocked++
 			return "blocked_max_retries"
 		}
 
 		// Re-classify and try again
-		await this.healingBus.transitionState(
-			incident.id,
-			"investigating",
-			"self_healing_loop",
-			{ reason: "reopened_retry", attempt: fixAttempts + 1 },
-		)
+		await this.healingBus.transitionState(incident.id, "investigating", "self_healing_loop", {
+			reason: "reopened_retry",
+			attempt: fixAttempts + 1,
+		})
 
 		return "retrying"
 	}
@@ -408,7 +476,8 @@ export class SelfHealingLoop {
 				rootCauseCategory: category,
 				symptom: incident.symptom,
 				affectedFiles: incident.affectedFiles,
-				systemPromptOverlay: `You are fixing an incident classified as ${category}. ` +
+				systemPromptOverlay:
+					`You are fixing an incident classified as ${category}. ` +
 					`Apply the smallest safe patch. Run targeted tests. ` +
 					`Do not change unrelated code.`,
 			},
@@ -430,7 +499,8 @@ export class SelfHealingLoop {
 				incidentId: incident.id,
 				verificationType: "incident_fix",
 				testsToRun: ["npx vitest run --reporter=verbose"],
-				systemPromptOverlay: `Verify that incident ${incident.id} is resolved. ` +
+				systemPromptOverlay:
+					`Verify that incident ${incident.id} is resolved. ` +
 					`Run the specific failing test first, then full suite. ` +
 					`Report results back to healing system.`,
 			},
@@ -455,7 +525,8 @@ export class SelfHealingLoop {
 				reason: requiresHumanApproval(category)
 					? `Category ${category} requires human approval`
 					: "Auto-fix disabled by policy",
-				systemPromptOverlay: `This incident requires human review before fixing. ` +
+				systemPromptOverlay:
+					`This incident requires human review before fixing. ` +
 					`Category: ${category}. Severity: ${incident.severity}. ` +
 					`Please review and approve or reject the proposed fix.`,
 			},
@@ -478,6 +549,25 @@ export class SelfHealingLoop {
 	}
 
 	private sleep(ms: number): Promise<void> {
-		return new Promise((resolve) => setTimeout(resolve, ms))
+		if (!this.running) return Promise.resolve()
+
+		return new Promise((resolve) => {
+			const timeout = setTimeout(() => {
+				if (this.wakeSleep === wake) {
+					this.wakeSleep = null
+				}
+				resolve()
+			}, ms)
+
+			const wake = () => {
+				clearTimeout(timeout)
+				if (this.wakeSleep === wake) {
+					this.wakeSleep = null
+				}
+				resolve()
+			}
+
+			this.wakeSleep = wake
+		})
 	}
 }

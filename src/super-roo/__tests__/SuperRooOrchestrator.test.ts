@@ -39,7 +39,7 @@ describe("SuperRooOrchestrator — lifecycle", () => {
 		orch.start()
 		const ev = orch.events.recent({ type: "orchestrator.started" })[0]
 		expect(ev).toBeDefined()
-		expect(ev.data).toMatchObject({ mode: "AUTO", schemaVersion: 1 })
+		expect(ev.data).toMatchObject({ mode: "AUTO", schemaVersion: 3 })
 	})
 
 	it("processNext returns 'idle' when queue is empty", async () => {
@@ -65,7 +65,11 @@ describe("SuperRooOrchestrator — agent dispatch", () => {
 	let orch: SuperRooOrchestrator
 
 	beforeEach(() => {
-		orch = new SuperRooOrchestrator({ dbPath: ":memory:", initialMode: SafetyMode.AUTO })
+		orch = new SuperRooOrchestrator({
+			dbPath: ":memory:",
+			initialMode: SafetyMode.AUTO,
+			healingCycleIntervalMs: 100, // Fast cleanup in tests
+		})
 		orch.start()
 	})
 
@@ -206,7 +210,11 @@ describe("SuperRooOrchestrator — mode + self-improve", () => {
 	let orch: SuperRooOrchestrator
 
 	beforeEach(() => {
-		orch = new SuperRooOrchestrator({ dbPath: ":memory:", initialMode: SafetyMode.SAFE })
+		orch = new SuperRooOrchestrator({
+			dbPath: ":memory:",
+			initialMode: SafetyMode.SAFE,
+			healingCycleIntervalMs: 100, // Fast cleanup in tests
+		})
 		orch.start()
 	})
 

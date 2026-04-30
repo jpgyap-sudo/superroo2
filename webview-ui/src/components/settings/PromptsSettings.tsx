@@ -1,11 +1,11 @@
 import { useState, useEffect, FormEvent } from "react"
 import { VSCodeTextArea, VSCodeCheckbox } from "@vscode/webview-ui-toolkit/react"
+import type { ProviderSettingsEntry } from "@superroo/types"
 
 import { supportPrompt, SupportPromptType } from "@roo/support-prompt"
 
 import { vscode } from "@src/utils/vscode"
 import { useAppTranslation } from "@src/i18n/TranslationContext"
-import { useExtensionState } from "@src/context/ExtensionStateContext"
 import {
 	Button,
 	Select,
@@ -19,32 +19,26 @@ import {
 import { SectionHeader } from "./SectionHeader"
 import { Section } from "./Section"
 import { SearchableSetting } from "./SearchableSetting"
+import { SetCachedStateField } from "./types"
 
 interface PromptsSettingsProps {
 	customSupportPrompts: Record<string, string | undefined>
 	setCustomSupportPrompts: (prompts: Record<string, string | undefined>) => void
+	listApiConfigMeta?: ProviderSettingsEntry[]
+	enhancementApiConfigId?: string
 	includeTaskHistoryInEnhance?: boolean
-	setIncludeTaskHistoryInEnhance?: (value: boolean) => void
+	setCachedStateField: SetCachedStateField<"enhancementApiConfigId" | "includeTaskHistoryInEnhance">
 }
 
 const PromptsSettings = ({
 	customSupportPrompts,
 	setCustomSupportPrompts,
-	includeTaskHistoryInEnhance: propsIncludeTaskHistoryInEnhance,
-	setIncludeTaskHistoryInEnhance: propsSetIncludeTaskHistoryInEnhance,
+	listApiConfigMeta,
+	enhancementApiConfigId,
+	includeTaskHistoryInEnhance,
+	setCachedStateField,
 }: PromptsSettingsProps) => {
 	const { t } = useAppTranslation()
-	const {
-		listApiConfigMeta,
-		enhancementApiConfigId,
-		setEnhancementApiConfigId,
-		includeTaskHistoryInEnhance: contextIncludeTaskHistoryInEnhance,
-		setIncludeTaskHistoryInEnhance: contextSetIncludeTaskHistoryInEnhance,
-	} = useExtensionState()
-
-	// Use props if provided, otherwise fall back to context
-	const includeTaskHistoryInEnhance = propsIncludeTaskHistoryInEnhance ?? contextIncludeTaskHistoryInEnhance ?? true
-	const setIncludeTaskHistoryInEnhance = propsSetIncludeTaskHistoryInEnhance ?? contextSetIncludeTaskHistoryInEnhance
 
 	const [testPrompt, setTestPrompt] = useState("")
 	const [isEnhancing, setIsEnhancing] = useState(false)
@@ -167,11 +161,7 @@ const PromptsSettings = ({
 									value={enhancementApiConfigId || "-"}
 									onValueChange={(value) => {
 										const newConfigId = value === "-" ? "" : value
-										setEnhancementApiConfigId(newConfigId)
-										vscode.postMessage({
-											type: "enhancementApiConfigId",
-											text: value,
-										})
+										setCachedStateField("enhancementApiConfigId", newConfigId)
 									}}>
 									<SelectTrigger data-testid="api-config-select" className="w-full">
 										<SelectValue
@@ -199,7 +189,7 @@ const PromptsSettings = ({
 
 							<div>
 								<VSCodeCheckbox
-									checked={includeTaskHistoryInEnhance}
+									checked={includeTaskHistoryInEnhance ?? true}
 									onChange={(e: Event | FormEvent<HTMLElement>) => {
 										const target = ("target" in e ? e.target : null) as HTMLInputElement | null
 
@@ -207,12 +197,7 @@ const PromptsSettings = ({
 											return
 										}
 
-										setIncludeTaskHistoryInEnhance(target.checked)
-
-										vscode.postMessage({
-											type: "updateSettings",
-											updatedSettings: { includeTaskHistoryInEnhance: target.checked },
-										})
+										setCachedStateField("includeTaskHistoryInEnhance", target.checked)
 									}}>
 									<span className="font-medium">
 										{t("prompts:supportPrompts.enhance.includeTaskHistory")}

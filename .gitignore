@@ -37,6 +37,12 @@ docs/_site/
 logs
 *.log
 
+# Runtime databases
+data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
 # Vite development
 .vite-port
 

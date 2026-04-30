@@ -14,8 +14,8 @@ describe("MemoryStore — migrations + meta", () => {
 		store.close()
 	})
 
-	it("applies initial schema and reports version 1", () => {
-		expect(store.getSchemaVersion()).toBe(1)
+	it("applies initial schema and reports version 3", () => {
+		expect(store.getSchemaVersion()).toBe(3)
 	})
 
 	it("creates all expected tables", () => {
@@ -33,7 +33,7 @@ describe("MemoryStore — migrations + meta", () => {
 		const v1 = store.getSchemaVersion()
 		// Re-running migrations on the same db must not throw.
 		expect(() => new MemoryStore(":memory:")).not.toThrow()
-		expect(v1).toBe(1)
+		expect(v1).toBe(3)
 	})
 })
 
