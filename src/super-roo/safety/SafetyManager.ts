@@ -45,7 +45,6 @@ function compilePatterns(patterns: string[], label: string): RegExp[] {
 		try {
 			compiled.push(new RegExp(p, "i"))
 		} catch (err) {
-			// eslint-disable-next-line no-console
 			console.warn(`[super-roo/safety] dropping invalid ${label} pattern: ${p}`, err)
 		}
 	}
@@ -96,7 +95,6 @@ export class SafetyManager {
 				capabilityRules: parsed.capabilityRules ?? {},
 			}
 		} catch (err) {
-			// eslint-disable-next-line no-console
 			console.warn(`[super-roo/safety] failed to load blocklist at ${p}; using empty config`, err)
 			return { commandPatterns: [], sqlPatterns: [], pathPatterns: [], capabilityRules: {} }
 		}

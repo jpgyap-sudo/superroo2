@@ -209,6 +209,17 @@ export class SuperRooOrchestrator {
 			return { kind: "blocked", task, reason: cap.reason }
 		}
 
+		// Guard against payload-supplied workspace overrides bypassing the self-improve boundary.
+		const workspaceOverride = task.payload?.workspacePathOverride
+		if (typeof workspaceOverride === "string") {
+			const boundary = this.safety.checkSelfImproveBoundary(workspaceOverride, SuperRooOrchestrator.getSelfRoot())
+			if (!boundary.allowed) {
+				this.queue.markFinished(task.id, "blocked", { error: boundary.reason })
+				this.events.warn("safety.blocked", `Task blocked by self-improve guard: ${boundary.reason}`, { taskId: task.id })
+				return { kind: "blocked", task, reason: boundary.reason }
+			}
+		}
+
 		this.currentAbort = new AbortController()
 		this.events.info("agent.invoked", `Invoking agent: ${agent.name}`, { taskId: task.id, agent: agent.name })
 		try {

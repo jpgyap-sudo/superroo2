@@ -22,12 +22,6 @@ import type { MemoryStore } from "../memory/MemoryStore"
 import type { Task, TaskInput, TaskInputRaw, TaskPriority, TaskStatus } from "../types"
 import { TaskInputSchema } from "../types"
 
-const PRIORITY_RANK: Record<TaskPriority, number> = {
-	critical: 0,
-	high: 1,
-	normal: 2,
-	low: 3,
-}
 
 interface TaskRow {
 	id: string
@@ -204,7 +198,7 @@ export class TaskQueue {
 						: status === "blocked"
 							? "task.blocked"
 							: "task.cancelled"
-			const level = status === "succeeded" ? "info" : status === "blocked" ? "warn" : "error"
+			const level = status === "succeeded" ? "info" : status === "failed" ? "error" : "warn"
 			this.events.emit(level, eventType, `Task ${status}: ${task.goal}`, {
 				taskId: id,
 				agent: task.agent,

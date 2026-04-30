@@ -36,7 +36,6 @@ export class SrMessageClient {
 					sub(data)
 				} catch (err) {
 					// Don't let one subscriber break the others.
-					// eslint-disable-next-line no-console
 					console.error("[super-roo] subscriber threw", err)
 				}
 			}

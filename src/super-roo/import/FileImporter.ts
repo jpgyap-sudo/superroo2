@@ -211,8 +211,9 @@ export class FileImporter {
 
 	private async extractTar(src: string, dest: string): Promise<string[]> {
 		try {
-			const { execSync } = require("child_process")
-			execSync(`tar -xf "${src}" -C "${dest}"`)
+			const { spawnSync } = require("child_process")
+			const result = spawnSync("tar", ["-xf", src, "-C", dest], { stdio: "inherit" })
+			if (result.status !== 0) throw new Error(`tar exited with code ${result.status}`)
 			return this.listFilesRecursive(dest)
 		} catch {
 			const destFile = path.join(dest, path.basename(src))
@@ -223,8 +224,9 @@ export class FileImporter {
 
 	private async extractTarGz(src: string, dest: string): Promise<string[]> {
 		try {
-			const { execSync } = require("child_process")
-			execSync(`tar -xzf "${src}" -C "${dest}"`)
+			const { spawnSync } = require("child_process")
+			const result = spawnSync("tar", ["-xzf", src, "-C", dest], { stdio: "inherit" })
+			if (result.status !== 0) throw new Error(`tar exited with code ${result.status}`)
 			return this.listFilesRecursive(dest)
 		} catch {
 			const destFile = path.join(dest, path.basename(src))

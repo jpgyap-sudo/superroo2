@@ -222,6 +222,7 @@ export class BugRegistry {
 				| "reproductionSteps"
 				| "recommendedFix"
 				| "deploymentRisk"
+				| "fixAttempts"
 			>
 		>,
 	): BugRecord {
@@ -245,6 +246,7 @@ export class BugRegistry {
 					reproduction_steps = @reproductionSteps,
 					recommended_fix = @recommendedFix,
 					deployment_risk = @deploymentRisk,
+					fix_attempts = @fixAttempts,
 					updated_at = @updatedAt
 				 WHERE id = @id`,
 			)
@@ -260,6 +262,7 @@ export class BugRegistry {
 				reproductionSteps: JSON.stringify(merged.reproductionSteps),
 				recommendedFix: merged.recommendedFix ?? null,
 				deploymentRisk: merged.deploymentRisk,
+				fixAttempts: merged.fixAttempts,
 				updatedAt: merged.updatedAt,
 			})
 
@@ -315,12 +318,10 @@ export class BugRegistry {
 			this.memory
 				.getDb()
 				.prepare(
-					`UPDATE bugs SET fix_attempts = fix_attempts + 1, updated_at = @now ${
-						input.succeeded ? ", status = 'fixed'" : ""
-					}
+					`UPDATE bugs SET fix_attempts = fix_attempts + 1, updated_at = @now, status = CASE WHEN @setFixed = 1 THEN 'fixed' ELSE status END
 					 WHERE id = @bugId`,
 				)
-				.run({ now, bugId: input.bugId })
+				.run({ now, bugId: input.bugId, setFixed: input.succeeded ? 1 : 0 })
 		})
 		tx()
 

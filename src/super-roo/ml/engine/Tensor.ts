@@ -67,12 +67,12 @@ export class Tensor {
 				for (let i = 0; i < n; i++) this.data[i] = Math.random() * 2 - 1
 				break
 			case "xavier": {
-				const scale = Math.sqrt(2 / (this.rows + this.cols))
+				const scale = Math.sqrt(6 / (this.rows + this.cols))
 				for (let i = 0; i < n; i++) this.data[i] = (Math.random() * 2 - 1) * scale
 				break
 			}
 			case "he": {
-				const scale = Math.sqrt(2 / this.cols)
+				const scale = Math.sqrt(6 / this.rows)
 				for (let i = 0; i < n; i++) this.data[i] = (Math.random() * 2 - 1) * scale
 				break
 			}
@@ -120,6 +120,9 @@ export class Tensor {
 			}
 			return out
 		}
+		if (other.rows === 1 && other.cols === 1) {
+			return this.add(other.get(0, 0))
+		}
 		throw new Error(`Shape mismatch in add: [${this.rows},${this.cols}] vs [${other.rows},${other.cols}]`)
 	}
 
@@ -143,6 +146,9 @@ export class Tensor {
 			}
 			return out
 		}
+		if (other.rows === 1 && other.cols === 1) {
+			return this.sub(other.get(0, 0))
+		}
 		throw new Error(`Shape mismatch in sub: [${this.rows},${this.cols}] vs [${other.rows},${other.cols}]`)
 	}
 
@@ -156,6 +162,18 @@ export class Tensor {
 			const out = new Tensor(this.rows, this.cols, "zeros")
 			for (let i = 0; i < this.data.length; i++) out.data[i] = this.data[i] * other.data[i]
 			return out
+		}
+		if (other.rows === 1 && other.cols === this.cols) {
+			const out = new Tensor(this.rows, this.cols, "zeros")
+			for (let i = 0; i < this.rows; i++) {
+				for (let j = 0; j < this.cols; j++) {
+					out.set(i, j, this.get(i, j) * other.get(0, j))
+				}
+			}
+			return out
+		}
+		if (other.rows === 1 && other.cols === 1) {
+			return this.mul(other.get(0, 0))
 		}
 		throw new Error(`Shape mismatch in mul: [${this.rows},${this.cols}] vs [${other.rows},${other.cols}]`)
 	}
@@ -179,6 +197,9 @@ export class Tensor {
 				}
 			}
 			return out
+		}
+		if (other.rows === 1 && other.cols === 1) {
+			return this.div(other.get(0, 0))
 		}
 		throw new Error(`Shape mismatch in div: [${this.rows},${this.cols}] vs [${other.rows},${other.cols}]`)
 	}

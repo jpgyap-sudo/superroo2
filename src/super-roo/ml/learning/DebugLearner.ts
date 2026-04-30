@@ -166,8 +166,8 @@ export class DebugLearner {
 		isRuntimeError: boolean
 		isAssertionError: boolean
 	}): number[] {
-		// One-hot-ish encoding for error type
-		const typeVec = [0, 0, 0, 0, 0, 0]
+		// One-hot encoding for error type (5 categories: type, syntax, runtime, assertion, other)
+		const typeVec = [0, 0, 0, 0, 0]
 		const typeIdx =
 			meta.isTypeError ? 0
 			: meta.isSyntaxError ? 1

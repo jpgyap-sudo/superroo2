@@ -110,7 +110,6 @@ export function SrProvider({ children, vscode, forceMock }: ProviderProps) {
 					setSnapshot((prev) => (prev ? { ...prev, mode: msg.mode, selfImprove: msg.selfImprove } : prev))
 					return
 				case "superRoo:error":
-					// eslint-disable-next-line no-console
 					console.warn("[super-roo] extension error:", msg.message)
 					return
 			}

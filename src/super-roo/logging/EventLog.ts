@@ -66,13 +66,12 @@ export class EventLog {
 			this.memory.insertEvent(ev)
 		} catch (err) {
 			// Last-resort warning; never let logging itself crash the orchestrator.
-			// eslint-disable-next-line no-console
 			console.warn("[super-roo/logging] failed to persist event", err)
 		}
 
 		if (this.mirror) {
 			const fn =
-				level === "error" ? console.error : level === "warn" ? console.warn : console.log // eslint-disable-line no-console
+				level === "error" ? console.error : level === "warn" ? console.warn : console.log
 			fn(`[super-roo:${type}] ${message}`, extra.data ?? "")
 		}
 
@@ -81,7 +80,6 @@ export class EventLog {
 			try {
 				sub(ev)
 			} catch (err) {
-				// eslint-disable-next-line no-console
 				console.warn("[super-roo/logging] subscriber threw", err)
 			}
 		}

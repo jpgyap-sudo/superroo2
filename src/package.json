@@ -433,6 +433,9 @@
 			}
 		}
 	},
+	"bin": {
+		"superroo": "./dist/cli/index.js"
+	},
 	"scripts": {
 		"lint": "eslint . --ext=ts --max-warnings=0",
 		"check-types": "tsc --noEmit",
@@ -440,6 +443,12 @@
 		"test": "vitest run",
 		"format": "prettier --write .",
 		"bundle": "node esbuild.mjs",
+		"daemon": "tsx super-roo-daemon/index.ts",
+		"cli": "tsx src/cli/index.ts",
+		"autonomous": "tsx src/cli/index.ts autonomous",
+		"deploy": "tsx src/cli/index.ts deploy",
+		"check-vps": "tsx src/cli/index.ts check-vps",
+		"debug-api": "tsx src/cli/index.ts debug-api",
 		"vscode:prepublish": "pnpm bundle --production",
 		"vsix": "mkdirp ../bin && vsce package --no-dependencies --out ../bin",
 		"publish:marketplace": "vsce publish --no-dependencies && ovsx publish --no-dependencies",

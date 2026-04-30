@@ -47,6 +47,7 @@ export interface TrainingConfig {
 export class NeuralNetwork {
 	private layers: Layer[] = []
 	private config: NeuralNetworkConfig
+	private optimizer: AdamOptimizer | null = null
 
 	constructor(config: NeuralNetworkConfig) {
 		this.config = config
@@ -62,7 +63,11 @@ export class NeuralNetwork {
 
 		for (let i = 0; i < dims.length - 1; i++) {
 			const isLast = i === dims.length - 2
-			this.layers.push(new DenseLayer(dims[i], dims[i + 1], isLast ? "xavier" : "he"))
+			const dense = new DenseLayer(dims[i], dims[i + 1], isLast ? "xavier" : "he")
+			if (!isLast && act === "relu") {
+				dense.biases.data.fill(0.01)
+			}
+			this.layers.push(dense)
 
 			if (useBN && !isLast) {
 				this.layers.push(new BatchNormLayer(dims[i + 1]))
@@ -107,7 +112,8 @@ export class NeuralNetwork {
 
 	train(X: Tensor, y: Tensor, lossFn: LossFn, cfg: TrainingConfig): number[] {
 		const losses: number[] = []
-		const opt = new AdamOptimizer(this.allParameters())
+		this.optimizer ??= new AdamOptimizer(this.allParameters())
+		const opt = this.optimizer
 		const N = X.rows
 		const valSplit = Math.floor(N * (cfg.validationSplit ?? 0))
 		const trainN = N - valSplit

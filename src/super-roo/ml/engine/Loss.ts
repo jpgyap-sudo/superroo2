@@ -27,7 +27,7 @@ export class CrossEntropyLoss implements LossFn {
 				const p = Math.max(pred.get(i, j), 1e-8)
 				const t = target.get(i, j)
 				totalLoss -= t * Math.log(p)
-				grad.set(i, j, p - t)
+				grad.set(i, j, t === 0 ? 0 : -t / p / pred.rows)
 			}
 		}
 		return { loss: totalLoss / pred.rows, grad }

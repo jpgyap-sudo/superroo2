@@ -199,8 +199,6 @@ export class SoftmaxLayer implements Layer {
 
 	backward(outputGrad: Tensor): Tensor {
 		if (!this.outputCache) throw new Error("backward called before forward")
-		// For cross-entropy loss the gradient simplifies to (softmax - y),
-		// so this generic Jacobian is rarely used directly.
 		const out = new Tensor(outputGrad.rows, outputGrad.cols, "zeros")
 		for (let i = 0; i < outputGrad.rows; i++) {
 			for (let j = 0; j < outputGrad.cols; j++) {

@@ -107,13 +107,14 @@ export class CrawlerAgent {
 		if (this.docs.length > 5000) this.docs = this.docs.slice(-2500)
 
 		// Run pipeline
-		for (const doc of docs) {
+		for (let i = 0; i < docs.length; i++) {
+			const doc = docs[i]
 			const cleaned = this.clean(doc)
 			const entities = this.extract(cleaned)
 			const score = this.analyze(entities)
 			if (score > 0.6) {
 				this.emitSignal({
-					id: `${sourceId}_${doc.fetchedAt}`,
+					id: `${sourceId}_${doc.fetchedAt}_${i}`,
 					type: this.inferSignalType(source),
 					sourceIds: [sourceId],
 					entities,
@@ -217,10 +218,10 @@ export class CrawlerAgent {
 		const entities: ExtractedEntity[] = []
 
 		// Tickers: $BTC, $ETH, $AAPL, etc.
-		const tickerRe = /\$([A-Z]{1,5})\b/g
+		const tickerRe = /\$([a-z]{1,5})\b/gi
 		let m: RegExpExecArray | null
 		while ((m = tickerRe.exec(text)) !== null) {
-			entities.push({ type: "ticker", value: m[1], score: 0.9 })
+			entities.push({ type: "ticker", value: m[1].toUpperCase(), score: 0.9 })
 		}
 
 		// Sentiment words

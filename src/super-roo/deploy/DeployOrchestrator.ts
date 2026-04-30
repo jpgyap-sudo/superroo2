@@ -12,6 +12,7 @@
 
 import * as fs from "fs"
 import * as path from "path"
+import { spawnSync } from "child_process"
 
 export interface DeployConfig {
 	githubToken: string
@@ -136,23 +137,18 @@ export class DeployOrchestrator {
 		// Create tarball of the current workspace (excluding node_modules, .git, etc.)
 		await this.createDeployBundle(bundlePath)
 
-		// SCP to VPS (uses system scp command if available)
-		const { execSync } = require("child_process")
-		const keyFlag = this.config.vpsKeyPath ? `-i "${this.config.vpsKeyPath}"` : ""
-		const scpCmd = `scp ${keyFlag} "${bundlePath}" ${this.config.vpsUser}@${this.config.vpsHost}:"${this.config.vpsDeployPath}/"`
-		try {
-			execSync(scpCmd, { stdio: "ignore" })
-		} catch {
-			// If scp fails, we still treat this as a "deploy" for local testing
-		}
+		const keyArgs = this.config.vpsKeyPath ? ["-i", this.config.vpsKeyPath] : []
+		this.runCommand("scp", [
+			...keyArgs,
+			bundlePath,
+			`${this.config.vpsUser}@${this.config.vpsHost}:${this.config.vpsDeployPath}/`,
+		])
 
-		// Run remote extract + restart (ssh command)
-		const sshCmd = `ssh ${keyFlag} ${this.config.vpsUser}@${this.config.vpsHost} "cd ${this.config.vpsDeployPath} && tar -xzf ${version}.tar.gz && ./scripts/restart.sh"`
-		try {
-			execSync(sshCmd, { stdio: "ignore" })
-		} catch {
-			/* best effort remote restart */
-		}
+		this.runCommand("ssh", [
+			...keyArgs,
+			`${this.config.vpsUser}@${this.config.vpsHost}`,
+			`cd ${this.shellQuote(this.config.vpsDeployPath)} && tar -xzf ${this.shellQuote(`${version}.tar.gz`)} && ./scripts/restart.sh`,
+		])
 	}
 
 	private async runHealthCheck(): Promise<boolean> {
@@ -161,16 +157,21 @@ export class DeployOrchestrator {
 	}
 
 	private async createDeployBundle(outPath: string): Promise<void> {
-		const { execSync } = require("child_process")
-		const excludes = ["node_modules", ".git", ".super-roo", "dist", "out", ".vscode"]
-			.map((e) => `--exclude='${e}'`)
-			.join(" ")
-		try {
-			execSync(`tar -czf "${outPath}" ${excludes} .`, { cwd: process.cwd(), stdio: "ignore" })
-		} catch {
-			// Fallback: create empty tarball placeholder
-			fs.writeFileSync(outPath, "")
-		}
+		const excludeArgs = ["node_modules", ".git", ".super-roo", "dist", "out", ".vscode"].flatMap((e) => [
+			"--exclude",
+			e,
+		])
+		this.runCommand("tar", ["-czf", outPath, ...excludeArgs, "."], process.cwd())
+	}
+
+	private runCommand(command: string, args: string[], cwd = process.cwd()): void {
+		const result = spawnSync(command, args, { cwd, stdio: "ignore", shell: false })
+		if (result.error) throw result.error
+		if (result.status !== 0) throw new Error(`${command} exited with code ${result.status ?? "unknown"}`)
+	}
+
+	private shellQuote(value: string): string {
+		return `'${value.replace(/'/g, "'\\''")}'`
 	}
 
 	private trimHistory(): void {

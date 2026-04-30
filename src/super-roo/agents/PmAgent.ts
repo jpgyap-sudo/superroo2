@@ -78,6 +78,12 @@ export class PmAgent implements Agent {
 			ctx.emit("info", "feature.created", `PM created feature: ${featureName}`, {
 				featureId: feature.id,
 			})
+		} else if (feature.status === "deprecated") {
+			return {
+				ok: false,
+				summary: `PM Agent: feature '${featureName}' is deprecated - skipping rebuild. Remove the deprecated status first to re-enable.`,
+				error: "feature_deprecated",
+			}
 		}
 
 		// Mark the feature as building.
