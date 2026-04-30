@@ -125,8 +125,8 @@ build() {
 create_tarball() {
     step "4/6" "Creating release tarball for $PLATFORM..."
 
-    RELEASE_DIR="$REPO_ROOT/roo-cli-${PLATFORM}"
-    TARBALL="roo-cli-${PLATFORM}.tar.gz"
+    RELEASE_DIR="$REPO_ROOT/superroo-cli-${PLATFORM}"
+    TARBALL="superroo-cli-${PLATFORM}.tar.gz"
 
     # Clean up any previous build
     rm -rf "$RELEASE_DIR"
@@ -188,7 +188,7 @@ create_tarball() {
 
     # Create the wrapper script
     info "Creating wrapper script..."
-    cat > "$RELEASE_DIR/bin/roo" << 'WRAPPER_EOF'
+    cat > "$RELEASE_DIR/bin/superroo" << 'WRAPPER_EOF'
 #!/usr/bin/env node
 
 import { fileURLToPath } from 'url';
@@ -210,7 +210,7 @@ if (existsSync(ripgrepPath)) {
 await import(join(__dirname, '..', 'lib', 'index.js'));
 WRAPPER_EOF
 
-    chmod +x "$RELEASE_DIR/bin/roo"
+    chmod +x "$RELEASE_DIR/bin/superroo"
 
     # Create empty .env file
     touch "$RELEASE_DIR/.env"
@@ -268,14 +268,14 @@ verify_local_install() {
     }
 
     # Test --help
-    if ! "$VERIFY_BIN_DIR/roo" --help > /dev/null 2>&1; then
+    if ! "$VERIFY_BIN_DIR/superroo" --help > /dev/null 2>&1; then
         rm -rf "$VERIFY_DIR"
         error "CLI --help check failed!"
     fi
     info "CLI --help check passed"
 
     # Test --version
-    if ! "$VERIFY_BIN_DIR/roo" --version > /dev/null 2>&1; then
+    if ! "$VERIFY_BIN_DIR/superroo" --version > /dev/null 2>&1; then
         rm -rf "$VERIFY_DIR"
         error "CLI --version check failed!"
     fi
@@ -317,14 +317,14 @@ print_summary() {
 
     if [ "$LOCAL_INSTALL" = true ]; then
         echo "  Installed to: ~/.roo/cli"
-        echo "  Binary: ~/.local/bin/roo"
+        echo "  Binary: ~/.local/bin/superroo"
         echo ""
         echo "  Test it out:"
-        echo "    roo --version"
-        echo "    roo --help"
+        echo "    superroo --version"
+        echo "    superroo --help"
     else
         echo "  To install manually:"
-        echo "    ROO_LOCAL_TARBALL=$REPO_ROOT/$TARBALL ./apps/cli/install.sh"
+        echo "    SUPERROO_LOCAL_TARBALL=$REPO_ROOT/$TARBALL ./apps/cli/install.sh"
         echo ""
         echo "  Or re-run with --install:"
         echo "    ./apps/cli/scripts/build.sh --install"

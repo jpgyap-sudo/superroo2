@@ -168,7 +168,7 @@ if (latestVersion) {
 
 # Download and extract
 download_and_install() {
-    TARBALL="roo-cli-${PLATFORM}.tar.gz"
+    TARBALL="superroo-cli-${PLATFORM}.tar.gz"
     
     # Create temp directory
     TMP_DIR=$(mktemp -d)
@@ -242,7 +242,7 @@ Available at: https://github.com/$REPO/releases"
     fi
     
     # Make executable
-    chmod +x "$INSTALL_DIR/bin/roo"
+    chmod +x "$INSTALL_DIR/bin/superroo"
     
     # Also make ripgrep executable if it exists
     if [ -f "$INSTALL_DIR/bin/rg" ]; then
@@ -255,12 +255,12 @@ setup_bin() {
     mkdir -p "$BIN_DIR"
     
     # Remove old symlink if exists
-    if [ -L "$BIN_DIR/roo" ] || [ -f "$BIN_DIR/roo" ]; then
-        rm -f "$BIN_DIR/roo"
+    if [ -L "$BIN_DIR/superroo" ] || [ -f "$BIN_DIR/superroo" ]; then
+        rm -f "$BIN_DIR/superroo"
     fi
     
-    ln -sf "$INSTALL_DIR/bin/roo" "$BIN_DIR/roo"
-    info "Created symlink: $BIN_DIR/roo"
+    ln -sf "$INSTALL_DIR/bin/superroo" "$BIN_DIR/superroo"
+    info "Created symlink: $BIN_DIR/superroo"
 }
 
 # Check if bin dir is in PATH and provide instructions
@@ -305,10 +305,10 @@ check_path() {
 
 # Verify installation
 verify_install() {
-    if [ -x "$BIN_DIR/roo" ]; then
+    if [ -x "$BIN_DIR/superroo" ]; then
         info "Verifying installation..."
         # Just check if it runs without error
-        "$BIN_DIR/roo" --version >/dev/null 2>&1 || true
+        "$BIN_DIR/superroo" --version >/dev/null 2>&1 || true
     fi
 }
 
@@ -318,15 +318,15 @@ print_success() {
     printf "${GREEN}${BOLD}✓ SuperRoo CLI installed successfully!${NC}\n"
     echo ""
     echo "  Installation: $INSTALL_DIR"
-    echo "  Binary: $BIN_DIR/roo"
+    echo "  Binary: $BIN_DIR/superroo"
     echo "  Version: $VERSION"
     echo ""
     echo "  ${BOLD}Get started:${NC}"
-    echo "    roo --help"
+    echo "    superroo --help"
     echo ""
     echo "  ${BOLD}Example:${NC}"
     echo "    export OPENROUTER_API_KEY=sk-or-v1-..."
-    echo "    cd ~/my-project && roo \"What is this project?\""
+    echo "    cd ~/my-project && superroo \"What is this project?\""
     echo ""
 }
 
