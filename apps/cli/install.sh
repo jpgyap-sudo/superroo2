@@ -3,16 +3,20 @@
 # Usage: curl -fsSL https://raw.githubusercontent.com/SuperRooInc/SuperRoo/main/apps/cli/install.sh | sh
 #
 # Environment variables:
-#   ROO_INSTALL_DIR   - Installation directory (default: ~/.roo/cli)
-#   ROO_BIN_DIR       - Binary symlink directory (default: ~/.local/bin)
-#   ROO_VERSION       - Specific version to install (default: latest)
-#   ROO_LOCAL_TARBALL - Path to local tarball to install (skips download)
+#   SUPERROO_INSTALL_DIR   - Installation directory (default: ~/.superroo/cli)
+#   SUPERROO_BIN_DIR       - Binary symlink directory (default: ~/.local/bin)
+#   SUPERROO_VERSION       - Specific version to install (default: latest)
+#   SUPERROO_LOCAL_TARBALL - Path to local tarball to install (skips download)
+#
+# Legacy ROO_* variable names are still accepted for compatibility.
 
 set -e
 
 # Configuration
-INSTALL_DIR="${ROO_INSTALL_DIR:-$HOME/.roo/cli}"
-BIN_DIR="${ROO_BIN_DIR:-$HOME/.local/bin}"
+INSTALL_DIR="${SUPERROO_INSTALL_DIR:-${ROO_INSTALL_DIR:-$HOME/.superroo/cli}}"
+BIN_DIR="${SUPERROO_BIN_DIR:-${ROO_BIN_DIR:-$HOME/.local/bin}}"
+REQUESTED_VERSION="${SUPERROO_VERSION:-${ROO_VERSION:-}}"
+LOCAL_TARBALL="${SUPERROO_LOCAL_TARBALL:-${ROO_LOCAL_TARBALL:-}}"
 REPO="SuperRooInc/SuperRoo"
 MIN_NODE_VERSION=20
 
@@ -85,14 +89,14 @@ detect_platform() {
 # Get latest release version or use specified version
 get_version() {
     # Skip version fetch if using local tarball
-    if [ -n "$ROO_LOCAL_TARBALL" ]; then
-        VERSION="${ROO_VERSION:-local}"
+    if [ -n "$LOCAL_TARBALL" ]; then
+        VERSION="${REQUESTED_VERSION:-local}"
         info "Using local tarball (version: $VERSION)"
         return
     fi
     
-    if [ -n "$ROO_VERSION" ]; then
-        VERSION="$ROO_VERSION"
+    if [ -n "$REQUESTED_VERSION" ]; then
+        VERSION="$REQUESTED_VERSION"
         info "Using specified version: $VERSION"
         return
     fi
@@ -175,12 +179,12 @@ download_and_install() {
     trap "rm -rf $TMP_DIR" EXIT
     
     # Use local tarball if provided, otherwise download
-    if [ -n "$ROO_LOCAL_TARBALL" ]; then
-        if [ ! -f "$ROO_LOCAL_TARBALL" ]; then
-            error "Local tarball not found: $ROO_LOCAL_TARBALL"
+    if [ -n "$LOCAL_TARBALL" ]; then
+        if [ ! -f "$LOCAL_TARBALL" ]; then
+            error "Local tarball not found: $LOCAL_TARBALL"
         fi
-        info "Using local tarball: $ROO_LOCAL_TARBALL"
-        cp "$ROO_LOCAL_TARBALL" "$TMP_DIR/$TARBALL"
+        info "Using local tarball: $LOCAL_TARBALL"
+        cp "$LOCAL_TARBALL" "$TMP_DIR/$TARBALL"
     else
         URL="https://github.com/$REPO/releases/download/cli-v${VERSION}/${TARBALL}"
         

@@ -258,10 +258,10 @@ verify_local_install() {
 
     TARBALL_PATH="$REPO_ROOT/$TARBALL"
 
-    ROO_LOCAL_TARBALL="$TARBALL_PATH" \
-    ROO_INSTALL_DIR="$VERIFY_INSTALL_DIR" \
-    ROO_BIN_DIR="$VERIFY_BIN_DIR" \
-    ROO_VERSION="$VERSION" \
+    SUPERROO_LOCAL_TARBALL="$TARBALL_PATH" \
+    SUPERROO_INSTALL_DIR="$VERIFY_INSTALL_DIR" \
+    SUPERROO_BIN_DIR="$VERIFY_BIN_DIR" \
+    SUPERROO_VERSION="$VERSION" \
     "$CLI_DIR/install.sh" || {
         rm -rf "$VERIFY_DIR"
         error "Installation verification failed!"
@@ -298,8 +298,8 @@ install_local() {
 
     TARBALL_PATH="$REPO_ROOT/$TARBALL"
 
-    ROO_LOCAL_TARBALL="$TARBALL_PATH" \
-    ROO_VERSION="$VERSION" \
+    SUPERROO_LOCAL_TARBALL="$TARBALL_PATH" \
+    SUPERROO_VERSION="$VERSION" \
     "$CLI_DIR/install.sh" || {
         error "Local installation failed!"
     }
@@ -316,7 +316,7 @@ print_summary() {
     echo ""
 
     if [ "$LOCAL_INSTALL" = true ]; then
-        echo "  Installed to: ~/.roo/cli"
+        echo "  Installed to: ~/.superroo/cli"
         echo "  Binary: ~/.local/bin/superroo"
         echo ""
         echo "  Test it out:"

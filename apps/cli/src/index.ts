@@ -17,7 +17,7 @@ import {
 const program = new Command()
 
 program
-	.name("roo")
+	.name("superroo")
 	.description("SuperRoo CLI - starts an interactive session by default, use -p/--print for non-interactive output")
 	.version(VERSION)
 	.enablePositionalOptions()
