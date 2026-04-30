@@ -57,15 +57,15 @@ Placed inside `activate(context)` after `registerCommands(...)`.
 
 - `bin` already contains `"superroo": "./dist/cli/index.js"` from Phase 2.
 - Added scripts:
-  - `superroo:cli`
-  - `superroo:autonomous`
-  - `superroo:check-vps`
-  - `superroo:deploy`
-  - `superroo:debug-api`
+    - `superroo:cli`
+    - `superroo:autonomous`
+    - `superroo:check-vps`
+    - `superroo:deploy`
+    - `superroo:debug-api`
 - Added commands under `contributes.commands`:
-  - `superroo.status`
-  - `superroo.autonomousSafe`
-  - `superroo.checkVps`
+    - `superroo.status`
+    - `superroo.autonomousSafe`
+    - `superroo.checkVps`
 
 ### 4. Patch CLI entrypoint
 
@@ -75,7 +75,7 @@ In `src/cli/index.ts`, wired Phase 3 `SuperRooOrchestrator` into each commander 
 
 ```bash
 pnpm install
-pnpm build
+pnpm bundle
 pnpm superroo:cli
 pnpm superroo:autonomous
 pnpm superroo:check-vps

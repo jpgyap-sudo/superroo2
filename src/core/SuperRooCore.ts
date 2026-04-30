@@ -1,5 +1,5 @@
-import path from "node:path"
 import { readFile } from "node:fs/promises"
+import path from "node:path"
 import { fileExistsAtPath } from "../utils/fs"
 import { logStep, logWarn } from "./utils/logger"
 import { runShell, runShellArgs } from "./utils/shell"
@@ -42,6 +42,12 @@ export class SuperRooCore {
 	}
 
 	async runInstall(): Promise<void> {
+		const superRooWorkspaceRoot = await this.findSuperRooWorkspaceRoot()
+		if (superRooWorkspaceRoot) {
+			await runShell("pnpm install", { cwd: superRooWorkspaceRoot })
+			return
+		}
+
 		if (await fileExistsAtPath(path.join(this.projectPath, "pnpm-lock.yaml"))) {
 			await runShell("pnpm install", { cwd: this.projectPath })
 			return
@@ -61,8 +67,9 @@ export class SuperRooCore {
 	}
 
 	async runBuild(): Promise<void> {
-		if (await this.isSuperRooWorkspace()) {
-			await runShellArgs("pnpm", ["--filter", "superroo", "bundle"], { cwd: this.projectPath })
+		const superRooWorkspaceRoot = await this.findSuperRooWorkspaceRoot()
+		if (superRooWorkspaceRoot) {
+			await runShellArgs("pnpm", ["--filter", "superroo", "bundle"], { cwd: superRooWorkspaceRoot })
 			return
 		}
 
@@ -75,12 +82,13 @@ export class SuperRooCore {
 	}
 
 	async runTests(): Promise<void> {
-		if (await this.isSuperRooWorkspace()) {
+		const superRooWorkspaceRoot = await this.findSuperRooWorkspaceRoot()
+		if (superRooWorkspaceRoot) {
 			await runShellArgs(
 				"pnpm",
 				["--filter", "superroo", "test", "cli", path.join("core", "__tests__", "SuperRooTask.test.ts")],
 				{
-					cwd: this.projectPath,
+					cwd: superRooWorkspaceRoot,
 					allowFailure: true,
 				},
 			)
@@ -109,14 +117,30 @@ export class SuperRooCore {
 		})
 	}
 
-	private async isSuperRooWorkspace(): Promise<boolean> {
-		const extensionPackagePath = path.join(this.projectPath, "src", "package.json")
-		if (!(await fileExistsAtPath(extensionPackagePath))) {
-			return false
+	private async findSuperRooWorkspaceRoot(): Promise<string | undefined> {
+		const rootPackagePath = path.join(this.projectPath, "src", "package.json")
+		if (await this.isSuperRooPackage(rootPackagePath)) {
+			return this.projectPath
 		}
 
+		const currentPackagePath = path.join(this.projectPath, "package.json")
+		if (await this.isSuperRooPackage(currentPackagePath)) {
+			const parentPath = path.dirname(this.projectPath)
+			if (await fileExistsAtPath(path.join(parentPath, "pnpm-lock.yaml"))) {
+				return parentPath
+			}
+
+			return this.projectPath
+		}
+
+		return undefined
+	}
+
+	private async isSuperRooPackage(packagePath: string): Promise<boolean> {
+		if (!(await fileExistsAtPath(packagePath))) return false
+
 		try {
-			const packageJson = JSON.parse(await readFile(extensionPackagePath, "utf8")) as { name?: string }
+			const packageJson = JSON.parse(await readFile(packagePath, "utf8")) as { name?: string }
 			return packageJson.name === "superroo"
 		} catch {
 			return false
