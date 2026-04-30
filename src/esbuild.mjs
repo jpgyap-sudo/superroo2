@@ -71,6 +71,7 @@ async function main() {
 							["../CHANGELOG.md", "CHANGELOG.md"],
 							["../LICENSE", "LICENSE"],
 							["../.env", ".env", { optional: true }],
+							["super-roo/config", "dist/config"],
 							["node_modules/vscode-material-icons/generated", "assets/vscode-material-icons"],
 							["../webview-ui/audio", "webview-ui/audio"],
 						],
@@ -133,18 +134,51 @@ async function main() {
 		outdir: "dist/workers",
 	}
 
-	const [extensionCtx, workerCtx] = await Promise.all([
+	const cliConfig = {
+		...buildOptions,
+		entryPoints: ["cli/index.ts"],
+		outfile: "dist/cli/index.js",
+		external: ["vscode", "esbuild", "global-agent"],
+		banner: {
+			js: "#!/usr/bin/env node",
+		},
+	}
+
+	const daemonConfig = {
+		...buildOptions,
+		entryPoints: ["super-roo-daemon/index.ts"],
+		outfile: "dist/super-roo-daemon/index.js",
+		external: ["vscode", "esbuild", "global-agent", "better-sqlite3"],
+	}
+
+	const telegramConfig = {
+		...buildOptions,
+		entryPoints: ["telegram/bot.ts"],
+		outfile: "dist/telegram/bot.js",
+		external: ["vscode", "esbuild", "global-agent"],
+	}
+
+	const [extensionCtx, workerCtx, cliCtx, daemonCtx, telegramCtx] = await Promise.all([
 		esbuild.context(extensionConfig),
 		esbuild.context(workerConfig),
+		esbuild.context(cliConfig),
+		esbuild.context(daemonConfig),
+		esbuild.context(telegramConfig),
 	])
 
 	if (watch) {
-		await Promise.all([extensionCtx.watch(), workerCtx.watch()])
+		await Promise.all([extensionCtx.watch(), workerCtx.watch(), cliCtx.watch(), daemonCtx.watch(), telegramCtx.watch()])
 		copyLocales(srcDir, distDir)
 		setupLocaleWatcher(srcDir, distDir)
 	} else {
-		await Promise.all([extensionCtx.rebuild(), workerCtx.rebuild()])
-		await Promise.all([extensionCtx.dispose(), workerCtx.dispose()])
+		await Promise.all([
+			extensionCtx.rebuild(),
+			workerCtx.rebuild(),
+			cliCtx.rebuild(),
+			daemonCtx.rebuild(),
+			telegramCtx.rebuild(),
+		])
+		await Promise.all([extensionCtx.dispose(), workerCtx.dispose(), cliCtx.dispose(), daemonCtx.dispose(), telegramCtx.dispose()])
 	}
 }
 

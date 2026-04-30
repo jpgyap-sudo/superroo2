@@ -7,7 +7,7 @@ describe("CLI", () => {
 
 	beforeEach(() => {
 		vi.resetModules()
-		exitSpy = vi.spyOn(process, "exit").mockImplementation(() => undefined as never)
+		exitSpy = (vi.spyOn(process, "exit").mockImplementation(() => undefined as never) as any)
 		errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
 		logSpy = vi.spyOn(console, "log").mockImplementation(() => {})
 	})
@@ -25,20 +25,18 @@ describe("CLI", () => {
 
 	it("prints help when no command is given", async () => {
 		await runCli()
-		expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("SuperRoo CLI"))
+		expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Usage:"))
 		expect(exitSpy).not.toHaveBeenCalled()
 	})
 
 	it("runs autonomous command", async () => {
 		await runCli("autonomous")
-		expect(logSpy).toHaveBeenCalledWith("Starting SuperRoo autonomous mode...")
-		expect(logSpy).toHaveBeenCalledWith("Prepared SuperRoo task from cli: Run autonomous coding loop")
-		expect(logSpy).toHaveBeenCalledWith("Autonomous mode finished.")
+		expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Prepared SuperRoo task from cli"))
 	})
 
-	it("prints a shared task contract for task command without a daemon URL", async () => {
+	it("prints a shared task contract for task command", async () => {
 		await runCli("task", "fix", "the", "bug")
-		const payload = JSON.parse(logSpy.mock.calls.at(-1)?.[0])
+		const payload = JSON.parse(logSpy.mock.calls.at(-1)?.[0] as string)
 		expect(payload).toMatchObject({
 			source: "cli",
 			agent: "coder",
@@ -48,28 +46,33 @@ describe("CLI", () => {
 
 	it("requires a goal for task command", async () => {
 		await runCli("task")
-		expect(errorSpy).toHaveBeenCalledWith("Usage: superroo task <goal>")
+		expect(errorSpy).toHaveBeenCalledWith("error: missing required argument 'goal'")
 		expect(exitSpy).toHaveBeenCalledWith(1)
 	})
 
 	it("runs deploy command", async () => {
 		await runCli("deploy")
-		expect(logSpy).toHaveBeenCalledWith("Deploy command running...")
+		expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("========== SuperRoo Deploy =========="))
 	})
 
 	it("runs check-vps command", async () => {
 		await runCli("check-vps")
-		expect(logSpy).toHaveBeenCalledWith("Checking VPS...")
+		expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("========== SuperRoo VPS / Site Health Check =========="))
 	})
 
 	it("runs debug-api command", async () => {
 		await runCli("debug-api")
-		expect(logSpy).toHaveBeenCalledWith("Debugging API...")
+		expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("========== SuperRoo API Debugger =========="))
+	})
+
+	it("runs status command", async () => {
+		await runCli("status")
+		expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("========== SuperRoo Status =========="))
 	})
 
 	it("exits with error on unknown command", async () => {
 		await runCli("unknown")
-		expect(errorSpy).toHaveBeenCalledWith("Unknown command: unknown")
+		expect(errorSpy).toHaveBeenCalledWith("error: unknown command 'unknown'")
 		expect(exitSpy).toHaveBeenCalledWith(1)
 	})
 })

@@ -18,7 +18,7 @@
 	},
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/SuperRooInc/SuperRoo"
+		"url": "https://github.com/jpgyap-sudo/superroo2"
 	},
 	"homepage": "https://superroo.com",
 	"categories": [
@@ -444,11 +444,12 @@
 		"format": "prettier --write .",
 		"bundle": "node esbuild.mjs",
 		"daemon": "tsx super-roo-daemon/index.ts",
-		"cli": "tsx src/cli/index.ts",
-		"autonomous": "tsx src/cli/index.ts autonomous",
-		"deploy": "tsx src/cli/index.ts deploy",
-		"check-vps": "tsx src/cli/index.ts check-vps",
-		"debug-api": "tsx src/cli/index.ts debug-api",
+		"telegram": "tsx telegram/bot.ts",
+		"cli": "tsx cli/index.ts",
+		"autonomous": "tsx cli/index.ts autonomous",
+		"deploy": "tsx cli/index.ts deploy",
+		"check-vps": "tsx cli/index.ts check-vps",
+		"debug-api": "tsx cli/index.ts debug-api",
 		"vscode:prepublish": "pnpm bundle --production",
 		"vsix": "mkdirp ../bin && vsce package --no-dependencies --out ../bin",
 		"publish:marketplace": "vsce publish --no-dependencies && ovsx publish --no-dependencies",
@@ -457,6 +458,8 @@
 		"clean": "rimraf README.md CHANGELOG.md LICENSE dist logs mock .turbo"
 	},
 	"dependencies": {
+		"commander": "^12.1.0",
+		"dotenv": "^16.4.5",
 		"@ai-sdk/amazon-bedrock": "^4.0.51",
 		"@ai-sdk/baseten": "^1.0.31",
 		"@ai-sdk/deepseek": "^2.0.18",
