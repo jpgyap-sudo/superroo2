@@ -243,6 +243,10 @@ export const ChatRowContent = ({
 		vscode.postMessage({ type: "selectImages", context: "edit", messageTs: message.ts })
 	}, [message.ts])
 
+	const handlePasteImagesFromClipboard = useCallback(() => {
+		vscode.postMessage({ type: "pasteImageFromClipboard", context: "edit", messageTs: message.ts })
+	}, [message.ts])
+
 	const [cost, apiReqCancelReason, apiReqStreamingFailedMessage] = useMemo(() => {
 		if (message.text !== null && message.text !== undefined && message.say === "api_req_started") {
 			const info = safeJsonParse<ClineApiReqInfo>(message.text)
@@ -1227,6 +1231,7 @@ export const ChatRowContent = ({
 											setSelectedImages={setEditImages}
 											onSend={handleSaveEdit}
 											onSelectImages={handleSelectImages}
+											onPasteImagesFromClipboard={handlePasteImagesFromClipboard}
 											shouldDisableImages={!model?.supportsImages}
 											mode={editMode}
 											setMode={setEditMode}

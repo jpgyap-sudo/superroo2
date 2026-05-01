@@ -1003,6 +1003,16 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 			vscode.postMessage({ type: "lockApiConfigAcrossModes", bool: newValue })
 		}, [lockApiConfigAcrossModes])
 
+		const compactActionButtonClassName = cn(
+			"relative inline-flex items-center justify-center",
+			"bg-transparent border border-transparent p-1",
+			"rounded-md size-7 flex-shrink-0",
+			"text-vscode-descriptionForeground hover:text-vscode-foreground",
+			"transition-all duration-150",
+			"cursor-pointer",
+			"focus:outline-none focus-visible:ring-1 focus-visible:ring-vscode-focusBorder",
+		)
+
 		return (
 			<div
 				className={cn(
@@ -1072,7 +1082,7 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 								"relative",
 								"flex-1",
 								"flex",
-								"flex-col-reverse",
+								"flex-col",
 								"min-h-0",
 								"overflow-hidden",
 								"rounded-lg",
@@ -1098,8 +1108,7 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 											: "border border-transparent",
 									"pl-2",
 									"py-2",
-									isEditMode ? "pr-20" : "pr-2",
-									!isEditMode && "pb-10",
+									"pr-2",
 									"z-10",
 									"forced-color-adjust-none",
 									"rounded-lg",
@@ -1155,8 +1164,7 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 									"text-vscode-editor-font-size",
 									"leading-vscode-editor-line-height",
 									"cursor-text",
-									"pt-2 pl-2",
-									isEditMode ? "pb-2" : "pb-10",
+									"py-2 pl-2 pr-2",
 									isFocused
 										? "border border-vscode-focusBorder outline outline-vscode-focusBorder"
 										: isDraggingOver
@@ -1173,7 +1181,6 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 									"resize-none",
 									"overflow-x-hidden",
 									"overflow-y-auto",
-									isEditMode ? "pr-20" : "pr-2",
 									"flex-none flex-grow",
 									"z-[2]",
 									"scrollbar-none",
@@ -1181,13 +1188,10 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 								)}
 								onScroll={() => updateHighlights()}
 							/>
+						</div>
 
-							<div
-								className={cn(
-									"absolute bottom-1.5 right-1.5 z-30 flex items-center justify-end gap-0.5",
-									"rounded-md bg-vscode-input-background/95 px-0.5",
-									"max-w-[calc(100%-12px)]",
-								)}>
+						<div className="flex items-center justify-between gap-1 px-0.5">
+							<div className="flex min-w-0 items-center gap-0.5">
 								<StandardTooltip
 									content={shouldDisableImages ? t("chat:imagesDisabled") : t("chat:addImages")}>
 									<button
@@ -1195,23 +1199,12 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 										disabled={shouldDisableImages}
 										onClick={onSelectImages}
 										className={cn(
-											"relative inline-flex items-center justify-center",
-											"bg-transparent border-none p-1.5",
-											"rounded-md min-w-[28px] min-h-[28px]",
-											"text-vscode-descriptionForeground hover:text-vscode-foreground",
-											"transition-all duration-1000",
-											"cursor-pointer",
+											compactActionButtonClassName,
 											!shouldDisableImages
-												? "opacity-50 hover:opacity-100 delay-750 pointer-events-auto"
-												: "opacity-0 pointer-events-none duration-200 delay-0",
-											!shouldDisableImages &&
-												"hover:bg-[rgba(255,255,255,0.03)] hover:border-[rgba(255,255,255,0.15)]",
-											"focus:outline-none focus-visible:ring-1 focus-visible:ring-vscode-focusBorder",
-											!shouldDisableImages && "active:bg-[rgba(255,255,255,0.1)]",
-											shouldDisableImages &&
-												"opacity-40 cursor-not-allowed grayscale-[30%] hover:bg-transparent hover:border-[rgba(255,255,255,0.08)] active:bg-transparent",
+												? "opacity-70 hover:opacity-100 hover:bg-[rgba(255,255,255,0.04)] active:bg-[rgba(255,255,255,0.1)] cursor-pointer"
+												: "opacity-35 cursor-not-allowed grayscale-[30%]",
 										)}>
-										<Image className="w-4 h-4" />
+										<Image className="size-4" />
 									</button>
 								</StandardTooltip>
 								{onSelectFiles && (
@@ -1220,18 +1213,10 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 											aria-label={t("chat:addFiles")}
 											onClick={onSelectFiles}
 											className={cn(
-												"relative inline-flex items-center justify-center",
-												"bg-transparent border-none p-1.5",
-												"rounded-md min-w-[28px] min-h-[28px]",
-												"text-vscode-descriptionForeground hover:text-vscode-foreground",
-												"transition-all duration-1000",
-												"cursor-pointer",
-												"opacity-50 hover:opacity-100 delay-750 pointer-events-auto",
-												"hover:bg-[rgba(255,255,255,0.03)] hover:border-[rgba(255,255,255,0.15)]",
-												"focus:outline-none focus-visible:ring-1 focus-visible:ring-vscode-focusBorder",
-												"active:bg-[rgba(255,255,255,0.1)]",
+												compactActionButtonClassName,
+												"opacity-70 hover:opacity-100 hover:bg-[rgba(255,255,255,0.04)] active:bg-[rgba(255,255,255,0.1)] cursor-pointer",
 											)}>
-											<Paperclip className="w-4 h-4" />
+											<Paperclip className="size-4" />
 										</button>
 									</StandardTooltip>
 								)}
@@ -1242,17 +1227,10 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 											disabled={false}
 											onClick={onCancel}
 											className={cn(
-												"relative inline-flex items-center justify-center",
-												"bg-transparent border-none p-1.5",
-												"rounded-md min-w-[28px] min-h-[28px]",
-												"opacity-60 hover:opacity-100 text-vscode-descriptionForeground hover:text-vscode-foreground",
-												"transition-all duration-150",
-												"hover:bg-[rgba(255,255,255,0.03)] hover:border-[rgba(255,255,255,0.15)]",
-												"focus:outline-none focus-visible:ring-1 focus-visible:ring-vscode-focusBorder",
-												"active:bg-[rgba(255,255,255,0.1)]",
-												"cursor-pointer",
+												compactActionButtonClassName,
+												"opacity-70 hover:opacity-100 hover:bg-[rgba(255,255,255,0.04)] active:bg-[rgba(255,255,255,0.1)] cursor-pointer",
 											)}>
-											<X className="w-4 h-4" />
+											<X className="size-4" />
 										</button>
 									</StandardTooltip>
 								) : (
@@ -1262,26 +1240,20 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 											disabled={false}
 											onClick={handleEnhancePrompt}
 											className={cn(
-												"relative inline-flex items-center justify-center",
-												"bg-transparent border-none p-1.5",
-												"rounded-md min-w-[28px] min-h-[28px]",
-												"text-vscode-descriptionForeground hover:text-vscode-foreground",
-												"transition-all duration-1000",
-												"cursor-pointer",
+												compactActionButtonClassName,
 												hasInputContent
-													? "opacity-50 hover:opacity-100 delay-750 pointer-events-auto"
-													: "opacity-0 pointer-events-none duration-200 delay-0",
-												hasInputContent &&
-													"hover:bg-[rgba(255,255,255,0.03)] hover:border-[rgba(255,255,255,0.15)]",
-												"focus:outline-none focus-visible:ring-1 focus-visible:ring-vscode-focusBorder",
-												hasInputContent && "active:bg-[rgba(255,255,255,0.1)]",
+													? "opacity-70 hover:opacity-100 hover:bg-[rgba(255,255,255,0.04)] active:bg-[rgba(255,255,255,0.1)] cursor-pointer"
+													: "opacity-0 pointer-events-none",
 											)}>
 											<WandSparkles
-												className={cn("w-4 h-4", isEnhancingPrompt && "animate-spin")}
+												className={cn("size-4", isEnhancingPrompt && "animate-spin")}
 											/>
 										</button>
 									</StandardTooltip>
 								)}
+							</div>
+
+							<div className="flex flex-shrink-0 items-center gap-0.5">
 								{/* Queue button - shown when streaming and user has typed content */}
 								{!isEditMode && isStreaming && hasInputContent && onEnqueueMessage && (
 									<StandardTooltip content={t("chat:enqueueMessage")}>
@@ -1290,18 +1262,10 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 											disabled={false}
 											onClick={onEnqueueMessage}
 											className={cn(
-												"relative inline-flex items-center justify-center",
-												"bg-transparent border-none p-1.5",
-												"rounded-md min-w-[28px] min-h-[28px]",
-												"text-vscode-descriptionForeground hover:text-vscode-foreground",
-												"transition-all duration-200",
-												"opacity-100 hover:opacity-100 pointer-events-auto",
-												"hover:bg-[rgba(255,255,255,0.03)] hover:border-[rgba(255,255,255,0.15)]",
-												"focus:outline-none focus-visible:ring-1 focus-visible:ring-vscode-focusBorder",
-												"active:bg-[rgba(255,255,255,0.1)]",
-												"cursor-pointer",
+												compactActionButtonClassName,
+												"opacity-100 hover:bg-[rgba(255,255,255,0.04)] active:bg-[rgba(255,255,255,0.1)] cursor-pointer",
 											)}>
-											<ListEnd className="w-4 h-4" />
+											<ListEnd className="size-4" />
 										</button>
 									</StandardTooltip>
 								)}
@@ -1325,22 +1289,13 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 										disabled={false}
 										onClick={isStreaming ? onStop : onSend}
 										className={cn(
-											"relative inline-flex items-center justify-center",
-											"bg-transparent border-none p-1.5",
-											"rounded-full min-w-[28px] min-h-[28px]",
-											"text-vscode-descriptionForeground hover:text-vscode-foreground",
-											"transition-all duration-200",
+											compactActionButtonClassName,
+											"rounded-full",
 											isEditMode || isStreaming || hasInputContent
-												? "opacity-100 hover:opacity-100 pointer-events-auto"
+												? "opacity-100 pointer-events-auto hover:bg-[rgba(255,255,255,0.04)] active:bg-[rgba(255,255,255,0.1)] cursor-pointer"
 												: "opacity-0 pointer-events-none",
-											(isEditMode || isStreaming || hasInputContent) &&
-												"hover:bg-[rgba(255,255,255,0.03)] hover:border-[rgba(255,255,255,0.15)]",
-											"focus:outline-none focus-visible:ring-1 focus-visible:ring-vscode-focusBorder",
-											(isEditMode || isStreaming || hasInputContent) &&
-												"active:bg-[rgba(255,255,255,0.1)]",
-											(isEditMode || isStreaming || hasInputContent) && "cursor-pointer",
 											isStreaming &&
-												"bg-vscode-button-background hover:bg-vscode-button-background",
+												"bg-vscode-button-background text-vscode-button-foreground hover:bg-vscode-button-background",
 										)}>
 										{isStreaming ? (
 											<Square className="size-4 stroke-none fill-vscode-button-foreground" />
@@ -1350,23 +1305,19 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 									</button>
 								</StandardTooltip>
 							</div>
-
-							{!inputValue && (
-								<div
-									className={cn(
-										"absolute left-2 z-30 flex items-center h-8 font-vscode-font-family text-vscode-editor-font-size leading-vscode-editor-line-height",
-										isEditMode ? "pr-20" : "pr-32",
-									)}
-									style={{
-										bottom: "0.75rem",
-										color: "color-mix(in oklab, var(--vscode-input-foreground) 50%, transparent)",
-										userSelect: "none",
-										pointerEvents: "none",
-									}}>
-									{placeholderBottomText}
-								</div>
-							)}
 						</div>
+
+						{!inputValue && !isEditMode && (
+							<div
+								className="truncate px-1 font-vscode-font-family text-[11px] leading-4"
+								style={{
+									color: "color-mix(in oklab, var(--vscode-input-foreground) 50%, transparent)",
+									userSelect: "none",
+									pointerEvents: "none",
+								}}>
+								{placeholderBottomText.trim()}
+							</div>
+						)}
 					</div>
 				</div>
 
@@ -1401,37 +1352,31 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 					</div>
 				)}
 
-				<div className="flex items-center gap-2 min-w-0">
-					<div className="flex items-center gap-2 min-w-0 overflow-hidden flex-1">
-						<ModeSelector
-							value={mode}
-							title={t("chat:selectMode")}
-							onChange={handleModeChange}
-							triggerClassName="min-w-0 max-w-[38%] text-ellipsis overflow-hidden flex-shrink"
-							modeShortcutText={modeShortcutText}
-							customModes={customModes}
-							customModePrompts={customModePrompts}
-						/>
-						<ApiConfigSelector
-							value={currentConfigId}
-							displayName={displayName}
-							disabled={selectApiConfigDisabled}
-							title={t("chat:selectApiConfig")}
-							onChange={handleApiConfigChange}
-							triggerClassName="min-w-[28px] max-w-[42%] text-ellipsis overflow-hidden flex-shrink"
-							listApiConfigMeta={listApiConfigMeta || []}
-							pinnedApiConfigs={pinnedApiConfigs}
-							togglePinnedApiConfig={togglePinnedApiConfig}
-							lockApiConfigAcrossModes={!!lockApiConfigAcrossModes}
-							onToggleLockApiConfig={handleToggleLockApiConfig}
-						/>
-						<AutoApproveDropdown triggerClassName="min-w-[28px] max-w-[20%] text-ellipsis overflow-hidden flex-shrink" />
-					</div>
-					<div
-						className={cn(
-							"flex flex-shrink-0 items-center gap-0.5 h-5 leading-none",
-							!isEditMode && cloudUserInfo ? "" : "pr-2",
-						)}>
+				<div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-1 min-w-0 px-0.5">
+					<ModeSelector
+						value={mode}
+						title={t("chat:selectMode")}
+						onChange={handleModeChange}
+						triggerClassName="w-full min-w-0 justify-center overflow-hidden bg-vscode-input-background"
+						modeShortcutText={modeShortcutText}
+						customModes={customModes}
+						customModePrompts={customModePrompts}
+					/>
+					<ApiConfigSelector
+						value={currentConfigId}
+						displayName={displayName}
+						disabled={selectApiConfigDisabled}
+						title={t("chat:selectApiConfig")}
+						onChange={handleApiConfigChange}
+						triggerClassName="w-full min-w-0 justify-center overflow-hidden bg-vscode-input-background"
+						listApiConfigMeta={listApiConfigMeta || []}
+						pinnedApiConfigs={pinnedApiConfigs}
+						togglePinnedApiConfig={togglePinnedApiConfig}
+						lockApiConfigAcrossModes={!!lockApiConfigAcrossModes}
+						onToggleLockApiConfig={handleToggleLockApiConfig}
+					/>
+					<div className="flex min-w-0 flex-shrink-0 items-center justify-end gap-0.5 leading-none">
+						<AutoApproveDropdown triggerClassName="size-7 min-w-7 justify-center overflow-hidden px-1 bg-vscode-input-background [&_span]:hidden" />
 						{isTtsPlaying && (
 							<StandardTooltip content={t("chat:stopTts")}>
 								<button

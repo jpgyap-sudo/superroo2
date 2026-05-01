@@ -1124,6 +1124,106 @@ describe("ChatTextArea", () => {
 		})
 	})
 
+	describe("clipboard image fallback", () => {
+		it("requests extension-host clipboard images when paste has no readable image items or text", () => {
+			const onPasteImagesFromClipboard = vi.fn()
+			const { container } = render(
+				<ChatTextArea {...defaultProps} onPasteImagesFromClipboard={onPasteImagesFromClipboard} />,
+			)
+			const textarea = container.querySelector("textarea")!
+
+			fireEvent.paste(textarea, {
+				clipboardData: {
+					items: [],
+					getData: vi.fn(() => ""),
+				},
+			})
+
+			expect(onPasteImagesFromClipboard).toHaveBeenCalledTimes(1)
+		})
+
+		it("does not use the extension-host clipboard fallback for text paste", () => {
+			const onPasteImagesFromClipboard = vi.fn()
+			const { container } = render(
+				<ChatTextArea {...defaultProps} onPasteImagesFromClipboard={onPasteImagesFromClipboard} />,
+			)
+			const textarea = container.querySelector("textarea")!
+
+			fireEvent.paste(textarea, {
+				clipboardData: {
+					items: [],
+					getData: vi.fn(() => "plain text"),
+				},
+			})
+
+			expect(onPasteImagesFromClipboard).not.toHaveBeenCalled()
+		})
+
+		it("requests extension-host clipboard images after Ctrl+V when the webview paste event is blocked", () => {
+			vi.useFakeTimers()
+			try {
+				const onPasteImagesFromClipboard = vi.fn()
+				const { container } = render(
+					<ChatTextArea {...defaultProps} onPasteImagesFromClipboard={onPasteImagesFromClipboard} />,
+				)
+				const textarea = container.querySelector("textarea")!
+
+				fireEvent.keyDown(textarea, { key: "v", ctrlKey: true })
+				expect(onPasteImagesFromClipboard).not.toHaveBeenCalled()
+
+				vi.advanceTimersByTime(100)
+				expect(onPasteImagesFromClipboard).toHaveBeenCalledTimes(1)
+			} finally {
+				vi.useRealTimers()
+			}
+		})
+
+		it("cancels the Ctrl+V fallback when the paste event arrives normally", () => {
+			vi.useFakeTimers()
+			try {
+				const onPasteImagesFromClipboard = vi.fn()
+				const { container } = render(
+					<ChatTextArea {...defaultProps} onPasteImagesFromClipboard={onPasteImagesFromClipboard} />,
+				)
+				const textarea = container.querySelector("textarea")!
+
+				fireEvent.keyDown(textarea, { key: "v", ctrlKey: true })
+				fireEvent.paste(textarea, {
+					clipboardData: {
+						items: [],
+						getData: vi.fn(() => "plain text"),
+					},
+				})
+
+				vi.advanceTimersByTime(100)
+				expect(onPasteImagesFromClipboard).not.toHaveBeenCalled()
+			} finally {
+				vi.useRealTimers()
+			}
+		})
+
+		it("uses the same clipboard image fallback in edit mode", () => {
+			const onPasteImagesFromClipboard = vi.fn()
+			const { container } = render(
+				<ChatTextArea
+					{...defaultProps}
+					isEditMode={true}
+					onPasteImagesFromClipboard={onPasteImagesFromClipboard}
+				/>,
+			)
+			const textarea = container.querySelector("textarea")!
+
+			fireEvent.paste(textarea, {
+				clipboardData: {
+					items: [],
+					getData: vi.fn(() => ""),
+				},
+			})
+
+			expect(onPasteImagesFromClipboard).toHaveBeenCalledTimes(1)
+		})
+	})
+
 	describe("send button visibility", () => {
 		it("should show send button when there are images but no text", () => {
 			const { container } = render(
