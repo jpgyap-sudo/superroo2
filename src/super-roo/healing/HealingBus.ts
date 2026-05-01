@@ -239,7 +239,10 @@ export class HealingBus {
 			)
 			.run(row)
 
-		const incident = this.get(id)!
+		const incident = this.get(id)
+		if (!incident) {
+			throw new Error(`Failed to retrieve incident ${id} after insert`)
+		}
 
 		this.events.warn("healing.incident_reported", `Incident reported: ${input.title}`, {
 			incidentId: id,
@@ -401,7 +404,10 @@ export class HealingBus {
 		const query = `UPDATE healing_incidents SET ${updates.join(", ")} WHERE id = @id`
 		this.memory.getDb().prepare(query).run(params)
 
-		const updated = this.get(id)!
+		const updated = this.get(id)
+		if (!updated) {
+			throw new Error(`Failed to retrieve incident ${id} after update`)
+		}
 
 		this.events.info("healing.incident_updated", `Incident ${id} updated: ${patch.status ?? "properties"}`, {
 			incidentId: id,
