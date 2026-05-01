@@ -399,7 +399,8 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 					)
 
 					setInputValue(newValue)
-					const newCursorPosition = newValue.indexOf(" ", mentionIndex + insertValue.length) + 1
+					const spaceIdx = newValue.indexOf(" ", mentionIndex + insertValue.length)
+					const newCursorPosition = spaceIdx === -1 ? newValue.length : spaceIdx + 1
 					setCursorPosition(newCursorPosition)
 					setIntendedCursorPosition(newCursorPosition)
 
