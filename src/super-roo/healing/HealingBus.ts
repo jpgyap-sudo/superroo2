@@ -320,7 +320,8 @@ export class HealingBus {
 
 		const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : ""
 		const orderBy = "ORDER BY created_at DESC"
-		const limitClause = filter.limit ? `LIMIT ${filter.limit}` : ""
+		const limitClause =
+			filter.limit && Number.isInteger(filter.limit) && filter.limit > 0 ? `LIMIT ${filter.limit}` : ""
 
 		const query = `SELECT * FROM healing_incidents ${whereClause} ${orderBy} ${limitClause}`
 		const rows = this.memory.getDb().prepare(query).all(params) as HealingIncidentRow[]

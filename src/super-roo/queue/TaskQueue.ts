@@ -115,7 +115,10 @@ export class TaskQueue {
 				now,
 			})
 
-		const task = this.get(id)!
+		const task = this.get(id)
+		if (!task) {
+			throw new Error(`Failed to retrieve task ${id} after insert`)
+		}
 		this.events.info("task.enqueued", `Enqueued: ${task.goal}`, {
 			taskId: id,
 			agent: task.agent,
