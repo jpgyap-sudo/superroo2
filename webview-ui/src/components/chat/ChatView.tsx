@@ -585,6 +585,7 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 		setInputValue("")
 		setSendingDisabled(true)
 		setSelectedImages([])
+		setSelectedFiles([])
 		setClineAsk(undefined)
 		setEnableButtons(false)
 		// Do not reset mode here as it should persist.
@@ -597,9 +598,23 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 	 * @param text - The message text to send
 	 * @param images - Array of image data URLs to send with the message
 	 */
+	// Build the final message text by appending any attached markdown files.
+	const buildMessageWithFiles = useCallback(
+		(text: string) => {
+			if (selectedFiles.length === 0) return text
+			const fileContents = selectedFiles
+				.filter((f) => f.name.toLowerCase().endsWith(".md"))
+				.map((f) => `--- ${f.name} ---\n${f.content}`)
+				.join("\n\n")
+			if (!fileContents) return text
+			return text ? `${text}\n\n${fileContents}` : fileContents
+		},
+		[selectedFiles],
+	)
+
 	const handleSendMessage = useCallback(
 		(text: string, images: string[]) => {
-			text = text.trim()
+			text = buildMessageWithFiles(text).trim()
 
 			if (text || images.length > 0) {
 				// Intercept when the active provider is retired — show a
@@ -622,9 +637,10 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 				) {
 					try {
 						console.log("queueMessage", text, images)
-						vscode.postMessage({ type: "queueMessage", text, images })
+						vscode.postMessage({ type: "queueMessage", text, images, files: selectedFiles })
 						setInputValue("")
 						setSelectedImages([])
+						setSelectedFiles([])
 					} catch (error) {
 						console.error(
 							`Failed to queue message: ${error instanceof Error ? error.message : String(error)}`,
@@ -638,7 +654,7 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 				userRespondedRef.current = true
 
 				if (messagesRef.current.length === 0) {
-					vscode.postMessage({ type: "newTask", text, images })
+					vscode.postMessage({ type: "newTask", text, images, files: selectedFiles })
 				} else if (clineAskRef.current) {
 					if (clineAskRef.current === "followup") {
 						markFollowUpAsAnswered()
@@ -661,25 +677,34 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 								askResponse: "messageResponse",
 								text,
 								images,
+								files: selectedFiles,
 							})
 							break
 						// There is no other case that a textfield should be enabled.
 					}
 				} else {
 					// This is a new message in an ongoing task.
-					vscode.postMessage({ type: "askResponse", askResponse: "messageResponse", text, images })
+					vscode.postMessage({
+						type: "askResponse",
+						askResponse: "messageResponse",
+						text,
+						images,
+						files: selectedFiles,
+					})
 				}
 
 				handleChatReset()
 			}
 		},
 		[
+			buildMessageWithFiles,
 			handleChatReset,
 			markFollowUpAsAnswered,
 			sendingDisabled,
 			isStreaming,
 			messageQueue.length,
 			apiConfiguration?.apiProvider,
+			selectedFiles,
 		], // messagesRef and clineAskRef are stable
 	)
 
@@ -712,16 +737,18 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 	// Handle enqueue button click from textarea
 	const handleEnqueueCurrentMessage = useCallback(() => {
 		const text = inputValue.trim()
-		if (text || selectedImages.length > 0) {
+		if (text || selectedImages.length > 0 || selectedFiles.length > 0) {
 			vscode.postMessage({
 				type: "queueMessage",
-				text,
+				text: buildMessageWithFiles(text),
 				images: selectedImages,
+				files: selectedFiles,
 			})
 			setInputValue("")
 			setSelectedImages([])
+			setSelectedFiles([])
 		}
-	}, [inputValue, selectedImages])
+	}, [inputValue, selectedImages, selectedFiles, buildMessageWithFiles])
 
 	// This logic depends on the useEffect[messages] above to set clineAsk,
 	// after which buttons are shown and we then send an askResponse to the
@@ -740,16 +767,18 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 				case "use_mcp_server":
 				case "mistake_limit_reached":
 					// Only send text/images if they exist
-					if (trimmedInput || (images && images.length > 0)) {
+					if (trimmedInput || (images && images.length > 0) || selectedFiles.length > 0) {
 						vscode.postMessage({
 							type: "askResponse",
 							askResponse: "yesButtonClicked",
-							text: trimmedInput,
+							text: buildMessageWithFiles(trimmedInput ?? ""),
 							images: images,
+							files: selectedFiles,
 						})
 						// Clear input state after sending
 						setInputValue("")
 						setSelectedImages([])
+						setSelectedFiles([])
 					} else {
 						vscode.postMessage({ type: "askResponse", askResponse: "yesButtonClicked" })
 					}
@@ -766,16 +795,18 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 						startNewTask()
 					} else {
 						// Only send text/images if they exist
-						if (trimmedInput || (images && images.length > 0)) {
+						if (trimmedInput || (images && images.length > 0) || selectedFiles.length > 0) {
 							vscode.postMessage({
 								type: "askResponse",
 								askResponse: "yesButtonClicked",
-								text: trimmedInput,
+								text: buildMessageWithFiles(trimmedInput ?? ""),
 								images: images,
+								files: selectedFiles,
 							})
 							// Clear input state after sending
 							setInputValue("")
 							setSelectedImages([])
+							setSelectedFiles([])
 						} else {
 							vscode.postMessage({ type: "askResponse", askResponse: "yesButtonClicked" })
 						}
@@ -797,7 +828,7 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 			setPrimaryButtonText(undefined)
 			setSecondaryButtonText(undefined)
 		},
-		[clineAsk, startNewTask, currentTaskItem?.parentTaskId],
+		[buildMessageWithFiles, clineAsk, startNewTask, currentTaskItem?.parentTaskId, selectedFiles],
 	)
 
 	const handleSecondaryButtonClick = useCallback(
@@ -823,16 +854,18 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 				case "tool":
 				case "use_mcp_server":
 					// Only send text/images if they exist
-					if (trimmedInput || (images && images.length > 0)) {
+					if (trimmedInput || (images && images.length > 0) || selectedFiles.length > 0) {
 						vscode.postMessage({
 							type: "askResponse",
 							askResponse: "noButtonClicked",
-							text: trimmedInput,
+							text: buildMessageWithFiles(trimmedInput ?? ""),
 							images: images,
+							files: selectedFiles,
 						})
 						// Clear input state after sending
 						setInputValue("")
 						setSelectedImages([])
+						setSelectedFiles([])
 					} else {
 						// Responds to the API with a "This operation failed" and lets it try again
 						vscode.postMessage({ type: "askResponse", askResponse: "noButtonClicked" })
@@ -846,12 +879,13 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 			setClineAsk(undefined)
 			setEnableButtons(false)
 		},
-		[clineAsk, startNewTask, isStreaming, setDidClickCancel],
+		[buildMessageWithFiles, clineAsk, startNewTask, isStreaming, setDidClickCancel, selectedFiles],
 	)
 
 	const { info: model } = useSelectedModel(apiConfiguration)
 
 	const selectImages = useCallback(() => vscode.postMessage({ type: "selectImages" }), [])
+	const pasteImagesFromClipboard = useCallback(() => vscode.postMessage({ type: "pasteImageFromClipboard" }), [])
 	const selectFiles = useCallback(() => vscode.postMessage({ type: "selectFiles" }), [])
 
 	const shouldDisableImages = !model?.supportsImages || selectedImages.length >= MAX_IMAGES_PER_MESSAGE
@@ -1543,14 +1577,20 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 
 	useImperativeHandle(ref, () => ({
 		acceptInput: () => {
-			const hasInput = inputValue.trim() || selectedImages.length > 0
+			const hasInput = inputValue.trim() || selectedImages.length > 0 || selectedFiles.length > 0
 
 			// Special case: during command_output, queue the message instead of
 			// triggering the primary button action (which would lose the message)
 			if (clineAskRef.current === "command_output" && hasInput) {
-				vscode.postMessage({ type: "queueMessage", text: inputValue.trim(), images: selectedImages })
+				vscode.postMessage({
+					type: "queueMessage",
+					text: inputValue.trim(),
+					images: selectedImages,
+					files: selectedFiles,
+				})
 				setInputValue("")
 				setSelectedImages([])
+				setSelectedFiles([])
 				return
 			}
 
@@ -1813,6 +1853,7 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 				setSelectedFiles={setSelectedFiles}
 				onSend={() => handleSendMessage(inputValue, selectedImages)}
 				onSelectImages={selectImages}
+				onPasteImagesFromClipboard={pasteImagesFromClipboard}
 				onSelectFiles={selectFiles}
 				shouldDisableImages={shouldDisableImages}
 				onHeightChange={() => {

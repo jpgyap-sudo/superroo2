@@ -46,6 +46,7 @@ interface ChatTextAreaProps {
 	setSelectedFiles?: React.Dispatch<React.SetStateAction<FileAttachment[]>>
 	onSend: () => void
 	onSelectImages: () => void
+	onPasteImagesFromClipboard?: () => void
 	onSelectFiles?: () => void
 	shouldDisableImages: boolean
 	onHeightChange?: (height: number) => void
@@ -74,6 +75,7 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 			setSelectedFiles,
 			onSend,
 			onSelectImages,
+			onPasteImagesFromClipboard,
 			onSelectFiles,
 			shouldDisableImages,
 			onHeightChange,
@@ -220,6 +222,7 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 		const [cursorPosition, setCursorPosition] = useState(0)
 		const [searchQuery, setSearchQuery] = useState("")
 		const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
+		const pasteFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 		const [isMouseDownOnMenu, setIsMouseDownOnMenu] = useState(false)
 		const highlightLayerRef = useRef<HTMLDivElement>(null)
 		const [selectedMenuIndex, setSelectedMenuIndex] = useState(-1)
@@ -261,12 +264,20 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 			}
 		}, [inputValue, setInputValue, t])
 
+		useEffect(() => {
+			return () => {
+				if (pasteFallbackTimerRef.current) {
+					clearTimeout(pasteFallbackTimerRef.current)
+				}
+			}
+		}, [])
+
 		const allModes = useMemo(() => getAllModes(customModes), [customModes])
 
-		// Memoized check for whether the input has content (text or images)
+		// Memoized check for whether the input has content (text, images, or files)
 		const hasInputContent = useMemo(() => {
-			return inputValue.trim().length > 0 || selectedImages.length > 0
-		}, [inputValue, selectedImages])
+			return inputValue.trim().length > 0 || selectedImages.length > 0 || selectedFiles.length > 0
+		}, [inputValue, selectedImages, selectedFiles])
 
 		// Compute the key combination text for the send button tooltip based on enterBehavior
 		const sendKeyCombination = useMemo(() => {
@@ -419,6 +430,22 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 
 		const handleKeyDown = useCallback(
 			(event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+				if (
+					!shouldDisableImages &&
+					onPasteImagesFromClipboard &&
+					(event.ctrlKey || event.metaKey) &&
+					event.key.toLowerCase() === "v"
+				) {
+					if (pasteFallbackTimerRef.current) {
+						clearTimeout(pasteFallbackTimerRef.current)
+					}
+
+					pasteFallbackTimerRef.current = setTimeout(() => {
+						pasteFallbackTimerRef.current = null
+						onPasteImagesFromClipboard()
+					}, 100)
+				}
+
 				if (showContextMenu) {
 					if (event.key === "Escape") {
 						setSelectedType(null)
@@ -577,6 +604,8 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 				resetHistoryNavigation,
 				commands,
 				enterBehavior,
+				onPasteImagesFromClipboard,
+				shouldDisableImages,
 			],
 		)
 
@@ -675,6 +704,11 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 
 		const handlePaste = useCallback(
 			async (e: React.ClipboardEvent) => {
+				if (pasteFallbackTimerRef.current) {
+					clearTimeout(pasteFallbackTimerRef.current)
+					pasteFallbackTimerRef.current = null
+				}
+
 				const items = e.clipboardData.items
 
 				const pastedText = e.clipboardData.getData("text")
@@ -703,7 +737,7 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 					return
 				}
 
-				const acceptedTypes = ["png", "jpeg", "webp"]
+				const acceptedTypes = ["png", "jpeg", "jpg", "webp", "gif", "bmp", "svg+xml"]
 
 				const imageItems = Array.from(items).filter((item) => {
 					const [type, subtype] = item.type.split("/")
@@ -746,9 +780,25 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 					} else {
 						console.warn(t("chat:noValidImages"))
 					}
+				} else if (
+					!shouldDisableImages &&
+					!pastedText &&
+					imageItems.length === 0 &&
+					onPasteImagesFromClipboard
+				) {
+					e.preventDefault()
+					onPasteImagesFromClipboard()
 				}
 			},
-			[shouldDisableImages, setSelectedImages, cursorPosition, setInputValue, inputValue, t],
+			[
+				shouldDisableImages,
+				setSelectedImages,
+				cursorPosition,
+				setInputValue,
+				inputValue,
+				t,
+				onPasteImagesFromClipboard,
+			],
 		)
 
 		const handleMenuMouseDown = useCallback(() => {
@@ -864,7 +914,7 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 				const files = Array.from(e.dataTransfer.files)
 
 				if (files.length > 0) {
-					const acceptedTypes = ["png", "jpeg", "webp"]
+					const acceptedTypes = ["png", "jpeg", "jpg", "webp", "gif", "bmp", "svg+xml"]
 
 					const imageFiles = files.filter((file) => {
 						const [type, subtype] = file.type.split("/")
