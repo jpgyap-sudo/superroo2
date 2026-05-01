@@ -32,6 +32,14 @@ interface BugRow {
 	updated_at: number
 }
 
+function safeJsonParse<T>(json: string, fallback: T): T {
+	try {
+		return JSON.parse(json) as T
+	} catch {
+		return fallback
+	}
+}
+
 function rowToBug(r: BugRow): BugRecord {
 	return {
 		id: r.id,
@@ -39,10 +47,10 @@ function rowToBug(r: BugRow): BugRecord {
 		severity: r.severity as BugSeverity,
 		status: r.status as BugStatus,
 		featureId: r.feature_id ?? undefined,
-		symptoms: JSON.parse(r.symptoms) as string[],
+		symptoms: safeJsonParse<string[]>(r.symptoms, []),
 		suspectedRootCause: r.suspected_root_cause ?? undefined,
-		filesLikelyInvolved: JSON.parse(r.files_likely_involved) as string[],
-		reproductionSteps: JSON.parse(r.reproduction_steps) as string[],
+		filesLikelyInvolved: safeJsonParse<string[]>(r.files_likely_involved, []),
+		reproductionSteps: safeJsonParse<string[]>(r.reproduction_steps, []),
 		recommendedFix: r.recommended_fix ?? undefined,
 		deploymentRisk: r.deployment_risk as BugSeverity,
 		fixAttempts: r.fix_attempts,
@@ -100,7 +108,7 @@ function rowToFix(r: FixRow): FixRecord {
 		id: r.id,
 		bugId: r.bug_id,
 		summary: r.summary,
-		filesChanged: JSON.parse(r.files_changed) as string[],
+		filesChanged: safeJsonParse<string[]>(r.files_changed, []),
 		testResults: r.test_results ?? undefined,
 		succeeded: r.succeeded === 1,
 		commitSha: r.commit_sha ?? undefined,
@@ -327,10 +335,15 @@ export class BugRegistry {
 
 		const eventType = input.succeeded ? "bug.fixed" : "bug.recorded"
 		const level = input.succeeded ? "info" : "warn"
-		this.events.emit(level, eventType, input.succeeded ? `Bug fix succeeded: ${bug.title}` : `Fix attempt failed: ${bug.title}`, {
-			bugId: input.bugId,
-			data: { fixId: id, summary: input.summary },
-		})
+		this.events.emit(
+			level,
+			eventType,
+			input.succeeded ? `Bug fix succeeded: ${bug.title}` : `Fix attempt failed: ${bug.title}`,
+			{
+				bugId: input.bugId,
+				data: { fixId: id, summary: input.summary },
+			},
+		)
 		return fix
 	}
 

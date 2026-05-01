@@ -20,6 +20,14 @@ import Database from "better-sqlite3"
 
 import type { LogEvent } from "../types"
 
+function safeJsonParse<T>(json: string, fallback: T): T {
+	try {
+		return JSON.parse(json) as T
+	} catch {
+		return fallback
+	}
+}
+
 interface Migration {
 	version: number
 	description: string
@@ -229,9 +237,9 @@ export class MemoryStore {
 		const tx = this.db.transaction(() => {
 			for (const m of pending) {
 				m.up(this.db)
-				this.db.prepare("INSERT OR REPLACE INTO _meta (key, value) VALUES ('schema_version', ?)").run(
-					String(m.version),
-				)
+				this.db
+					.prepare("INSERT OR REPLACE INTO _meta (key, value) VALUES ('schema_version', ?)")
+					.run(String(m.version))
 			}
 		})
 		tx()
@@ -307,8 +315,8 @@ export class MemoryStore {
 		}>
 		return rows.map((r) => ({
 			...r,
-			alternatives: JSON.parse(r.alternatives) as string[],
-			tags: JSON.parse(r.tags) as string[],
+			alternatives: safeJsonParse<string[]>(r.alternatives, []),
+			tags: safeJsonParse<string[]>(r.tags, []),
 		}))
 	}
 
@@ -384,7 +392,7 @@ export class MemoryStore {
 			featureId: r.featureId ?? undefined,
 			bugId: r.bugId ?? undefined,
 			codedBy: r.codedBy ?? undefined,
-			data: r.data ? (JSON.parse(r.data) as Record<string, unknown>) : undefined,
+			data: r.data ? safeJsonParse<Record<string, unknown>>(r.data, {}) : undefined,
 		}))
 	}
 }

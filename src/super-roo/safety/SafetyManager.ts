@@ -130,7 +130,12 @@ export class SafetyManager {
 		}
 		const allowed = this.capabilityRules[this.mode]
 		if (!allowed) {
-			return { allowed: false, reason: `Unknown safety mode: ${this.mode}`, rule: "mode" }
+			// Default-deny with informative message, but don't crash on new modes
+			return {
+				allowed: false,
+				reason: `Safety mode "${this.mode}" has no capability rules configured.`,
+				rule: "mode",
+			}
 		}
 		if (!allowed.has(cap)) {
 			return {

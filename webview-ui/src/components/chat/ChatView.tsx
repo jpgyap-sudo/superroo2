@@ -12,7 +12,7 @@ import { appendImages } from "@src/utils/imageUtils"
 import { getCostBreakdownIfNeeded } from "@src/utils/costFormatting"
 import { batchConsecutive } from "@src/utils/batchConsecutive"
 
-import type { ClineAsk, ClineSayTool, ClineMessage, ExtensionMessage, AudioType } from "@superroo/types"
+import type { ClineAsk, ClineSayTool, ClineMessage, ExtensionMessage, AudioType, FileAttachment } from "@superroo/types"
 import { isRetiredProvider } from "@superroo/types"
 
 import { findLast } from "@roo/array"
@@ -141,6 +141,7 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 	const textAreaRef = useRef<HTMLTextAreaElement>(null)
 	const [sendingDisabled, setSendingDisabled] = useState(false)
 	const [selectedImages, setSelectedImages] = useState<string[]>([])
+	const [selectedFiles, setSelectedFiles] = useState<FileAttachment[]>([])
 
 	// We need to hold on to the ask because useEffect > lastMessage will always
 	// let us know when an ask comes in and handle it, but by the time
@@ -851,6 +852,7 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 	const { info: model } = useSelectedModel(apiConfiguration)
 
 	const selectImages = useCallback(() => vscode.postMessage({ type: "selectImages" }), [])
+	const selectFiles = useCallback(() => vscode.postMessage({ type: "selectFiles" }), [])
 
 	const shouldDisableImages = !model?.supportsImages || selectedImages.length >= MAX_IMAGES_PER_MESSAGE
 
@@ -878,6 +880,11 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 						setSelectedImages((prevImages: string[]) =>
 							appendImages(prevImages, message.images, MAX_IMAGES_PER_MESSAGE),
 						)
+					}
+					break
+				case "selectedFiles":
+					if (message.context !== "edit" && message.files) {
+						setSelectedFiles((prevFiles) => [...prevFiles, ...message.files!].slice(0, 10))
 					}
 					break
 				case "invoke":
@@ -1802,8 +1809,11 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 				placeholderText={placeholderText}
 				selectedImages={selectedImages}
 				setSelectedImages={setSelectedImages}
+				selectedFiles={selectedFiles}
+				setSelectedFiles={setSelectedFiles}
 				onSend={() => handleSendMessage(inputValue, selectedImages)}
 				onSelectImages={selectImages}
+				onSelectFiles={selectFiles}
 				shouldDisableImages={shouldDisableImages}
 				onHeightChange={() => {
 					if (isAtBottomRef.current && scrollPhaseRef.current !== "USER_BROWSING_HISTORY") {

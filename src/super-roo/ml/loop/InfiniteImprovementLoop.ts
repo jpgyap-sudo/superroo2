@@ -200,6 +200,11 @@ export class InfiniteImprovementLoop {
 		if (allLosses.length === 0) {
 			this.orchestrator.events.warn("ml.loop.train_error", "All training losses are NaN, models may be corrupted")
 			this.stats.lastTrainLoss = NaN
+			// Reset learners to recover from corrupted state
+			this.codeLearner = new CodeLearner({ inputDim: 8 })
+			this.debugLearner = new DebugLearner({ inputDim: 8 })
+			this.testLearner = new TestLearner({ inputDim: 8 })
+			this.orchestrator.events.info("ml.loop.reset", "Reset all learners due to NaN losses")
 			return
 		}
 

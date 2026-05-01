@@ -189,20 +189,26 @@ export class Tensor {
 
 	div(other: Tensor | number): Tensor {
 		if (typeof other === "number") {
+			if (other === 0) throw new Error("Tensor.div: division by zero")
 			const out = new Tensor(this.rows, this.cols, "zeros")
 			for (let i = 0; i < this.data.length; i++) out.data[i] = this.data[i] / other
 			return out
 		}
 		if (this.rows === other.rows && this.cols === other.cols) {
 			const out = new Tensor(this.rows, this.cols, "zeros")
-			for (let i = 0; i < this.data.length; i++) out.data[i] = this.data[i] / other.data[i]
+			for (let i = 0; i < this.data.length; i++) {
+				if (other.data[i] === 0) throw new Error(`Tensor.div: division by zero at index ${i}`)
+				out.data[i] = this.data[i] / other.data[i]
+			}
 			return out
 		}
 		if (other.rows === 1 && other.cols === this.cols) {
 			const out = new Tensor(this.rows, this.cols, "zeros")
 			for (let i = 0; i < this.rows; i++) {
 				for (let j = 0; j < this.cols; j++) {
-					out.set(i, j, this.get(i, j) / other.get(0, j))
+					const divisor = other.get(0, j)
+					if (divisor === 0) throw new Error(`Tensor.div: division by zero at [${i},${j}]`)
+					out.set(i, j, this.get(i, j) / divisor)
 				}
 			}
 			return out
@@ -218,7 +224,10 @@ export class Tensor {
 
 	pow(exp: number): Tensor {
 		const out = new Tensor(this.rows, this.cols, "zeros")
-		for (let i = 0; i < this.data.length; i++) out.data[i] = Math.pow(this.data[i], exp)
+		for (let i = 0; i < this.data.length; i++) {
+			const val = Math.pow(this.data[i], exp)
+			out.data[i] = Number.isFinite(val) ? val : 0
+		}
 		return out
 	}
 
@@ -230,13 +239,13 @@ export class Tensor {
 
 	sqrt(): Tensor {
 		const out = new Tensor(this.rows, this.cols, "zeros")
-		for (let i = 0; i < this.data.length; i++) out.data[i] = Math.sqrt(this.data[i])
+		for (let i = 0; i < this.data.length; i++) out.data[i] = Math.sqrt(Math.max(0, this.data[i]))
 		return out
 	}
 
 	log(): Tensor {
 		const out = new Tensor(this.rows, this.cols, "zeros")
-		for (let i = 0; i < this.data.length; i++) out.data[i] = Math.log(this.data[i] + 1e-8)
+		for (let i = 0; i < this.data.length; i++) out.data[i] = Math.log(Math.max(this.data[i], 1e-8))
 		return out
 	}
 

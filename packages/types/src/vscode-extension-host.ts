@@ -23,6 +23,14 @@ import type { OpenAiCodexRateLimitInfo } from "./providers/openai-codex-rate-lim
 import type { SkillMetadata } from "./skills.js"
 import type { WorktreeIncludeStatus } from "./worktree.js"
 
+export interface FileAttachment {
+	name: string
+	type: string
+	size: number
+	content: string
+	isText: boolean
+}
+
 /**
  * ExtensionMessage
  * Extension -> Webview | CLI
@@ -34,6 +42,7 @@ export interface ExtensionMessage {
 		| "taskHistoryUpdated"
 		| "taskHistoryItemUpdated"
 		| "selectedImages"
+		| "selectedFiles"
 		| "theme"
 		| "workspaceUpdated"
 		| "invoke"
@@ -129,6 +138,7 @@ export interface ExtensionMessage {
 	 */
 	state?: Partial<ExtensionState>
 	images?: string[]
+	files?: FileAttachment[]
 	filePaths?: string[]
 	openedTabs?: Array<{
 		label: string
@@ -428,6 +438,7 @@ export interface WebviewMessage {
 		| "clearTask"
 		| "didShowAnnouncement"
 		| "selectImages"
+		| "selectFiles"
 		| "exportCurrentTask"
 		| "shareCurrentTask"
 		| "showTaskWithId"
@@ -591,6 +602,7 @@ export interface WebviewMessage {
 	askResponse?: ClineAskResponse
 	apiConfiguration?: ProviderSettings
 	images?: string[]
+	files?: FileAttachment[]
 	bool?: boolean
 	value?: number
 	stepIndex?: number

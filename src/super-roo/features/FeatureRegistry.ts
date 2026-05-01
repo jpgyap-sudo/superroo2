@@ -36,6 +36,14 @@ interface FeatureRow {
 	updated_at: number
 }
 
+function safeJsonParse<T>(json: string, fallback: T): T {
+	try {
+		return JSON.parse(json) as T
+	} catch {
+		return fallback
+	}
+}
+
 function rowToFeature(r: FeatureRow): Feature {
 	return {
 		id: r.id,
@@ -45,9 +53,9 @@ function rowToFeature(r: FeatureRow): Feature {
 		status: r.status as FeatureStatus,
 		health: r.health as FeatureHealth,
 		priority: r.priority as Feature["priority"],
-		relatedFiles: JSON.parse(r.related_files) as string[],
-		bugIds: JSON.parse(r.bug_ids) as string[],
-		testIds: JSON.parse(r.test_ids) as string[],
+		relatedFiles: safeJsonParse<string[]>(r.related_files, []),
+		bugIds: safeJsonParse<string[]>(r.bug_ids, []),
+		testIds: safeJsonParse<string[]>(r.test_ids, []),
 		fixAttempts: r.fix_attempts,
 		lastCheckedAt: r.last_checked_at,
 		createdAt: r.created_at,
@@ -109,9 +117,7 @@ export class FeatureRegistry {
 	}
 
 	get(id: string): Feature | null {
-		const row = this.memory.getDb().prepare("SELECT * FROM features WHERE id = ?").get(id) as
-			| FeatureRow
-			| undefined
+		const row = this.memory.getDb().prepare("SELECT * FROM features WHERE id = ?").get(id) as FeatureRow | undefined
 		return row ? rowToFeature(row) : null
 	}
 

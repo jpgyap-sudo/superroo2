@@ -22,7 +22,6 @@ import type { MemoryStore } from "../memory/MemoryStore"
 import type { Task, TaskInput, TaskInputRaw, TaskPriority, TaskStatus } from "../types"
 import { TaskInputSchema } from "../types"
 
-
 interface TaskRow {
 	id: string
 	agent: string
@@ -45,6 +44,14 @@ interface TaskRow {
 	finished_at: number | null
 }
 
+function safeJsonParse<T>(json: string, fallback: T): T {
+	try {
+		return JSON.parse(json) as T
+	} catch {
+		return fallback
+	}
+}
+
 function rowToTask(r: TaskRow): Task {
 	return {
 		id: r.id,
@@ -55,8 +62,8 @@ function rowToTask(r: TaskRow): Task {
 		parentTaskId: r.parent_task_id ?? undefined,
 		featureId: r.feature_id ?? undefined,
 		bugId: r.bug_id ?? undefined,
-		requiredCapabilities: JSON.parse(r.required_capabilities) as string[],
-		payload: JSON.parse(r.payload) as Record<string, unknown>,
+		requiredCapabilities: safeJsonParse<string[]>(r.required_capabilities, []),
+		payload: safeJsonParse<Record<string, unknown>>(r.payload, {}),
 		maxIterations: r.max_iterations,
 		attempts: r.attempts,
 		error: r.error ?? undefined,
@@ -171,10 +178,14 @@ export class TaskQueue {
 	}
 
 	/** Used by the orchestrator after agent.run() returns. */
-	markFinished(id: string, status: Extract<TaskStatus, "succeeded" | "failed" | "blocked" | "cancelled">, opts: {
-		resultSummary?: string
-		error?: string
-	} = {}): void {
+	markFinished(
+		id: string,
+		status: Extract<TaskStatus, "succeeded" | "failed" | "blocked" | "cancelled">,
+		opts: {
+			resultSummary?: string
+			error?: string
+		} = {},
+	): void {
 		const now = Date.now()
 		this.memory
 			.getDb()

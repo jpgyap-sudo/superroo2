@@ -1,9 +1,9 @@
 import React, { forwardRef, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useEvent } from "react-use"
 import DynamicTextArea from "react-textarea-autosize"
-import { VolumeX, Image, WandSparkles, SendHorizontal, X, ListEnd, Square } from "lucide-react"
+import { VolumeX, Image, WandSparkles, SendHorizontal, X, ListEnd, Square, Paperclip, FileText } from "lucide-react"
 
-import type { ExtensionMessage } from "@superroo/types"
+import type { ExtensionMessage, FileAttachment } from "@superroo/types"
 
 import { mentionRegex, mentionRegexGlobal, commandRegexGlobal, unescapeSpaces } from "@roo/context-mentions"
 import { WebviewMessage } from "@roo/WebviewMessage"
@@ -42,8 +42,11 @@ interface ChatTextAreaProps {
 	placeholderText: string
 	selectedImages: string[]
 	setSelectedImages: React.Dispatch<React.SetStateAction<string[]>>
+	selectedFiles?: FileAttachment[]
+	setSelectedFiles?: React.Dispatch<React.SetStateAction<FileAttachment[]>>
 	onSend: () => void
 	onSelectImages: () => void
+	onSelectFiles?: () => void
 	shouldDisableImages: boolean
 	onHeightChange?: (height: number) => void
 	mode: Mode
@@ -67,8 +70,11 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 			placeholderText,
 			selectedImages,
 			setSelectedImages,
+			selectedFiles = [],
+			setSelectedFiles,
 			onSend,
 			onSelectImages,
+			onSelectFiles,
 			shouldDisableImages,
 			onHeightChange,
 			mode,
@@ -1124,11 +1130,12 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 							/>
 
 							<div className="absolute bottom-2 right-1 z-30 flex flex-col items-center gap-0">
-								<StandardTooltip content={t("chat:addImages")}>
+								<StandardTooltip
+									content={shouldDisableImages ? t("chat:imagesDisabled") : t("chat:addImages")}>
 									<button
 										aria-label={t("chat:addImages")}
 										disabled={shouldDisableImages}
-										onClick={!shouldDisableImages ? onSelectImages : undefined}
+										onClick={onSelectImages}
 										className={cn(
 											"relative inline-flex items-center justify-center",
 											"bg-transparent border-none p-1.5",
@@ -1149,6 +1156,27 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 										<Image className="w-4 h-4" />
 									</button>
 								</StandardTooltip>
+								{onSelectFiles && (
+									<StandardTooltip content={t("chat:addFiles")}>
+										<button
+											aria-label={t("chat:addFiles")}
+											onClick={onSelectFiles}
+											className={cn(
+												"relative inline-flex items-center justify-center",
+												"bg-transparent border-none p-1.5",
+												"rounded-md min-w-[28px] min-h-[28px]",
+												"text-vscode-descriptionForeground hover:text-vscode-foreground",
+												"transition-all duration-1000",
+												"cursor-pointer",
+												"opacity-50 hover:opacity-100 delay-750 pointer-events-auto",
+												"hover:bg-[rgba(255,255,255,0.03)] hover:border-[rgba(255,255,255,0.15)]",
+												"focus:outline-none focus-visible:ring-1 focus-visible:ring-vscode-focusBorder",
+												"active:bg-[rgba(255,255,255,0.1)]",
+											)}>
+											<Paperclip className="w-4 h-4" />
+										</button>
+									</StandardTooltip>
+								)}
 								{isEditMode ? (
 									<StandardTooltip content={t("chat:cancel.title")}>
 										<button
@@ -1294,6 +1322,25 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 							marginBottom: 0,
 						}}
 					/>
+				)}
+
+				{selectedFiles.length > 0 && setSelectedFiles && (
+					<div className="flex flex-wrap gap-1 px-4 pb-1" style={{ zIndex: 2 }}>
+						{selectedFiles.map((file, index) => (
+							<div
+								key={index}
+								className="flex items-center gap-1 px-2 py-0.5 rounded bg-vscode-button-secondaryBackground text-vscode-button-secondaryForeground text-xs">
+								<FileText className="w-3 h-3" />
+								<span className="truncate max-w-[150px]">{file.name}</span>
+								<button
+									onClick={() => setSelectedFiles((prev) => prev.filter((_, i) => i !== index))}
+									className="ml-1 hover:text-vscode-errorForeground"
+									aria-label={t("chat:removeFile")}>
+									<X className="w-3 h-3" />
+								</button>
+							</div>
+						))}
+					</div>
 				)}
 
 				<div className="flex items-center gap-2">

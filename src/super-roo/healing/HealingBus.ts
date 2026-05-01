@@ -596,6 +596,9 @@ export class HealingBus {
 		}
 
 		// Validate state transition
+		if (incident.status === newStatus) {
+			throw new Error(`Invalid state transition: ${incident.status} → ${newStatus} (same status)`)
+		}
 		if (!isValidTransition(incident.status, newStatus)) {
 			throw new Error(`Invalid state transition: ${incident.status} → ${newStatus}`)
 		}
