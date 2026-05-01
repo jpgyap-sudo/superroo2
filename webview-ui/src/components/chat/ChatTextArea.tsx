@@ -1098,7 +1098,8 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 											: "border border-transparent",
 									"pl-2",
 									"py-2",
-									isEditMode ? "pr-20" : "pr-9",
+									isEditMode ? "pr-20" : "pr-2",
+									!isEditMode && "pb-10",
 									"z-10",
 									"forced-color-adjust-none",
 									"rounded-lg",
@@ -1154,7 +1155,8 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 									"text-vscode-editor-font-size",
 									"leading-vscode-editor-line-height",
 									"cursor-text",
-									"py-2 pl-2",
+									"pt-2 pl-2",
+									isEditMode ? "pb-2" : "pb-10",
 									isFocused
 										? "border border-vscode-focusBorder outline outline-vscode-focusBorder"
 										: isDraggingOver
@@ -1171,7 +1173,7 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 									"resize-none",
 									"overflow-x-hidden",
 									"overflow-y-auto",
-									isEditMode ? "pr-20" : "pr-9",
+									isEditMode ? "pr-20" : "pr-2",
 									"flex-none flex-grow",
 									"z-[2]",
 									"scrollbar-none",
@@ -1180,7 +1182,12 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 								onScroll={() => updateHighlights()}
 							/>
 
-							<div className="absolute bottom-2 right-1 z-30 flex flex-col items-center gap-0">
+							<div
+								className={cn(
+									"absolute bottom-1.5 right-1.5 z-30 flex items-center justify-end gap-0.5",
+									"rounded-md bg-vscode-input-background/95 px-0.5",
+									"max-w-[calc(100%-12px)]",
+								)}>
 								<StandardTooltip
 									content={shouldDisableImages ? t("chat:imagesDisabled") : t("chat:addImages")}>
 									<button
@@ -1348,7 +1355,7 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 								<div
 									className={cn(
 										"absolute left-2 z-30 flex items-center h-8 font-vscode-font-family text-vscode-editor-font-size leading-vscode-editor-line-height",
-										isEditMode ? "pr-20" : "pr-9",
+										isEditMode ? "pr-20" : "pr-32",
 									)}
 									style={{
 										bottom: "0.75rem",
@@ -1394,13 +1401,13 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 					</div>
 				)}
 
-				<div className="flex items-center gap-2">
-					<div className="flex items-center gap-2 min-w-0 overflow-clip flex-1">
+				<div className="flex items-center gap-2 min-w-0">
+					<div className="flex items-center gap-2 min-w-0 overflow-hidden flex-1">
 						<ModeSelector
 							value={mode}
 							title={t("chat:selectMode")}
 							onChange={handleModeChange}
-							triggerClassName="text-ellipsis overflow-hidden flex-shrink-0"
+							triggerClassName="min-w-0 max-w-[38%] text-ellipsis overflow-hidden flex-shrink"
 							modeShortcutText={modeShortcutText}
 							customModes={customModes}
 							customModePrompts={customModePrompts}
@@ -1411,14 +1418,14 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 							disabled={selectApiConfigDisabled}
 							title={t("chat:selectApiConfig")}
 							onChange={handleApiConfigChange}
-							triggerClassName="min-w-[28px] text-ellipsis overflow-hidden flex-shrink"
+							triggerClassName="min-w-[28px] max-w-[42%] text-ellipsis overflow-hidden flex-shrink"
 							listApiConfigMeta={listApiConfigMeta || []}
 							pinnedApiConfigs={pinnedApiConfigs}
 							togglePinnedApiConfig={togglePinnedApiConfig}
 							lockApiConfigAcrossModes={!!lockApiConfigAcrossModes}
 							onToggleLockApiConfig={handleToggleLockApiConfig}
 						/>
-						<AutoApproveDropdown triggerClassName="min-w-[28px] text-ellipsis overflow-hidden flex-shrink" />
+						<AutoApproveDropdown triggerClassName="min-w-[28px] max-w-[20%] text-ellipsis overflow-hidden flex-shrink" />
 					</div>
 					<div
 						className={cn(

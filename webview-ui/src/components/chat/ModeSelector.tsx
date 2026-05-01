@@ -233,7 +233,7 @@ export const ModeSelector = ({
 							? "bg-primary opacity-90 hover:bg-primary-hover text-vscode-button-foreground"
 							: null,
 					)}>
-					<span className="truncate">{selectedMode?.name || ""}</span>
+					<span className="min-w-0 truncate">{selectedMode?.name || ""}</span>
 				</PopoverTrigger>
 			</StandardTooltip>
 			<PopoverContent

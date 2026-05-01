@@ -1236,9 +1236,9 @@ export const ChatRowContent = ({
 										/>
 									</div>
 								) : (
-									<div className="flex justify-between">
+									<div className="flex min-w-0 justify-between gap-2">
 										<div
-											className="flex-grow px-2 py-1 wrap-anywhere rounded-lg transition-colors"
+											className="min-w-0 flex-grow px-2 py-1 wrap-anywhere rounded-lg transition-colors"
 											onClick={(e) => {
 												e.stopPropagation()
 												if (!isStreaming) {
@@ -1248,7 +1248,7 @@ export const ChatRowContent = ({
 											title={t("chat:queuedMessages.clickToEdit")}>
 											<Mention text={message.text} withShadow />
 										</div>
-										<div className="flex gap-2 pr-1">
+										<div className="flex shrink-0 gap-2 pr-1">
 											<div
 												className="cursor-pointer shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
 												style={{ visibility: isStreaming ? "hidden" : "visible" }}

@@ -160,7 +160,7 @@ export const ApiConfigSelector = ({
 							: "opacity-90 hover:opacity-100 hover:bg-[rgba(255,255,255,0.03)] hover:border-[rgba(255,255,255,0.15)] cursor-pointer",
 						triggerClassName,
 					)}>
-					<span className="truncate">{displayName}</span>
+					<span className="min-w-0 truncate">{displayName}</span>
 				</PopoverTrigger>
 			</StandardTooltip>
 			<PopoverContent
