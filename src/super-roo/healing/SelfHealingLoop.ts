@@ -22,6 +22,7 @@
 
 import type { IncidentRecord, IncidentStatus, RootCauseCategory, TaskInputRaw, TaskPriority } from "../types"
 import type { SuperRooOrchestrator } from "../orchestrator/SuperRooOrchestrator"
+import { CancellableSleep } from "../utils/CancellableSleep"
 import { HealingBus } from "./HealingBus"
 import { classifyRootCause, requiresHumanApproval } from "./RootCauseClassifier"
 import { buildRepairPlan, severityToPriority } from "./RepairPlanBuilder"
@@ -89,7 +90,7 @@ export class SelfHealingLoop {
 	private currentBackoffMs = 0
 	private cycleCount = 0
 	private readonly config: Required<SelfHealingConfig>
-	private wakeSleep: (() => void) | null = null
+	private sleeper = new CancellableSleep()
 
 	constructor(
 		private readonly orchestrator: SuperRooOrchestrator,
@@ -131,6 +132,7 @@ export class SelfHealingLoop {
 		if (this.running) return
 		this.running = true
 		this.stats.isRunning = true
+		this.sleeper.start()
 		this.orchestrator.events.info("healing.loop.started", "Self-healing loop started", {
 			data: {
 				cycleIntervalMs: this.config.cycleIntervalMs,
@@ -145,7 +147,7 @@ export class SelfHealingLoop {
 		if (!this.running) return
 		this.running = false
 		this.stats.isRunning = false
-		this.wakeSleep?.()
+		this.sleeper.stop()
 		if (this.handle) {
 			try {
 				await this.handle
@@ -173,7 +175,7 @@ export class SelfHealingLoop {
 			// Circuit breaker check
 			if (this.stats.circuitBreakerOpen) {
 				this.orchestrator.events.warn("healing.loop.circuit_breaker", "Circuit breaker is open, skipping cycle")
-				await this.sleep(this.config.circuitBreakerTimeoutMs)
+				await this.sleeper.sleep(this.config.circuitBreakerTimeoutMs)
 				this.stats.circuitBreakerOpen = false
 				this.stats.consecutiveFailures = 0
 				this.currentBackoffMs = 0
@@ -224,7 +226,7 @@ export class SelfHealingLoop {
 
 			// Calculate backoff delay for next cycle
 			const delay = cycleSuccess ? this.config.cycleIntervalMs : this.getBackoffDelay()
-			await this.sleep(delay)
+			await this.sleeper.sleep(delay)
 		}
 	}
 
@@ -546,28 +548,5 @@ export class SelfHealingLoop {
 
 		const policy = this.config.autoFixPolicies[incident.severity]
 		return policy === true
-	}
-
-	private sleep(ms: number): Promise<void> {
-		if (!this.running) return Promise.resolve()
-
-		return new Promise((resolve) => {
-			const timeout = setTimeout(() => {
-				if (this.wakeSleep === wake) {
-					this.wakeSleep = null
-				}
-				resolve()
-			}, ms)
-
-			const wake = () => {
-				clearTimeout(timeout)
-				if (this.wakeSleep === wake) {
-					this.wakeSleep = null
-				}
-				resolve()
-			}
-
-			this.wakeSleep = wake
-		})
 	}
 }

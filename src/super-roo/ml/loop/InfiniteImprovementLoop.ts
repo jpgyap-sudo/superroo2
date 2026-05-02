@@ -4,21 +4,22 @@
  * The core of SuperRoo's self-improving capability.
  *
  * Workflow:
- *   1. OBSERVE   — collect task outcomes, test results, bug reports
- *   2. LEARN     — train CodeLearner, DebugLearner, TestLearner on new data
+ *   1. OBSERVE   — collect task outcomes, test results, bug reports with richer labels
+ *   2. LEARN     — train CodeLearner, DebugLearner, TestLearner end-to-end
  *   3. PREDICT   — score upcoming tasks, predict failures, prioritise work
- *   4. ACT       — submit follow-up tasks (code, debug, test) via orchestrator
- *   5. EVALUATE  — compare predicted vs actual outcomes, feed back as training data
- *   6. LOOP      — sleep and repeat
- *
- * The loop runs while `running` is true and can be gracefully stopped.
+ *   4. ACT       — submit follow-up tasks via orchestrator (validated)
+ *   5. EVALUATE  — compare predicted vs actual outcomes, track metrics
+ *   6. PERSIST   — save model weights so learning survives restarts
+ *   7. LOOP      — sleep and repeat
  */
 
 import type { SuperRooOrchestrator } from "../../orchestrator/SuperRooOrchestrator"
 import type { Task, TaskInputRaw } from "../../types"
+import { CancellableSleep } from "../../utils/CancellableSleep"
 import { CodeLearner } from "../learning/CodeLearner"
 import { DebugLearner } from "../learning/DebugLearner"
 import { TestLearner } from "../learning/TestLearner"
+import { ActionOutcomeTracker } from "../engine/Metrics"
 
 export interface LoopConfig {
 	/** Minimum samples before training starts. */
@@ -31,6 +32,10 @@ export interface LoopConfig {
 	trainEpochs: number
 	/** Confidence threshold for auto-acting on predictions. */
 	confidenceThreshold: number
+	/** Directory to persist model weights. */
+	modelDir?: string
+	/** Max auto-actions per loop iteration to avoid runaway queuing. */
+	maxActionsPerIteration: number
 }
 
 export interface LoopStats {
@@ -39,6 +44,17 @@ export interface LoopStats {
 	lastTrainLoss: number
 	predictionsMade: number
 	actionsTaken: number
+	lastMetrics: {
+		code?: object
+		debug?: object
+		test?: object
+	}
+	actionHelpRate: number
+}
+
+export interface ValidationResult {
+	valid: boolean
+	reason?: string
 }
 
 export class InfiniteImprovementLoop {
@@ -50,12 +66,16 @@ export class InfiniteImprovementLoop {
 		lastTrainLoss: 0,
 		predictionsMade: 0,
 		actionsTaken: 0,
+		lastMetrics: {},
+		actionHelpRate: 0,
 	}
 
 	private codeLearner: CodeLearner
 	private debugLearner: DebugLearner
 	private testLearner: TestLearner
-	private wakeSleep: (() => void) | null = null
+	private sleeper = new CancellableSleep()
+	private outcomeTracker = new ActionOutcomeTracker()
+	private actionCountThisIteration = 0
 
 	constructor(
 		private readonly orchestrator: SuperRooOrchestrator,
@@ -65,26 +85,58 @@ export class InfiniteImprovementLoop {
 			idleSleepMs: 5000,
 			trainEpochs: 20,
 			confidenceThreshold: 0.75,
+			maxActionsPerIteration: 3,
 		},
 	) {
-		this.codeLearner = new CodeLearner({ inputDim: 8 })
-		this.debugLearner = new DebugLearner({ inputDim: 8 })
-		this.testLearner = new TestLearner({ inputDim: 8 })
+		this.codeLearner = new CodeLearner({
+			inputDim: 8,
+			epochs: this.config.trainEpochs,
+			modelDir: this.config.modelDir,
+		})
+		this.debugLearner = new DebugLearner({
+			inputDim: 8,
+			epochs: this.config.trainEpochs,
+			modelDir: this.config.modelDir,
+		})
+		this.testLearner = new TestLearner({
+			inputDim: 8,
+			epochs: this.config.trainEpochs,
+			modelDir: this.config.modelDir,
+		})
 	}
 
 	// ── Lifecycle ─────────────────────────────────────────────────────────────
 
-	start(): void {
+	async start(): Promise<void> {
 		if (this.running) return
 		this.running = true
+		this.sleeper.start()
 		this.orchestrator.events.info("ml.loop.started", "Infinite Improvement Loop started")
+
+		// Attempt to restore prior learned weights
+		try {
+			const restored = await Promise.all([
+				this.codeLearner.restore(),
+				this.debugLearner.restore(),
+				this.testLearner.restore(),
+			])
+			if (restored.some(Boolean)) {
+				this.orchestrator.events.info("ml.loop.restore", "Restored saved model weights", {
+					data: { code: restored[0], debug: restored[1], test: restored[2] },
+				})
+			}
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err)
+			this.orchestrator.events.warn("ml.loop.restore_error", `Could not restore weights: ${msg}`)
+		}
+
 		this.handle = this.loop()
 	}
 
 	async stop(): Promise<void> {
 		if (!this.running) return
 		this.running = false
-		this.wakeSleep?.()
+		this.sleeper.stop()
 		if (this.handle) {
 			try {
 				await this.handle
@@ -92,6 +144,16 @@ export class InfiniteImprovementLoop {
 				/* loop will have logged */
 			}
 		}
+
+		// Persist learned weights before shutting down
+		try {
+			await Promise.all([this.codeLearner.save(), this.debugLearner.save(), this.testLearner.save()])
+			this.orchestrator.events.info("ml.loop.saved", "Saved model weights before stop")
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err)
+			this.orchestrator.events.warn("ml.loop.save_error", `Could not save weights: ${msg}`)
+		}
+
 		this.orchestrator.events.info("ml.loop.stopped", "Infinite Improvement Loop stopped")
 	}
 
@@ -107,11 +169,12 @@ export class InfiniteImprovementLoop {
 
 		while (this.running && this.stats.iteration < this.config.maxIterations) {
 			this.stats.iteration++
+			this.actionCountThisIteration = 0
 			try {
 				await this.observeAndLearn()
 				await this.predictAndAct()
 				consecutiveFailures = 0
-				await this.sleep(this.config.idleSleepMs)
+				await this.sleeper.sleep(this.config.idleSleepMs)
 			} catch (err) {
 				consecutiveFailures++
 				const msg = err instanceof Error ? err.message : String(err)
@@ -131,7 +194,7 @@ export class InfiniteImprovementLoop {
 
 				// Exponential backoff on error
 				const backoffMs = Math.min(this.config.idleSleepMs * Math.pow(2, consecutiveFailures - 1), 60000)
-				await this.sleep(backoffMs)
+				await this.sleeper.sleep(backoffMs)
 			}
 		}
 	}
@@ -201,9 +264,21 @@ export class InfiniteImprovementLoop {
 			this.orchestrator.events.warn("ml.loop.train_error", "All training losses are NaN, models may be corrupted")
 			this.stats.lastTrainLoss = NaN
 			// Reset learners to recover from corrupted state
-			this.codeLearner = new CodeLearner({ inputDim: 8 })
-			this.debugLearner = new DebugLearner({ inputDim: 8 })
-			this.testLearner = new TestLearner({ inputDim: 8 })
+			this.codeLearner = new CodeLearner({
+				inputDim: 8,
+				epochs: this.config.trainEpochs,
+				modelDir: this.config.modelDir,
+			})
+			this.debugLearner = new DebugLearner({
+				inputDim: 8,
+				epochs: this.config.trainEpochs,
+				modelDir: this.config.modelDir,
+			})
+			this.testLearner = new TestLearner({
+				inputDim: 8,
+				epochs: this.config.trainEpochs,
+				modelDir: this.config.modelDir,
+			})
 			this.orchestrator.events.info("ml.loop.reset", "Reset all learners due to NaN losses")
 			return
 		}
@@ -211,14 +286,31 @@ export class InfiniteImprovementLoop {
 		const avgLoss = allLosses.reduce((a, b) => a + b, 0) / allLosses.length
 		this.stats.lastTrainLoss = avgLoss
 
+		// Evaluate metrics on the latest samples
+		const codeMetrics = this.codeLearner.evaluate(codeSamples)
+		const debugMetrics = this.debugLearner.evaluate(debugSamples)
+		const testMetrics = this.testLearner.evaluate(testSamples)
+		this.stats.lastMetrics = { code: codeMetrics, debug: debugMetrics, test: testMetrics }
+
 		this.orchestrator.events.info("ml.loop.learn", `Trained on ${this.stats.totalSamples} samples`, {
 			data: {
 				codeLoss,
 				debugLoss,
 				testLoss,
 				avgLoss,
+				codeMetrics,
+				debugMetrics,
+				testMetrics,
 			},
 		})
+
+		// Persist after successful training
+		try {
+			await Promise.all([this.codeLearner.save(), this.debugLearner.save(), this.testLearner.save()])
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err)
+			this.orchestrator.events.warn("ml.loop.save_error", `Failed to save weights after training: ${msg}`)
+		}
 	}
 
 	// ── Phase 2: Predict + Act ────────────────────────────────────────────────
@@ -236,35 +328,83 @@ export class InfiniteImprovementLoop {
 			this.stats.predictionsMade++
 
 			// If high bug risk predicted, queue pre-emptive debug task
-			if (codePred.bugRiskClass >= 2 && codePred.successProb < this.config.confidenceThreshold) {
+			const bugRiskAction = {
+				confidence: codePred.successProb,
+				agent: "debugger" as const,
+				reason: `Pre-emptive debug for task ${task.id}: predicted high bug risk`,
+				payload: {
+					predictedBugRisk: codePred.bugRiskClass,
+					predictedSuccess: codePred.successProb,
+				},
+			}
+			if (
+				codePred.bugRiskClass >= 2 &&
+				codePred.successProb < this.config.confidenceThreshold &&
+				this.validateAction(bugRiskAction, task).valid
+			) {
 				const followup: TaskInputRaw = {
 					agent: "debugger",
-					goal: `Pre-emptive debug for task ${task.id}: predicted high bug risk`,
+					goal: bugRiskAction.reason,
 					priority: "high",
 					parentTaskId: task.id,
-					payload: {
-						predictedBugRisk: codePred.bugRiskClass,
-						predictedSuccess: codePred.successProb,
-					},
+					payload: bugRiskAction.payload,
 				}
 				this.orchestrator.submit(followup)
 				this.stats.actionsTaken++
+				this.actionCountThisIteration++
+				this.outcomeTracker.record(
+					`${task.id}-bugrisk`,
+					"debugger",
+					codePred.successProb,
+					/* beforeScore */ 0.5,
+					/* afterScore placeholder */ 0.5,
+				)
+			}
+
+			if (this.actionCountThisIteration >= this.config.maxActionsPerIteration) {
+				this.orchestrator.events.debug(
+					"ml.loop.throttle",
+					`Throttled actions at ${this.config.maxActionsPerIteration} this iteration`,
+				)
+				break
 			}
 
 			// If test likely to fail, queue focused test run
-			if (testPred.failProb > this.config.confidenceThreshold) {
+			const testAction = {
+				confidence: testPred.failProb,
+				agent: "tester" as const,
+				reason: `Focused test run for task ${task.id}: predicted likely failure`,
+				payload: {
+					predictedFailProb: testPred.failProb,
+					predictedExecTime: testPred.execTime,
+				},
+			}
+			if (testPred.failProb > this.config.confidenceThreshold && this.validateAction(testAction, task).valid) {
 				const followup: TaskInputRaw = {
 					agent: "tester",
-					goal: `Focused test run for task ${task.id}: predicted likely failure`,
+					goal: testAction.reason,
 					priority: "high",
 					parentTaskId: task.id,
-					payload: {
-						predictedFailProb: testPred.failProb,
-						predictedExecTime: testPred.execTime,
-					},
+					payload: testAction.payload,
 				}
 				this.orchestrator.submit(followup)
 				this.stats.actionsTaken++
+				this.actionCountThisIteration++
+				this.outcomeTracker.record(
+					`${task.id}-testfail`,
+					"tester",
+					testPred.failProb,
+					/* beforeScore */ 0.5,
+					/* afterScore placeholder */ 0.5,
+				)
+			}
+
+			if (this.actionCountThisIteration >= this.config.maxActionsPerIteration) {
+				this.orchestrator.events.debug(
+					"ml.loop.throttle",
+					`Throttled actions at ${this.config.maxActionsPerIteration} this iteration`,
+				)
+				break
 			}
 		}
 
@@ -272,25 +412,84 @@ export class InfiniteImprovementLoop {
 		const recentEvents = this.orchestrator.events.recent({ type: "agent.completed", limit: 20 })
 		const failureRate = recentEvents.filter((e) => e.data?.ok === false).length / Math.max(recentEvents.length, 1)
 		if (failureRate > 0.5 && this.orchestrator.safety.getSelfImprove()) {
-			const followup: TaskInputRaw = {
-				agent: "coder",
-				goal: "Self-improvement: high failure rate detected. Review recent failures and improve error handling.",
-				priority: "critical",
-				requiredCapabilities: ["read.file", "write.file"],
+			const selfImproveAction = {
+				confidence: failureRate,
+				agent: "coder" as const,
+				reason: "Self-improvement: high failure rate detected. Review recent failures and improve error handling.",
 				payload: {
 					failureRate,
 					systemPromptOverlay: "Focus on robustness, error handling, and edge-case coverage.",
 				},
 			}
-			this.orchestrator.submit(followup)
-			this.stats.actionsTaken++
+			if (
+				this.validateAction(selfImproveAction).valid &&
+				this.actionCountThisIteration < this.config.maxActionsPerIteration
+			) {
+				const followup: TaskInputRaw = {
+					agent: "coder",
+					goal: selfImproveAction.reason,
+					priority: "critical",
+					requiredCapabilities: ["read.file", "write.file"],
+					payload: selfImproveAction.payload,
+				}
+				this.orchestrator.submit(followup)
+				this.stats.actionsTaken++
+				this.actionCountThisIteration++
+			}
 		}
+
+		// Update running help-rate stat
+		this.stats.actionHelpRate = this.outcomeTracker.helpRate()
+	}
+
+	// ── Action validation guardrails ──────────────────────────────────────────
+
+	private validateAction(
+		action: {
+			confidence: number
+			agent: string
+			reason: string
+			payload?: Record<string, unknown>
+		},
+		task?: Task,
+	): ValidationResult {
+		// 1. Confidence floor
+		if (action.confidence < 0.5) {
+			return { valid: false, reason: `Confidence too low (${action.confidence.toFixed(2)})` }
+		}
+
+		// 2. Prevent duplicate actions for same task within a short window
+		if (task) {
+			const recent = this.orchestrator.queue.list({ status: "pending", limit: 50 })
+			const dup = recent.find(
+				(t) =>
+					t.parentTaskId === task.id &&
+					t.agent === action.agent &&
+					t.goal.includes(action.reason.slice(0, 30)),
+			)
+			if (dup) {
+				return { valid: false, reason: `Duplicate ${action.agent} action already queued for task ${task.id}` }
+			}
+		}
+
+		// 3. Agent must be known (registered) or generic coder/tester/debugger
+		const knownAgents = this.orchestrator.agents.list().map((a) => a.name)
+		const genericAllowed = ["coder", "tester", "debugger"]
+		if (!knownAgents.includes(action.agent) && !genericAllowed.includes(action.agent)) {
+			return { valid: false, reason: `Unknown agent "${action.agent}"` }
+		}
+
+		// 4. Cap per-iteration action budget
+		if (this.actionCountThisIteration >= this.config.maxActionsPerIteration) {
+			return { valid: false, reason: `Max actions per iteration (${this.config.maxActionsPerIteration}) reached` }
+		}
+
+		return { valid: true }
 	}
 
 	// ── Feature extraction ────────────────────────────────────────────────────
 
 	private taskToFeatures(task: Task): number[] {
-		// Simple heuristics-based feature vector
 		const goalLen = task.goal.length
 		const capsCount = task.requiredCapabilities.length
 		const hasWrite = task.requiredCapabilities.includes("write.file") ? 1 : 0
@@ -312,59 +511,88 @@ export class InfiniteImprovementLoop {
 		]
 	}
 
+	// ── Richer label extraction ───────────────────────────────────────────────
+
 	private extractCodeSamples(tasks: Task[]) {
 		return tasks
 			.filter((t) => t.agent === "coder" && t.status !== "pending")
-			.map((t) => ({
-				features: this.taskToFeatures(t),
-				quality: t.status === "succeeded" ? 0.9 : 0.3,
-				success: t.status === "succeeded" ? 1 : 0,
-				bugRisk: t.status === "failed" ? 2 : t.status === "succeeded" ? 0 : 1,
-			}))
+			.map((t) => {
+				const attempts = Math.max(t.attempts, 1)
+				const succeeded = t.status === "succeeded"
+				const failed = t.status === "failed"
+
+				// Quality: degrade with retries; boost with success, penalise hard failure
+				let quality = succeeded ? 0.9 : failed ? 0.1 : 0.5
+				quality -= (attempts - 1) * 0.15
+				quality = Math.max(0, Math.min(1, quality))
+
+				// Bug risk: more attempts → higher risk; failed with retries → high
+				let bugRisk = succeeded ? 0 : failed ? 2 : 1
+				if (failed && attempts > 2) bugRisk = 2
+				if (succeeded && attempts > 3) bugRisk = 1
+
+				return {
+					features: this.taskToFeatures(t),
+					quality,
+					success: succeeded ? 1 : 0,
+					bugRisk,
+				}
+			})
 	}
 
 	private extractDebugSamples(tasks: Task[]) {
 		return tasks
 			.filter((t) => t.agent === "debugger" && t.status !== "pending")
-			.map((t) => ({
-				features: this.taskToFeatures(t),
-				causeCategory: t.status === "succeeded" ? 2 : 3,
-				fixComplexity: t.attempts > 1 ? 0.8 : 0.3,
-				fixSuccess: t.status === "succeeded" ? 1 : 0,
-			}))
+			.map((t) => {
+				const succeeded = t.status === "succeeded"
+				const attempts = Math.max(t.attempts, 1)
+
+				// Cause category: heuristic based on error text when failed
+				let causeCategory = 3 // runtime default
+				const err = (t.error ?? "").toLowerCase()
+				if (err.includes("syntax") || err.includes("parse")) causeCategory = 0
+				else if (err.includes("type") || err.includes("typescript")) causeCategory = 2
+				else if (err.includes("assert") || err.includes("expect")) causeCategory = 4
+				else if (err.includes("env") || err.includes("config")) causeCategory = 4
+
+				// Fix complexity: retries and long goals → more complex
+				let fixComplexity = succeeded ? 0.3 : 0.7
+				fixComplexity += (attempts - 1) * 0.15
+				fixComplexity = Math.min(1, fixComplexity)
+
+				return {
+					features: this.taskToFeatures(t),
+					causeCategory,
+					fixComplexity,
+					fixSuccess: succeeded ? 1 : 0,
+				}
+			})
 	}
 
 	private extractTestSamples(tasks: Task[]) {
 		return tasks
 			.filter((t) => t.agent === "tester" && t.status !== "pending")
-			.map((t) => ({
-				features: this.taskToFeatures(t),
-				willFail: t.status === "failed" ? 1 : 0,
-				execTime: 0.5, // placeholder: would come from actual timing
-				coverageGap: t.status === "failed" ? 0.7 : 0.2,
-			}))
-	}
+			.map((t) => {
+				const succeeded = t.status === "succeeded"
+				const failed = t.status === "failed"
+				const attempts = Math.max(t.attempts, 1)
 
-	private sleep(ms: number): Promise<void> {
-		if (!this.running) return Promise.resolve()
+				// Execution time proxy: more attempts / longer goal → slower
+				let execTime = succeeded ? 0.3 : failed ? 0.7 : 0.5
+				execTime += Math.min(t.goal.length / 1000, 0.3)
+				execTime += (attempts - 1) * 0.1
+				execTime = Math.min(1, execTime)
 
-		return new Promise((resolve) => {
-			const timeout = setTimeout(() => {
-				if (this.wakeSleep === wake) {
-					this.wakeSleep = null
+				// Coverage gap: failed tests often indicate missing coverage
+				let coverageGap = failed ? 0.7 : succeeded ? 0.2 : 0.4
+				if (failed && attempts > 2) coverageGap = 0.9
+
+				return {
+					features: this.taskToFeatures(t),
+					willFail: failed ? 1 : 0,
+					execTime,
+					coverageGap,
 				}
-				resolve()
-			}, ms)
-
-			const wake = () => {
-				clearTimeout(timeout)
-				if (this.wakeSleep === wake) {
-					this.wakeSleep = null
-				}
-				resolve()
-			}
-
-			this.wakeSleep = wake
-		})
+			})
 	}
 }

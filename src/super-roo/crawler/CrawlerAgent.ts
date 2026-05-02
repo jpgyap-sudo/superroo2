@@ -49,12 +49,20 @@ export interface Signal {
 	payload: Record<string, unknown>
 }
 
+export interface CrawlerAgentOptions {
+	/** Optional callback invoked when a scheduled crawl fails. */
+	onError?: (sourceId: string, error: Error) => void
+}
+
 export class CrawlerAgent {
 	private sources: Map<string, CrawlSource> = new Map()
 	private docs: RawDocument[] = []
 	private signals: Signal[] = []
 	private timers: Map<string, ReturnType<typeof setInterval>> = new Map()
 	private running = false
+	private errorCounts: Map<string, number> = new Map()
+
+	constructor(private readonly options: CrawlerAgentOptions = {}) {}
 
 	/** Register a new crawl source. */
 	addSource(source: CrawlSource): void {
@@ -134,8 +142,11 @@ export class CrawlerAgent {
 		this.stopSource(id)
 		const source = this.sources.get(id)!
 		const timer = setInterval(() => {
-			this.crawl(id).catch(() => {
-				/* errors swallowed; crawler is best-effort */
+			this.crawl(id).catch((err) => {
+				const error = err instanceof Error ? err : new Error(String(err))
+				const count = (this.errorCounts.get(id) ?? 0) + 1
+				this.errorCounts.set(id, count)
+				this.options.onError?.(id, error)
 			})
 		}, source.intervalMs)
 		this.timers.set(id, timer)
@@ -181,13 +192,16 @@ export class CrawlerAgent {
 	private parseRss(xml: string, sourceId: string, now: number): RawDocument[] {
 		const items: RawDocument[] = []
 		// Minimal regex-based RSS parser (no external XML dep)
-		const itemRe = /<item>[\s\S]*?<\/item>/g
+		// No global flag to avoid lastIndex state pollution
+		const itemRe = /<item>[\s\S]*?<\/item>/
 		const titleRe = /<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/
 		const linkRe = /<link>(.*?)<\/link>/
 		const descRe = /<description>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/
 
-		let m: RegExpExecArray | null
-		while ((m = itemRe.exec(xml)) !== null) {
+		let remaining = xml
+		while (true) {
+			const m = itemRe.exec(remaining)
+			if (!m) break
 			const block = m[0]
 			const title = titleRe.exec(block)?.[1]?.trim() ?? ""
 			const url = linkRe.exec(block)?.[1]?.trim() ?? ""
@@ -199,6 +213,7 @@ export class CrawlerAgent {
 				content: `${title}\n${desc}`,
 				fetchedAt: now,
 			})
+			remaining = remaining.slice(m.index + block.length)
 		}
 		return items
 	}
@@ -257,7 +272,8 @@ export class CrawlerAgent {
 
 	private inferSignalType(source: CrawlSource): Signal["type"] {
 		if (source.name.toLowerCase().includes("news")) return "news_alert"
-		if (source.name.toLowerCase().includes("dev") || source.name.toLowerCase().includes("github")) return "dev_trend"
+		if (source.name.toLowerCase().includes("dev") || source.name.toLowerCase().includes("github"))
+			return "dev_trend"
 		return "trading"
 	}
 

@@ -190,22 +190,7 @@ export class HealingBus {
 		const fingerprint = input.fingerprint ?? makeIncidentFingerprint(input)
 		const now = Date.now()
 
-		// Check if incident already exists
-		const existing = this.getByFingerprint(fingerprint)
-
-		if (existing) {
-			// Update existing incident - increment fix attempts if reopened
-			const updateData: Partial<IncidentInputRaw> & { updatedAt: number; fixAttempts?: number } = {
-				...input,
-				updatedAt: now,
-			}
-			if (input.status === "new" && existing.status === "reopened") {
-				updateData.fixAttempts = (existing.fixAttempts ?? 0) + 1
-			}
-			return this.updateIncident(existing.id, updateData)
-		}
-
-		// Create new incident
+		// Atomic upsert: try INSERT first, fallback to UPDATE on UNIQUE conflict
 		const id = `inc_${uuidv4()}`
 		const row = {
 			id,
@@ -225,7 +210,7 @@ export class HealingBus {
 			updatedAt: now,
 		}
 
-		this.memory
+		const insert = this.memory
 			.getDb()
 			.prepare(
 				`INSERT INTO healing_incidents
@@ -235,22 +220,39 @@ export class HealingBus {
 				 VALUES
 					(@id, @fingerprint, @featureKey, @sourceAgent, @title, @symptom, @severity,
 					 @status, @rootCauseCategory, @affectedFiles, @recommendedAction,
-					 @evidence, @autoFixAllowed, @createdAt, @updatedAt)`,
+					 @evidence, @autoFixAllowed, @createdAt, @updatedAt)
+				 ON CONFLICT(fingerprint) DO UPDATE SET
+					updated_at = excluded.updated_at,
+					title = excluded.title,
+					symptom = excluded.symptom,
+					severity = excluded.severity,
+					status = excluded.status,
+					root_cause_category = excluded.root_cause_category,
+					affected_files = excluded.affected_files,
+					recommended_action = excluded.recommended_action,
+					evidence = excluded.evidence,
+					auto_fix_allowed = excluded.auto_fix_allowed,
+					fix_attempts = fix_attempts + CASE WHEN excluded.status = 'new' AND status = 'reopened' THEN 1 ELSE 0 END`,
 			)
 			.run(row)
 
-		const incident = this.get(id)
+		// If a row was updated (not inserted), changes will be 1 but lastInsertRowid points to existing row.
+		// Resolve the incident by fingerprint to return the correct record.
+		const incident = this.getByFingerprint(fingerprint)
 		if (!incident) {
-			throw new Error(`Failed to retrieve incident ${id} after insert`)
+			throw new Error(`Failed to retrieve incident ${id} after upsert`)
 		}
 
+		// If we performed an UPDATE, the id from uuidv4() is stale; use the actual incident id.
+		const resolvedId = insert.changes === 1 && this.get(id) ? id : incident.id
+
 		this.events.warn("healing.incident_reported", `Incident reported: ${input.title}`, {
-			incidentId: id,
+			incidentId: resolvedId,
 			data: { severity: incident.severity, sourceAgent: incident.sourceAgent, fingerprint },
 		})
 
 		await this.logHealingAction(
-			id,
+			resolvedId,
 			"incident_reported",
 			incident.sourceAgent,
 			"Incident reported",

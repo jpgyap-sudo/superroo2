@@ -13,10 +13,23 @@
  */
 
 import type { Agent, AgentRunContext, AgentRunResult, TaskInputRaw } from "../types"
+import { BugSeverity, IncidentStatus, RootCauseCategory } from "../types"
 import type { HealingBus, IncidentFilter } from "../healing"
 import type { SelfHealingLoop } from "../healing"
 import { classifyFromText } from "../healing"
 import { buildRepairPlan } from "../healing"
+
+function isBugSeverity(value: unknown): value is (typeof BugSeverity)[keyof typeof BugSeverity] {
+	return typeof value === "string" && Object.values(BugSeverity).includes(value as never)
+}
+
+function isIncidentStatus(value: unknown): value is (typeof IncidentStatus)[keyof typeof IncidentStatus] {
+	return typeof value === "string" && Object.values(IncidentStatus).includes(value as never)
+}
+
+function isRootCauseCategory(value: unknown): value is (typeof RootCauseCategory)[keyof typeof RootCauseCategory] {
+	return typeof value === "string" && Object.values(RootCauseCategory).includes(value as never)
+}
 
 export interface SelfHealingAgentOptions {
 	/** Default auto-fix policy for this agent instance */
@@ -116,13 +129,15 @@ export class SelfHealingAgent implements Agent {
 		const incident = await this.healingBus.reportIncident({
 			title,
 			symptom,
-			featureKey: payload.featureKey as string | undefined,
+			featureKey: typeof payload.featureKey === "string" ? payload.featureKey : undefined,
 			sourceAgent: String(payload.sourceAgent ?? ctx.task.agent),
-			severity: (payload.severity as any) ?? "medium",
-			rootCauseCategory: rootCauseCategory as any,
-			affectedFiles: payload.affectedFiles as string[] | undefined,
+			severity: isBugSeverity(payload.severity) ? payload.severity : "medium",
+			rootCauseCategory: isRootCauseCategory(rootCauseCategory) ? rootCauseCategory : "UNKNOWN",
+			affectedFiles: Array.isArray(payload.affectedFiles)
+				? payload.affectedFiles.filter((f): f is string => typeof f === "string")
+				: undefined,
 			evidence: (payload.evidence as Record<string, unknown>) ?? {},
-			autoFixAllowed: payload.autoFixAllowed as boolean | undefined,
+			autoFixAllowed: typeof payload.autoFixAllowed === "boolean" ? payload.autoFixAllowed : undefined,
 		})
 
 		// Build repair plan immediately
@@ -154,10 +169,7 @@ export class SelfHealingAgent implements Agent {
 		}
 	}
 
-	private async handleApproveFix(
-		ctx: AgentRunContext,
-		payload: Record<string, unknown>,
-	): Promise<AgentRunResult> {
+	private async handleApproveFix(ctx: AgentRunContext, payload: Record<string, unknown>): Promise<AgentRunResult> {
 		if (!this.healingBus) {
 			return { ok: false, summary: "HealingBus not initialized", error: "not_initialized" }
 		}
@@ -171,12 +183,10 @@ export class SelfHealingAgent implements Agent {
 			}
 		}
 
-		const incident = await this.healingBus.transitionState(
-			incidentId,
-			"queued_for_fix",
-			"self_healing_agent",
-			{ approvedBy: ctx.task.agent, reason: payload.reason },
-		)
+		const incident = await this.healingBus.transitionState(incidentId, "queued_for_fix", "self_healing_agent", {
+			approvedBy: ctx.task.agent,
+			reason: payload.reason,
+		})
 
 		return {
 			ok: true,
@@ -185,10 +195,7 @@ export class SelfHealingAgent implements Agent {
 		}
 	}
 
-	private async handleRejectFix(
-		ctx: AgentRunContext,
-		payload: Record<string, unknown>,
-	): Promise<AgentRunResult> {
+	private async handleRejectFix(ctx: AgentRunContext, payload: Record<string, unknown>): Promise<AgentRunResult> {
 		if (!this.healingBus) {
 			return { ok: false, summary: "HealingBus not initialized", error: "not_initialized" }
 		}
@@ -202,12 +209,10 @@ export class SelfHealingAgent implements Agent {
 			}
 		}
 
-		const incident = await this.healingBus.transitionState(
-			incidentId,
-			"blocked",
-			"self_healing_agent",
-			{ rejectedBy: ctx.task.agent, reason: payload.reason },
-		)
+		const incident = await this.healingBus.transitionState(incidentId, "blocked", "self_healing_agent", {
+			rejectedBy: ctx.task.agent,
+			reason: payload.reason,
+		})
 
 		return {
 			ok: true,
@@ -216,20 +221,17 @@ export class SelfHealingAgent implements Agent {
 		}
 	}
 
-	private async handleListIncidents(
-		ctx: AgentRunContext,
-		payload: Record<string, unknown>,
-	): Promise<AgentRunResult> {
+	private async handleListIncidents(ctx: AgentRunContext, payload: Record<string, unknown>): Promise<AgentRunResult> {
 		if (!this.healingBus) {
 			return { ok: false, summary: "HealingBus not initialized", error: "not_initialized" }
 		}
 
 		const filter: IncidentFilter = {}
-		if (payload.status) {
-			filter.status = payload.status as any
+		if (isIncidentStatus(payload.status)) {
+			filter.status = payload.status
 		}
-		if (payload.severity) {
-			filter.severity = payload.severity as any
+		if (isBugSeverity(payload.severity)) {
+			filter.severity = payload.severity
 		}
 		if (payload.featureKey) {
 			filter.featureKey = String(payload.featureKey)
@@ -266,10 +268,7 @@ export class SelfHealingAgent implements Agent {
 		}
 	}
 
-	private async handleClassify(
-		ctx: AgentRunContext,
-		payload: Record<string, unknown>,
-	): Promise<AgentRunResult> {
+	private async handleClassify(ctx: AgentRunContext, payload: Record<string, unknown>): Promise<AgentRunResult> {
 		const text = String(payload.text ?? "")
 		if (!text) {
 			return {
@@ -315,8 +314,8 @@ export class SelfHealingAgent implements Agent {
 		}
 
 		const plan = buildRepairPlan(incident, {
-			rootCauseCategory: payload.rootCauseCategory as any,
-			forceApproval: payload.forceApproval as boolean | undefined,
+			rootCauseCategory: isRootCauseCategory(payload.rootCauseCategory) ? payload.rootCauseCategory : undefined,
+			forceApproval: typeof payload.forceApproval === "boolean" ? payload.forceApproval : undefined,
 		})
 
 		await this.healingBus.storeRepairPlan(incidentId, plan, "self_healing_agent")

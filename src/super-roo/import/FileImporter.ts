@@ -14,12 +14,7 @@
 import * as fs from "fs"
 import * as path from "path"
 
-export type ImportableFileType =
-	| "archive"
-	| "image"
-	| "document"
-	| "code"
-	| "unknown"
+export type ImportableFileType = "archive" | "image" | "document" | "code" | "unknown"
 
 export interface ImportedFile {
 	originalPath: string
@@ -38,9 +33,25 @@ export interface ImportResult {
 	errors: string[]
 }
 
-const ARCHIVE_EXTS = new Set([".zip", ".rar", ".7z", ".tar", ".gz", ".tgz", ".bz2"])
+const ARCHIVE_EXTS = new Set([".zip", ".tar", ".gz", ".tgz", ".bz2"])
 const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".bmp", ".ico"])
-const DOC_EXTS = new Set([".pdf", ".doc", ".docx", ".txt", ".md", ".json", ".csv", ".xml", ".yaml", ".yml", ".html", ".htm", ".css", ".scss", ".less"])
+const DOC_EXTS = new Set([
+	".pdf",
+	".doc",
+	".docx",
+	".txt",
+	".md",
+	".json",
+	".csv",
+	".xml",
+	".yaml",
+	".yml",
+	".html",
+	".htm",
+	".css",
+	".scss",
+	".less",
+])
 
 function detectType(filePath: string): ImportableFileType {
 	const ext = path.extname(filePath).toLowerCase()

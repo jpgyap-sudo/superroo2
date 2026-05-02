@@ -31,6 +31,8 @@ export interface DeployState {
 	commitSha: string
 	deployedAt: number
 	status: "pending" | "running" | "healthy" | "unhealthy" | "rolled_back"
+	/** Populated when the deploy pipeline fails. */
+	error?: string
 }
 
 export class DeployOrchestrator {
@@ -70,6 +72,7 @@ export class DeployOrchestrator {
 			}
 		} catch (err) {
 			state.status = "unhealthy"
+			state.error = err instanceof Error ? err.message : String(err)
 			await this.rollback()
 		}
 
