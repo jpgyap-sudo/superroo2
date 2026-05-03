@@ -1,17 +1,55 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { StatCard, Card } from "@/components/ui/card"
 import { Loader2, Play } from "lucide-react"
+
+type DockerStats = {
+	containers: number
+	running: number
+	exited: number
+	images: number
+	sandboxReady: boolean
+}
 
 export function DockerView() {
 	const [result, setResult] = useState<string[] | null>(null)
 	const [running, setRunning] = useState(false)
+	const [stats, setStats] = useState<DockerStats>({
+		containers: 0,
+		running: 0,
+		exited: 0,
+		images: 0,
+		sandboxReady: false,
+	})
+
+	useEffect(() => {
+		const fetchStats = async () => {
+			try {
+				const res = await fetch("/api/docker/status")
+				if (res.ok) {
+					const data = await res.json()
+					setStats({
+						containers: data.containers || 0,
+						running: data.running || 0,
+						exited: data.exited || 0,
+						images: data.images || 0,
+						sandboxReady: data.sandboxReady || false,
+					})
+				}
+			} catch (err) {
+				console.error("Error fetching docker stats:", err)
+			}
+		}
+		fetchStats()
+		const iv = setInterval(fetchStats, 10000)
+		return () => clearInterval(iv)
+	}, [])
 
 	const runTest = async () => {
 		setRunning(true)
 		try {
-			const res = await fetch("/api/jobs", {
+			const res = await fetch("/api/job", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
@@ -31,9 +69,17 @@ export function DockerView() {
 	return (
 		<div className="space-y-4">
 			<div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-				<StatCard label="Image Status" value="Ready" color="text-emerald-400" />
-				<StatCard label="Containers" value="2" sub="0 running · 2 exited" />
-				<StatCard label="Sandbox" value="Enabled" color="text-emerald-400" />
+				<StatCard
+					label="Image Status"
+					value={stats.sandboxReady ? "Ready" : "Not Ready"}
+					color={stats.sandboxReady ? "text-emerald-400" : "text-amber-400"}
+				/>
+				<StatCard
+					label="Containers"
+					value={stats.containers}
+					sub={`${stats.running} running · ${stats.exited} exited`}
+				/>
+				<StatCard label="Images" value={stats.images} color="text-blue-400" />
 			</div>
 			<Card>
 				<div className="mb-2 text-[11px] uppercase tracking-widest text-gray-500">Workspace Path</div>

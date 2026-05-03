@@ -1,18 +1,50 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { StatCard } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 
+type QueueStats = {
+	waiting: number
+	active: number
+	completed: number
+	failed: number
+	delayed: number
+}
+
 export function QueueView() {
 	const [paused, setPaused] = useState(false)
+	const [stats, setStats] = useState<QueueStats>({ waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0 })
+
+	useEffect(() => {
+		const fetchStats = async () => {
+			try {
+				const res = await fetch("/api/queue/stats")
+				if (res.ok) {
+					const data = await res.json()
+					setStats({
+						waiting: data.waiting || 0,
+						active: data.active || 0,
+						completed: data.completed || 0,
+						failed: data.failed || 0,
+						delayed: data.delayed || 0,
+					})
+				}
+			} catch (err) {
+				console.error("Error fetching queue stats:", err)
+			}
+		}
+		fetchStats()
+		const iv = setInterval(fetchStats, 3000)
+		return () => clearInterval(iv)
+	}, [])
 
 	const lanes = [
-		{ label: "Waiting", count: 3, status: "queued" as const },
-		{ label: "Active", count: 2, status: "active" as const },
-		{ label: "Completed", count: 42, status: "completed" as const },
-		{ label: "Failed", count: 1, status: "failed" as const },
-		{ label: "Delayed", count: 0, status: "idle" as const },
+		{ label: "Waiting", count: stats.waiting, status: "queued" as const },
+		{ label: "Active", count: stats.active, status: "active" as const },
+		{ label: "Completed", count: stats.completed, status: "completed" as const },
+		{ label: "Failed", count: stats.failed, status: "failed" as const },
+		{ label: "Delayed", count: stats.delayed, status: "idle" as const },
 	]
 
 	const colorMap: Record<string, string> = {
