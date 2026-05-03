@@ -1,0 +1,58 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "SuperRoo Agent Config",
+	"type": "object",
+	"required": [
+		"id",
+		"name",
+		"category",
+		"description",
+		"version",
+		"skills",
+		"workflows",
+		"resources",
+		"safety",
+		"runtime"
+	],
+	"properties": {
+		"id": { "type": "string" },
+		"name": { "type": "string" },
+		"category": { "type": "string" },
+		"description": { "type": "string" },
+		"version": { "type": "string" },
+		"enabled": { "type": "boolean" },
+		"modelPolicy": {
+			"type": "object",
+			"properties": {
+				"preferred": { "type": "string" },
+				"fallbacks": { "type": "array", "items": { "type": "string" } },
+				"maxTokens": { "type": "number" }
+			}
+		},
+		"skills": { "type": "array", "items": { "type": "string" } },
+		"workflows": { "type": "array", "items": { "type": "string" } },
+		"resources": { "type": "array", "items": { "type": "string" } },
+		"memory": { "type": "object" },
+		"outputs": { "type": "string" },
+		"safety": {
+			"type": "object",
+			"required": ["requiresApproval", "canEditFiles", "canPublish", "canDeploy"],
+			"properties": {
+				"requiresApproval": { "type": "boolean" },
+				"canEditFiles": { "type": "boolean" },
+				"canPublish": { "type": "boolean" },
+				"canDeploy": { "type": "boolean" },
+				"blockedCommands": { "type": "array", "items": { "type": "string" } },
+				"approvalTriggers": { "type": "array", "items": { "type": "string" } }
+			}
+		},
+		"runtime": {
+			"type": "object",
+			"properties": {
+				"sandbox": { "type": "boolean" },
+				"timeoutSeconds": { "type": "number" },
+				"maxRetries": { "type": "number" }
+			}
+		}
+	}
+}

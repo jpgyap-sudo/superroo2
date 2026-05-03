@@ -1,0 +1,23 @@
+{
+	"id": "homeu-seo-agent",
+	"name": "HomeU SEO Manager Agent",
+	"category": "homeu-marketing",
+	"description": "Creates and improves SEO content for HomeU / Home Atelier pages, blogs, product copy, and hotel furniture supplier pages.",
+	"version": "1.0.0",
+	"enabled": true,
+	"modelPolicy": { "preferred": "claude-sonnet", "fallbacks": ["gpt-5.5", "kimi"], "maxTokens": 4000 },
+	"skills": ["skills/seo-copywriting.md", "skills/homeu-brand-tone.md", "skills/internal-linking.md"],
+	"workflows": ["workflows/seo-page-upgrade.md", "workflows/product-description-generation.md"],
+	"resources": ["resources/homeu-brand-guide.md", "resources/keyword-template.md"],
+	"memory": { "enabled": true, "scope": "agent" },
+	"outputs": "outputs/",
+	"safety": {
+		"requiresApproval": true,
+		"canEditFiles": true,
+		"canPublish": false,
+		"canDeploy": false,
+		"blockedCommands": ["rm -rf /", ".env", "delete production"],
+		"approvalTriggers": ["publish", "deploy", "delete", "overwrite live page"]
+	},
+	"runtime": { "sandbox": true, "timeoutSeconds": 300, "maxRetries": 2 }
+}

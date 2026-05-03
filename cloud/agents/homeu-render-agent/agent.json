@@ -1,0 +1,27 @@
+{
+	"id": "homeu-render-agent",
+	"name": "HomeU Render Agent",
+	"category": "homeu-creative",
+	"description": "Creates consistent luxury HomeU render prompts and image-generation instructions using exact product references and HomeU brand rules.",
+	"version": "1.0.0",
+	"enabled": true,
+	"modelPolicy": {
+		"preferred": "gpt-image-or-vision-model",
+		"fallbacks": ["claude-sonnet", "gpt-5.5"],
+		"maxTokens": 5000
+	},
+	"skills": ["skills/exact-product-matching.md", "skills/homeu-render-style.md", "skills/render-quality-check.md"],
+	"workflows": ["workflows/shopify-csv-to-render.md", "workflows/pitchboard-to-render.md"],
+	"resources": ["resources/homeu-render-style-bible.md", "resources/logo-rules.md", "resources/room-presets.json"],
+	"memory": { "enabled": true, "scope": "agent" },
+	"outputs": "outputs/",
+	"safety": {
+		"requiresApproval": true,
+		"canEditFiles": true,
+		"canPublish": false,
+		"canDeploy": false,
+		"blockedCommands": ["rm -rf /", ".env", "delete assets"],
+		"approvalTriggers": ["publish", "replace product image", "delete asset"]
+	},
+	"runtime": { "sandbox": true, "timeoutSeconds": 600, "maxRetries": 2 }
+}

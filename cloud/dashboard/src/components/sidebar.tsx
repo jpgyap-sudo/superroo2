@@ -1,0 +1,94 @@
+"use client"
+
+import { useState } from "react"
+import { cn } from "@/lib/utils"
+import {
+	LayoutDashboard,
+	Zap,
+	Layers,
+	FolderGit2,
+	Bot,
+	Bug,
+	ScrollText,
+	Container,
+	Github,
+	ShieldCheck,
+	Send,
+	Settings,
+	Sparkles,
+	ChevronLeft,
+	ChevronRight,
+	Wand2,
+} from "lucide-react"
+
+const NAV = [
+	{ id: "overview", icon: LayoutDashboard, label: "Overview" },
+	{ id: "jobs", icon: Zap, label: "Jobs" },
+	{ id: "queue", icon: Layers, label: "Queue" },
+	{ id: "projects", icon: FolderGit2, label: "Projects" },
+	{ id: "agents", icon: Bot, label: "Agents" },
+	{ id: "skill-generator", icon: Wand2, label: "Skill Generator" },
+	{ id: "bugs", icon: Bug, label: "Bugs" },
+	{ id: "logs", icon: ScrollText, label: "Logs" },
+	{ id: "docker", icon: Container, label: "Docker" },
+	{ id: "github", icon: Github, label: "GitHub" },
+	{ id: "approvals", icon: ShieldCheck, label: "Approvals" },
+	{ id: "telegram", icon: Send, label: "Telegram" },
+	{ id: "settings", icon: Settings, label: "Settings" },
+	{ id: "ai", icon: Sparkles, label: "AI Assistant" },
+]
+
+export function Sidebar({ page, setPage }: { page: string; setPage: (p: string) => void }) {
+	const [collapsed, setCollapsed] = useState(false)
+
+	return (
+		<div
+			className={cn(
+				"flex flex-col border-r border-[#1e2535] bg-[#0a0e1a] transition-all duration-200",
+				collapsed ? "w-14" : "w-56",
+			)}>
+			<div
+				className="flex items-center gap-2 border-b border-[#1e2535] px-3 py-3 cursor-pointer"
+				onClick={() => setCollapsed(!collapsed)}>
+				<div className="flex h-8 w-8 items-center justify-center rounded bg-violet-600/20 text-violet-400">
+					<Sparkles className="h-4 w-4" />
+				</div>
+				{!collapsed && <span className="text-sm font-bold text-[#e2e8f0]">SuperRoo</span>}
+				<div className="ml-auto">
+					{collapsed ? (
+						<ChevronRight className="h-4 w-4 text-gray-500" />
+					) : (
+						<ChevronLeft className="h-4 w-4 text-gray-500" />
+					)}
+				</div>
+			</div>
+
+			<nav className="flex-1 overflow-y-auto py-2">
+				{NAV.map((n) => {
+					const Icon = n.icon
+					const active = page === n.id
+					return (
+						<button
+							key={n.id}
+							onClick={() => setPage(n.id)}
+							className={cn(
+								"flex w-full items-center gap-3 px-3 py-2.5 text-sm transition-colors",
+								active
+									? "border-l-2 border-violet-600 bg-violet-600/10 text-violet-300"
+									: "border-l-2 border-transparent text-gray-500 hover:bg-[#0f1117] hover:text-[#e2e8f0]",
+							)}>
+							<Icon className="h-4 w-4 shrink-0" />
+							{!collapsed && <span>{n.label}</span>}
+						</button>
+					)
+				})}
+			</nav>
+
+			{!collapsed && (
+				<div className="border-t border-[#1e2535] px-3 py-2 text-[10px] text-gray-700">
+					v2.0.0 · /opt/superroo2
+				</div>
+			)}
+		</div>
+	)
+}
