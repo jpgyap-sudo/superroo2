@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, lazy, Suspense } from "react"
 import { useTranslation } from "react-i18next"
 
 import type { HistoryItem } from "@superroo/types"
@@ -9,8 +9,19 @@ import { useExtensionState } from "@/context/ExtensionStateContext"
 
 import { DeleteTaskDialog } from "../history/DeleteTaskDialog"
 import { ShareButton } from "./ShareButton"
-import { CopyIcon, CheckIcon, DownloadIcon, Trash2Icon, FileJsonIcon, MessageSquareCodeIcon } from "lucide-react"
+import {
+	CopyIcon,
+	CheckIcon,
+	DownloadIcon,
+	Trash2Icon,
+	FileJsonIcon,
+	MessageSquareCodeIcon,
+	FileTextIcon,
+	HistoryIcon,
+} from "lucide-react"
 import { LucideIconButton } from "./LucideIconButton"
+
+const CodeChangesPanel = lazy(() => import("./CodeChangesPanel"))
 
 interface TaskActionsProps {
 	item?: HistoryItem
@@ -19,6 +30,7 @@ interface TaskActionsProps {
 
 export const TaskActions = ({ item, buttonsDisabled }: TaskActionsProps) => {
 	const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null)
+	const [codeChangesTaskId, setCodeChangesTaskId] = useState<string | null>(null)
 	const { t } = useTranslation()
 	const { copyWithFeedback, showCopyFeedback } = useCopyToClipboard()
 	const { debug } = useExtensionState()
@@ -30,6 +42,20 @@ export const TaskActions = ({ item, buttonsDisabled }: TaskActionsProps) => {
 				title={t("chat:task.export")}
 				onClick={() => vscode.postMessage({ type: "exportCurrentTask" })}
 			/>
+			{item?.workRecord && (
+				<LucideIconButton
+					icon={FileTextIcon}
+					title="Export work record"
+					onClick={() => vscode.postMessage({ type: "exportWorkRecord", text: item.id })}
+				/>
+			)}
+			{item?.id && (
+				<LucideIconButton
+					icon={HistoryIcon}
+					title="View code changes"
+					onClick={() => setCodeChangesTaskId(item.id)}
+				/>
+			)}
 
 			{item?.task && (
 				<LucideIconButton
@@ -76,6 +102,11 @@ export const TaskActions = ({ item, buttonsDisabled }: TaskActionsProps) => {
 						onClick={() => vscode.postMessage({ type: "openDebugUiHistory" })}
 					/>
 				</>
+			)}
+			{codeChangesTaskId && (
+				<Suspense fallback={null}>
+					<CodeChangesPanel taskId={codeChangesTaskId} onClose={() => setCodeChangesTaskId(null)} />
+				</Suspense>
 			)}
 		</div>
 	)

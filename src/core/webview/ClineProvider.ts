@@ -1857,6 +1857,47 @@ export class ClineProvider
 		}
 	}
 
+	async exportWorkRecordWithId(id: string) {
+		const { historyItem } = await this.getTaskWithId(id)
+		if (!historyItem.workRecord) {
+			vscode.window.showInformationMessage("No work record available for this task yet.")
+			return
+		}
+		const { generateWorkRecordMarkdown } = await import("../task-persistence/exportWorkRecord")
+		const markdown = generateWorkRecordMarkdown(historyItem.workRecord)
+		const fileName = `work_record_${historyItem.id}.md`
+		const defaultUri = await resolveDefaultSaveUri(this.contextProxy, "lastTaskExportPath", fileName, {
+			useWorkspace: false,
+			fallbackDir: path.join(os.homedir(), "Downloads"),
+		})
+		const saveUri = await vscode.window.showSaveDialog({
+			filters: { Markdown: ["md"] },
+			defaultUri,
+		})
+		if (saveUri) {
+			await vscode.workspace.fs.writeFile(saveUri, Buffer.from(markdown))
+			vscode.window.showTextDocument(saveUri, { preview: true })
+			await saveLastExportPath(this.contextProxy, "lastTaskExportPath", saveUri)
+		}
+	}
+
+	async getCodeChangesForTask(taskId: string) {
+		const { CodeChangeStore } = await import("../code-change/CodeChangeStore")
+		const store = new CodeChangeStore(this.contextProxy.globalStorageUri.fsPath)
+		return store.load(taskId)
+	}
+
+	async revertCodeChange(taskId: string, changeId: string) {
+		const { CodeChangeStore } = await import("../code-change/CodeChangeStore")
+		const store = new CodeChangeStore(this.contextProxy.globalStorageUri.fsPath)
+		const change = await store.revert(taskId, changeId)
+		if (!change) {
+			vscode.window.showWarningMessage("Could not revert change. Original content may be unavailable.")
+			return undefined
+		}
+		return change
+	}
+
 	/* Condenses a task's message history to use fewer tokens. */
 	async condenseTaskContext(taskId: string) {
 		let task: Task | undefined

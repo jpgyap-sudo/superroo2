@@ -603,7 +603,7 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 		(text: string) => {
 			if (selectedFiles.length === 0) return text
 			const fileContents = selectedFiles
-				.filter((f) => f.name.toLowerCase().endsWith(".md"))
+				.filter((f) => f.isText)
 				.map((f) => `--- ${f.name} ---\n${f.content}`)
 				.join("\n\n")
 			if (!fileContents) return text
@@ -612,11 +612,23 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 		[selectedFiles],
 	)
 
+	const buildImagesWithFiles = useCallback(
+		(images: string[]) => {
+			const fileImages = selectedFiles
+				.filter((file) => file.type.startsWith("image/") && file.content.startsWith("data:image/"))
+				.map((file) => file.content)
+
+			return appendImages(images, fileImages, MAX_IMAGES_PER_MESSAGE)
+		},
+		[selectedFiles],
+	)
+
 	const handleSendMessage = useCallback(
 		(text: string, images: string[]) => {
 			text = buildMessageWithFiles(text).trim()
+			const outgoingImages = buildImagesWithFiles(images)
 
-			if (text || images.length > 0) {
+			if (text || outgoingImages.length > 0) {
 				// Intercept when the active provider is retired — show a
 				// WarningRow instead of sending anything to the backend.
 				if (apiConfiguration?.apiProvider && isRetiredProvider(apiConfiguration.apiProvider)) {
@@ -636,8 +648,8 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 					clineAskRef.current === "command_output"
 				) {
 					try {
-						console.log("queueMessage", text, images)
-						vscode.postMessage({ type: "queueMessage", text, images, files: selectedFiles })
+						console.log("queueMessage", text, outgoingImages)
+						vscode.postMessage({ type: "queueMessage", text, images: outgoingImages, files: selectedFiles })
 						setInputValue("")
 						setSelectedImages([])
 						setSelectedFiles([])
@@ -654,7 +666,7 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 				userRespondedRef.current = true
 
 				if (messagesRef.current.length === 0) {
-					vscode.postMessage({ type: "newTask", text, images, files: selectedFiles })
+					vscode.postMessage({ type: "newTask", text, images: outgoingImages, files: selectedFiles })
 				} else if (clineAskRef.current) {
 					if (clineAskRef.current === "followup") {
 						markFollowUpAsAnswered()
@@ -676,7 +688,7 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 								type: "askResponse",
 								askResponse: "messageResponse",
 								text,
-								images,
+								images: outgoingImages,
 								files: selectedFiles,
 							})
 							break
@@ -688,7 +700,7 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 						type: "askResponse",
 						askResponse: "messageResponse",
 						text,
-						images,
+						images: outgoingImages,
 						files: selectedFiles,
 					})
 				}
@@ -698,6 +710,7 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 		},
 		[
 			buildMessageWithFiles,
+			buildImagesWithFiles,
 			handleChatReset,
 			markFollowUpAsAnswered,
 			sendingDisabled,
@@ -738,17 +751,18 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 	const handleEnqueueCurrentMessage = useCallback(() => {
 		const text = inputValue.trim()
 		if (text || selectedImages.length > 0 || selectedFiles.length > 0) {
+			const outgoingImages = buildImagesWithFiles(selectedImages)
 			vscode.postMessage({
 				type: "queueMessage",
 				text: buildMessageWithFiles(text),
-				images: selectedImages,
+				images: outgoingImages,
 				files: selectedFiles,
 			})
 			setInputValue("")
 			setSelectedImages([])
 			setSelectedFiles([])
 		}
-	}, [inputValue, selectedImages, selectedFiles, buildMessageWithFiles])
+	}, [inputValue, selectedImages, selectedFiles, buildMessageWithFiles, buildImagesWithFiles])
 
 	// This logic depends on the useEffect[messages] above to set clineAsk,
 	// after which buttons are shown and we then send an askResponse to the
@@ -759,6 +773,7 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 			userRespondedRef.current = true
 
 			const trimmedInput = text?.trim()
+			const outgoingImages = buildImagesWithFiles(images ?? [])
 
 			switch (clineAsk) {
 				case "api_req_failed":
@@ -767,12 +782,12 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 				case "use_mcp_server":
 				case "mistake_limit_reached":
 					// Only send text/images if they exist
-					if (trimmedInput || (images && images.length > 0) || selectedFiles.length > 0) {
+					if (trimmedInput || outgoingImages.length > 0 || selectedFiles.length > 0) {
 						vscode.postMessage({
 							type: "askResponse",
 							askResponse: "yesButtonClicked",
 							text: buildMessageWithFiles(trimmedInput ?? ""),
-							images: images,
+							images: outgoingImages,
 							files: selectedFiles,
 						})
 						// Clear input state after sending
@@ -795,12 +810,12 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 						startNewTask()
 					} else {
 						// Only send text/images if they exist
-						if (trimmedInput || (images && images.length > 0) || selectedFiles.length > 0) {
+						if (trimmedInput || outgoingImages.length > 0 || selectedFiles.length > 0) {
 							vscode.postMessage({
 								type: "askResponse",
 								askResponse: "yesButtonClicked",
 								text: buildMessageWithFiles(trimmedInput ?? ""),
-								images: images,
+								images: outgoingImages,
 								files: selectedFiles,
 							})
 							// Clear input state after sending
@@ -828,7 +843,14 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 			setPrimaryButtonText(undefined)
 			setSecondaryButtonText(undefined)
 		},
-		[buildMessageWithFiles, clineAsk, startNewTask, currentTaskItem?.parentTaskId, selectedFiles],
+		[
+			buildMessageWithFiles,
+			buildImagesWithFiles,
+			clineAsk,
+			startNewTask,
+			currentTaskItem?.parentTaskId,
+			selectedFiles,
+		],
 	)
 
 	const handleSecondaryButtonClick = useCallback(
@@ -837,6 +859,7 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 			userRespondedRef.current = true
 
 			const trimmedInput = text?.trim()
+			const outgoingImages = buildImagesWithFiles(images ?? [])
 
 			if (isStreaming) {
 				vscode.postMessage({ type: "cancelTask" })
@@ -854,12 +877,12 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 				case "tool":
 				case "use_mcp_server":
 					// Only send text/images if they exist
-					if (trimmedInput || (images && images.length > 0) || selectedFiles.length > 0) {
+					if (trimmedInput || outgoingImages.length > 0 || selectedFiles.length > 0) {
 						vscode.postMessage({
 							type: "askResponse",
 							askResponse: "noButtonClicked",
 							text: buildMessageWithFiles(trimmedInput ?? ""),
-							images: images,
+							images: outgoingImages,
 							files: selectedFiles,
 						})
 						// Clear input state after sending
@@ -879,7 +902,15 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 			setClineAsk(undefined)
 			setEnableButtons(false)
 		},
-		[buildMessageWithFiles, clineAsk, startNewTask, isStreaming, setDidClickCancel, selectedFiles],
+		[
+			buildMessageWithFiles,
+			buildImagesWithFiles,
+			clineAsk,
+			startNewTask,
+			isStreaming,
+			setDidClickCancel,
+			selectedFiles,
+		],
 	)
 
 	const { info: model } = useSelectedModel(apiConfiguration)
@@ -887,6 +918,8 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 	const selectImages = useCallback(() => vscode.postMessage({ type: "selectImages" }), [])
 	const pasteImagesFromClipboard = useCallback(() => vscode.postMessage({ type: "pasteImageFromClipboard" }), [])
 	const selectFiles = useCallback(() => vscode.postMessage({ type: "selectFiles" }), [])
+	const runAutonomousMode = useCallback(() => vscode.postMessage({ type: "runAutonomousSafe" }), [])
+	const runManualMode = useCallback(() => vscode.postMessage({ type: "runManualMode" }), [])
 
 	const shouldDisableImages = !model?.supportsImages || selectedImages.length >= MAX_IMAGES_PER_MESSAGE
 
@@ -1482,7 +1515,7 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 			// regular message
 			return (
 				<ChatRow
-					key={messageOrGroup.ts}
+					key={`${messageOrGroup.ts}-${messageOrGroup.type}-${messageOrGroup.say ?? messageOrGroup.ask}`}
 					message={messageOrGroup}
 					isExpanded={expandedRows[messageOrGroup.ts] || false}
 					onToggleExpand={toggleRowExpansion} // This was already stabilized
@@ -1585,7 +1618,7 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 				vscode.postMessage({
 					type: "queueMessage",
 					text: inputValue.trim(),
-					images: selectedImages,
+					images: buildImagesWithFiles(selectedImages),
 					files: selectedFiles,
 				})
 				setInputValue("")
@@ -1855,6 +1888,8 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 				onSelectImages={selectImages}
 				onPasteImagesFromClipboard={pasteImagesFromClipboard}
 				onSelectFiles={selectFiles}
+				onRunAutonomousMode={runAutonomousMode}
+				onRunManualMode={runManualMode}
 				shouldDisableImages={shouldDisableImages}
 				onHeightChange={() => {
 					if (isAtBottomRef.current && scrollPhaseRef.current !== "USER_BROWSING_HISTORY") {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react"
-import { Plus, Globe, Folder, Edit, Trash2, Settings } from "lucide-react"
+import { Plus, Globe, Folder, Edit, Trash2, Settings, WandSparkles } from "lucide-react"
 import { Trans } from "react-i18next"
 
 import type { SkillMetadata } from "@superroo/types"
@@ -58,6 +58,14 @@ export const SkillsSettings: React.FC = () => {
 
 	const handleRefresh = useCallback(() => {
 		vscode.postMessage({ type: "requestSkills" })
+	}, [])
+
+	const handleAutoGenerateSkill = useCallback((source: "global" | "project") => {
+		vscode.postMessage({
+			type: "autoGenerateSkill",
+			source,
+			skillModeSlugs: ["code"],
+		})
 	}, [])
 
 	// Request skills when component mounts
@@ -233,11 +241,24 @@ export const SkillsSettings: React.FC = () => {
 						/>
 					</p>
 
-					{/* Add Skill button */}
-					<Button variant="secondary" className="py-1" onClick={() => setCreateDialogOpen(true)}>
-						<Plus />
-						{t("settings:skills.addSkill")}
-					</Button>
+					<div className="grid grid-cols-1 min-[420px]:grid-cols-3 gap-2">
+						<Button variant="secondary" className="py-1" onClick={() => setCreateDialogOpen(true)}>
+							<Plus />
+							{t("settings:skills.addSkill")}
+						</Button>
+						<Button
+							variant="secondary"
+							className="py-1"
+							onClick={() => handleAutoGenerateSkill("project")}
+							disabled={!hasWorkspace}>
+							<WandSparkles />
+							{t("settings:skills.autoWorkspaceSkill")}
+						</Button>
+						<Button variant="secondary" className="py-1" onClick={() => handleAutoGenerateSkill("global")}>
+							<WandSparkles />
+							{t("settings:skills.autoGlobalSkill")}
+						</Button>
+					</div>
 				</div>
 			</div>
 

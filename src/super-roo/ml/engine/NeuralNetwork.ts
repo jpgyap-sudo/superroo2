@@ -19,6 +19,14 @@ import type { LossFn } from "./Loss"
 import { AdamOptimizer } from "./Optimizer"
 import { Tensor } from "./Tensor"
 
+interface TrainableLayer {
+	setTraining(v: boolean): void
+}
+
+function isTrainable(l: unknown): l is TrainableLayer {
+	return typeof (l as TrainableLayer).setTraining === "function"
+}
+
 export interface NeuralNetworkConfig {
 	inputDim: number
 	outputDim: number
@@ -110,6 +118,60 @@ export class NeuralNetwork {
 		return out
 	}
 
+	/** Forward pass with training mode enabled (affects dropout, batch norm). */
+	forwardTraining(input: Tensor): Tensor {
+		this.setTraining(true)
+		let out = input
+		for (const layer of this.layers) {
+			out = layer.forward(out)
+		}
+		return out
+	}
+
+	/** Backward pass. Must be called after forwardTraining. Returns gradient w.r.t. input. */
+	backward(outputGrad: Tensor): Tensor {
+		let dOut = outputGrad
+		for (let li = this.layers.length - 1; li >= 0; li--) {
+			dOut = this.layers[li].backward(dOut)
+		}
+		return dOut
+	}
+
+	/** Optimizer step. Creates optimizer lazily if needed. */
+	step(learningRate: number): void {
+		this.optimizer ??= new AdamOptimizer(this.allParameters())
+		this.optimizer.step(learningRate)
+	}
+
+	/** Zero all parameter gradients. */
+	zeroGrad(): void {
+		this.optimizer ??= new AdamOptimizer(this.allParameters())
+		this.optimizer.zeroGrad()
+	}
+
+	/** Restore weights from serialised format. */
+	deserialise(weights: number[][][]): void {
+		for (let i = 0; i < this.layers.length; i++) {
+			const layerParams = this.layers[i].parameters()
+			const layerWeights = weights[i]
+			if (!layerWeights || layerParams.length !== layerWeights.length) {
+				throw new Error(
+					`Layer ${i} parameter count mismatch: expected ${layerParams.length}, got ${layerWeights?.length ?? 0}`,
+				)
+			}
+			for (let j = 0; j < layerParams.length; j++) {
+				const p = layerParams[j]
+				const w = layerWeights[j]
+				if (w.length !== p.tensor.data.length) {
+					throw new Error(
+						`Shape mismatch deserialising layer ${i} param ${j}: expected ${p.tensor.data.length}, got ${w.length}`,
+					)
+				}
+				p.tensor.data.set(Float64Array.from(w))
+			}
+		}
+	}
+
 	train(X: Tensor, y: Tensor, lossFn: LossFn, cfg: TrainingConfig): number[] {
 		const losses: number[] = []
 		this.optimizer ??= new AdamOptimizer(this.allParameters())
@@ -176,17 +238,15 @@ export class NeuralNetwork {
 
 	private setTraining(v: boolean) {
 		for (const layer of this.layers) {
-			if ("setTraining" in layer && typeof (layer as any).setTraining === "function") {
-				(layer as any).setTraining(v)
+			if (isTrainable(layer)) {
+				layer.setTraining(v)
 			}
 		}
 	}
 
 	/** Serialise weights to a plain JSON-friendly structure. */
 	serialise(): number[][][] {
-		return this.layers.map((layer) =>
-			layer.parameters().map((p) => p.tensor.to1D()),
-		)
+		return this.layers.map((layer) => layer.parameters().map((p) => p.tensor.to1D()))
 	}
 
 	/** Describe architecture. */

@@ -35,22 +35,22 @@ describe("SuperRooOrchestrator — lifecycle", () => {
 		orch.close()
 	})
 
-	it("start() emits orchestrator.started with metadata", () => {
-		orch.start()
+	it("start() emits orchestrator.started with metadata", async () => {
+		await orch.start()
 		const ev = orch.events.recent({ type: "orchestrator.started" })[0]
 		expect(ev).toBeDefined()
 		expect(ev.data).toMatchObject({ mode: "AUTO", schemaVersion: 3 })
 	})
 
 	it("processNext returns 'idle' when queue is empty", async () => {
-		orch.start()
+		await orch.start()
 		const r = await orch.processNext()
 		expect(r.kind).toBe("idle")
 	})
 
 	it("processNext returns 'off' when mode is OFF", async () => {
 		orch.setMode(SafetyMode.OFF)
-		orch.start()
+		await orch.start()
 		orch.submit({
 			agent: "coder",
 			goal: "do thing",
@@ -64,13 +64,13 @@ describe("SuperRooOrchestrator — lifecycle", () => {
 describe("SuperRooOrchestrator — agent dispatch", () => {
 	let orch: SuperRooOrchestrator
 
-	beforeEach(() => {
+	beforeEach(async () => {
 		orch = new SuperRooOrchestrator({
 			dbPath: ":memory:",
 			initialMode: SafetyMode.AUTO,
 			healingCycleIntervalMs: 100, // Fast cleanup in tests
 		})
-		orch.start()
+		await orch.start()
 	})
 
 	afterEach(async () => {
@@ -209,13 +209,13 @@ describe("SuperRooOrchestrator — agent dispatch", () => {
 describe("SuperRooOrchestrator — mode + self-improve", () => {
 	let orch: SuperRooOrchestrator
 
-	beforeEach(() => {
+	beforeEach(async () => {
 		orch = new SuperRooOrchestrator({
 			dbPath: ":memory:",
 			initialMode: SafetyMode.SAFE,
 			healingCycleIntervalMs: 100, // Fast cleanup in tests
 		})
-		orch.start()
+		await orch.start()
 	})
 
 	afterEach(async () => {
@@ -247,7 +247,7 @@ describe("SuperRooOrchestrator — mode + self-improve", () => {
 describe("SuperRooOrchestrator — runLoop", () => {
 	it("processes queued tasks until idle then sleeps; respects stop()", async () => {
 		const orch = new SuperRooOrchestrator({ dbPath: ":memory:", initialMode: SafetyMode.AUTO })
-		orch.start()
+		await orch.start()
 		const seen: string[] = []
 		orch.agents.register(
 			makeFakeAgent("w", {

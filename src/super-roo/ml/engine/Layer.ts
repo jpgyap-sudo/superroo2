@@ -7,13 +7,15 @@
 
 import { Tensor } from "./Tensor"
 
+export type LayerParameter = { tensor: Tensor; grad: Tensor; name: string }
+
 export interface Layer {
 	/** Forward pass: input → output */
 	forward(input: Tensor): Tensor
 	/** Backward pass: outputGrad → inputGrad. Must be called after forward. */
 	backward(outputGrad: Tensor): Tensor
 	/** Return list of parameter tensors (weights, biases) for the optimizer. */
-	parameters(): { tensor: Tensor; grad: Tensor; name: string }[]
+	parameters(): LayerParameter[]
 	/** Human-readable description. */
 	describe(): string
 }
@@ -61,7 +63,7 @@ export class DenseLayer implements Layer {
 		return dInput
 	}
 
-	parameters() {
+	parameters(): LayerParameter[] {
 		return [
 			{ tensor: this.weights, grad: this.weightGrad, name: "W" },
 			{ tensor: this.biases, grad: this.biasGrad, name: "b" },
@@ -100,7 +102,7 @@ export class ReLULayer implements Layer {
 		return out
 	}
 
-	parameters() {
+	parameters(): LayerParameter[] {
 		return []
 	}
 
@@ -131,7 +133,7 @@ export class SigmoidLayer implements Layer {
 		return out
 	}
 
-	parameters() {
+	parameters(): LayerParameter[] {
 		return []
 	}
 
@@ -162,7 +164,7 @@ export class TanhLayer implements Layer {
 		return out
 	}
 
-	parameters() {
+	parameters(): LayerParameter[] {
 		return []
 	}
 
@@ -215,7 +217,7 @@ export class SoftmaxLayer implements Layer {
 		return out
 	}
 
-	parameters() {
+	parameters(): LayerParameter[] {
 		return []
 	}
 
@@ -263,7 +265,7 @@ export class DropoutLayer implements Layer {
 		return out
 	}
 
-	parameters() {
+	parameters(): LayerParameter[] {
 		return []
 	}
 
@@ -312,9 +314,7 @@ export class BatchNormLayer implements Layer {
 	forward(input: Tensor): Tensor {
 		this.inputCache = input.clone()
 		const mean = this.training ? input.mean(0) : this.runningMean
-		const variance = this.training
-			? input.sub(mean).pow(2).mean(0)
-			: this.runningVar
+		const variance = this.training ? input.sub(mean).pow(2).mean(0) : this.runningVar
 		this.meanCache = mean.clone()
 		this.varCache = variance.clone()
 
@@ -346,23 +346,37 @@ export class BatchNormLayer implements Layer {
 		}
 
 		const dNorm = this.affine ? outputGrad.mul(this.gamma) : outputGrad
-		const dVar = dNorm.mul(this.inputCache.sub(this.meanCache)).mul(-0.5).mul(this.varCache.add(this.eps).pow(-1.5)).sum(0)
-		const dMean = dNorm.mul(-1).div(std).sum(0).add(
-			dVar.mul(this.inputCache.sub(this.meanCache)).mul(-2 / N).sum(0)
-		)
+		const dVar = dNorm
+			.mul(this.inputCache.sub(this.meanCache))
+			.mul(-0.5)
+			.mul(this.varCache.add(this.eps).pow(-1.5))
+			.sum(0)
+		const dMean = dNorm
+			.mul(-1)
+			.div(std)
+			.sum(0)
+			.add(
+				dVar
+					.mul(this.inputCache.sub(this.meanCache))
+					.mul(-2 / N)
+					.sum(0),
+			)
 
-		const dInput = dNorm.div(std).add(
-			this.inputCache.sub(this.meanCache).mul(dVar.mul(2 / N))
-		).add(dMean.div(N))
+		const dInput = dNorm
+			.div(std)
+			.add(this.inputCache.sub(this.meanCache).mul(dVar.mul(2 / N)))
+			.add(dMean.div(N))
 
 		return dInput
 	}
 
-	parameters() {
+	parameters(): LayerParameter[] {
 		if (!this.affine) return []
 		return [
 			{ tensor: this.gamma, grad: this.gammaGrad, name: "gamma" },
 			{ tensor: this.beta, grad: this.betaGrad, name: "beta" },
+			{ tensor: this.runningMean, grad: new Tensor(1, this.features, "zeros"), name: "runningMean" },
+			{ tensor: this.runningVar, grad: new Tensor(1, this.features, "zeros"), name: "runningVar" },
 		]
 	}
 

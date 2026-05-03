@@ -1,7 +1,19 @@
 import React, { forwardRef, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useEvent } from "react-use"
 import DynamicTextArea from "react-textarea-autosize"
-import { VolumeX, Image, WandSparkles, SendHorizontal, X, ListEnd, Square, Paperclip, FileText } from "lucide-react"
+import {
+	VolumeX,
+	Image,
+	WandSparkles,
+	SendHorizontal,
+	X,
+	ListEnd,
+	Square,
+	Paperclip,
+	FileText,
+	Bot,
+	User,
+} from "lucide-react"
 
 import type { ExtensionMessage, FileAttachment } from "@superroo/types"
 
@@ -48,6 +60,8 @@ interface ChatTextAreaProps {
 	onSelectImages: () => void
 	onPasteImagesFromClipboard?: () => void
 	onSelectFiles?: () => void
+	onRunAutonomousMode?: () => void
+	onRunManualMode?: () => void
 	shouldDisableImages: boolean
 	onHeightChange?: (height: number) => void
 	mode: Mode
@@ -77,6 +91,8 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 			onSelectImages,
 			onPasteImagesFromClipboard,
 			onSelectFiles,
+			onRunAutonomousMode,
+			onRunManualMode,
 			shouldDisableImages,
 			onHeightChange,
 			mode,
@@ -1192,21 +1208,19 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 
 						<div className="flex items-center justify-between gap-1 px-0.5">
 							<div className="flex min-w-0 items-center gap-0.5">
-								<StandardTooltip
-									content={shouldDisableImages ? t("chat:imagesDisabled") : t("chat:addImages")}>
-									<button
-										aria-label={t("chat:addImages")}
-										disabled={shouldDisableImages}
-										onClick={onSelectImages}
-										className={cn(
-											compactActionButtonClassName,
-											!shouldDisableImages
-												? "opacity-70 hover:opacity-100 hover:bg-[rgba(255,255,255,0.04)] active:bg-[rgba(255,255,255,0.1)] cursor-pointer"
-												: "opacity-35 cursor-not-allowed grayscale-[30%]",
-										)}>
-										<Image className="size-4" />
-									</button>
-								</StandardTooltip>
+								{!shouldDisableImages && (
+									<StandardTooltip content={t("chat:addImages")}>
+										<button
+											aria-label={t("chat:addImages")}
+											onClick={onSelectImages}
+											className={cn(
+												compactActionButtonClassName,
+												"opacity-70 hover:opacity-100 hover:bg-[rgba(255,255,255,0.04)] active:bg-[rgba(255,255,255,0.1)] cursor-pointer",
+											)}>
+											<Image className="size-4" />
+										</button>
+									</StandardTooltip>
+								)}
 								{onSelectFiles && (
 									<StandardTooltip content={t("chat:addFiles")}>
 										<button
@@ -1217,6 +1231,32 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 												"opacity-70 hover:opacity-100 hover:bg-[rgba(255,255,255,0.04)] active:bg-[rgba(255,255,255,0.1)] cursor-pointer",
 											)}>
 											<Paperclip className="size-4" />
+										</button>
+									</StandardTooltip>
+								)}
+								{onRunAutonomousMode && !isEditMode && (
+									<StandardTooltip content="Run autonomous safe mode">
+										<button
+											aria-label="Run autonomous safe mode"
+											onClick={onRunAutonomousMode}
+											className={cn(
+												compactActionButtonClassName,
+												"opacity-70 hover:opacity-100 hover:bg-[rgba(255,255,255,0.04)] active:bg-[rgba(255,255,255,0.1)] cursor-pointer",
+											)}>
+											<Bot className="size-4" />
+										</button>
+									</StandardTooltip>
+								)}
+								{onRunManualMode && !isEditMode && (
+									<StandardTooltip content="Run manual mode">
+										<button
+											aria-label="Run manual mode"
+											onClick={onRunManualMode}
+											className={cn(
+												compactActionButtonClassName,
+												"opacity-70 hover:opacity-100 hover:bg-[rgba(255,255,255,0.04)] active:bg-[rgba(255,255,255,0.1)] cursor-pointer",
+											)}>
+											<User className="size-4" />
 										</button>
 									</StandardTooltip>
 								)}

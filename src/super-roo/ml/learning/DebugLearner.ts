@@ -6,12 +6,21 @@
  *   - Estimated fix complexity
  *   - Likely files involved
  *
- * Uses an encoder + multi-head architecture similar to CodeLearner.
+ * Uses an encoder + multi-head architecture with end-to-end encoder training,
+ * persistence, and evaluation metrics.
  */
 
 import { NeuralNetwork } from "../engine/NeuralNetwork"
 import { MSELoss, CrossEntropyLoss } from "../engine/Loss"
 import { Tensor } from "../engine/Tensor"
+import { ModelPersistence } from "../engine/ModelPersistence"
+import { trainEndToEnd } from "./LearnerUtils"
+import {
+	computeClassificationMetrics,
+	computeRegressionMetrics,
+	type ClassificationMetrics,
+	type RegressionMetrics,
+} from "../engine/Metrics"
 
 export interface DebugSample {
 	/** Normalised error signature vector */
@@ -30,6 +39,14 @@ export interface DebugLearnerConfig {
 	learningRate?: number
 	batchSize?: number
 	epochs?: number
+	/** Optional directory to persist / restore model weights. */
+	modelDir?: string
+}
+
+export interface DebugLearnerMetrics {
+	cause: ClassificationMetrics | null
+	complexity: RegressionMetrics | null
+	fixSuccess: ClassificationMetrics | null
 }
 
 export class DebugLearner {
@@ -37,7 +54,11 @@ export class DebugLearner {
 	private causeHead: NeuralNetwork
 	private complexityHead: NeuralNetwork
 	private fixSuccessHead: NeuralNetwork
-	private config: Required<DebugLearnerConfig>
+	private config: Required<
+		Pick<DebugLearnerConfig, "inputDim" | "encoderDims" | "learningRate" | "batchSize" | "epochs">
+	> &
+		Pick<DebugLearnerConfig, "modelDir">
+	private persistence?: ModelPersistence
 
 	constructor(config: DebugLearnerConfig) {
 		this.config = {
@@ -46,6 +67,7 @@ export class DebugLearner {
 			learningRate: config.learningRate ?? 0.001,
 			batchSize: config.batchSize ?? 16,
 			epochs: config.epochs ?? 50,
+			modelDir: config.modelDir,
 		}
 
 		const encoderOut = this.config.encoderDims[this.config.encoderDims.length - 1] ?? 32
@@ -83,8 +105,39 @@ export class DebugLearner {
 			activation: "relu",
 			finalActivation: "softmax",
 		})
+
+		if (this.config.modelDir) {
+			this.persistence = new ModelPersistence({ dir: this.config.modelDir, name: "debug-learner" })
+		}
 	}
 
+	/** Restore weights from disk if available. */
+	async restore(): Promise<boolean> {
+		if (!this.persistence) return false
+		const weights = await this.persistence.load()
+		if (!weights) return false
+		this.encoder.deserialise(weights.encoder)
+		if (weights.heads.cause) this.causeHead.deserialise(weights.heads.cause)
+		if (weights.heads.complexity) this.complexityHead.deserialise(weights.heads.complexity)
+		if (weights.heads.fixSuccess) this.fixSuccessHead.deserialise(weights.heads.fixSuccess)
+		return true
+	}
+
+	/** Persist current weights to disk. */
+	async save(): Promise<void> {
+		if (!this.persistence) return
+		await this.persistence.save({
+			version: 1,
+			encoder: this.encoder.serialise(),
+			heads: {
+				cause: this.causeHead.serialise(),
+				complexity: this.complexityHead.serialise(),
+				fixSuccess: this.fixSuccessHead.serialise(),
+			},
+		})
+	}
+
+	/** Train on a batch of debug samples. Updates encoder end-to-end. */
 	train(samples: DebugSample[]): { causeLoss: number; complexityLoss: number; fixSuccessLoss: number } {
 		if (samples.length === 0) return { causeLoss: 0, complexityLoss: 0, fixSuccessLoss: 0 }
 
@@ -105,40 +158,85 @@ export class DebugLearner {
 					return vec
 				}),
 			)
-			const encoded = this.encoder.predict(X)
-			const losses = this.causeHead.train(encoded, y, new CrossEntropyLoss(), {
-				epochs: this.config.epochs,
-				batchSize: this.config.batchSize,
-				learningRate: this.config.learningRate,
-			})
+			const losses = trainEndToEnd(
+				this.encoder,
+				this.causeHead,
+				X,
+				y,
+				new CrossEntropyLoss(),
+				this.config.epochs,
+				this.config.batchSize,
+				this.config.learningRate,
+			)
 			causeLoss = losses[losses.length - 1] ?? 0
 		}
 
 		if (complexitySamples.length > 0) {
 			const X = Tensor.from2D(complexitySamples.map((s) => s.features))
 			const y = Tensor.from2D(complexitySamples.map((s) => [s.fixComplexity!]))
-			const encoded = this.encoder.predict(X)
-			const losses = this.complexityHead.train(encoded, y, new MSELoss(), {
-				epochs: this.config.epochs,
-				batchSize: this.config.batchSize,
-				learningRate: this.config.learningRate,
-			})
+			const losses = trainEndToEnd(
+				this.encoder,
+				this.complexityHead,
+				X,
+				y,
+				new MSELoss(),
+				this.config.epochs,
+				this.config.batchSize,
+				this.config.learningRate,
+			)
 			complexityLoss = losses[losses.length - 1] ?? 0
 		}
 
 		if (fixSuccessSamples.length > 0) {
 			const X = Tensor.from2D(fixSuccessSamples.map((s) => s.features))
 			const y = Tensor.from2D(fixSuccessSamples.map((s) => (s.fixSuccess === 1 ? [0, 1] : [1, 0])))
-			const encoded = this.encoder.predict(X)
-			const losses = this.fixSuccessHead.train(encoded, y, new CrossEntropyLoss(), {
-				epochs: this.config.epochs,
-				batchSize: this.config.batchSize,
-				learningRate: this.config.learningRate,
-			})
+			const losses = trainEndToEnd(
+				this.encoder,
+				this.fixSuccessHead,
+				X,
+				y,
+				new CrossEntropyLoss(),
+				this.config.epochs,
+				this.config.batchSize,
+				this.config.learningRate,
+			)
 			fixSuccessLoss = losses[losses.length - 1] ?? 0
 		}
 
 		return { causeLoss, complexityLoss, fixSuccessLoss }
+	}
+
+	/** Compute per-head metrics on the given samples. */
+	evaluate(samples: DebugSample[]): DebugLearnerMetrics {
+		const causePreds: number[] = []
+		const causeActual: number[] = []
+		const complexityPreds: number[] = []
+		const complexityActual: number[] = []
+		const fixSuccessPreds: number[] = []
+		const fixSuccessActual: number[] = []
+
+		for (const s of samples) {
+			const pred = this.predict(s.features)
+			if (s.causeCategory !== undefined) {
+				causePreds.push(pred.causeCategory)
+				causeActual.push(s.causeCategory)
+			}
+			if (s.fixComplexity !== undefined) {
+				complexityPreds.push(pred.fixComplexity)
+				complexityActual.push(s.fixComplexity)
+			}
+			if (s.fixSuccess !== undefined) {
+				fixSuccessPreds.push(pred.fixSuccessProb >= 0.5 ? 1 : 0)
+				fixSuccessActual.push(s.fixSuccess)
+			}
+		}
+
+		return {
+			cause: causePreds.length > 0 ? computeClassificationMetrics(causePreds, causeActual) : null,
+			complexity: complexityPreds.length > 0 ? computeRegressionMetrics(complexityPreds, complexityActual) : null,
+			fixSuccess:
+				fixSuccessPreds.length > 0 ? computeClassificationMetrics(fixSuccessPreds, fixSuccessActual) : null,
+		}
 	}
 
 	predict(features: number[]): { causeCategory: number; fixComplexity: number; fixSuccessProb: number } {
@@ -168,12 +266,15 @@ export class DebugLearner {
 	}): number[] {
 		// One-hot encoding for error type (5 categories: type, syntax, runtime, assertion, other)
 		const typeVec = [0, 0, 0, 0, 0]
-		const typeIdx =
-			meta.isTypeError ? 0
-			: meta.isSyntaxError ? 1
-			: meta.isRuntimeError ? 2
-			: meta.isAssertionError ? 3
-			: 4
+		const typeIdx = meta.isTypeError
+			? 0
+			: meta.isSyntaxError
+				? 1
+				: meta.isRuntimeError
+					? 2
+					: meta.isAssertionError
+						? 3
+						: 4
 		typeVec[typeIdx] = 1
 		return [
 			...typeVec,

@@ -106,6 +106,8 @@
 		"noWorkspaceSkills": "No skills in this project yet.",
 		"noGlobalSkills": "No global skills yet.",
 		"addSkill": "Add Skill",
+		"autoWorkspaceSkill": "Auto Workspace",
+		"autoGlobalSkill": "Auto Global",
 		"editSkill": "Edit skill",
 		"deleteSkill": "Delete skill",
 		"configureModes": "Mode availability",

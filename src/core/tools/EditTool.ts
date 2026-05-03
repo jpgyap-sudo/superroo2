@@ -223,6 +223,11 @@ export class EditTool extends BaseTool<"edit"> {
 				await task.fileContextTracker.trackFileContext(relPath, "roo_edited" as RecordSource)
 			}
 
+			// Record code change for history / revert
+			if (relPath) {
+				void task.recordCodeChange(absolutePath, "edit", fileContent, newContent)
+			}
+
 			task.didEditFile = true
 
 			// Get the formatted response message

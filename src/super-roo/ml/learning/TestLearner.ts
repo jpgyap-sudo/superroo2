@@ -6,18 +6,27 @@
  *   - Optimal test ordering (fail-fast prioritisation)
  *   - Test coverage gaps
  *
- * Uses the same encoder + multi-head architecture.
+ * Uses an encoder + multi-head architecture with end-to-end encoder training,
+ * persistence, and evaluation metrics.
  */
 
 import { NeuralNetwork } from "../engine/NeuralNetwork"
 import { MSELoss, CrossEntropyLoss } from "../engine/Loss"
 import { Tensor } from "../engine/Tensor"
+import { ModelPersistence } from "../engine/ModelPersistence"
+import { trainEndToEnd } from "./LearnerUtils"
+import {
+	computeClassificationMetrics,
+	computeRegressionMetrics,
+	type ClassificationMetrics,
+	type RegressionMetrics,
+} from "../engine/Metrics"
 
 export interface TestSample {
 	features: number[]
 	/** 1 = will fail, 0 = will pass */
 	willFail?: number
-	/** Execution time in ms (normalised) */
+	/** Execution time in ms (normalised 0-1) */
 	execTime?: number
 	/** Coverage gap score 0-1 */
 	coverageGap?: number
@@ -29,6 +38,14 @@ export interface TestLearnerConfig {
 	learningRate?: number
 	batchSize?: number
 	epochs?: number
+	/** Optional directory to persist / restore model weights. */
+	modelDir?: string
+}
+
+export interface TestLearnerMetrics {
+	fail: ClassificationMetrics | null
+	time: RegressionMetrics | null
+	coverage: RegressionMetrics | null
 }
 
 export class TestLearner {
@@ -36,7 +53,11 @@ export class TestLearner {
 	private failHead: NeuralNetwork
 	private timeHead: NeuralNetwork
 	private coverageHead: NeuralNetwork
-	private config: Required<TestLearnerConfig>
+	private config: Required<
+		Pick<TestLearnerConfig, "inputDim" | "encoderDims" | "learningRate" | "batchSize" | "epochs">
+	> &
+		Pick<TestLearnerConfig, "modelDir">
+	private persistence?: ModelPersistence
 
 	constructor(config: TestLearnerConfig) {
 		this.config = {
@@ -45,6 +66,7 @@ export class TestLearner {
 			learningRate: config.learningRate ?? 0.001,
 			batchSize: config.batchSize ?? 16,
 			epochs: config.epochs ?? 50,
+			modelDir: config.modelDir,
 		}
 
 		const encoderOut = this.config.encoderDims[this.config.encoderDims.length - 1] ?? 32
@@ -82,8 +104,39 @@ export class TestLearner {
 			activation: "relu",
 			finalActivation: "sigmoid",
 		})
+
+		if (this.config.modelDir) {
+			this.persistence = new ModelPersistence({ dir: this.config.modelDir, name: "test-learner" })
+		}
 	}
 
+	/** Restore weights from disk if available. */
+	async restore(): Promise<boolean> {
+		if (!this.persistence) return false
+		const weights = await this.persistence.load()
+		if (!weights) return false
+		this.encoder.deserialise(weights.encoder)
+		if (weights.heads.fail) this.failHead.deserialise(weights.heads.fail)
+		if (weights.heads.time) this.timeHead.deserialise(weights.heads.time)
+		if (weights.heads.coverage) this.coverageHead.deserialise(weights.heads.coverage)
+		return true
+	}
+
+	/** Persist current weights to disk. */
+	async save(): Promise<void> {
+		if (!this.persistence) return
+		await this.persistence.save({
+			version: 1,
+			encoder: this.encoder.serialise(),
+			heads: {
+				fail: this.failHead.serialise(),
+				time: this.timeHead.serialise(),
+				coverage: this.coverageHead.serialise(),
+			},
+		})
+	}
+
+	/** Train on a batch of test samples. Updates encoder end-to-end. */
 	train(samples: TestSample[]): { failLoss: number; timeLoss: number; coverageLoss: number } {
 		if (samples.length === 0) return { failLoss: 0, timeLoss: 0, coverageLoss: 0 }
 
@@ -98,40 +151,84 @@ export class TestLearner {
 		if (failSamples.length > 0) {
 			const X = Tensor.from2D(failSamples.map((s) => s.features))
 			const y = Tensor.from2D(failSamples.map((s) => (s.willFail === 1 ? [0, 1] : [1, 0])))
-			const encoded = this.encoder.predict(X)
-			const losses = this.failHead.train(encoded, y, new CrossEntropyLoss(), {
-				epochs: this.config.epochs,
-				batchSize: this.config.batchSize,
-				learningRate: this.config.learningRate,
-			})
+			const losses = trainEndToEnd(
+				this.encoder,
+				this.failHead,
+				X,
+				y,
+				new CrossEntropyLoss(),
+				this.config.epochs,
+				this.config.batchSize,
+				this.config.learningRate,
+			)
 			failLoss = losses[losses.length - 1] ?? 0
 		}
 
 		if (timeSamples.length > 0) {
 			const X = Tensor.from2D(timeSamples.map((s) => s.features))
 			const y = Tensor.from2D(timeSamples.map((s) => [s.execTime!]))
-			const encoded = this.encoder.predict(X)
-			const losses = this.timeHead.train(encoded, y, new MSELoss(), {
-				epochs: this.config.epochs,
-				batchSize: this.config.batchSize,
-				learningRate: this.config.learningRate,
-			})
+			const losses = trainEndToEnd(
+				this.encoder,
+				this.timeHead,
+				X,
+				y,
+				new MSELoss(),
+				this.config.epochs,
+				this.config.batchSize,
+				this.config.learningRate,
+			)
 			timeLoss = losses[losses.length - 1] ?? 0
 		}
 
 		if (coverageSamples.length > 0) {
 			const X = Tensor.from2D(coverageSamples.map((s) => s.features))
 			const y = Tensor.from2D(coverageSamples.map((s) => [s.coverageGap!]))
-			const encoded = this.encoder.predict(X)
-			const losses = this.coverageHead.train(encoded, y, new MSELoss(), {
-				epochs: this.config.epochs,
-				batchSize: this.config.batchSize,
-				learningRate: this.config.learningRate,
-			})
+			const losses = trainEndToEnd(
+				this.encoder,
+				this.coverageHead,
+				X,
+				y,
+				new MSELoss(),
+				this.config.epochs,
+				this.config.batchSize,
+				this.config.learningRate,
+			)
 			coverageLoss = losses[losses.length - 1] ?? 0
 		}
 
 		return { failLoss, timeLoss, coverageLoss }
+	}
+
+	/** Compute per-head metrics on the given samples. */
+	evaluate(samples: TestSample[]): TestLearnerMetrics {
+		const failPreds: number[] = []
+		const failActual: number[] = []
+		const timePreds: number[] = []
+		const timeActual: number[] = []
+		const coveragePreds: number[] = []
+		const coverageActual: number[] = []
+
+		for (const s of samples) {
+			const pred = this.predict(s.features)
+			if (s.willFail !== undefined) {
+				failPreds.push(pred.failProb >= 0.5 ? 1 : 0)
+				failActual.push(s.willFail)
+			}
+			if (s.execTime !== undefined) {
+				timePreds.push(pred.execTime)
+				timeActual.push(s.execTime)
+			}
+			if (s.coverageGap !== undefined) {
+				coveragePreds.push(pred.coverageGap)
+				coverageActual.push(s.coverageGap)
+			}
+		}
+
+		return {
+			fail: failPreds.length > 0 ? computeClassificationMetrics(failPreds, failActual) : null,
+			time: timePreds.length > 0 ? computeRegressionMetrics(timePreds, timeActual) : null,
+			coverage: coveragePreds.length > 0 ? computeRegressionMetrics(coveragePreds, coverageActual) : null,
+		}
 	}
 
 	predict(features: number[]): { failProb: number; execTime: number; coverageGap: number } {

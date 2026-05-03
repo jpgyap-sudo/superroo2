@@ -1,7 +1,7 @@
 import NodeCache from "node-cache"
 import getFolderSize from "get-folder-size"
 
-import type { ClineMessage, HistoryItem } from "@superroo/types"
+import type { ClineMessage, HistoryItem, ToolUsage } from "@superroo/types"
 
 import { combineApiRequests } from "../../shared/combineApiRequests"
 import { combineCommandSequences } from "../../shared/combineCommandSequences"
@@ -9,6 +9,7 @@ import { getApiMetrics } from "../../shared/getApiMetrics"
 import { findLastIndex } from "../../shared/array"
 import { getTaskDirectoryPath } from "../../utils/storage"
 import { t } from "../../i18n"
+import { buildWorkRecord } from "./workRecord"
 
 const taskSizeCache = new NodeCache({ stdTTL: 30, checkperiod: 5 * 60 })
 
@@ -25,6 +26,10 @@ export type TaskMetadataOptions = {
 	apiConfigName?: string
 	/** Initial status for the task (e.g., "active" for child tasks) */
 	initialStatus?: "active" | "delegated" | "completed"
+	/** Current tool usage snapshot */
+	toolUsage?: ToolUsage
+	/** Child task IDs */
+	childIds?: string[]
 }
 
 export async function taskMetadata({
@@ -38,6 +43,8 @@ export async function taskMetadata({
 	mode,
 	apiConfigName,
 	initialStatus,
+	toolUsage,
+	childIds,
 }: TaskMetadataOptions) {
 	const taskDir = await getTaskDirectoryPath(globalStoragePath, id)
 
@@ -82,12 +89,28 @@ export async function taskMetadata({
 				taskDirSize = await getFolderSize.loose(taskDir)
 				taskSizeCache.set<number>(taskDir, taskDirSize)
 			} catch (error) {
+				console.error(`[taskMetadata] Failed to get folder size for ${taskDir}:`, error)
 				taskDirSize = 0
 			}
 		} else {
 			taskDirSize = cachedSize
 		}
 	}
+
+	// Build structured work record from messages + metadata
+	const workRecord = hasMessages
+		? buildWorkRecord({
+				title: taskMessage!.text?.trim() || t("common:tasks.incomplete", { taskNumber }),
+				messages,
+				toolUsage: toolUsage ?? {},
+				cost: tokenUsage.totalCost,
+				tokensIn: tokenUsage.totalTokensIn,
+				tokensOut: tokenUsage.totalTokensOut,
+				cacheWrites: tokenUsage.totalCacheWrites,
+				cacheReads: tokenUsage.totalCacheReads,
+				childIds,
+			})
+		: undefined
 
 	// Create historyItem once with pre-calculated values.
 	// initialStatus is included when provided (e.g., "active" for child tasks)
@@ -112,6 +135,7 @@ export async function taskMetadata({
 		mode,
 		...(typeof apiConfigName === "string" && apiConfigName.length > 0 ? { apiConfigName } : {}),
 		...(initialStatus && { status: initialStatus }),
+		...(workRecord && { workRecord }),
 	}
 
 	return { historyItem, tokenUsage }

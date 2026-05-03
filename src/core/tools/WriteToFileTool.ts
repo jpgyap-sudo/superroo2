@@ -173,6 +173,17 @@ export class WriteToFileTool extends BaseTool<"write_to_file"> {
 				await task.fileContextTracker.trackFileContext(relPath, "roo_edited" as RecordSource)
 			}
 
+			// Record code change for history / revert
+			if (relPath) {
+				const absolutePath = path.resolve(task.cwd, relPath)
+				void task.recordCodeChange(
+					absolutePath,
+					fileExists ? "write" : "create",
+					task.diffViewProvider.originalContent,
+					newContent,
+				)
+			}
+
 			task.didEditFile = true
 
 			const message = await task.diffViewProvider.pushToolWriteResult(task, task.cwd, !fileExists)

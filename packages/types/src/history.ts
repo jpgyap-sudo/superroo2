@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { workRecordSchema } from "./work-record.js"
 
 /**
  * HistoryItem
@@ -26,6 +27,8 @@ export const historyItemSchema = z.object({
 	awaitingChildId: z.string().optional(), // Child currently awaited (set when delegated)
 	completedByChildId: z.string().optional(), // Child that completed and resumed this parent
 	completionResultSummary: z.string().optional(), // Summary from completed child
+	/** Structured work record extracted from task execution */
+	workRecord: workRecordSchema.optional(),
 })
 
 export type HistoryItem = z.infer<typeof historyItemSchema>

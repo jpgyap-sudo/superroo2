@@ -113,9 +113,15 @@ export interface ExtensionMessage {
 		| "folderSelected"
 		| "skills"
 		| "fileContent"
+		| "codeChanges"
+		| "codeChangeReverted"
 	text?: string
 	/** For fileContent: { path, content, error? } */
 	fileContent?: { path: string; content: string | null; error?: string }
+	/** For codeChanges: taskId + changes array */
+	changes?: unknown[]
+	/** For codeChangeReverted: the reverted change */
+	change?: unknown
 	payload?: any // eslint-disable-line @typescript-eslint/no-explicit-any
 	checkpointWarning?: {
 		type: "WAIT_TIMEOUT" | "INIT_TIMEOUT"
@@ -438,12 +444,18 @@ export interface WebviewMessage {
 		| "clearTask"
 		| "didShowAnnouncement"
 		| "selectImages"
+		| "pasteImageFromClipboard"
 		| "selectFiles"
+		| "runAutonomousSafe"
+		| "runManualMode"
 		| "exportCurrentTask"
 		| "shareCurrentTask"
 		| "showTaskWithId"
 		| "deleteTaskWithId"
 		| "exportTaskWithId"
+		| "exportWorkRecord"
+		| "getCodeChanges"
+		| "revertCodeChange"
 		| "importSettings"
 		| "exportSettings"
 		| "resetState"
@@ -588,6 +600,7 @@ export interface WebviewMessage {
 		// Skills messages
 		| "requestSkills"
 		| "createSkill"
+		| "autoGenerateSkill"
 		| "deleteSkill"
 		| "moveSkill"
 		| "updateSkillModes"

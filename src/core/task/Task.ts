@@ -35,6 +35,7 @@ import {
 	type ModelInfo,
 	type ClineApiReqCancelReason,
 	type ClineApiReqInfo,
+	type CodeChange,
 	SuperRooEventName,
 	TelemetryEventName,
 	TaskStatus,
@@ -126,12 +127,14 @@ import {
 	checkpointDiff,
 } from "../checkpoints"
 import { processUserContentMentions } from "../mentions/processUserContentMentions"
+import { detectDomainMismatch } from "../domain-guard/WorkspaceDomainGuard"
 import { getMessagesSinceLastSummary, summarizeConversation, getEffectiveApiHistory } from "../condense"
 import { MessageQueueService } from "../message-queue/MessageQueueService"
 import { AutoApprovalHandler, checkAutoApproval } from "../auto-approval"
 import { MessageManager } from "../message-manager"
 import { validateAndFixToolResultIds } from "./validateToolResultIds"
 import { mergeConsecutiveApiMessages } from "./mergeConsecutiveApiMessages"
+import { CodeChangeStore } from "../code-change/CodeChangeStore"
 
 const MAX_EXPONENTIAL_BACKOFF_SECONDS = 600 // 10 minutes
 const DEFAULT_USAGE_COLLECTION_TIMEOUT_MS = 5000 // 5 seconds
@@ -331,6 +334,9 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 	checkpointService?: RepoPerTaskCheckpointService
 	checkpointServiceInitializing = false
 
+	// Code changes
+	codeChangeStore: CodeChangeStore
+
 	// Message Queue Service
 	public readonly messageQueueService: MessageQueueService
 	private messageQueueStateChangedHandler: (() => void) | undefined
@@ -493,6 +499,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		this.diffViewProvider = new DiffViewProvider(this.cwd, this)
 		this.enableCheckpoints = enableCheckpoints
 		this.checkpointTimeout = checkpointTimeout
+		this.codeChangeStore = new CodeChangeStore(this.globalStoragePath)
 
 		this.parentTask = parentTask
 		this.taskNumber = taskNumber
@@ -1231,6 +1238,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				mode: this._taskMode || defaultModeSlug, // Use the task's own mode, not the current provider mode.
 				apiConfigName: this._taskApiConfigName, // Use the task's own provider profile, not the current provider profile.
 				initialStatus: this.initialStatus,
+				toolUsage: this.toolUsage,
 			})
 
 			// Emit token/tool usage updates using debounced function
@@ -2472,6 +2480,32 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 	private async initiateTaskLoop(userContent: Anthropic.Messages.ContentBlockParam[]): Promise<void> {
 		// Kicks off the checkpoints initialization process in the background.
 		getCheckpointService(this)
+
+		// ── Workspace Domain Guard ──
+		// Detect if the user's request strongly mismatches the current project domain.
+		const userText = userContent
+			.map((b) => (b.type === "text" ? b.text : ""))
+			.join(" ")
+			.trim()
+		if (userText.length > 0) {
+			try {
+				const guard = await detectDomainMismatch(this.cwd, userText)
+				if (guard.mismatch && guard.confidence === "high") {
+					const { response } = await this.ask(
+						"followup",
+						`⚠️ ${guard.reason}\n\nDo you want to continue with this request in the current workspace?`,
+					)
+					if (response !== "yesButtonClicked" && response !== "messageResponse") {
+						// User declined — abort the task loop gracefully
+						await this.say("text", "Domain mismatch detected. Task cancelled.")
+						this.abortTask(true)
+						return
+					}
+				}
+			} catch {
+				// Guard failure should not block the task
+			}
+		}
 
 		let nextUserContent = userContent
 		let includeFileDetails = true
@@ -4631,6 +4665,27 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 		if (error) {
 			this.emit(SuperRooEventName.TaskToolFailed, this.taskId, toolName, error)
+		}
+	}
+
+	public async recordCodeChange(
+		filePath: string,
+		operation: CodeChange["operation"],
+		beforeContent?: string,
+		afterContent?: string,
+	) {
+		try {
+			await this.codeChangeStore.append(this.taskId, {
+				id: `${this.taskId}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+				taskId: this.taskId,
+				timestamp: Date.now(),
+				filePath,
+				operation,
+				beforeContent,
+				afterContent,
+			})
+		} catch (error) {
+			console.error("[Task#recordCodeChange] failed:", error)
 		}
 	}
 

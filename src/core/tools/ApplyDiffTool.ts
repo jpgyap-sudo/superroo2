@@ -229,6 +229,11 @@ export class ApplyDiffTool extends BaseTool<"apply_diff"> {
 				await task.fileContextTracker.trackFileContext(relPath, "roo_edited" as RecordSource)
 			}
 
+			// Record code change for history / revert
+			if (relPath) {
+				void task.recordCodeChange(absolutePath, "diff", originalContent, diffResult.content)
+			}
+
 			// Used to determine if we should wait for busy terminal to update before sending api request
 			task.didEditFile = true
 			let partFailHint = ""

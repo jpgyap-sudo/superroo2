@@ -305,7 +305,7 @@ describe("SkillsSettings", () => {
 				type: "deleteSkill",
 				skillName: "project-skill",
 				source: "project",
-				skillMode: undefined,
+				skillModeSlugs: undefined,
 			})
 		})
 	})
@@ -345,7 +345,7 @@ describe("SkillsSettings", () => {
 			type: "openSkillFile",
 			skillName: "project-skill",
 			source: "project",
-			skillMode: undefined,
+			skillModeSlugs: undefined,
 		})
 	})
 
@@ -369,7 +369,7 @@ describe("SkillsSettings", () => {
 				type: "deleteSkill",
 				skillName: "project-skill",
 				source: "project",
-				skillMode: undefined,
+				skillModeSlugs: undefined,
 			})
 		})
 
@@ -437,6 +437,43 @@ describe("SkillsSettings", () => {
 		expect(screen.getByText("skill-1")).toBeInTheDocument()
 		expect(screen.getByText("skill-2")).toBeInTheDocument()
 		expect(screen.getByText("skill-3")).toBeInTheDocument()
+	})
+
+	it("auto-generates workspace and global skills", () => {
+		renderSkillsSettings()
+		;(vscode.postMessage as any).mockClear()
+
+		const buttons = screen.getAllByTestId("button")
+		const workspaceButton = buttons.find((btn) => btn.textContent?.includes("settings:skills.autoWorkspaceSkill"))
+		const globalButton = buttons.find((btn) => btn.textContent?.includes("settings:skills.autoGlobalSkill"))
+
+		expect(workspaceButton).toBeInTheDocument()
+		expect(globalButton).toBeInTheDocument()
+
+		fireEvent.click(workspaceButton!)
+		fireEvent.click(globalButton!)
+
+		expect(vscode.postMessage).toHaveBeenCalledWith({
+			type: "autoGenerateSkill",
+			source: "project",
+			skillModeSlugs: ["code"],
+		})
+		expect(vscode.postMessage).toHaveBeenCalledWith({
+			type: "autoGenerateSkill",
+			source: "global",
+			skillModeSlugs: ["code"],
+		})
+	})
+
+	it("disables workspace auto-generation without a workspace", () => {
+		const globalOnlySkills = mockSkills.filter((s) => s.source === "global")
+		renderSkillsSettings(globalOnlySkills, "")
+
+		const workspaceButton = screen
+			.getAllByTestId("button")
+			.find((btn) => btn.textContent?.includes("settings:skills.autoWorkspaceSkill"))
+
+		expect(workspaceButton).toBeDisabled()
 	})
 
 	it("renders a single add skill button", () => {

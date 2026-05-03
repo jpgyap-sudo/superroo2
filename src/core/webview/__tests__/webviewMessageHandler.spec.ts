@@ -20,6 +20,11 @@ vi.mock("../../../services/command/commands", () => ({
 	getCommands: vi.fn(),
 }))
 
+vi.mock("../../../integrations/misc/process-images", () => ({
+	selectImages: vi.fn().mockResolvedValue(["data:image/png;base64,selected"]),
+	getImagesFromClipboard: vi.fn().mockResolvedValue(["data:image/png;base64,clipboard"]),
+}))
+
 vi.mock("@anthropic-ai/vertex-sdk", () => ({
 	AnthropicVertex: vi.fn(),
 }))
@@ -43,11 +48,13 @@ import { webviewMessageHandler } from "../webviewMessageHandler"
 import type { ClineProvider } from "../ClineProvider"
 import { getModels } from "../../../api/providers/fetchers/modelCache"
 import { getCommands } from "../../../services/command/commands"
+import { getImagesFromClipboard } from "../../../integrations/misc/process-images"
 const { openAiCodexOAuthManager } = await import("../../../integrations/openai-codex/oauth")
 const { fetchOpenAiCodexRateLimitInfo } = await import("../../../integrations/openai-codex/rate-limits")
 
 const mockGetModels = getModels as Mock<typeof getModels>
 const mockGetCommands = vi.mocked(getCommands)
+const mockGetImagesFromClipboard = vi.mocked(getImagesFromClipboard)
 const mockGetAccessToken = vi.mocked(openAiCodexOAuthManager.getAccessToken)
 const mockGetAccountId = vi.mocked(openAiCodexOAuthManager.getAccountId)
 const mockFetchOpenAiCodexRateLimitInfo = vi.mocked(fetchOpenAiCodexRateLimitInfo)
@@ -233,6 +240,29 @@ describe("webviewMessageHandler - image mentions", () => {
 		expect(mockHandleWebviewAskResponse).toHaveBeenCalledWith("messageResponse", "See @/img.png", [
 			"data:image/png;base64,from-mention",
 		])
+	})
+})
+
+describe("webviewMessageHandler - clipboard images", () => {
+	beforeEach(() => {
+		vi.clearAllMocks()
+		mockGetImagesFromClipboard.mockResolvedValue(["data:image/png;base64,clipboard"])
+	})
+
+	it("should return selectedImages for clipboard image payloads", async () => {
+		await webviewMessageHandler(mockClineProvider, {
+			type: "pasteImageFromClipboard",
+			context: "edit",
+			messageTs: 123,
+		})
+
+		expect(mockGetImagesFromClipboard).toHaveBeenCalled()
+		expect(mockClineProvider.postMessageToWebview).toHaveBeenCalledWith({
+			type: "selectedImages",
+			images: ["data:image/png;base64,clipboard"],
+			context: "edit",
+			messageTs: 123,
+		})
 	})
 })
 

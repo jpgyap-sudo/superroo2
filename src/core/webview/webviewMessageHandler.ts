@@ -35,6 +35,7 @@ import { generateErrorDiagnostics } from "./diagnosticsHandler"
 import {
 	handleRequestSkills,
 	handleCreateSkill,
+	handleAutoGenerateSkill,
 	handleDeleteSkill,
 	handleMoveSkill,
 	handleUpdateSkillModes,
@@ -51,7 +52,7 @@ import { experimentDefault } from "../../shared/experiments"
 import { Terminal } from "../../integrations/terminal/Terminal"
 import { openFile } from "../../integrations/misc/open-file"
 import { openImage, saveImage } from "../../integrations/misc/image-handler"
-import { selectImages } from "../../integrations/misc/process-images"
+import { getImagesFromClipboard, selectImages } from "../../integrations/misc/process-images"
 import { selectFiles } from "../../integrations/misc/process-files"
 import { getTheme } from "../../integrations/theme/getTheme"
 import { searchWorkspaceFiles } from "../../services/search/file-search"
@@ -776,6 +777,29 @@ export const webviewMessageHandler = async (
 				messageTs: message.messageTs,
 			})
 			break
+		case "pasteImageFromClipboard":
+			try {
+				const images = await getImagesFromClipboard()
+				await provider.postMessageToWebview({
+					type: "selectedImages",
+					images,
+					context: message.context,
+					messageTs: message.messageTs,
+				})
+			} catch (error) {
+				provider.log(
+					`[webviewMessageHandler] Failed to read image from clipboard: ${
+						error instanceof Error ? error.message : String(error)
+					}`,
+				)
+				await provider.postMessageToWebview({
+					type: "selectedImages",
+					images: [],
+					context: message.context,
+					messageTs: message.messageTs,
+				})
+			}
+			break
 		case "selectFiles":
 			const files = await selectFiles()
 			await provider.postMessageToWebview({
@@ -784,6 +808,12 @@ export const webviewMessageHandler = async (
 				context: message.context,
 				messageTs: message.messageTs,
 			})
+			break
+		case "runAutonomousSafe":
+			await vscode.commands.executeCommand("superroo.autonomousSafe")
+			break
+		case "runManualMode":
+			await vscode.commands.executeCommand("superroo.manualMode")
 			break
 		case "exportCurrentTask":
 			const currentTaskId = provider.getCurrentTask()?.taskId
@@ -892,6 +922,32 @@ export const webviewMessageHandler = async (
 		case "exportTaskWithId":
 			provider.exportTaskWithId(message.text!)
 			break
+		case "exportWorkRecord":
+			provider.exportWorkRecordWithId(message.text!)
+			break
+		case "getCodeChanges": {
+			const taskId = message.text
+			if (taskId) {
+				const changes = await provider.getCodeChangesForTask(taskId)
+				await provider.postMessageToWebview({ type: "codeChanges", text: taskId, changes })
+			}
+			break
+		}
+		case "revertCodeChange": {
+			try {
+				const payload = JSON.parse(message.text ?? "{}") as { taskId: string; changeId: string }
+				if (payload?.taskId && payload?.changeId) {
+					const change = await provider.revertCodeChange(payload.taskId, payload.changeId)
+					await provider.postMessageToWebview({
+						type: "codeChangeReverted",
+						change,
+					})
+				}
+			} catch {
+				// ignore malformed payload
+			}
+			break
+		}
 		case "getTaskWithAggregatedCosts": {
 			try {
 				const taskId = message.text
@@ -3050,6 +3106,10 @@ export const webviewMessageHandler = async (
 		}
 		case "createSkill": {
 			await handleCreateSkill(provider, message)
+			break
+		}
+		case "autoGenerateSkill": {
+			await handleAutoGenerateSkill(provider, message)
 			break
 		}
 		case "deleteSkill": {

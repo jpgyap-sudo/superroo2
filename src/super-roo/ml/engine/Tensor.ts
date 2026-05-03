@@ -110,7 +110,7 @@ export class Tensor {
 			for (let i = 0; i < this.data.length; i++) out.data[i] = this.data[i] + other.data[i]
 			return out
 		}
-		// Broadcast row vector
+		// Broadcast row vector (other is [1,cols])
 		if (other.rows === 1 && other.cols === this.cols) {
 			const out = new Tensor(this.rows, this.cols, "zeros")
 			for (let i = 0; i < this.rows; i++) {
@@ -120,8 +120,21 @@ export class Tensor {
 			}
 			return out
 		}
+		// Broadcast row vector (this is [1,cols])
+		if (this.rows === 1 && this.cols === other.cols) {
+			const out = new Tensor(other.rows, other.cols, "zeros")
+			for (let i = 0; i < other.rows; i++) {
+				for (let j = 0; j < this.cols; j++) {
+					out.set(i, j, this.get(0, j) + other.get(i, j))
+				}
+			}
+			return out
+		}
 		if (other.rows === 1 && other.cols === 1) {
 			return this.add(other.get(0, 0))
+		}
+		if (this.rows === 1 && this.cols === 1) {
+			return other.add(this.get(0, 0))
 		}
 		throw new Error(
 			`Tensor shape mismatch in 'add': Cannot add tensors with shapes [${this.rows},${this.cols}] and [${other.rows},${other.cols}]. ` +
@@ -149,8 +162,26 @@ export class Tensor {
 			}
 			return out
 		}
+		if (this.rows === 1 && this.cols === other.cols) {
+			const out = new Tensor(other.rows, other.cols, "zeros")
+			for (let i = 0; i < other.rows; i++) {
+				for (let j = 0; j < this.cols; j++) {
+					out.set(i, j, this.get(0, j) - other.get(i, j))
+				}
+			}
+			return out
+		}
 		if (other.rows === 1 && other.cols === 1) {
 			return this.sub(other.get(0, 0))
+		}
+		if (this.rows === 1 && this.cols === 1) {
+			const out = new Tensor(other.rows, other.cols, "zeros")
+			for (let i = 0; i < other.rows; i++) {
+				for (let j = 0; j < other.cols; j++) {
+					out.set(i, j, this.get(0, 0) - other.get(i, j))
+				}
+			}
+			return out
 		}
 		throw new Error(
 			`Tensor shape mismatch in 'sub': Cannot subtract tensors with shapes [${this.rows},${this.cols}] and [${other.rows},${other.cols}]. ` +
@@ -178,8 +209,20 @@ export class Tensor {
 			}
 			return out
 		}
+		if (this.rows === 1 && this.cols === other.cols) {
+			const out = new Tensor(other.rows, other.cols, "zeros")
+			for (let i = 0; i < other.rows; i++) {
+				for (let j = 0; j < this.cols; j++) {
+					out.set(i, j, this.get(0, j) * other.get(i, j))
+				}
+			}
+			return out
+		}
 		if (other.rows === 1 && other.cols === 1) {
 			return this.mul(other.get(0, 0))
+		}
+		if (this.rows === 1 && this.cols === 1) {
+			return other.mul(this.get(0, 0))
 		}
 		throw new Error(
 			`Tensor shape mismatch in 'mul': Cannot multiply tensors with shapes [${this.rows},${this.cols}] and [${other.rows},${other.cols}]. ` +
@@ -213,8 +256,30 @@ export class Tensor {
 			}
 			return out
 		}
+		if (this.rows === 1 && this.cols === other.cols) {
+			const out = new Tensor(other.rows, other.cols, "zeros")
+			for (let i = 0; i < other.rows; i++) {
+				for (let j = 0; j < this.cols; j++) {
+					const divisor = other.get(i, j)
+					if (divisor === 0) throw new Error(`Tensor.div: division by zero at [${i},${j}]`)
+					out.set(i, j, this.get(0, j) / divisor)
+				}
+			}
+			return out
+		}
 		if (other.rows === 1 && other.cols === 1) {
 			return this.div(other.get(0, 0))
+		}
+		if (this.rows === 1 && this.cols === 1) {
+			const out = new Tensor(other.rows, other.cols, "zeros")
+			for (let i = 0; i < other.rows; i++) {
+				for (let j = 0; j < other.cols; j++) {
+					const divisor = other.get(i, j)
+					if (divisor === 0) throw new Error(`Tensor.div: division by zero at [${i},${j}]`)
+					out.set(i, j, this.get(0, 0) / divisor)
+				}
+			}
+			return out
 		}
 		throw new Error(
 			`Tensor shape mismatch in 'div': Cannot divide tensors with shapes [${this.rows},${this.cols}] and [${other.rows},${other.cols}]. ` +

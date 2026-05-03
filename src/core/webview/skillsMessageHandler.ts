@@ -70,6 +70,47 @@ export async function handleCreateSkill(
 }
 
 /**
+ * Handles the autoGenerateSkill message - creates a reviewable generated skill.
+ */
+export async function handleAutoGenerateSkill(
+	provider: ClineProvider,
+	message: WebviewMessage,
+): Promise<SkillMetadata[] | undefined> {
+	try {
+		const source = message.source as SkillSource
+		const modeSlugs = message.skillModeSlugs ?? (message.skillMode ? [message.skillMode] : undefined)
+
+		if (!source) {
+			throw new Error(t("skills:errors.missing_delete_fields"))
+		}
+
+		const skillsManager = provider.getSkillsManager()
+		if (!skillsManager) {
+			throw new Error(t("skills:errors.manager_unavailable"))
+		}
+
+		const generated = await skillsManager.autoGenerateSkill({
+			source,
+			goal: message.skillDescription ?? message.text,
+			modeSlugs,
+			nameHint: message.skillName,
+		})
+
+		openFile(generated.path)
+
+		const skills = skillsManager.getSkillsMetadata()
+		await provider.postMessageToWebview({ type: "skills", skills })
+		vscode.window.showInformationMessage(`Generated ${generated.source} skill: ${generated.name}`)
+		return skills
+	} catch (error) {
+		const errorMessage = error instanceof Error ? error.message : String(error)
+		provider.log(`Error auto-generating skill: ${errorMessage}`)
+		vscode.window.showErrorMessage(`Failed to auto-generate skill: ${errorMessage}`)
+		return undefined
+	}
+}
+
+/**
  * Handles the deleteSkill message - deletes a skill
  */
 export async function handleDeleteSkill(

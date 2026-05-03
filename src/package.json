@@ -186,6 +186,11 @@
 				"category": "%configuration.title%"
 			},
 			{
+				"command": "superroo.manualMode",
+				"title": "SuperRoo: Run Manual Mode",
+				"category": "%configuration.title%"
+			},
+			{
 				"command": "superroo.checkVps",
 				"title": "SuperRoo: Check VPS Deployment",
 				"category": "%configuration.title%"

@@ -22,6 +22,13 @@ export function registerSuperRooCommands(context: vscode.ExtensionContext) {
 	)
 
 	context.subscriptions.push(
+		vscode.commands.registerCommand("superroo.manualMode", async () => {
+			await orchestrator.runManual()
+			vscode.window.showInformationMessage("SuperRoo manual mode completed.")
+		}),
+	)
+
+	context.subscriptions.push(
 		vscode.commands.registerCommand("superroo.checkVps", async () => {
 			const url = await vscode.window.showInputBox({
 				prompt: "Enter deployed app URL to check",

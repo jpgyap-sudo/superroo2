@@ -934,6 +934,7 @@ describe("ChatView - Message Queueing Tests", () => {
 				type: "queueMessage",
 				text: "follow-up question during spinner",
 				images: [],
+				files: [],
 			})
 		})
 
@@ -1005,6 +1006,7 @@ describe("ChatView - Message Queueing Tests", () => {
 				askResponse: "messageResponse",
 				text: "follow-up after completion",
 				images: [],
+				files: [],
 			})
 		})
 
@@ -1064,6 +1066,7 @@ describe("ChatView - Message Queueing Tests", () => {
 				type: "queueMessage",
 				text: "message during queue drain",
 				images: [],
+				files: [],
 			})
 		})
 
@@ -1127,6 +1130,7 @@ describe("ChatView - Message Queueing Tests", () => {
 				type: "queueMessage",
 				text: "message during command execution",
 				images: [],
+				files: [],
 			})
 		})
 

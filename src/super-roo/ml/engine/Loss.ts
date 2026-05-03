@@ -22,12 +22,13 @@ export class CrossEntropyLoss implements LossFn {
 		}
 		let totalLoss = 0
 		const grad = new Tensor(pred.rows, pred.cols, "zeros")
+		const rowNorm = 1 / pred.rows
 		for (let i = 0; i < pred.rows; i++) {
 			for (let j = 0; j < pred.cols; j++) {
 				const p = Math.max(pred.get(i, j), 1e-8)
 				const t = target.get(i, j)
 				totalLoss -= t * Math.log(p)
-				grad.set(i, j, t === 0 ? 0 : -t / p / pred.rows)
+				grad.set(i, j, t === 0 ? 0 : (-t / p) * rowNorm)
 			}
 		}
 		return { loss: totalLoss / pred.rows, grad }
@@ -73,7 +74,7 @@ export class BCELoss implements LossFn {
 			for (let j = 0; j < pred.cols; j++) {
 				const p = Math.min(Math.max(pred.get(i, j), 1e-8), 1 - 1e-8)
 				const t = target.get(i, j)
-				totalLoss -= (t * Math.log(p) + (1 - t) * Math.log(1 - p))
+				totalLoss -= t * Math.log(p) + (1 - t) * Math.log(1 - p)
 				grad.set(i, j, (p - t) / n)
 			}
 		}

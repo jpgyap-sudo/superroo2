@@ -103,11 +103,11 @@ export class SuperRooOrchestrator {
 	// Lifecycle
 	// ──────────────────────────────────────────────────────────────────────
 
-	start(): void {
+	async start(): Promise<void> {
 		if (this.running) return
 		this.running = true
 		const recovered = this.queue.recoverOrphanedRunningTasks()
-		this.mlLoop.start()
+		await this.mlLoop.start()
 		this.healingLoop.start()
 		this.crawler?.start()
 		this.events.info("orchestrator.started", "Super Roo orchestrator started", {
@@ -164,9 +164,13 @@ export class SuperRooOrchestrator {
 
 	enableSelfImprove(): void {
 		this.safety.setSelfImprove(true)
-		this.events.warn("safety.mode_changed", "Self-improve mode ENABLED. Super Roo can now modify its own codebase.", {
-			data: { selfImprove: true },
-		})
+		this.events.warn(
+			"safety.mode_changed",
+			"Self-improve mode ENABLED. Super Roo can now modify its own codebase.",
+			{
+				data: { selfImprove: true },
+			},
+		)
 	}
 
 	disableSelfImprove(): void {
@@ -234,14 +238,20 @@ export class SuperRooOrchestrator {
 			const boundary = this.safety.checkSelfImproveBoundary(workspaceOverride, SuperRooOrchestrator.getSelfRoot())
 			if (!boundary.allowed) {
 				this.queue.markFinished(task.id, "blocked", { error: boundary.reason })
-				this.events.warn("safety.blocked", `Task blocked by self-improve guard: ${boundary.reason}`, { taskId: task.id })
+				this.events.warn("safety.blocked", `Task blocked by self-improve guard: ${boundary.reason}`, {
+					taskId: task.id,
+				})
 				return { kind: "blocked", task, reason: boundary.reason }
 			}
 		}
 
 		this.currentAbort = new AbortController()
 		const codedBy = task.codedBy ?? this.config.codedBy
-		this.events.info("agent.invoked", `Invoking agent: ${agent.name}`, { taskId: task.id, agent: agent.name, codedBy })
+		this.events.info("agent.invoked", `Invoking agent: ${agent.name}`, {
+			taskId: task.id,
+			agent: agent.name,
+			codedBy,
+		})
 		try {
 			const result = await agent.run({
 				task,
@@ -270,7 +280,10 @@ export class SuperRooOrchestrator {
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err)
 			this.queue.markFinished(task.id, "failed", { error: msg })
-			this.events.error("task.failed", `Agent ${agent.name} threw: ${msg}`, { taskId: task.id, agent: agent.name })
+			this.events.error("task.failed", `Agent ${agent.name} threw: ${msg}`, {
+				taskId: task.id,
+				agent: agent.name,
+			})
 			return { kind: "ran", task, result: { ok: false, summary: "agent threw", error: msg } }
 		} finally {
 			this.currentAbort = null

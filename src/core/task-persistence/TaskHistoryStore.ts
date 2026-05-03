@@ -50,6 +50,7 @@ export class TaskHistoryStore {
 	private fsWatcher: fsSync.FSWatcher | null = null
 	private reconcileTimer: ReturnType<typeof setTimeout> | null = null
 	private disposed = false
+	private inFlightReconcile: Promise<void> | null = null
 
 	/**
 	 * Promise that resolves when initialization is complete.
@@ -487,9 +488,17 @@ export class TaskHistoryStore {
 							clearTimeout(watchDebounce)
 						}
 						watchDebounce = setTimeout(() => {
-							this.reconcile().catch((err) => {
-								console.error("[TaskHistoryStore] Reconciliation after fs.watch failed:", err)
-							})
+							if (this.inFlightReconcile) {
+								this.inFlightReconcile = this.inFlightReconcile
+									.then(() => this.reconcile())
+									.catch((err) => {
+										console.error("[TaskHistoryStore] Reconciliation after fs.watch failed:", err)
+									})
+							} else {
+								this.inFlightReconcile = this.reconcile().catch((err) => {
+									console.error("[TaskHistoryStore] Reconciliation after fs.watch failed:", err)
+								})
+							}
 						}, 500)
 					})
 

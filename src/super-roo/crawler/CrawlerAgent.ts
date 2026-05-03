@@ -164,29 +164,28 @@ export class CrawlerAgent {
 
 	private async fetchSource(source: CrawlSource): Promise<RawDocument[]> {
 		const now = Date.now()
-		try {
-			const res = await this.fetch(source.url, { headers: source.headers })
-			const text = await res.text()
-
-			if (source.filter && !source.filter(text)) return []
-
-			if (source.type === "rss") {
-				return this.parseRss(text, source.id, now)
-			}
-
-			// For HTML or API, treat the whole response as one document
-			return [
-				{
-					sourceId: source.id,
-					url: source.url,
-					title: source.name,
-					content: text,
-					fetchedAt: now,
-				},
-			]
-		} catch {
-			return []
+		const res = await this.fetch(source.url, { headers: source.headers })
+		if (!res.ok) {
+			throw new Error(`Failed to fetch ${source.url}: ${res.status} ${res.statusText}`)
 		}
+		const text = await res.text()
+
+		if (source.filter && !source.filter(text)) return []
+
+		if (source.type === "rss") {
+			return this.parseRss(text, source.id, now)
+		}
+
+		// For HTML or API, treat the whole response as one document
+		return [
+			{
+				sourceId: source.id,
+				url: source.url,
+				title: source.name,
+				content: text,
+				fetchedAt: now,
+			},
+		]
 	}
 
 	private parseRss(xml: string, sourceId: string, now: number): RawDocument[] {

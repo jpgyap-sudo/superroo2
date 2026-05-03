@@ -20,6 +20,14 @@ export class SuperRooOrchestrator {
 		this.runtime.log("Autonomous safe-mode finished. No production deploy performed in Phase 3 skeleton.")
 	}
 
+	async runManual(options: SuperRooCommandOptions = {}) {
+		this.runtime.log("Starting Phase 3 manual mode...")
+		await this.runAgent("product-manager", "manual", options)
+		await this.runAgent("debugger", "manual", options)
+		await this.runAgent("tester", "manual", options)
+		this.runtime.log("Manual mode finished. No production deploy performed in Phase 3 skeleton.")
+	}
+
 	async checkVps(options: SuperRooCommandOptions = {}) {
 		await this.runAgent("deploy-checker", "check-vps", options)
 	}

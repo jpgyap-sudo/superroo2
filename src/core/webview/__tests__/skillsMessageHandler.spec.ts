@@ -6,10 +6,12 @@ import type { ClineProvider } from "../ClineProvider"
 // Mock vscode first
 vi.mock("vscode", () => {
 	const showErrorMessage = vi.fn()
+	const showInformationMessage = vi.fn()
 
 	return {
 		window: {
 			showErrorMessage,
+			showInformationMessage,
 		},
 	}
 })
@@ -38,6 +40,7 @@ import { openFile } from "../../../integrations/misc/open-file"
 import {
 	handleRequestSkills,
 	handleCreateSkill,
+	handleAutoGenerateSkill,
 	handleDeleteSkill,
 	handleMoveSkill,
 	handleOpenSkillFile,
@@ -48,6 +51,7 @@ describe("skillsMessageHandler", () => {
 	const mockPostMessageToWebview = vi.fn()
 	const mockGetSkillsMetadata = vi.fn()
 	const mockCreateSkill = vi.fn()
+	const mockAutoGenerateSkill = vi.fn()
 	const mockDeleteSkill = vi.fn()
 	const mockMoveSkill = vi.fn()
 	const mockGetSkill = vi.fn()
@@ -58,6 +62,7 @@ describe("skillsMessageHandler", () => {
 			? {
 					getSkillsMetadata: mockGetSkillsMetadata,
 					createSkill: mockCreateSkill,
+					autoGenerateSkill: mockAutoGenerateSkill,
 					deleteSkill: mockDeleteSkill,
 					moveSkill: mockMoveSkill,
 					getSkill: mockGetSkill,
@@ -194,6 +199,55 @@ describe("skillsMessageHandler", () => {
 			expect(mockLog).toHaveBeenCalledWith("Error creating skill: Skills manager not available")
 			expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
 				"Failed to create skill: Skills manager not available",
+			)
+		})
+	})
+
+	describe("handleAutoGenerateSkill", () => {
+		it("auto-generates a project skill successfully", async () => {
+			const provider = createMockProvider(true)
+			mockAutoGenerateSkill.mockResolvedValue({
+				path: "/project/.roo/skills/project-coding-skill/SKILL.md",
+				name: "project-coding-skill",
+				description: "Generated skill",
+				source: "project",
+			})
+			mockGetSkillsMetadata.mockReturnValue(mockSkills)
+
+			const result = await handleAutoGenerateSkill(provider, {
+				type: "autoGenerateSkill",
+				source: "project",
+				skillDescription: "Learn this coding project",
+				skillModeSlugs: ["code"],
+			} as WebviewMessage)
+
+			expect(result).toEqual(mockSkills)
+			expect(mockAutoGenerateSkill).toHaveBeenCalledWith({
+				source: "project",
+				goal: "Learn this coding project",
+				modeSlugs: ["code"],
+				nameHint: undefined,
+			})
+			expect(openFile).toHaveBeenCalledWith("/project/.roo/skills/project-coding-skill/SKILL.md")
+			expect(mockPostMessageToWebview).toHaveBeenCalledWith({ type: "skills", skills: mockSkills })
+			expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
+				"Generated project skill: project-coding-skill",
+			)
+		})
+
+		it("returns undefined when source is missing", async () => {
+			const provider = createMockProvider(true)
+
+			const result = await handleAutoGenerateSkill(provider, {
+				type: "autoGenerateSkill",
+			} as WebviewMessage)
+
+			expect(result).toBeUndefined()
+			expect(mockLog).toHaveBeenCalledWith(
+				"Error auto-generating skill: Missing required fields: skillName or source",
+			)
+			expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
+				"Failed to auto-generate skill: Missing required fields: skillName or source",
 			)
 		})
 	})
