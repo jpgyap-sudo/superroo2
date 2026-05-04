@@ -582,6 +582,10 @@ const server = http.createServer(async (req, res) => {
 	const url = req.url || ""
 	const method = req.method || "GET"
 
+	// Normalize URL: Next.js rewrites /api/:path* -> /:path* (strips /api prefix)
+	// So we strip /api here so all routes can check paths without /api prefix
+	const normalizedUrl = url.startsWith("/api") ? url.slice(4) || "/" : url
+
 	try {
 		// Health
 		if (method === "GET" && url === "/health") {
@@ -817,8 +821,8 @@ const server = http.createServer(async (req, res) => {
 
 		// ── Settings API Routes ──────────────────────────────────────────────────
 
-		// GET /api/settings/providers — list providers with key status
-		if (method === "GET" && url === "/api/settings/providers") {
+		// GET /settings/providers — list providers with key status
+		if (method === "GET" && normalizedUrl === "/settings/providers") {
 			const entries = PROVIDERS.map((p) => {
 				const meta = providerMeta.get(p.id) || {
 					hasKey: false,
@@ -842,9 +846,9 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
-		// POST /api/settings/providers/:id/key — save a provider API key
-		if (method === "POST" && url.match(/^\/api\/settings\/providers\/[^/]+\/key$/)) {
-			const providerId = url.split("/")[4]
+		// POST /settings/providers/:id/key — save a provider API key
+		if (method === "POST" && normalizedUrl.match(/^\/settings\/providers\/[^/]+\/key$/)) {
+			const providerId = normalizedUrl.split("/")[3]
 			const data = await parseBody(req)
 			if (!data.apiKey) {
 				sendJson(res, 400, { success: false, error: "apiKey is required" })
@@ -863,9 +867,9 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
-		// POST /api/settings/providers/:id/test — test a provider connection
-		if (method === "POST" && url.match(/^\/api\/settings\/providers\/[^/]+\/test$/)) {
-			const providerId = url.split("/")[4]
+		// POST /settings/providers/:id/test — test a provider connection
+		if (method === "POST" && normalizedUrl.match(/^\/settings\/providers\/[^/]+\/test$/)) {
+			const providerId = normalizedUrl.split("/")[3]
 			const encrypted = encryptedSecrets.get(providerId)
 			if (!encrypted) {
 				sendJson(res, 400, { success: false, error: `No API key saved for provider: ${providerId}` })
@@ -888,9 +892,9 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
-		// DELETE /api/settings/providers/:id/key — remove a provider key
-		if (method === "DELETE" && url.match(/^\/api\/settings\/providers\/[^/]+\/key$/)) {
-			const providerId = url.split("/")[4]
+		// DELETE /settings/providers/:id/key — remove a provider key
+		if (method === "DELETE" && normalizedUrl.match(/^\/settings\/providers\/[^/]+\/key$/)) {
+			const providerId = normalizedUrl.split("/")[3]
 			encryptedSecrets.delete(providerId)
 			providerMeta.set(providerId, {
 				hasKey: false,
@@ -903,15 +907,15 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
-		// GET /api/settings/routes — get agent routing configuration
-		if (method === "GET" && url === "/api/settings/routes") {
+		// GET /settings/routes — get agent routing configuration
+		if (method === "GET" && normalizedUrl === "/settings/routes") {
 			const settings = await loadSettings()
 			sendJson(res, 200, { success: true, routes: settings.routing.routes })
 			return
 		}
 
-		// PUT /api/settings/routes — update agent routing configuration
-		if (method === "PUT" && url === "/api/settings/routes") {
+		// PUT /settings/routes — update agent routing configuration
+		if (method === "PUT" && normalizedUrl === "/settings/routes") {
 			const data = await parseBody(req)
 			if (!Array.isArray(data.routes)) {
 				sendJson(res, 400, { success: false, error: "routes must be an array" })
@@ -924,8 +928,8 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
-		// POST /api/settings/approval/evaluate — evaluate an approval request
-		if (method === "POST" && url === "/api/settings/approval/evaluate") {
+		// POST /settings/approval/evaluate — evaluate an approval request
+		if (method === "POST" && normalizedUrl === "/settings/approval/evaluate") {
 			const data = await parseBody(req)
 			if (!data.action) {
 				sendJson(res, 400, { success: false, error: "action is required" })
@@ -940,15 +944,15 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
-		// GET /api/settings — get full settings
-		if (method === "GET" && url === "/api/settings") {
+		// GET /settings — get full settings
+		if (method === "GET" && normalizedUrl === "/settings") {
 			const settings = await loadSettings()
 			sendJson(res, 200, { success: true, settings })
 			return
 		}
 
-		// PUT /api/settings — update full settings
-		if (method === "PUT" && url === "/api/settings") {
+		// PUT /settings — update full settings
+		if (method === "PUT" && normalizedUrl === "/settings") {
 			const data = await parseBody(req)
 			if (!data.settings) {
 				sendJson(res, 400, { success: false, error: "settings object is required" })
@@ -959,8 +963,8 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
-		// GET /api/settings/approval/dangerous-patterns — get built-in dangerous patterns
-		if (method === "GET" && url === "/api/settings/approval/dangerous-patterns") {
+		// GET /settings/approval/dangerous-patterns — get built-in dangerous patterns
+		if (method === "GET" && normalizedUrl === "/settings/approval/dangerous-patterns") {
 			const patterns = DANGEROUS_PATTERNS.map((dp) => ({
 				pattern: dp.pattern.source,
 				risk: dp.risk,
