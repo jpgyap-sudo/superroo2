@@ -7,6 +7,7 @@ import { Overview } from "@/components/views/overview"
 import { JobsView } from "@/components/views/jobs"
 import { QueueView } from "@/components/views/queue"
 import { AgentsView } from "@/components/views/agents"
+import { AiAssistantView } from "@/components/views/ai-assistant"
 import { SkillGeneratorView } from "@/components/views/skill-generator"
 import { LogsView } from "@/components/views/logs"
 import { DockerView } from "@/components/views/docker"
@@ -19,6 +20,7 @@ const PAGES: Record<string, React.FC> = {
 	"skill-generator": SkillGeneratorView,
 	logs: LogsView,
 	docker: DockerView,
+	ai: AiAssistantView,
 }
 
 function StatusDot({ online }: { online: boolean }) {
@@ -69,6 +71,7 @@ export default function Dashboard() {
 			"skill-generator": "Skill Generator",
 			logs: "Logs",
 			docker: "Docker Sandbox",
+			ai: "AI Assistant",
 		}[page] || page
 
 	return (
