@@ -63,19 +63,27 @@ async function getAgent(agentId) {
 }
 
 /**
- * Toggle an agent's enabled/disabled state.
- * Returns the new state after toggling.
+ * Set an agent's enabled/disabled state.
+ * Returns the persisted state.
  */
-async function toggleAgent(agentId) {
+async function setAgentEnabled(agentId, enabled) {
 	const agents = await listAgents()
 	const agent = agents.find((a) => a.id === agentId)
 	if (!agent) throw new Error(`Agent not found: ${agentId}`)
 
 	const state = await readAgentState()
-	const current = state[agentId] !== undefined ? state[agentId] : agent.enabled
-	state[agentId] = !current
+	state[agentId] = Boolean(enabled)
 	await writeAgentState(state)
 	return state[agentId]
+}
+
+/**
+ * Toggle an agent's enabled/disabled state.
+ * Returns the new state after toggling.
+ */
+async function toggleAgent(agentId) {
+	const agent = await getAgent(agentId)
+	return setAgentEnabled(agentId, !agent.enabled)
 }
 
 async function loadAgentTextBundle(agent) {
@@ -93,4 +101,4 @@ async function loadAgentTextBundle(agent) {
 	return parts.join("\n")
 }
 
-module.exports = { listAgents, getAgent, toggleAgent, loadAgentTextBundle }
+module.exports = { listAgents, getAgent, setAgentEnabled, toggleAgent, loadAgentTextBundle }

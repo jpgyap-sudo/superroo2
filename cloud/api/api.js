@@ -16,16 +16,20 @@ const path = require("path")
 
 const execAsync = promisify(exec)
 
-let listAgents, getAgent, toggleAgent
+let listAgents, getAgent, setAgentEnabled, toggleAgent
 try {
 	const agentRegistry = require("../agent-runtime/agentRegistry")
 	listAgents = agentRegistry.listAgents
 	getAgent = agentRegistry.getAgent
+	setAgentEnabled = agentRegistry.setAgentEnabled
 	toggleAgent = agentRegistry.toggleAgent
 } catch (e) {
 	console.warn("[api] agentRegistry not found, using fallback")
 	listAgents = async () => []
 	getAgent = async () => null
+	setAgentEnabled = async () => {
+		throw new Error("agentRegistry not available")
+	}
 	toggleAgent = async () => {
 		throw new Error("agentRegistry not available")
 	}
@@ -334,10 +338,34 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// Set agent enabled/disabled state idempotently.
+		if (method === "POST" && url.startsWith("/agents/") && url.endsWith("/enabled")) {
+			const id = url.replace("/agents/", "").replace("/enabled", "").replace(/\/$/, "")
+			try {
+				const data = await parseBody(req)
+				if (typeof data.enabled !== "boolean") {
+					sendJson(res, 400, { success: false, error: "enabled must be a boolean" })
+					return
+				}
+
+				const enabled = await setAgentEnabled(id, data.enabled)
+				sendJson(res, 200, { success: true, agentId: id, enabled })
+			} catch (e) {
+				sendJson(res, 404, { success: false, error: e.message || "Agent not found" })
+			}
+			return
+		}
+
 		// Run agent
 		if (method === "POST" && url.startsWith("/agents/") && url.endsWith("/run")) {
 			const id = url.replace("/agents/", "").replace("/run", "").replace(/\/$/, "")
 			const data = await parseBody(req)
+			const agent = await getAgent(id)
+			if (!agent.enabled) {
+				sendJson(res, 409, { success: false, error: `Agent disabled: ${id}` })
+				return
+			}
+
 			const job = await queue.add(data.task || `${id}-run`, {
 				task: data.task || `${id}-run`,
 				agentId: id,

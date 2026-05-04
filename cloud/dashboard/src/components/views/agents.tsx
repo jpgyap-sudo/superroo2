@@ -44,6 +44,7 @@ export function AgentsView() {
 	const [selectedId, setSelectedId] = useState<string | null>(null)
 	const [detail, setDetail] = useState<AgentConfig | null>(null)
 	const [tab, setTab] = useState<string>("profile")
+	const [pendingAgentIds, setPendingAgentIds] = useState<Set<string>>(() => new Set())
 
 	useEffect(() => {
 		fetch("/api/agents")
@@ -79,18 +80,39 @@ export function AgentsView() {
 	}, [selectedId])
 
 	const toggle = async (id: string) => {
-		// Optimistic local update
-		setAgents((prev) => prev.map((a) => (a.id === id ? { ...a, enabled: !a.enabled } : a)))
+		const agent = agents.find((a) => a.id === id)
+		if (!agent || pendingAgentIds.has(id)) return
+
+		const previousEnabled = agent.enabled
+		const nextEnabled = !previousEnabled
+
+		setPendingAgentIds((prev) => new Set(prev).add(id))
+		setAgents((prev) => prev.map((a) => (a.id === id ? { ...a, enabled: nextEnabled } : a)))
+		setDetail((prev) => (prev?.id === id ? { ...prev, enabled: nextEnabled } : prev))
+
 		try {
-			const r = await fetch(`/api/agents/${id}/toggle`, { method: "POST" })
+			const r = await fetch(`/api/agents/${id}/enabled`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ enabled: nextEnabled }),
+			})
 			const d = await r.json()
-			if (!d.success) {
-				// Revert on failure
-				setAgents((prev) => prev.map((a) => (a.id === id ? { ...a, enabled: !a.enabled } : a)))
+			if (d.success && typeof d.enabled === "boolean") {
+				setAgents((prev) => prev.map((a) => (a.id === id ? { ...a, enabled: d.enabled } : a)))
+				setDetail((prev) => (prev?.id === id ? { ...prev, enabled: d.enabled } : prev))
+			} else {
+				setAgents((prev) => prev.map((a) => (a.id === id ? { ...a, enabled: previousEnabled } : a)))
+				setDetail((prev) => (prev?.id === id ? { ...prev, enabled: previousEnabled } : prev))
 			}
 		} catch {
-			// Revert on network error
-			setAgents((prev) => prev.map((a) => (a.id === id ? { ...a, enabled: !a.enabled } : a)))
+			setAgents((prev) => prev.map((a) => (a.id === id ? { ...a, enabled: previousEnabled } : a)))
+			setDetail((prev) => (prev?.id === id ? { ...prev, enabled: previousEnabled } : prev))
+		} finally {
+			setPendingAgentIds((prev) => {
+				const next = new Set(prev)
+				next.delete(id)
+				return next
+			})
 		}
 	}
 
@@ -105,7 +127,11 @@ export function AgentsView() {
 			if (d.success) {
 				alert(`Job enqueued: ${d.jobId}`)
 			} else {
-				alert(`Run failed: ${d.error || ""}`)
+				alert(
+					d.error?.includes("Agent disabled")
+						? "Run failed: resume this agent first."
+						: `Run failed: ${d.error || ""}`,
+				)
 			}
 		} catch (e: any) {
 			alert(`Run failed: ${e.message}`)
@@ -165,7 +191,9 @@ export function AgentsView() {
 							<div className="flex items-center gap-2">
 								<button
 									onClick={() => runAgent(a.id)}
-									className="flex items-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] text-emerald-400 hover:bg-emerald-500/20">
+									disabled={!a.enabled || pendingAgentIds.has(a.id)}
+									title={!a.enabled ? "Resume this agent before running it" : undefined}
+									className="flex items-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] text-emerald-400 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:border-gray-700/40 disabled:bg-gray-700/10 disabled:text-gray-600">
 									<Play className="h-3 w-3" />
 									Run
 								</button>
@@ -177,11 +205,12 @@ export function AgentsView() {
 								</button>
 								<button
 									onClick={() => toggle(a.id)}
+									disabled={pendingAgentIds.has(a.id)}
 									className={`flex items-center gap-1 rounded border px-2.5 py-1 text-[11px] ml-auto ${
 										a.enabled
 											? "border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20"
 											: "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
-									}`}>
+									} disabled:cursor-not-allowed disabled:opacity-60`}>
 									{a.enabled ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
 									{a.enabled ? "Pause" : "Resume"}
 								</button>
