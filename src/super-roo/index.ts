@@ -162,3 +162,29 @@ export type {
 	BugFeatureMapping,
 	AgentNote,
 } from "./product-memory"
+
+// CPU Guard (resource-aware autonomous agent loop protection)
+export {
+	runGuardedAgentLoop,
+	GuardedLoopError,
+	runControlledAutonomousTask,
+	autonomousController,
+	onAutonomousControllerEvent,
+	getCpuUsagePercent,
+	getRamUsagePercent,
+	getResourceSample,
+	waitForCpuBelow,
+	onResourceGuardEvent,
+} from "./cpu-guard"
+export type {
+	AgentStepResult,
+	GuardedLoopOptions,
+	AutonomousMode,
+	ControlledAutonomousOptions,
+	TaskSummary,
+	AutonomousControllerEvent,
+	AutonomousControllerListener,
+	ResourceSample,
+	ResourceGuardEvent,
+	ResourceGuardListener,
+} from "./cpu-guard"
