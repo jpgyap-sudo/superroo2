@@ -4,7 +4,7 @@
 	"category": "development",
 	"description": "Creates branches, commits sandbox-approved fixes, and opens GitHub pull requests for review.",
 	"version": "1.0.0",
-	"enabled": true,
+	"enabled": false,
 	"modelPolicy": { "preferred": "gpt-5.5", "fallbacks": ["claude-sonnet"], "maxTokens": 4000 },
 	"skills": ["skills/pr-discipline.md"],
 	"workflows": ["workflows/create-safe-pr.md"],

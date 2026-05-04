@@ -79,7 +79,19 @@ export function AgentsView() {
 	}, [selectedId])
 
 	const toggle = async (id: string) => {
+		// Optimistic local update
 		setAgents((prev) => prev.map((a) => (a.id === id ? { ...a, enabled: !a.enabled } : a)))
+		try {
+			const r = await fetch(`/api/agents/${id}/toggle`, { method: "POST" })
+			const d = await r.json()
+			if (!d.success) {
+				// Revert on failure
+				setAgents((prev) => prev.map((a) => (a.id === id ? { ...a, enabled: !a.enabled } : a)))
+			}
+		} catch {
+			// Revert on network error
+			setAgents((prev) => prev.map((a) => (a.id === id ? { ...a, enabled: !a.enabled } : a)))
+		}
 	}
 
 	const runAgent = async (id: string) => {

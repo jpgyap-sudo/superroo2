@@ -64,4 +64,7 @@ qdrant_storage/
 # Architect plans
 plans/
 
+# Cloud agent runtime state (tracks enabled/disabled toggles)
+cloud/agent-state.json
+
 roo-cli-*.tar.gz*

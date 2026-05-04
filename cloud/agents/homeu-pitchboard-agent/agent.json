@@ -4,7 +4,7 @@
 	"category": "homeu-sales",
 	"description": "Creates Canva-style luxury pitchboards using exact Shopify product data and image URLs.",
 	"version": "1.0.0",
-	"enabled": true,
+	"enabled": false,
 	"modelPolicy": { "preferred": "gpt-5.5", "fallbacks": ["claude-sonnet"], "maxTokens": 5000 },
 	"skills": ["skills/csv-product-validation.md", "skills/pitchboard-layout.md"],
 	"workflows": ["workflows/csv-to-pitchboard.md"],

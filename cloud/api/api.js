@@ -16,15 +16,19 @@ const path = require("path")
 
 const execAsync = promisify(exec)
 
-let listAgents, getAgent
+let listAgents, getAgent, toggleAgent
 try {
 	const agentRegistry = require("../agent-runtime/agentRegistry")
 	listAgents = agentRegistry.listAgents
 	getAgent = agentRegistry.getAgent
+	toggleAgent = agentRegistry.toggleAgent
 } catch (e) {
 	console.warn("[api] agentRegistry not found, using fallback")
 	listAgents = async () => []
 	getAgent = async () => null
+	toggleAgent = async () => {
+		throw new Error("agentRegistry not available")
+	}
 }
 
 const PORT = process.env.API_PORT || "8787"
@@ -311,10 +315,22 @@ const server = http.createServer(async (req, res) => {
 		}
 
 		// Get agent
-		if (method === "GET" && url.startsWith("/agents/") && !url.includes("/run")) {
+		if (method === "GET" && url.startsWith("/agents/") && !url.includes("/run") && !url.includes("/toggle")) {
 			const id = url.replace("/agents/", "").replace(/\/$/, "")
 			const agent = await getAgent(id)
 			sendJson(res, 200, { success: true, agent })
+			return
+		}
+
+		// Toggle agent enabled/disabled
+		if (method === "POST" && url.startsWith("/agents/") && url.endsWith("/toggle")) {
+			const id = url.replace("/agents/", "").replace("/toggle", "").replace(/\/$/, "")
+			try {
+				const newState = await toggleAgent(id)
+				sendJson(res, 200, { success: true, agentId: id, enabled: newState })
+			} catch (e) {
+				sendJson(res, 404, { success: false, error: e.message || "Agent not found" })
+			}
 			return
 		}
 

@@ -4,7 +4,7 @@
 	"category": "development",
 	"description": "Runs tests, Playwright checks, build checks, and reports regressions.",
 	"version": "1.0.0",
-	"enabled": true,
+	"enabled": false,
 	"modelPolicy": { "preferred": "gpt-5.5", "fallbacks": ["claude-sonnet"], "maxTokens": 4000 },
 	"skills": ["skills/test-planning.md"],
 	"workflows": ["workflows/test-suite-run.md"],

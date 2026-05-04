@@ -4,7 +4,7 @@
 	"category": "homeu-creative",
 	"description": "Creates consistent luxury HomeU render prompts and image-generation instructions using exact product references and HomeU brand rules.",
 	"version": "1.0.0",
-	"enabled": true,
+	"enabled": false,
 	"modelPolicy": {
 		"preferred": "gpt-image-or-vision-model",
 		"fallbacks": ["claude-sonnet", "gpt-5.5"],

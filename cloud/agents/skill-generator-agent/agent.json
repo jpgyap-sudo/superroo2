@@ -4,7 +4,7 @@
 	"category": "meta-agent",
 	"description": "Analyzes failed runs, user corrections, and agent performance to generate new skills, workflows, resources, checklists, and agent upgrades.",
 	"version": "1.0.0",
-	"enabled": true,
+	"enabled": false,
 	"modelPolicy": { "preferred": "gpt-5.5", "fallbacks": ["claude-sonnet", "kimi"], "maxTokens": 6000 },
 	"skills": ["skills/skill-gap-analysis.md", "skills/resource-generation.md", "skills/workflow-improvement.md"],
 	"workflows": ["workflows/failed-job-learning-loop.md", "workflows/weekly-agent-review.md"],
