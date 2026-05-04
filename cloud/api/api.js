@@ -7,6 +7,7 @@
  */
 
 const http = require("http")
+const crypto = require("crypto")
 const { Queue } = require("bullmq")
 const IORedis = require("ioredis")
 const { exec } = require("child_process")
@@ -39,6 +40,7 @@ const PORT = process.env.API_PORT || "8787"
 const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379"
 const QUEUE_NAME = process.env.SUPERROO_QUEUE_NAME || "superroo-jobs"
 const LOGS_DIR = process.env.LOGS_DIR || "/opt/superroo2/cloud/logs"
+const SETTINGS_DIR = process.env.SETTINGS_DIR || "/opt/superroo2/cloud/data/settings"
 
 const connection = new IORedis(REDIS_URL, {
 	maxRetriesPerRequest: null,
@@ -66,6 +68,409 @@ function parseBody(req) {
 function sendJson(res, status, payload) {
 	res.writeHead(status, { "Content-Type": "application/json" })
 	res.end(JSON.stringify(payload))
+}
+
+// ── Settings / Secret Vault helpers ─────────────────────────────────────────────
+
+const ALGO = "aes-256-gcm"
+
+function getVaultKey() {
+	const raw = process.env.SUPERROO_VAULT_KEY
+	if (!raw) {
+		throw new Error(
+			"SUPERROO_VAULT_KEY is missing. Generate a 32-byte base64 key with: node -e \"console.log(require('crypto').randomBytes(32).toString('base64'))\"",
+		)
+	}
+	const key = Buffer.from(raw, "base64")
+	if (key.length !== 32) {
+		throw new Error("SUPERROO_VAULT_KEY must be exactly 32 bytes (44 base64 chars).")
+	}
+	return key
+}
+
+function encryptSecret(plainText) {
+	const key = getVaultKey()
+	const iv = crypto.randomBytes(12)
+	const cipher = crypto.createCipheriv(ALGO, key, iv)
+	const encrypted = Buffer.concat([cipher.update(plainText, "utf8"), cipher.final()])
+	const tag = cipher.getAuthTag()
+	return `${iv.toString("base64")}.${tag.toString("base64")}.${encrypted.toString("base64")}`
+}
+
+function decryptSecret(payload) {
+	const key = getVaultKey()
+	const [ivB64, tagB64, dataB64] = payload.split(".")
+	const decipher = crypto.createDecipheriv(ALGO, key, Buffer.from(ivB64, "base64"))
+	decipher.setAuthTag(Buffer.from(tagB64, "base64"))
+	return Buffer.concat([decipher.update(Buffer.from(dataB64, "base64")), decipher.final()]).toString("utf8")
+}
+
+function maskSecret(value) {
+	if (!value || value.length < 8) return ""
+	const prefix = value.slice(0, 4)
+	const suffix = value.slice(-4)
+	return `${prefix}••••••••${suffix}`
+}
+
+function hashApiKey(key) {
+	return crypto.createHash("sha256").update(key).digest("hex")
+}
+
+// ── Provider definitions ────────────────────────────────────────────────────────
+
+const PROVIDERS = [
+	{
+		id: "openai",
+		name: "OpenAI",
+		description: "GPT-4o, GPT-4o-mini, and o-series models",
+		website: "https://openai.com",
+		docsUrl: "https://platform.openai.com/docs",
+		apiBaseUrl: "https://api.openai.com/v1",
+		models: [
+			{ id: "gpt-4o", name: "GPT-4o" },
+			{ id: "gpt-4o-mini", name: "GPT-4o Mini" },
+			{ id: "o3-mini", name: "o3-mini" },
+		],
+		capabilities: ["chat", "vision", "function-calling", "structured-output"],
+	},
+	{
+		id: "anthropic",
+		name: "Anthropic",
+		description: "Claude Sonnet 4, Haiku 3.5, and Opus models",
+		website: "https://anthropic.com",
+		docsUrl: "https://docs.anthropic.com",
+		apiBaseUrl: "https://api.anthropic.com/v1",
+		models: [
+			{ id: "claude-sonnet-4-20250514", name: "Claude Sonnet 4" },
+			{ id: "claude-3-5-haiku-20241022", name: "Claude 3.5 Haiku" },
+		],
+		capabilities: ["chat", "vision", "function-calling", "extended-thinking"],
+	},
+	{
+		id: "deepseek",
+		name: "DeepSeek",
+		description: "DeepSeek V3 and R1 reasoning models",
+		website: "https://deepseek.com",
+		docsUrl: "https://platform.deepseek.com/docs",
+		apiBaseUrl: "https://api.deepseek.com/v1",
+		models: [
+			{ id: "deepseek-chat", name: "DeepSeek V3" },
+			{ id: "deepseek-reasoner", name: "DeepSeek R1" },
+		],
+		capabilities: ["chat", "reasoning"],
+	},
+	{
+		id: "kimi",
+		name: "Kimi (Moonshot)",
+		description: "Moonshot AI's Kimi models",
+		website: "https://moonshot.cn",
+		docsUrl: "https://platform.moonshot.cn/docs",
+		apiBaseUrl: "https://api.moonshot.cn/v1",
+		models: [{ id: "kimi-latest", name: "Kimi Latest" }],
+		capabilities: ["chat", "vision"],
+	},
+	{
+		id: "openrouter",
+		name: "OpenRouter",
+		description: "Unified API for 200+ models across providers",
+		website: "https://openrouter.ai",
+		docsUrl: "https://openrouter.ai/docs",
+		apiBaseUrl: "https://openrouter.ai/api/v1",
+		models: [{ id: "openrouter/auto", name: "Auto (best model)" }],
+		capabilities: ["chat", "vision", "function-calling", "multi-provider"],
+	},
+	{
+		id: "groq",
+		name: "Groq",
+		description: "Fast inference with open-source models",
+		website: "https://groq.com",
+		docsUrl: "https://console.groq.com/docs",
+		apiBaseUrl: "https://api.groq.com/openai/v1",
+		models: [
+			{ id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B" },
+			{ id: "mixtral-8x7b-32768", name: "Mixtral 8x7B" },
+		],
+		capabilities: ["chat", "fast-inference"],
+	},
+]
+
+// ── Default agent routes ────────────────────────────────────────────────────────
+
+const DEFAULT_AGENT_ROUTES = [
+	{
+		agent: "planner",
+		label: "Planner",
+		primary: { provider: "openai", model: "gpt-4o" },
+		fallbacks: [
+			{ provider: "anthropic", model: "claude-sonnet-4-20250514" },
+			{ provider: "deepseek", model: "deepseek-chat" },
+		],
+	},
+	{
+		agent: "coder",
+		label: "Coder",
+		primary: { provider: "anthropic", model: "claude-sonnet-4-20250514" },
+		fallbacks: [
+			{ provider: "openai", model: "gpt-4o" },
+			{ provider: "deepseek", model: "deepseek-chat" },
+		],
+	},
+	{
+		agent: "debugger",
+		label: "Debugger",
+		primary: { provider: "anthropic", model: "claude-sonnet-4-20250514" },
+		fallbacks: [
+			{ provider: "openai", model: "gpt-4o" },
+			{ provider: "deepseek", model: "deepseek-chat" },
+		],
+	},
+	{
+		agent: "crawler",
+		label: "Crawler",
+		primary: { provider: "openai", model: "gpt-4o-mini" },
+		fallbacks: [
+			{ provider: "groq", model: "llama-3.3-70b-versatile" },
+			{ provider: "deepseek", model: "deepseek-chat" },
+		],
+	},
+	{
+		agent: "tester",
+		label: "Tester",
+		primary: { provider: "openai", model: "gpt-4o-mini" },
+		fallbacks: [
+			{ provider: "groq", model: "llama-3.3-70b-versatile" },
+			{ provider: "deepseek", model: "deepseek-chat" },
+		],
+	},
+	{
+		agent: "deployChecker",
+		label: "Deploy Checker",
+		primary: { provider: "openai", model: "gpt-4o-mini" },
+		fallbacks: [
+			{ provider: "groq", model: "llama-3.3-70b-versatile" },
+			{ provider: "deepseek", model: "deepseek-chat" },
+		],
+	},
+]
+
+// ── In-memory encrypted secrets store ───────────────────────────────────────────
+
+const encryptedSecrets = new Map() // providerId -> encrypted payload
+const providerMeta = new Map() // providerId -> { hasKey, lastTestedAt, latencyMs, status, keyHash }
+
+// ── Settings file helpers ───────────────────────────────────────────────────────
+
+async function loadSettings() {
+	try {
+		const filePath = path.join(SETTINGS_DIR, "superroo-settings.json")
+		const raw = await fs.readFile(filePath, "utf-8")
+		return JSON.parse(raw)
+	} catch {
+		return {
+			activeProfile: "default",
+			approval: { enabled: true, rules: [], maxApprovalCount: 10, maxCostUsd: 5, timeWindowMinutes: 60 },
+			mcp: { servers: [] },
+			routing: { routes: DEFAULT_AGENT_ROUTES },
+			guardrails: {
+				maxConcurrentJobs: 3,
+				cpuHighPercent: 80,
+				ramHighPercent: 85,
+				onHighCpu: "warn",
+				onHighRam: "warn",
+			},
+		}
+	}
+}
+
+async function saveSettings(settings) {
+	await fs.mkdir(SETTINGS_DIR, { recursive: true })
+	const filePath = path.join(SETTINGS_DIR, "superroo-settings.json")
+	await fs.writeFile(filePath, JSON.stringify(settings, null, 2), "utf-8")
+}
+
+// ── Provider testers ────────────────────────────────────────────────────────────
+
+async function testOpenAI(apiKey) {
+	const start = Date.now()
+	try {
+		const res = await fetch("https://api.openai.com/v1/models", {
+			headers: { Authorization: `Bearer ${apiKey}` },
+			signal: AbortSignal.timeout(10_000),
+		})
+		const latencyMs = Date.now() - start
+		if (res.ok) {
+			const body = await res.json()
+			const models = (body.data || []).map((m) => m.id).slice(0, 10)
+			return { ok: true, latencyMs, message: "Connected", models }
+		}
+		const err = await res.json()
+		return { ok: false, latencyMs, message: (err.error && err.error.message) || `HTTP ${res.status}` }
+	} catch (err) {
+		return { ok: false, latencyMs: Date.now() - start, message: err.message }
+	}
+}
+
+async function testAnthropic(apiKey) {
+	const start = Date.now()
+	try {
+		const res = await fetch("https://api.anthropic.com/v1/messages", {
+			method: "POST",
+			headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
+			body: JSON.stringify({
+				model: "claude-3-haiku-20240307",
+				max_tokens: 1,
+				messages: [{ role: "user", content: "ping" }],
+			}),
+			signal: AbortSignal.timeout(10_000),
+		})
+		const latencyMs = Date.now() - start
+		if (res.ok) return { ok: true, latencyMs, message: "Connected" }
+		const err = await res.json()
+		return { ok: false, latencyMs, message: (err.error && err.error.message) || `HTTP ${res.status}` }
+	} catch (err) {
+		return { ok: false, latencyMs: Date.now() - start, message: err.message }
+	}
+}
+
+async function testDeepSeek(apiKey) {
+	const start = Date.now()
+	try {
+		const res = await fetch("https://api.deepseek.com/v1/models", {
+			headers: { Authorization: `Bearer ${apiKey}` },
+			signal: AbortSignal.timeout(10_000),
+		})
+		const latencyMs = Date.now() - start
+		if (res.ok) {
+			const body = await res.json()
+			const models = (body.data || []).map((m) => m.id).slice(0, 10)
+			return { ok: true, latencyMs, message: "Connected", models }
+		}
+		return { ok: false, latencyMs, message: `HTTP ${res.status}` }
+	} catch (err) {
+		return { ok: false, latencyMs: Date.now() - start, message: err.message }
+	}
+}
+
+async function testKimi(apiKey) {
+	const start = Date.now()
+	try {
+		const res = await fetch("https://api.moonshot.cn/v1/models", {
+			headers: { Authorization: `Bearer ${apiKey}` },
+			signal: AbortSignal.timeout(10_000),
+		})
+		const latencyMs = Date.now() - start
+		if (res.ok) return { ok: true, latencyMs, message: "Connected" }
+		return { ok: false, latencyMs, message: `HTTP ${res.status}` }
+	} catch (err) {
+		return { ok: false, latencyMs: Date.now() - start, message: err.message }
+	}
+}
+
+async function testOpenRouter(apiKey) {
+	const start = Date.now()
+	try {
+		const res = await fetch("https://openrouter.ai/api/v1/auth/key", {
+			headers: { Authorization: `Bearer ${apiKey}` },
+			signal: AbortSignal.timeout(10_000),
+		})
+		const latencyMs = Date.now() - start
+		if (res.ok) {
+			const body = await res.json()
+			return { ok: true, latencyMs, message: (body.data && body.data.label) || "Connected" }
+		}
+		return { ok: false, latencyMs, message: `HTTP ${res.status}` }
+	} catch (err) {
+		return { ok: false, latencyMs: Date.now() - start, message: err.message }
+	}
+}
+
+async function testGroq(apiKey) {
+	const start = Date.now()
+	try {
+		const res = await fetch("https://api.groq.com/openai/v1/models", {
+			headers: { Authorization: `Bearer ${apiKey}` },
+			signal: AbortSignal.timeout(10_000),
+		})
+		const latencyMs = Date.now() - start
+		if (res.ok) {
+			const body = await res.json()
+			const models = (body.data || []).map((m) => m.id).slice(0, 10)
+			return { ok: true, latencyMs, message: "Connected", models }
+		}
+		return { ok: false, latencyMs, message: `HTTP ${res.status}` }
+	} catch (err) {
+		return { ok: false, latencyMs: Date.now() - start, message: err.message }
+	}
+}
+
+const PROVIDER_TESTERS = {
+	openai: testOpenAI,
+	anthropic: testAnthropic,
+	deepseek: testDeepSeek,
+	kimi: testKimi,
+	openrouter: testOpenRouter,
+	groq: testGroq,
+}
+
+async function testProviderKey(providerId, apiKey) {
+	const tester = PROVIDER_TESTERS[providerId]
+	if (!tester) {
+		return { ok: false, latencyMs: 0, message: `Unknown provider: ${providerId}. No tester registered.` }
+	}
+	return tester(apiKey)
+}
+
+// ── Approval Engine ─────────────────────────────────────────────────────────────
+
+const DANGEROUS_PATTERNS = [
+	{ pattern: /\brm\s+-rf\s+[\/~]\b/, risk: "Critical", reason: "Recursive force delete on root/home" },
+	{ pattern: /\bmkfs\b/, risk: "Critical", reason: "Filesystem creation — destructive" },
+	{ pattern: /\bdd\s+if=/, risk: "Critical", reason: "Raw disk write — destructive" },
+	{ pattern: /\b:\(\)\s*\{.*:\s*:\s*\(\)\s*\{\s*\};\s*\};\s*:\s*\)/, risk: "Critical", reason: "Fork bomb detected" },
+	{ pattern: /\bshutdown\b/, risk: "High", reason: "System shutdown" },
+	{ pattern: /\breboot\b/, risk: "High", reason: "System reboot" },
+	{ pattern: /\bchmod\s+-R\s+777\s+\//, risk: "Critical", reason: "Recursive world-writable on root" },
+	{ pattern: /\bpasswd\b/, risk: "High", reason: "Password change" },
+	{ pattern: /\buserdel\b/, risk: "High", reason: "User deletion" },
+	{ pattern: /\bgroupdel\b/, risk: "High", reason: "Group deletion" },
+]
+
+function evaluateApproval(input) {
+	const { action, command, rules } = input
+
+	// 1. Check dangerous patterns first (always block)
+	if (command) {
+		for (const dp of DANGEROUS_PATTERNS) {
+			if (dp.pattern.test(command)) {
+				return { decision: "block", reason: dp.reason, risk: dp.risk, matchedRule: dp.pattern.source }
+			}
+		}
+	}
+
+	// 2. Check custom rules
+	for (const rule of rules) {
+		const regex = new RegExp(rule.pattern, "i")
+		if (regex.test(action) || (command && regex.test(command))) {
+			return {
+				decision: rule.decision,
+				reason: `Matched rule: ${rule.pattern} (risk: ${rule.risk})`,
+				risk: rule.risk,
+				matchedRule: rule.pattern,
+			}
+		}
+	}
+
+	// 3. Default: allow low-risk, require approval for unknown
+	if (action.startsWith("read.") || action === "network.crawl") {
+		return { decision: "allow", reason: "Read-only action", risk: "Low" }
+	}
+	if (action.startsWith("write.") || action.startsWith("execute.")) {
+		return { decision: "require_approval", reason: "Write/execute action requires approval", risk: "Medium" }
+	}
+	if (action.startsWith("deploy.")) {
+		return { decision: "require_approval", reason: "Deploy action requires approval", risk: "High" }
+	}
+	return { decision: "allow", reason: "No matching rules — allowed by default", risk: "Low" }
 }
 
 // System monitoring
@@ -407,6 +812,161 @@ const server = http.createServer(async (req, res) => {
 				agentId: data.agentId || undefined,
 			})
 			sendJson(res, 200, { success: true, jobId: job.id })
+			return
+		}
+
+		// ── Settings API Routes ──────────────────────────────────────────────────
+
+		// GET /api/settings/providers — list providers with key status
+		if (method === "GET" && url === "/api/settings/providers") {
+			const entries = PROVIDERS.map((p) => {
+				const meta = providerMeta.get(p.id) || {
+					hasKey: false,
+					status: "not_tested",
+					lastTestedAt: null,
+					latencyMs: null,
+				}
+				return {
+					id: p.id,
+					name: p.name,
+					description: p.description,
+					status: meta.status,
+					hasKey: meta.hasKey,
+					lastTestedAt: meta.lastTestedAt,
+					latencyMs: meta.latencyMs,
+					models: p.models.map((m) => m.id),
+					capabilities: p.capabilities,
+				}
+			})
+			sendJson(res, 200, { success: true, providers: entries })
+			return
+		}
+
+		// POST /api/settings/providers/:id/key — save a provider API key
+		if (method === "POST" && url.match(/^\/api\/settings\/providers\/[^/]+\/key$/)) {
+			const providerId = url.split("/")[4]
+			const data = await parseBody(req)
+			if (!data.apiKey) {
+				sendJson(res, 400, { success: false, error: "apiKey is required" })
+				return
+			}
+			const encrypted = encryptSecret(data.apiKey)
+			encryptedSecrets.set(providerId, encrypted)
+			providerMeta.set(providerId, {
+				hasKey: true,
+				status: "not_tested",
+				lastTestedAt: null,
+				latencyMs: null,
+				keyHash: hashApiKey(data.apiKey),
+			})
+			sendJson(res, 200, { success: true, providerId, maskedKey: maskSecret(data.apiKey) })
+			return
+		}
+
+		// POST /api/settings/providers/:id/test — test a provider connection
+		if (method === "POST" && url.match(/^\/api\/settings\/providers\/[^/]+\/test$/)) {
+			const providerId = url.split("/")[4]
+			const encrypted = encryptedSecrets.get(providerId)
+			if (!encrypted) {
+				sendJson(res, 400, { success: false, error: `No API key saved for provider: ${providerId}` })
+				return
+			}
+			let apiKey
+			try {
+				apiKey = decryptSecret(encrypted)
+			} catch (e) {
+				sendJson(res, 500, { success: false, error: "Failed to decrypt API key" })
+				return
+			}
+			const result = await testProviderKey(providerId, apiKey)
+			const meta = providerMeta.get(providerId) || { hasKey: true }
+			meta.status = result.ok ? "connected" : "invalid"
+			meta.lastTestedAt = Date.now()
+			meta.latencyMs = result.latencyMs
+			providerMeta.set(providerId, meta)
+			sendJson(res, 200, { success: true, providerId, result })
+			return
+		}
+
+		// DELETE /api/settings/providers/:id/key — remove a provider key
+		if (method === "DELETE" && url.match(/^\/api\/settings\/providers\/[^/]+\/key$/)) {
+			const providerId = url.split("/")[4]
+			encryptedSecrets.delete(providerId)
+			providerMeta.set(providerId, {
+				hasKey: false,
+				status: "missing",
+				lastTestedAt: null,
+				latencyMs: null,
+				keyHash: null,
+			})
+			sendJson(res, 200, { success: true, providerId, message: "Key removed" })
+			return
+		}
+
+		// GET /api/settings/routes — get agent routing configuration
+		if (method === "GET" && url === "/api/settings/routes") {
+			const settings = await loadSettings()
+			sendJson(res, 200, { success: true, routes: settings.routing.routes })
+			return
+		}
+
+		// PUT /api/settings/routes — update agent routing configuration
+		if (method === "PUT" && url === "/api/settings/routes") {
+			const data = await parseBody(req)
+			if (!Array.isArray(data.routes)) {
+				sendJson(res, 400, { success: false, error: "routes must be an array" })
+				return
+			}
+			const settings = await loadSettings()
+			settings.routing.routes = data.routes
+			await saveSettings(settings)
+			sendJson(res, 200, { success: true, message: "Routes saved" })
+			return
+		}
+
+		// POST /api/settings/approval/evaluate — evaluate an approval request
+		if (method === "POST" && url === "/api/settings/approval/evaluate") {
+			const data = await parseBody(req)
+			if (!data.action) {
+				sendJson(res, 400, { success: false, error: "action is required" })
+				return
+			}
+			const result = evaluateApproval({
+				action: data.action,
+				command: data.command,
+				rules: data.rules || [],
+			})
+			sendJson(res, 200, { success: true, result })
+			return
+		}
+
+		// GET /api/settings — get full settings
+		if (method === "GET" && url === "/api/settings") {
+			const settings = await loadSettings()
+			sendJson(res, 200, { success: true, settings })
+			return
+		}
+
+		// PUT /api/settings — update full settings
+		if (method === "PUT" && url === "/api/settings") {
+			const data = await parseBody(req)
+			if (!data.settings) {
+				sendJson(res, 400, { success: false, error: "settings object is required" })
+				return
+			}
+			await saveSettings(data.settings)
+			sendJson(res, 200, { success: true, message: "Settings saved" })
+			return
+		}
+
+		// GET /api/settings/approval/dangerous-patterns — get built-in dangerous patterns
+		if (method === "GET" && url === "/api/settings/approval/dangerous-patterns") {
+			const patterns = DANGEROUS_PATTERNS.map((dp) => ({
+				pattern: dp.pattern.source,
+				risk: dp.risk,
+				reason: dp.reason,
+			}))
+			sendJson(res, 200, { success: true, patterns })
 			return
 		}
 

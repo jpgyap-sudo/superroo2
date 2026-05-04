@@ -8,6 +8,8 @@ import {
 	ListChecks,
 	History,
 	FileJson,
+	Key,
+	Shield,
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -22,6 +24,8 @@ import { SettingsTab } from "./tabs/SettingsTab"
 import { ProductFeaturesTab } from "./tabs/ProductFeaturesTab"
 import { ProductUpdatesTab } from "./tabs/ProductUpdatesTab"
 import { MemoryLogTab } from "./tabs/MemoryLogTab"
+import { ApiKeysProvidersTab } from "./tabs/settings/ApiKeysProvidersTab"
+import { AdvancedVpsSettingsTab } from "./tabs/settings/AdvancedVpsSettingsTab"
 
 export interface SuperRooDashboardProps {
 	/** Optional: inject the host's VsCode wrapper. If unset, the context auto-detects (and falls back to mock data). */
@@ -39,6 +43,8 @@ type TabId =
 	| "bugs"
 	| "logs"
 	| "settings"
+	| "api-keys"
+	| "advanced-vps"
 	| "product-features"
 	| "product-updates"
 	| "memory-log"
@@ -49,6 +55,9 @@ const TABS: Array<{ id: TabId; label: string; icon: React.ComponentType<{ classN
 	{ id: "bugs", label: "Bugs", icon: Bug },
 	{ id: "logs", label: "Logs", icon: ScrollText },
 	{ id: "settings", label: "Settings", icon: SettingsIcon },
+	// Settings sub-tabs
+	{ id: "api-keys", label: "API Keys", icon: Key },
+	{ id: "advanced-vps", label: "VPS Settings", icon: Shield },
 	// Product Memory tabs
 	{ id: "product-features", label: "Product Features", icon: ListChecks },
 	{ id: "product-updates", label: "Updates", icon: History },
@@ -64,7 +73,7 @@ export function SuperRooDashboard({ vscode, forceMock, initialTab = "dashboard",
 				<nav
 					role="tablist"
 					aria-label="Super Roo tabs"
-					className="flex border-b border-vscode-panel-border bg-vscode-sideBar-background">
+					className="flex border-b border-vscode-panel-border bg-vscode-sideBar-background overflow-x-auto">
 					{TABS.map(({ id, label, icon: Icon }) => {
 						const isActive = active === id
 						return (
@@ -75,7 +84,7 @@ export function SuperRooDashboard({ vscode, forceMock, initialTab = "dashboard",
 								aria-selected={isActive}
 								onClick={() => setActive(id)}
 								className={cn(
-									"inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-colors",
+									"inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-colors shrink-0",
 									isActive
 										? "border-vscode-focusBorder text-vscode-foreground"
 										: "border-transparent text-vscode-descriptionForeground hover:text-vscode-foreground",
@@ -92,6 +101,8 @@ export function SuperRooDashboard({ vscode, forceMock, initialTab = "dashboard",
 					{active === "bugs" && <BugsTab />}
 					{active === "logs" && <LogsTab />}
 					{active === "settings" && <SettingsTab />}
+					{active === "api-keys" && <ApiKeysProvidersTab />}
+					{active === "advanced-vps" && <AdvancedVpsSettingsTab />}
 					{active === "product-features" && <ProductFeaturesTab />}
 					{active === "product-updates" && <ProductUpdatesTab />}
 					{active === "memory-log" && <MemoryLogTab />}
