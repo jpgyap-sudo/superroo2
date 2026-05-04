@@ -37,6 +37,7 @@ import { FileImporter } from "../import/FileImporter"
 import { DeployOrchestrator } from "../deploy/DeployOrchestrator"
 import { CrawlerAgent } from "../crawler/CrawlerAgent"
 import { SelfHealingLoop, HealingBus } from "../healing"
+import { ParallelExecutor, AgentBus, ParallelHealingPipeline, ParallelMLTrainer } from "../parallel"
 
 export class SuperRooOrchestrator {
 	readonly memory: MemoryStore
@@ -52,6 +53,12 @@ export class SuperRooOrchestrator {
 	readonly fileImporter: FileImporter
 	readonly deploy: DeployOrchestrator | null
 	readonly crawler: CrawlerAgent | null
+
+	// ── Parallel execution infrastructure ──
+	readonly parallelExecutor: ParallelExecutor
+	readonly agentBus: AgentBus
+	readonly parallelHealing: ParallelHealingPipeline
+	readonly parallelML: ParallelMLTrainer
 
 	private running = false
 	private currentAbort: AbortController | null = null
@@ -97,6 +104,30 @@ export class SuperRooOrchestrator {
 				})
 			: null
 		this.crawler = config.crawlerEnabled ? new CrawlerAgent() : null
+
+		// ── Parallel execution infrastructure ──
+		this.parallelExecutor = new ParallelExecutor(this.events, this.safety, {
+			maxConcurrency: config.concurrency ?? 2,
+			maxTokenBudget: 100,
+			enablePreemption: false,
+			taskTimeoutMs: 600_000,
+		})
+		this.agentBus = new AgentBus(this.events)
+		this.parallelHealing = new ParallelHealingPipeline(this.healingBus, this.events, {
+			maxConcurrency: 3,
+			maxBatchSize: 10,
+			autoFixEnabled: true,
+			autoFixPolicies: {
+				low: config.healingAutoFixPolicies?.low ?? true,
+				medium: config.healingAutoFixPolicies?.medium ?? false,
+				high: config.healingAutoFixPolicies?.high ?? false,
+				critical: config.healingAutoFixPolicies?.critical ?? false,
+			},
+		})
+		this.parallelML = new ParallelMLTrainer(this.events, {
+			enabled: true,
+			learnerTimeoutMs: 60_000,
+		})
 	}
 
 	// ──────────────────────────────────────────────────────────────────────
@@ -110,6 +141,7 @@ export class SuperRooOrchestrator {
 		await this.mlLoop.start()
 		this.healingLoop.start()
 		this.crawler?.start()
+		this.parallelExecutor.start()
 		this.events.info("orchestrator.started", "Super Roo orchestrator started", {
 			data: {
 				mode: this.safety.getMode(),
@@ -120,6 +152,8 @@ export class SuperRooOrchestrator {
 				healingLoop: true,
 				crawler: !!this.crawler,
 				deploy: !!this.deploy,
+				parallelExecutor: true,
+				agentBus: true,
 			},
 		})
 	}
@@ -131,6 +165,7 @@ export class SuperRooOrchestrator {
 		await this.mlLoop.stop()
 		await this.healingLoop.stop()
 		await this.crawler?.stop()
+		this.parallelExecutor.stop()
 		if (this.loopHandle) {
 			try {
 				await this.loopHandle

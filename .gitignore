@@ -13,8 +13,11 @@ mock/
 .idea
 
 # Builds
+.next/
 bin/
 *.vsix
+*.tsbuildinfo
+superroo.bundle
 
 # Local prompts and rules
 /local-prompts

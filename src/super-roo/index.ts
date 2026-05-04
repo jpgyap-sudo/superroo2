@@ -126,3 +126,39 @@ export type { DeployConfig, DeployState } from "./deploy"
 // Crawler Agent
 export { CrawlerAgent } from "./crawler"
 export type { CrawlSource, RawDocument, ExtractedEntity, Signal } from "./crawler"
+
+// Parallel Execution Engine
+export { ParallelExecutor, AgentBus, ParallelHealingPipeline, ParallelMLTrainer } from "./parallel"
+export type {
+	ParallelExecutorConfig,
+	WorkerSlot,
+	ExecutorStats,
+	AgentMessage,
+	AgentMessagePriority,
+	AgentMessageHandler,
+	AgentSubscription,
+	AgentBusStats,
+	ParallelHealingConfig,
+	HealingBatchResult,
+	HealingWorkerSlot,
+	ParallelMLConfig,
+	MLTrainerStats,
+	TrainingBatchResult,
+} from "./parallel"
+
+// Product Memory (product control center)
+export { ProductMemoryService } from "./product-memory"
+export { ProductFeatureAgent, ProductUpdatesAgent, FeatureTesterAgent, BugFeatureMapperAgent } from "./product-memory"
+export type {
+	ProductFeatureAgentOptions,
+	ProductUpdatesAgentOptions,
+	FeatureTesterAgentOptions,
+	BugFeatureMapperAgentOptions,
+	ProductFeatureStatus,
+	ProductUpdateType,
+	ProductFeature,
+	ProductUpdate,
+	FeatureTestRecord,
+	BugFeatureMapping,
+	AgentNote,
+} from "./product-memory"

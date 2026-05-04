@@ -1,0 +1,132 @@
+{
+	"features": [
+		{
+			"id": "feat_product_features_tab",
+			"name": "Product Features Tab",
+			"category": "Dashboard",
+			"description": "Dashboard tab that lists all product features with search, status filters, and action buttons (Mark Pass, Needs Test, Send to Debugger).",
+			"status": "working",
+			"confidence": 95,
+			"ownerAgent": "product-feature",
+			"relatedFiles": [
+				"src/super-roo/product-memory/ProductMemoryService.ts",
+				"src/super-roo/product-memory/agents/ProductFeatureAgent.ts",
+				"webview-ui/src/pages/ProductFeaturesPage.tsx"
+			],
+			"lastTestedAt": "2026-05-04T01:00:00.000Z",
+			"knownBugs": [],
+			"testChecklist": [
+				"Features list loads from product-features.json",
+				"Search filters features by name",
+				"Status filter buttons work correctly",
+				"Mark Pass updates feature status to working",
+				"Needs Test updates feature status to needs_test",
+				"Send to Debugger marks feature as broken"
+			]
+		},
+		{
+			"id": "feat_product_updates_tab",
+			"name": "Product Updates Tab",
+			"category": "Dashboard",
+			"description": "Dashboard tab that displays a timeline of product updates with type badges, file changes, and linked features.",
+			"status": "working",
+			"confidence": 90,
+			"ownerAgent": "product-updates",
+			"relatedFiles": [
+				"src/super-roo/product-memory/ProductMemoryService.ts",
+				"src/super-roo/product-memory/agents/ProductUpdatesAgent.ts",
+				"webview-ui/src/pages/ProductUpdatesPage.tsx"
+			],
+			"lastTestedAt": "2026-05-04T01:00:00.000Z",
+			"knownBugs": [],
+			"testChecklist": [
+				"Updates list loads from product-updates.json",
+				"Timeline displays updates in reverse chronological order",
+				"Type badges show correct colors",
+				"Linked features are clickable"
+			]
+		},
+		{
+			"id": "feat_memory_log_tab",
+			"name": "Memory Log Tab",
+			"category": "Dashboard",
+			"description": "Dashboard tab that provides a file selector sidebar and JSON viewer for all product memory files.",
+			"status": "working",
+			"confidence": 85,
+			"ownerAgent": "product-feature",
+			"relatedFiles": [
+				"src/super-roo/product-memory/ProductMemoryService.ts",
+				"webview-ui/src/pages/MemoryLogPage.tsx"
+			],
+			"lastTestedAt": "2026-05-04T01:00:00.000Z",
+			"knownBugs": [],
+			"testChecklist": [
+				"File list loads from ProductMemoryService",
+				"Selecting a file displays its JSON content",
+				"JSON is formatted for readability"
+			]
+		},
+		{
+			"id": "feat_bug_feature_mapping",
+			"name": "Bug-Feature Mapping",
+			"category": "Agent",
+			"description": "Maps bug reports to product features so the system knows which feature is affected by a bug.",
+			"status": "working",
+			"confidence": 80,
+			"ownerAgent": "bug-feature-mapper",
+			"relatedFiles": [
+				"src/super-roo/product-memory/ProductMemoryService.ts",
+				"src/super-roo/product-memory/agents/BugFeatureMapperAgent.ts"
+			],
+			"lastTestedAt": null,
+			"knownBugs": [],
+			"testChecklist": [
+				"Mapping creates a record in bug-feature-map.json",
+				"Mapping updates the feature's knownBugs list",
+				"Mapping supports severity levels: low, medium, high, critical"
+			]
+		},
+		{
+			"id": "feat_feature_testing",
+			"name": "Feature Testing Pipeline",
+			"category": "Agent",
+			"description": "Runs smoke tests on features and records results in feature-test-history.json.",
+			"status": "needs_test",
+			"confidence": 60,
+			"ownerAgent": "feature-tester",
+			"relatedFiles": [
+				"src/super-roo/product-memory/ProductMemoryService.ts",
+				"src/super-roo/product-memory/agents/FeatureTesterAgent.ts"
+			],
+			"lastTestedAt": null,
+			"knownBugs": [],
+			"testChecklist": [
+				"Smoke test creates a record in feature-test-history.json",
+				"Pass result updates feature status to working",
+				"Fail result updates feature status to broken",
+				"Feature confidence is updated based on test result"
+			]
+		},
+		{
+			"id": "feat_product_updates_recording",
+			"name": "Product Updates Recording",
+			"category": "Agent",
+			"description": "Records product updates (feature additions, bug fixes, UI changes, etc.) into product-updates.json.",
+			"status": "working",
+			"confidence": 90,
+			"ownerAgent": "product-updates",
+			"relatedFiles": [
+				"src/super-roo/product-memory/ProductMemoryService.ts",
+				"src/super-roo/product-memory/agents/ProductUpdatesAgent.ts"
+			],
+			"lastTestedAt": "2026-05-04T01:00:00.000Z",
+			"knownBugs": [],
+			"testChecklist": [
+				"Feature addition creates an update record",
+				"Bug fix creates an update record",
+				"Custom update types are supported",
+				"Updates are stored in reverse chronological order"
+			]
+		}
+	]
+}

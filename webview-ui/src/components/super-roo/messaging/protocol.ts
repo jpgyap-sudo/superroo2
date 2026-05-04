@@ -25,6 +25,11 @@ export type SrWebviewMessage =
 	| { type: "superRoo:cancelTask"; taskId: string }
 	| { type: "superRoo:retryTask"; taskId: string }
 	| { type: "superRoo:enqueueGoal"; goal: string; agent: string; priority: string }
+	// Product Memory commands
+	| { type: "superRoo:productMemory"; action: "testFeature"; featureId: string; result: "pass" | "fail" | "warning" }
+	| { type: "superRoo:productMemory"; action: "listFeatures" }
+	| { type: "superRoo:productMemory"; action: "listUpdates" }
+	| { type: "superRoo:productMemory"; action: "readMemoryFile"; fileName: string }
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Extension → Webview (push + replies)
