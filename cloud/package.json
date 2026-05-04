@@ -1,0 +1,10 @@
+{
+	"name": "superroo-cloud",
+	"version": "1.0.0",
+	"description": "SuperRoo Cloud API and Worker",
+	"private": true,
+	"dependencies": {
+		"bullmq": "^5.0.0",
+		"ioredis": "^5.3.2"
+	}
+}
