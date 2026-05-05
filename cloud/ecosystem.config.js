@@ -53,7 +53,7 @@ module.exports = {
 		},
 		{
 			name: "superroo-dashboard",
-			script: "./.next/standalone/cloud/dashboard/server.js",
+			script: "./.next/standalone/server.js",
 			cwd: "/opt/superroo2/cloud/dashboard",
 			instances: 1,
 			exec_mode: "fork",
