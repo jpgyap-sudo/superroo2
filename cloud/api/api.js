@@ -582,34 +582,37 @@ const server = http.createServer(async (req, res) => {
 	const url = req.url || ""
 	const method = req.method || "GET"
 
-	// Normalize URL: Next.js rewrites /api/:path* -> /:path* (strips /api prefix)
-	// So we strip /api here so all routes can check paths without /api prefix
+	// Normalize URL: handle both direct access and proxied access
+	// - Direct: nginx proxies /api/health -> /health (strips /api)
+	// - Via Next.js rewrite: /api/health stays as /api/health
+	// Normalize by stripping /api prefix if present
 	const normalizedUrl = url.startsWith("/api") ? url.slice(4) || "/" : url
 
 	try {
 		// Health
-		if (method === "GET" && url === "/health") {
+		if (method === "GET" && (url === "/health" || normalizedUrl === "/health")) {
 			sendJson(res, 200, { status: "online", redis: true, worker: true })
 			return
 		}
 
 		// System stats
-		if (method === "GET" && url === "/system") {
+		if (method === "GET" && (url === "/system" || normalizedUrl === "/system")) {
 			const stats = await getSystemStats()
 			sendJson(res, 200, stats)
 			return
 		}
 
 		// Docker stats
-		if (method === "GET" && url === "/docker/status") {
+		if (method === "GET" && (url === "/docker/status" || normalizedUrl === "/docker/status")) {
 			const stats = await getDockerStats()
 			sendJson(res, 200, { success: true, ...stats })
 			return
 		}
 
 		// Logs
-		if (method === "GET" && url.startsWith("/logs")) {
-			const urlObj = new URL(url, `http://localhost:${PORT}`)
+		if (method === "GET" && (url.startsWith("/logs") || normalizedUrl.startsWith("/logs"))) {
+			const targetUrl = url.startsWith("/logs") ? url : normalizedUrl
+			const urlObj = new URL(targetUrl, `http://localhost:${PORT}`)
 			const limit = parseInt(urlObj.searchParams.get("limit") || "50")
 			const logs = await getLogs(limit)
 			sendJson(res, 200, { success: true, logs })
@@ -617,14 +620,14 @@ const server = http.createServer(async (req, res) => {
 		}
 
 		// Queue stats
-		if (method === "GET" && url === "/queue/stats") {
+		if (method === "GET" && (url === "/queue/stats" || normalizedUrl === "/queue/stats")) {
 			const counts = await getJobCounts()
 			sendJson(res, 200, { success: true, ...counts })
 			return
 		}
 
 		// List jobs
-		if (method === "GET" && url.startsWith("/jobs")) {
+		if (method === "GET" && (url.startsWith("/jobs") || normalizedUrl.startsWith("/jobs"))) {
 			const urlObj = new URL(url, `http://localhost:${PORT}`)
 			const status = urlObj.searchParams.get("status") || "all"
 			const limit = parseInt(urlObj.searchParams.get("limit") || "50")

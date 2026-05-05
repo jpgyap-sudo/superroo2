@@ -30,14 +30,14 @@ git pull origin main
 ### 4. Install dashboard dependencies
 
 ```bash
-cd cloud/dashboard
-npm install
+corepack enable
+pnpm install --frozen-lockfile
 ```
 
 ### 5. Build the dashboard
 
 ```bash
-npm run build
+pnpm --dir cloud/dashboard run build
 ```
 
 This will create the production build in `.next` directory.
@@ -127,12 +127,13 @@ pm2 logs superroo-api
 If the build fails:
 
 ```bash
-cd /opt/superroo2/cloud/dashboard
+cd /opt/superroo2
 
 # Clean and rebuild
-rm -rf .next node_modules
-npm install
-npm run build
+rm -rf cloud/dashboard/.next node_modules cloud/dashboard/node_modules
+corepack enable
+pnpm install --frozen-lockfile
+pnpm --dir cloud/dashboard run build
 ```
 
 ### Port 3001 not accessible from outside

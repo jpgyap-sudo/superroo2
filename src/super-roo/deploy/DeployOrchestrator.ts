@@ -2,10 +2,11 @@
  * Super Roo — Phase 5: Deploy System
  *
  * GitHub Actions → VPS pipeline with auto-deploy, health checks, and rollback.
+ * Uses RemoteShell for secure SSH operations with full audit trail.
  *
  * Components:
  *   - GitHubClient: creates/triggers workflows via GitHub API
- *   - VPSDeployer: SSH + SCP deployment script
+ *   - VPSDeployer: SSH + SCP deployment via RemoteShell
  *   - HealthChecker: polls /api/health endpoint
  *   - RollbackManager: keeps last N deploy bundles, restores on failure
  */
@@ -13,6 +14,8 @@
 import * as fs from "fs"
 import * as path from "path"
 import { spawnSync } from "child_process"
+import { RemoteShell } from "../remote/RemoteShell"
+import type { RemoteHost } from "../remote/RemoteShell"
 
 export interface DeployConfig {
 	githubToken: string
@@ -24,6 +27,8 @@ export interface DeployConfig {
 	vpsDeployPath: string
 	healthUrl: string
 	maxRollbackVersions: number
+	/** SSH key path for root access (e.g., C:\Users\User\.ssh\id_superroo_vps) */
+	rootKeyPath?: string
 }
 
 export interface DeployState {
@@ -38,6 +43,7 @@ export interface DeployState {
 export class DeployOrchestrator {
 	private history: DeployState[] = []
 	private current: DeployState | null = null
+	private shell: RemoteShell | null = null
 
 	constructor(private readonly config: DeployConfig) {}
 
@@ -113,12 +119,113 @@ export class DeployOrchestrator {
 		return this.current ? { ...this.current } : null
 	}
 
+	/**
+	 * Deploy nginx config to VPS using RemoteShell.
+	 * Copies the local nginx-dashboard.conf to /etc/nginx/sites-enabled/dashboard,
+	 * tests the config, and reloads nginx.
+	 */
+	async deployNginxConfig(): Promise<void> {
+		const host = this.getRemoteHost()
+		this.shell = new RemoteShell(host)
+
+		const nginxConfig = path.join(process.cwd(), "cloud", "nginx-dashboard.conf")
+		if (!fs.existsSync(nginxConfig)) {
+			throw new Error(`Nginx config not found at ${nginxConfig}`)
+		}
+
+		// SCP the config to VPS
+		const scpResult = await this.shell.scp(nginxConfig, "/etc/nginx/sites-enabled/dashboard")
+		if (scpResult.exitCode !== 0) {
+			throw new Error(`SCP failed: ${scpResult.stderr}`)
+		}
+
+		// Test nginx config
+		const testResult = await this.shell.exec({ command: "nginx -t" })
+		if (testResult.exitCode !== 0) {
+			throw new Error(`Nginx config test failed: ${testResult.stderr}`)
+		}
+
+		// Reload nginx
+		const reloadResult = await this.shell.exec({ command: "systemctl reload nginx" })
+		if (reloadResult.exitCode !== 0) {
+			throw new Error(`Nginx reload failed: ${reloadResult.stderr}`)
+		}
+	}
+
+	/**
+	 * Add /_next/static/ block to the Certbot-managed HTTPS config.
+	 */
+	async addNextStaticToHttpsConfig(): Promise<void> {
+		const host = this.getRemoteHost()
+		this.shell = new RemoteShell(host)
+
+		// Check if the block already exists
+		const checkResult = await this.shell.exec({
+			command: "grep -q '_next/static' /etc/nginx/sites-enabled/dev.abcx124.xyz && echo EXISTS || echo MISSING",
+		})
+
+		if (checkResult.stdout.trim() === "EXISTS") {
+			return // Already has the block
+		}
+
+		// Insert the /_next/static/ block before the first location / block
+		const insertResult = await this.shell.exec({
+			command:
+				"sed -i '/location \\/ {/i\\    location /_next/static/ {\\n        alias /opt/superroo2/cloud/dashboard/.next/static/;\\n        expires 365d;\\n        add_header Cache-Control \"public, immutable, max-age=31536000\";\\n        access_log off;\\n    }\\n' /etc/nginx/sites-enabled/dev.abcx124.xyz",
+		})
+		if (insertResult.exitCode !== 0) {
+			throw new Error(`Failed to update HTTPS config: ${insertResult.stderr}`)
+		}
+
+		// Test and reload
+		const testResult = await this.shell.exec({ command: "nginx -t" })
+		if (testResult.exitCode !== 0) {
+			throw new Error(`Nginx config test failed after HTTPS update: ${testResult.stderr}`)
+		}
+
+		await this.shell.exec({ command: "systemctl reload nginx" })
+	}
+
+	/**
+	 * Run a full dashboard deploy on the VPS:
+	 * git pull, install deps, build, restart PM2.
+	 */
+	async deployDashboard(): Promise<void> {
+		const host = this.getRemoteHost()
+		this.shell = new RemoteShell(host)
+
+		const commands = [
+			"cd /opt/superroo2 && git pull origin main",
+			"cd /opt/superroo2 && corepack enable && pnpm install --frozen-lockfile",
+			"cd /opt/superroo2 && pnpm --dir cloud/dashboard run build",
+			"cd /opt/superroo2/cloud && pm2 restart ecosystem.config.js && pm2 save",
+		]
+
+		for (const cmd of commands) {
+			const result = await this.shell.exec({ command: cmd, timeout: 300 })
+			if (result.exitCode !== 0) {
+				throw new Error(`Command failed (exit ${result.exitCode}): ${cmd}\nStderr: ${result.stderr}`)
+			}
+		}
+	}
+
 	// ── Internal pipeline steps ───────────────────────────────────────────────
 
+	private getRemoteHost(): RemoteHost {
+		const keyPath = this.config.rootKeyPath || this.config.vpsKeyPath
+		if (!keyPath) {
+			throw new Error("No SSH key path configured. Set rootKeyPath or vpsKeyPath in DeployConfig.")
+		}
+		return {
+			label: "SuperRoo Production VPS",
+			host: this.config.vpsHost,
+			port: 22,
+			user: "root",
+			keyPath,
+		}
+	}
+
 	private async triggerGitHubWorkflow(version: string, commitSha: string): Promise<void> {
-		// In a real implementation this calls the GitHub REST API:
-		// POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches
-		// For now we write a deploy manifest that a GitHub Action can read.
 		const manifestDir = path.join(process.cwd(), ".super-roo", "deploy")
 		fs.mkdirSync(manifestDir, { recursive: true })
 		const manifest = {
@@ -132,12 +239,10 @@ export class DeployOrchestrator {
 	}
 
 	private async deployToVps(version: string): Promise<void> {
-		// Build a deploy bundle locally then SCP it to the VPS
 		const bundleDir = path.join(process.cwd(), ".super-roo", "deploy", "bundles")
 		fs.mkdirSync(bundleDir, { recursive: true })
 		const bundlePath = path.join(bundleDir, `${version}.tar.gz`)
 
-		// Create tarball of the current workspace (excluding node_modules, .git, etc.)
 		await this.createDeployBundle(bundlePath)
 
 		const keyArgs = this.config.vpsKeyPath ? ["-i", this.config.vpsKeyPath] : []

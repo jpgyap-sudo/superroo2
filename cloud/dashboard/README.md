@@ -21,9 +21,9 @@ A Next.js-based dashboard for monitoring and managing the SuperRoo Cloud infrast
 ## Development
 
 ```bash
-cd cloud/dashboard
-npm install
-npm run dev
+cd /opt/superroo2
+pnpm install --frozen-lockfile
+pnpm --dir cloud/dashboard dev
 ```
 
 The dashboard will be available at `http://localhost:3001`
@@ -31,9 +31,9 @@ The dashboard will be available at `http://localhost:3001`
 ## Production Build
 
 ```bash
-cd cloud/dashboard
-npm run build
-npm start
+cd /opt/superroo2
+pnpm --dir cloud/dashboard run build
+PORT=3001 pnpm --dir cloud/dashboard start
 ```
 
 ## PM2 Deployment
@@ -75,8 +75,8 @@ The dashboard proxies API requests to `http://localhost:8787` via Next.js rewrit
 ### Dashboard won't start
 
 1. Check if port 3001 is available: `netstat -ano | findstr :3001` (Windows) or `lsof -i :3001` (Linux/Mac)
-2. Ensure dependencies are installed: `npm install`
-3. Check if the build exists: `npm run build`
+2. Ensure dependencies are installed from the workspace root: `pnpm install --frozen-lockfile`
+3. Check if the build exists: `pnpm --dir cloud/dashboard run build`
 
 ### API connection issues
 

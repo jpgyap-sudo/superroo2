@@ -42,15 +42,16 @@ echo "Logs directory OK."
 # ---------------------------------------------------------------------------
 echo ""
 echo "[3/6] Installing dashboard dependencies..."
-cd "${DASHBOARD_DIR}"
+cd "${PROJECT_ROOT}"
 
-if [ ! -d "node_modules" ] || [ ! -d ".next" ]; then
+if [ ! -d "node_modules" ] || [ ! -d "${DASHBOARD_DIR}/node_modules" ]; then
     echo "Installing dependencies and building..."
-    npm install
-    npm run build
+    corepack enable
+    pnpm install --frozen-lockfile
+    pnpm --dir "${DASHBOARD_DIR}" run build
 else
     echo "Dependencies already present. Rebuilding..."
-    npm run build
+    pnpm --dir "${DASHBOARD_DIR}" run build
 fi
 
 echo "Dashboard built OK."
@@ -88,10 +89,23 @@ pm2 save
 echo "Services started."
 
 # ---------------------------------------------------------------------------
-# 6. Show status
+# 6. Deploy nginx config and reload
 # ---------------------------------------------------------------------------
 echo ""
-echo "[6/6] Service Status:"
+echo "[6/8] Deploying nginx config..."
+if command -v nginx &> /dev/null; then
+    sudo cp "${CLOUD_DIR}/nginx-dashboard.conf" /etc/nginx/sites-enabled/dashboard
+    sudo nginx -t && sudo systemctl reload nginx
+    echo "Nginx config deployed and reloaded."
+else
+    echo "Nginx not found — skipping config deploy."
+fi
+
+# ---------------------------------------------------------------------------
+# 7. Show status
+# ---------------------------------------------------------------------------
+echo ""
+echo "[7/8] Service Status:"
 pm2 list
 
 echo ""

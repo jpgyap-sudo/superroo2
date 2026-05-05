@@ -4,8 +4,8 @@
 	"private": true,
 	"scripts": {
 		"dev": "next dev -p 3001",
-		"build": "next build",
-		"start": "next start -p 3001",
+		"build": "node scripts/clean-next.mjs && next build && node scripts/verify-next-css.mjs && node scripts/prepare-standalone.mjs",
+		"start": "node .next/standalone/cloud/dashboard/server.js",
 		"lint": "next lint"
 	},
 	"dependencies": {
