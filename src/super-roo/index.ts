@@ -148,12 +148,26 @@ export type {
 
 // Product Memory (product control center)
 export { ProductMemoryService } from "./product-memory"
-export { ProductFeatureAgent, ProductUpdatesAgent, FeatureTesterAgent, BugFeatureMapperAgent } from "./product-memory"
+export {
+	ProductFeatureAgent,
+	ProductUpdatesAgent,
+	FeatureTesterAgent,
+	BugFeatureMapperAgent,
+	WorkingTreeAgent,
+	CommitDeployLog,
+} from "./product-memory"
 export type {
 	ProductFeatureAgentOptions,
 	ProductUpdatesAgentOptions,
 	FeatureTesterAgentOptions,
 	BugFeatureMapperAgentOptions,
+	WorkingTreeAgentOptions,
+	WorkingTreeSnapshot,
+	CommitRecord,
+	DeployRecord,
+	CommitDeployLogFile,
+	CommitType,
+	DeployStatus,
 	ProductFeatureStatus,
 	ProductUpdateType,
 	ProductFeature,

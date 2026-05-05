@@ -19,10 +19,12 @@ import {
 	ChevronLeft,
 	ChevronRight,
 	Wand2,
+	Workflow,
 } from "lucide-react"
 
 const NAV = [
 	{ id: "overview", icon: LayoutDashboard, label: "Overview" },
+	{ id: "working-tree", icon: Workflow, label: "Working Tree" },
 	{ id: "jobs", icon: Zap, label: "Jobs" },
 	{ id: "queue", icon: Layers, label: "Queue" },
 	{ id: "projects", icon: FolderGit2, label: "Projects" },

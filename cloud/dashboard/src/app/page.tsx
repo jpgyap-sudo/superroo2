@@ -11,9 +11,11 @@ import { AiAssistantView } from "@/components/views/ai-assistant"
 import { SkillGeneratorView } from "@/components/views/skill-generator"
 import { LogsView } from "@/components/views/logs"
 import { DockerView } from "@/components/views/docker"
+import { WorkingTreeView } from "@/components/views/working-tree"
 
 const PAGES: Record<string, React.FC> = {
 	overview: Overview,
+	"working-tree": WorkingTreeView,
 	jobs: JobsView,
 	queue: QueueView,
 	agents: AgentsView,
@@ -65,6 +67,7 @@ export default function Dashboard() {
 	const pageLabel =
 		{
 			overview: "Overview",
+			"working-tree": "Working Tree",
 			jobs: "Jobs",
 			queue: "Queue",
 			agents: "Agents",

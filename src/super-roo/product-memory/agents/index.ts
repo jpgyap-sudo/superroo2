@@ -9,3 +9,6 @@ export type { FeatureTesterAgentOptions } from "./FeatureTesterAgent"
 
 export { BugFeatureMapperAgent } from "./BugFeatureMapperAgent"
 export type { BugFeatureMapperAgentOptions } from "./BugFeatureMapperAgent"
+
+export { WorkingTreeAgent } from "./WorkingTreeAgent"
+export type { WorkingTreeAgentOptions, WorkingTreeSnapshot } from "./WorkingTreeAgent"
