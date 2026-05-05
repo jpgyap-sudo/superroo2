@@ -1,0 +1,46 @@
+{
+  "version": "1.0.0",
+  "commits": [
+    {
+      "commitSha": "68d54a051",
+      "agent": "Roo Code",
+      "type": "feature",
+      "title": "Add Working Tree tab, Working Tree Agent, and Commit & Deploy Log",
+      "filesChanged": [
+        "cloud/dashboard/src/components/views/working-tree.tsx",
+        "cloud/dashboard/src/components/sidebar.tsx",
+        "cloud/dashboard/src/app/page.tsx",
+        "src/super-roo/product-memory/agents/WorkingTreeAgent.ts",
+        "src/super-roo/product-memory/__tests__/WorkingTreeAgent.test.ts",
+        "src/super-roo/product-memory/CommitDeployLog.ts",
+        "src/super-roo/product-memory/__tests__/CommitDeployLog.test.ts",
+        "src/super-roo/product-memory/agents/index.ts",
+        "src/super-roo/product-memory/index.ts",
+        "src/super-roo/index.ts",
+        "docs/resources/working-tree.md",
+        "AGENTS.md"
+      ],
+      "featuresAffected": [
+        "working-tree",
+        "commit-deploy-log",
+        "dashboard",
+        "product-memory",
+        "agent-system"
+      ],
+      "bugsFixed": [],
+      "timestamp": 1746469585000
+    }
+  ],
+  "deploys": [
+    {
+      "id": "deploy-1746469585000",
+      "version": "1.0.0",
+      "commitSha": "68d54a051",
+      "agent": "Roo Code",
+      "status": "pending",
+      "startedAt": 1746469585000,
+      "healthCheck": null,
+      "rolledBack": false
+    }
+  ]
+}
