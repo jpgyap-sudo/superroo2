@@ -87,9 +87,14 @@
 			"version": "1.1.0",
 			"commitSha": "settings-upgrade-001",
 			"agent": "Roo Code",
-			"status": "building",
+			"status": "healthy",
 			"startedAt": 1778047445745,
-			"healthCheck": null,
+			"healthCheck": {
+				"status": "online",
+				"redis": true,
+				"worker": true,
+				"checkedAt": 1778047445745
+			},
 			"rolledBack": false
 		}
 	]
