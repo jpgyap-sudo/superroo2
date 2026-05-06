@@ -15,6 +15,7 @@ import { WorkingTreeView } from "@/components/views/working-tree"
 import { ApiKeysView } from "@/components/views/api-keys"
 import { SettingsView } from "@/components/views/settings"
 import { GitHubView } from "@/components/views/github"
+import ModelRouterView from "@/components/views/model-router"
 
 const PAGES: Record<string, React.FC> = {
 	overview: Overview,
@@ -28,6 +29,7 @@ const PAGES: Record<string, React.FC> = {
 	"api-keys": ApiKeysView,
 	settings: SettingsView,
 	ai: AiAssistantView,
+	"model-router": ModelRouterView,
 	github: GitHubView,
 }
 

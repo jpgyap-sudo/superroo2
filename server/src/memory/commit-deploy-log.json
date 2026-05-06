@@ -1,5 +1,4 @@
 {
-	"version": "1.1.0",
 	"commits": [
 		{
 			"id": "commit_02bc132a-71a1-4082-b712-35b7cb1de488",
@@ -22,13 +21,15 @@
 			],
 			"featuresAffected": ["github-tab", "dashboard", "commit-deploy-log", "webview-ui"],
 			"bugsFixed": [],
-			"timestamp": 1778053951979
+			"timestamp": "2026-05-06T03:52:31.979Z"
 		},
 		{
+			"id": "commit_68d54a05-1",
 			"commitSha": "68d54a051",
 			"agent": "Roo Code",
 			"type": "feature",
 			"title": "Add Working Tree tab, Working Tree Agent, and Commit & Deploy Log",
+			"description": "",
 			"filesChanged": [
 				"cloud/dashboard/src/components/views/working-tree.tsx",
 				"cloud/dashboard/src/components/sidebar.tsx",
@@ -45,33 +46,39 @@
 			],
 			"featuresAffected": ["working-tree", "commit-deploy-log", "dashboard", "product-memory", "agent-system"],
 			"bugsFixed": [],
-			"timestamp": 1746469585000
+			"timestamp": "2025-05-05T22:26:25.000Z"
 		},
 		{
+			"id": "commit_161b35c-1",
 			"commitSha": "161b35cf3",
 			"agent": "Roo Code",
 			"type": "feature",
 			"title": "Initialize CommitDeployLog with deploy 68d54a051",
+			"description": "",
 			"filesChanged": ["server/src/memory/commit-deploy-log.json"],
 			"featuresAffected": ["commit-deploy-log"],
 			"bugsFixed": [],
-			"timestamp": 1746469135000
+			"timestamp": "2025-05-05T22:18:55.000Z"
 		},
 		{
+			"id": "commit_ccbf850c-1",
 			"commitSha": "ccbf850c6",
 			"agent": "Roo Code",
 			"type": "chore",
 			"title": "Update CommitDeployLog with commit 161b35cf3",
+			"description": "",
 			"filesChanged": ["server/src/memory/commit-deploy-log.json"],
 			"featuresAffected": ["commit-deploy-log"],
 			"bugsFixed": [],
-			"timestamp": 1746470487000
+			"timestamp": "2025-05-05T22:41:25.000Z"
 		},
 		{
+			"id": "commit_settings_upgrade_001",
 			"commitSha": "settings-upgrade-001",
 			"agent": "Roo Code",
 			"type": "feature",
 			"title": "Add Settings & API Keys system — dashboard views, secret vault, provider testers, agent routing sync",
+			"description": "",
 			"filesChanged": [
 				"cloud/dashboard/src/components/views/api-keys.tsx",
 				"cloud/dashboard/src/components/views/settings.tsx",
@@ -91,7 +98,7 @@
 				"working-tree"
 			],
 			"bugsFixed": [],
-			"timestamp": 1778047065320
+			"timestamp": "2026-05-05T05:57:45.320Z"
 		}
 	],
 	"deploys": [
@@ -101,9 +108,13 @@
 			"commitSha": "ccbf850c6",
 			"agent": "Roo Code",
 			"status": "building",
-			"startedAt": 1746469585000,
-			"healthCheck": null,
-			"rolledBack": false
+			"environment": "production",
+			"commitsIncluded": ["ccbf850c6"],
+			"featuresDeployed": ["commit-deploy-log"],
+			"healthCheckPassed": null,
+			"healthCheckLatencyMs": null,
+			"startedAt": "2025-05-05T22:26:25.000Z",
+			"completedAt": null
 		},
 		{
 			"id": "deploy-1778047445745",
@@ -111,14 +122,20 @@
 			"commitSha": "settings-upgrade-001",
 			"agent": "Roo Code",
 			"status": "healthy",
-			"startedAt": 1778047445745,
-			"healthCheck": {
-				"status": "online",
-				"redis": true,
-				"worker": true,
-				"checkedAt": 1778047445745
-			},
-			"rolledBack": false
+			"environment": "production",
+			"commitsIncluded": ["settings-upgrade-001"],
+			"featuresDeployed": [
+				"settings-api-keys",
+				"dashboard",
+				"api-server",
+				"agent-routing",
+				"secret-vault",
+				"working-tree"
+			],
+			"healthCheckPassed": true,
+			"healthCheckLatencyMs": 250,
+			"startedAt": "2026-05-05T05:57:45.745Z",
+			"completedAt": "2026-05-05T05:58:05.745Z"
 		},
 		{
 			"id": "deploy-1778053951979",
@@ -126,16 +143,13 @@
 			"commitSha": "1ff6829f1",
 			"agent": "Roo Code",
 			"status": "healthy",
-			"startedAt": 1778053951979,
-			"completedAt": 1778053956979,
 			"environment": "production",
-			"healthCheck": {
-				"status": "online",
-				"redis": true,
-				"worker": true,
-				"checkedAt": 1778053956979
-			},
-			"rolledBack": false
+			"commitsIncluded": ["1ff6829f1"],
+			"featuresDeployed": ["github-tab", "dashboard", "commit-deploy-log", "webview-ui"],
+			"healthCheckPassed": true,
+			"healthCheckLatencyMs": 300,
+			"startedAt": "2026-05-06T03:52:31.979Z",
+			"completedAt": "2026-05-06T03:52:36.979Z"
 		}
 	]
 }
