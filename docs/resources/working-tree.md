@@ -53,7 +53,14 @@ The SuperRoo system is organized into **18 core modules** spanning orchestration
          ├──► COMMIT & DEPLOY LOG (Centralized commit/deploy audit trail)
          ├──► CRAWLER AGENT (Data crawling & extraction)
          ├──► FILE IMPORTER (Filesystem import)
-         └──► REMOTE SHELL (SSH remote execution)
+         ├──► REMOTE SHELL (SSH remote execution)
+         │
+         ├──► SETTINGS & API KEYS SYSTEM
+         │     ├── API Keys View (Provider key management)
+         │     ├── Settings View (VPS control center)
+         │     ├── Secret Vault (AES-256-GCM encrypted storage)
+         │     ├── Provider Testers (Real SDK connection testing)
+         │     └── Agent Routing Sync (Provider availability → routing)
 ```
 
 ## Module Details
@@ -225,6 +232,21 @@ The SuperRoo system is organized into **18 core modules** spanning orchestration
 - **Connections**: Deploy, Safety
 - **Features**: SSH command execution, Remote file operations
 - **Source**: [`src/super-roo/remote/`](../src/super-roo/remote/)
+
+### 20. Settings & API Keys System
+
+- **Owner**: `SettingsService / SecretVault`
+- **Status**: `active`
+- **Connections**: Dashboard, API Server, Deploy System, Agent System
+- **Features**: Provider API key management, Encrypted secret storage (AES-256-GCM), Real provider connection testing, Agent routing sync, VPS control center (auto-approve, MCP, guardrails), Deployment safety validation
+- **Sub-modules**:
+    - **API Keys View** ([`cloud/dashboard/src/components/views/api-keys.tsx`](../cloud/dashboard/src/components/views/api-keys.tsx)) - Provider key management UI with save/test/delete
+    - **Settings View** ([`cloud/dashboard/src/components/views/settings.tsx`](../cloud/dashboard/src/components/views/settings.tsx)) - Advanced VPS control center
+    - **Secret Vault** ([`cloud/api/api.js`](../cloud/api/api.js)) - AES-256-GCM encrypted key storage with masking
+    - **Provider Testers** ([`cloud/api/api.js`](../cloud/api/api.js)) - Real SDK connection testing for OpenAI, Anthropic, DeepSeek, Kimi, OpenRouter, Groq
+    - **Provider Config** ([`cloud/config/providers.ts`](../cloud/config/providers.ts)) - Provider definitions with models and capabilities
+    - **Agent Routing Config** ([`cloud/config/agent-routing.ts`](../cloud/config/agent-routing.ts)) - Agent-to-provider routing with fallbacks
+    - **Settings API** ([`cloud/api/api.js`](../cloud/api/api.js)) - REST endpoints for providers, routes, approval evaluation, and full settings CRUD
 
 ## Interaction Flows
 

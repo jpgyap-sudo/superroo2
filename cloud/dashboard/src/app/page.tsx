@@ -12,6 +12,8 @@ import { SkillGeneratorView } from "@/components/views/skill-generator"
 import { LogsView } from "@/components/views/logs"
 import { DockerView } from "@/components/views/docker"
 import { WorkingTreeView } from "@/components/views/working-tree"
+import { ApiKeysView } from "@/components/views/api-keys"
+import { SettingsView } from "@/components/views/settings"
 
 const PAGES: Record<string, React.FC> = {
 	overview: Overview,
@@ -22,6 +24,8 @@ const PAGES: Record<string, React.FC> = {
 	"skill-generator": SkillGeneratorView,
 	logs: LogsView,
 	docker: DockerView,
+	"api-keys": ApiKeysView,
+	settings: SettingsView,
 	ai: AiAssistantView,
 }
 
@@ -49,6 +53,18 @@ export default function Dashboard() {
 		return () => clearInterval(iv)
 	}, [])
 
+	// Listen for custom navigation events (e.g., from Settings → API Keys link)
+	useEffect(() => {
+		const handler = (e: Event) => {
+			const detail = (e as CustomEvent).detail
+			if (detail && typeof detail === "string") {
+				setPage(detail)
+			}
+		}
+		window.addEventListener("navigate", handler)
+		return () => window.removeEventListener("navigate", handler)
+	}, [])
+
 	useEffect(() => {
 		fetch("/api/health")
 			.then((r) => r.json())
@@ -74,6 +90,8 @@ export default function Dashboard() {
 			"skill-generator": "Skill Generator",
 			logs: "Logs",
 			docker: "Docker Sandbox",
+			"api-keys": "API Keys",
+			settings: "Settings",
 			ai: "AI Assistant",
 		}[page] || page
 

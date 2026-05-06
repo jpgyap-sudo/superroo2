@@ -910,6 +910,18 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// PATCH /settings/providers/:id — update provider metadata (e.g., default model)
+		if (method === "PATCH" && normalizedUrl.match(/^\/settings\/providers\/[^/]+$/)) {
+			const providerId = normalizedUrl.split("/")[3]
+			const data = await parseBody(req)
+			const meta = providerMeta.get(providerId) || { hasKey: false, status: "not_tested" }
+			if (data.defaultModel) meta.defaultModel = data.defaultModel
+			meta.updatedAt = Date.now()
+			providerMeta.set(providerId, meta)
+			sendJson(res, 200, { success: true, providerId, meta })
+			return
+		}
+
 		// GET /settings/routes — get agent routing configuration
 		if (method === "GET" && normalizedUrl === "/settings/routes") {
 			const settings = await loadSettings()
@@ -928,6 +940,39 @@ const server = http.createServer(async (req, res) => {
 			settings.routing.routes = data.routes
 			await saveSettings(settings)
 			sendJson(res, 200, { success: true, message: "Routes saved" })
+			return
+		}
+
+		// POST /settings/routing/validate — validate routes against provider availability
+		if (method === "POST" && normalizedUrl === "/settings/routing/validate") {
+			const data = await parseBody(req)
+			const routes = data.routes || (await loadSettings()).routing.routes
+			/** @type {Record<string, boolean>} */
+			const availability = {}
+			for (const p of PROVIDERS) {
+				const meta = providerMeta.get(p.id)
+				availability[p.id] = meta?.hasKey === true && meta?.status === "connected"
+			}
+			/** @type {string[]} */
+			const errors = []
+			for (const route of routes) {
+				const primaryOk = availability[route.primary?.provider || route.provider]
+				const fallbacksOk = (route.fallbacks || []).some((f) => availability[f.provider])
+				if (!primaryOk && !fallbacksOk) {
+					const agentName = route.agent || route.label || "unknown"
+					const primary = route.primary?.provider || route.provider || "unknown"
+					const fallbacks = (route.fallbacks || []).map((f) => f.provider).join(", ")
+					errors.push(
+						`${agentName}: primary provider "${primary}" and fallbacks [${fallbacks}] are unavailable.`,
+					)
+				}
+			}
+			sendJson(res, 200, {
+				success: true,
+				ok: errors.length === 0,
+				errors,
+				availability,
+			})
 			return
 		}
 

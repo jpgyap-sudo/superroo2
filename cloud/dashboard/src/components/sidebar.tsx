@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { cn } from "@/lib/utils"
 import {
 	LayoutDashboard,
@@ -20,6 +20,8 @@ import {
 	ChevronRight,
 	Wand2,
 	Workflow,
+	KeyRound,
+	SlidersHorizontal,
 } from "lucide-react"
 
 const NAV = [
@@ -36,7 +38,8 @@ const NAV = [
 	{ id: "github", icon: Github, label: "GitHub" },
 	{ id: "approvals", icon: ShieldCheck, label: "Approvals" },
 	{ id: "telegram", icon: Send, label: "Telegram" },
-	{ id: "settings", icon: Settings, label: "Settings" },
+	{ id: "api-keys", icon: KeyRound, label: "API Keys" },
+	{ id: "settings", icon: SlidersHorizontal, label: "Settings" },
 	{ id: "ai", icon: Sparkles, label: "AI Assistant" },
 ]
 

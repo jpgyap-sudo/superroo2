@@ -1,74 +1,96 @@
 {
-  "version": "1.0.0",
-  "commits": [
-    {
-      "commitSha": "68d54a051",
-      "agent": "Roo Code",
-      "type": "feature",
-      "title": "Add Working Tree tab, Working Tree Agent, and Commit & Deploy Log",
-      "filesChanged": [
-        "cloud/dashboard/src/components/views/working-tree.tsx",
-        "cloud/dashboard/src/components/sidebar.tsx",
-        "cloud/dashboard/src/app/page.tsx",
-        "src/super-roo/product-memory/agents/WorkingTreeAgent.ts",
-        "src/super-roo/product-memory/__tests__/WorkingTreeAgent.test.ts",
-        "src/super-roo/product-memory/CommitDeployLog.ts",
-        "src/super-roo/product-memory/__tests__/CommitDeployLog.test.ts",
-        "src/super-roo/product-memory/agents/index.ts",
-        "src/super-roo/product-memory/index.ts",
-        "src/super-roo/index.ts",
-        "docs/resources/working-tree.md",
-        "AGENTS.md"
-      ],
-      "featuresAffected": [
-        "working-tree",
-        "commit-deploy-log",
-        "dashboard",
-        "product-memory",
-        "agent-system"
-      ],
-      "bugsFixed": [],
-      "timestamp": 1746469585000
-    },
-    {
-      "commitSha": "161b35cf3",
-      "agent": "Roo Code",
-      "type": "feature",
-      "title": "Initialize CommitDeployLog with deploy 68d54a051",
-      "filesChanged": [
-        "server/src/memory/commit-deploy-log.json"
-      ],
-      "featuresAffected": [
-        "commit-deploy-log"
-      ],
-      "bugsFixed": [],
-      "timestamp": 1746469135000
-    },
-    {
-      "commitSha": "ccbf850c6",
-      "agent": "Roo Code",
-      "type": "chore",
-      "title": "Update CommitDeployLog with commit 161b35cf3",
-      "filesChanged": [
-        "server/src/memory/commit-deploy-log.json"
-      ],
-      "featuresAffected": [
-        "commit-deploy-log"
-      ],
-      "bugsFixed": [],
-      "timestamp": 1746470487000
-    }
-  ],
-  "deploys": [
-    {
-      "id": "deploy-1746469585000",
-      "version": "1.0.0",
-      "commitSha": "ccbf850c6",
-      "agent": "Roo Code",
-      "status": "building",
-      "startedAt": 1746469585000,
-      "healthCheck": null,
-      "rolledBack": false
-    }
-  ]
+	"version": "1.1.0",
+	"commits": [
+		{
+			"commitSha": "68d54a051",
+			"agent": "Roo Code",
+			"type": "feature",
+			"title": "Add Working Tree tab, Working Tree Agent, and Commit & Deploy Log",
+			"filesChanged": [
+				"cloud/dashboard/src/components/views/working-tree.tsx",
+				"cloud/dashboard/src/components/sidebar.tsx",
+				"cloud/dashboard/src/app/page.tsx",
+				"src/super-roo/product-memory/agents/WorkingTreeAgent.ts",
+				"src/super-roo/product-memory/__tests__/WorkingTreeAgent.test.ts",
+				"src/super-roo/product-memory/CommitDeployLog.ts",
+				"src/super-roo/product-memory/__tests__/CommitDeployLog.test.ts",
+				"src/super-roo/product-memory/agents/index.ts",
+				"src/super-roo/product-memory/index.ts",
+				"src/super-roo/index.ts",
+				"docs/resources/working-tree.md",
+				"AGENTS.md"
+			],
+			"featuresAffected": ["working-tree", "commit-deploy-log", "dashboard", "product-memory", "agent-system"],
+			"bugsFixed": [],
+			"timestamp": 1746469585000
+		},
+		{
+			"commitSha": "161b35cf3",
+			"agent": "Roo Code",
+			"type": "feature",
+			"title": "Initialize CommitDeployLog with deploy 68d54a051",
+			"filesChanged": ["server/src/memory/commit-deploy-log.json"],
+			"featuresAffected": ["commit-deploy-log"],
+			"bugsFixed": [],
+			"timestamp": 1746469135000
+		},
+		{
+			"commitSha": "ccbf850c6",
+			"agent": "Roo Code",
+			"type": "chore",
+			"title": "Update CommitDeployLog with commit 161b35cf3",
+			"filesChanged": ["server/src/memory/commit-deploy-log.json"],
+			"featuresAffected": ["commit-deploy-log"],
+			"bugsFixed": [],
+			"timestamp": 1746470487000
+		},
+		{
+			"commitSha": "settings-upgrade-001",
+			"agent": "Roo Code",
+			"type": "feature",
+			"title": "Add Settings & API Keys system — dashboard views, secret vault, provider testers, agent routing sync",
+			"filesChanged": [
+				"cloud/dashboard/src/components/views/api-keys.tsx",
+				"cloud/dashboard/src/components/views/settings.tsx",
+				"cloud/dashboard/src/components/sidebar.tsx",
+				"cloud/dashboard/src/app/page.tsx",
+				"cloud/api/api.js",
+				"cloud/config/providers.ts",
+				"cloud/config/agent-routing.ts",
+				"docs/resources/working-tree.md"
+			],
+			"featuresAffected": [
+				"settings-api-keys",
+				"dashboard",
+				"api-server",
+				"agent-routing",
+				"secret-vault",
+				"working-tree"
+			],
+			"bugsFixed": [],
+			"timestamp": 1778047065320
+		}
+	],
+	"deploys": [
+		{
+			"id": "deploy-1746469585000",
+			"version": "1.0.0",
+			"commitSha": "ccbf850c6",
+			"agent": "Roo Code",
+			"status": "building",
+			"startedAt": 1746469585000,
+			"healthCheck": null,
+			"rolledBack": false
+		},
+		{
+			"id": "deploy-1778047445745",
+			"version": "1.1.0",
+			"commitSha": "settings-upgrade-001",
+			"agent": "Roo Code",
+			"status": "building",
+			"startedAt": 1778047445745,
+			"healthCheck": null,
+			"rolledBack": false
+		}
+	]
 }
