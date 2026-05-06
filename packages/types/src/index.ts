@@ -33,5 +33,6 @@ export * from "./vscode.js"
 export * from "./worktree.js"
 export * from "./work-record.js"
 export * from "./code-change.js"
+export * from "./github.js"
 
 export * from "./providers/index.js"

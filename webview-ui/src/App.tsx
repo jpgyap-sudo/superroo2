@@ -20,11 +20,12 @@ import { CheckpointRestoreDialog } from "./components/chat/CheckpointRestoreDial
 import { DeleteMessageDialog, EditMessageDialog } from "./components/chat/MessageModificationConfirmationDialog"
 import ErrorBoundary from "./components/ErrorBoundary"
 import { CloudView } from "./components/cloud/CloudView"
+import { GitHubView } from "./components/github/GitHubView"
 import { useAddNonInteractiveClickListener } from "./components/ui/hooks/useNonInteractiveClick"
 import { TooltipProvider } from "./components/ui/tooltip"
 import { STANDARD_TOOLTIP_DELAY } from "./components/ui/standard-tooltip"
 
-type Tab = "settings" | "history" | "chat" | "marketplace" | "cloud"
+type Tab = "settings" | "history" | "chat" | "marketplace" | "cloud" | "github"
 
 interface DeleteMessageDialogState {
 	isOpen: boolean
@@ -44,13 +45,14 @@ interface EditMessageDialogState {
 const MemoizedDeleteMessageDialog = React.memo(DeleteMessageDialog)
 const MemoizedEditMessageDialog = React.memo(EditMessageDialog)
 const MemoizedCheckpointRestoreDialog = React.memo(CheckpointRestoreDialog)
-const tabsByMessageAction: Partial<Record<NonNullable<ExtensionMessage["action"]>, Tab>> = {
+const tabsByMessageAction = {
 	chatButtonClicked: "chat",
 	settingsButtonClicked: "settings",
 	historyButtonClicked: "history",
 	marketplaceButtonClicked: "marketplace",
 	cloudButtonClicked: "cloud",
-}
+	githubButtonClicked: "github",
+} as Partial<Record<NonNullable<ExtensionMessage["action"]>, Tab>>
 
 const App = () => {
 	const {
@@ -245,6 +247,7 @@ const App = () => {
 					organizations={cloudOrganizations}
 				/>
 			)}
+			{tab === "github" && <GitHubView />}
 			<ChatView
 				ref={chatViewRef}
 				isHidden={tab !== "chat"}

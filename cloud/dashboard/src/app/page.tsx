@@ -14,6 +14,7 @@ import { DockerView } from "@/components/views/docker"
 import { WorkingTreeView } from "@/components/views/working-tree"
 import { ApiKeysView } from "@/components/views/api-keys"
 import { SettingsView } from "@/components/views/settings"
+import { GitHubView } from "@/components/views/github"
 
 const PAGES: Record<string, React.FC> = {
 	overview: Overview,
@@ -27,6 +28,7 @@ const PAGES: Record<string, React.FC> = {
 	"api-keys": ApiKeysView,
 	settings: SettingsView,
 	ai: AiAssistantView,
+	github: GitHubView,
 }
 
 function StatusDot({ online }: { online: boolean }) {
@@ -93,6 +95,7 @@ export default function Dashboard() {
 			"api-keys": "API Keys",
 			settings: "Settings",
 			ai: "AI Assistant",
+			github: "GitHub",
 		}[page] || page
 
 	return (

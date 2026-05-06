@@ -578,6 +578,25 @@ async function getJobCounts() {
 	}
 }
 
+// Format a timestamp (number or ISO string) into a relative time string like "2h ago"
+function formatRelativeTime(ts) {
+	if (!ts) return "N/A"
+	const now = Date.now()
+	const t = typeof ts === "number" ? ts : new Date(ts).getTime()
+	const diff = now - t
+	if (diff < 0) return "just now"
+	const seconds = Math.floor(diff / 1000)
+	if (seconds < 60) return `${seconds}s ago`
+	const minutes = Math.floor(seconds / 60)
+	if (minutes < 60) return `${minutes}m ago`
+	const hours = Math.floor(minutes / 60)
+	if (hours < 24) return `${hours}h ago`
+	const days = Math.floor(hours / 24)
+	if (days < 30) return `${days}d ago`
+	const months = Math.floor(days / 30)
+	return `${months}mo ago`
+}
+
 const server = http.createServer(async (req, res) => {
 	const url = req.url || ""
 	const method = req.method || "GET"
@@ -1019,6 +1038,213 @@ const server = http.createServer(async (req, res) => {
 				reason: dp.reason,
 			}))
 			sendJson(res, 200, { success: true, patterns })
+			return
+		}
+
+		// GET /github/dashboard — GitHub dashboard data from commit-deploy-log
+		if (method === "GET" && (url === "/github/dashboard" || normalizedUrl === "/github/dashboard")) {
+			try {
+				const commitDeployPath =
+					process.env.COMMIT_DEPLOY_LOG_PATH || "/opt/superroo2/server/src/memory/commit-deploy-log.json"
+				const raw = await fs.readFile(commitDeployPath, "utf-8")
+				const log = JSON.parse(raw)
+
+				const commits = (log.commits || [])
+					.slice(-10)
+					.reverse()
+					.map((c) => ({
+						sha: c.commitSha?.slice(0, 7) || "",
+						message: c.title || "",
+						author: c.agent || "System",
+						model: "SuperRoo",
+						risk: c.type === "bugfix" ? "medium" : c.type === "feature" ? "low" : "low",
+						status: c.deployId ? "Deployed" : "Committed",
+						time: formatRelativeTime(c.timestamp),
+					}))
+
+				const deploys = (log.deploys || [])
+					.slice(-5)
+					.reverse()
+					.map((d) => ({
+						id: d.id,
+						version: d.version,
+						status: d.status,
+						agent: d.agent,
+						environment: d.environment || "production",
+						time: formatRelativeTime(d.startedAt),
+						healthPassed: d.healthCheck?.status === "online",
+					}))
+
+				const stats = {
+					totalCommits: (log.commits || []).length,
+					totalDeploys: (log.deploys || []).length,
+					successfulDeploys: (log.deploys || []).filter((d) => d.status === "healthy").length,
+					failedDeploys: (log.deploys || []).filter((d) => d.status === "failed").length,
+					lastDeploy: deploys[0] || null,
+					lastCommit: commits[0] || null,
+				}
+
+				const repoStatus = {
+					repoName: "superroo2",
+					branch: "main",
+					syncStatus: "synced",
+					lastPush: stats.lastDeploy?.time || "N/A",
+					lastCommit: {
+						message: stats.lastCommit?.message || "No commits yet",
+						author: stats.lastCommit?.author || "N/A",
+						time: stats.lastCommit?.time || "N/A",
+					},
+					deployment: {
+						status:
+							stats.lastDeploy?.status === "healthy"
+								? "healthy"
+								: stats.lastDeploy?.status === "failed"
+									? "failed"
+									: "pending",
+						environment: stats.lastDeploy?.environment || "production",
+						time: stats.lastDeploy?.time || "N/A",
+					},
+					openPRs: 0,
+					pendingReviews: 0,
+					changedFiles: 0,
+					modifiedFiles: 0,
+					stagedFiles: 0,
+					testPassRate: 100,
+					testsPassed: 0,
+					testsFailed: 0,
+				}
+
+				const pipelineStages = [
+					{ name: "Code", status: "success", duration: "—" },
+					{ name: "Test", status: stats.totalCommits > 0 ? "success" : "pending", duration: "—" },
+					{ name: "Build", status: stats.totalDeploys > 0 ? "success" : "pending", duration: "—" },
+					{
+						name: "Deploy",
+						status:
+							stats.lastDeploy?.status === "healthy"
+								? "success"
+								: stats.lastDeploy?.status === "failed"
+									? "failed"
+									: "pending",
+						duration: "—",
+					},
+					{
+						name: "Verify",
+						status: stats.lastDeploy?.healthCheck?.status === "online" ? "success" : "pending",
+						duration: "—",
+					},
+				]
+
+				const healthMetrics = [
+					{
+						label: "Total Commits",
+						value: stats.totalCommits,
+						status: stats.totalCommits > 0 ? "success" : "pending",
+					},
+					{
+						label: "Total Deploys",
+						value: stats.totalDeploys,
+						status: stats.totalDeploys > 0 ? "success" : "pending",
+					},
+					{
+						label: "Successful Deploys",
+						value: stats.successfulDeploys,
+						status: stats.failedDeploys > stats.successfulDeploys ? "failed" : "success",
+					},
+					{
+						label: "Failed Deploys",
+						value: stats.failedDeploys,
+						status: stats.failedDeploys > 0 ? "failed" : "success",
+					},
+				]
+
+				sendJson(res, 200, {
+					success: true,
+					data: {
+						repoStatus,
+						activityEvents: [
+							...deploys.map((d) => ({
+								id: d.id,
+								time: d.time,
+								agent: d.agent,
+								role: "Deployer",
+								title: `Deployed ${d.version}`,
+								detail: `Status: ${d.status}`,
+								severity: d.status === "healthy" ? "low" : d.status === "failed" ? "high" : "medium",
+							})),
+							...commits.slice(0, 5).map((c) => ({
+								id: `commit_${c.sha}`,
+								time: c.time,
+								agent: c.author,
+								role: "Developer",
+								title: c.message,
+								detail: `Risk: ${c.risk}`,
+								severity: c.risk,
+							})),
+						],
+						healthMetrics,
+						aiSuggestions: [],
+						workingTreeFiles: [],
+						pipelineStages,
+						autonomousTask: {
+							title: "No active task",
+							assignedAgent: "",
+							model: "",
+							progress: 0,
+							queuePosition: 0,
+							estimatedFiles: 0,
+							safetyMode: "Sandbox",
+						},
+						aiCommits: commits,
+						pullRequests: [],
+					},
+				})
+			} catch (err) {
+				console.error("[api] Error reading commit-deploy-log:", err.message)
+				sendJson(res, 200, {
+					success: true,
+					data: {
+						repoStatus: {
+							repoName: "superroo2",
+							branch: "main",
+							syncStatus: "unknown",
+							lastPush: "N/A",
+							lastCommit: { message: "No commits yet", author: "N/A", time: "N/A" },
+							deployment: { status: "pending", environment: "production", time: "N/A" },
+							openPRs: 0,
+							pendingReviews: 0,
+							changedFiles: 0,
+							modifiedFiles: 0,
+							stagedFiles: 0,
+							testPassRate: 100,
+							testsPassed: 0,
+							testsFailed: 0,
+						},
+						activityEvents: [],
+						healthMetrics: [],
+						aiSuggestions: [],
+						workingTreeFiles: [],
+						pipelineStages: [
+							{ name: "Code", status: "pending", duration: "—" },
+							{ name: "Test", status: "pending", duration: "—" },
+							{ name: "Build", status: "pending", duration: "—" },
+							{ name: "Deploy", status: "pending", duration: "—" },
+							{ name: "Verify", status: "pending", duration: "—" },
+						],
+						autonomousTask: {
+							title: "No active task",
+							assignedAgent: "",
+							model: "",
+							progress: 0,
+							queuePosition: 0,
+							estimatedFiles: 0,
+							safetyMode: "Sandbox",
+						},
+						aiCommits: [],
+						pullRequests: [],
+					},
+				})
+			}
 			return
 		}
 

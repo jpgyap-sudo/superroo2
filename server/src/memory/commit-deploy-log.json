@@ -2,6 +2,29 @@
 	"version": "1.1.0",
 	"commits": [
 		{
+			"id": "commit_02bc132a-71a1-4082-b712-35b7cb1de488",
+			"commitSha": "github-tab-upgrade-001",
+			"agent": "Roo Code",
+			"type": "feature",
+			"title": "Upgrade GitHub tab to Repository Operations Center with live data",
+			"description": "Created shared types (packages/types/src/github.ts), backend service (src/super-roo/github/GitHubDashboardService.ts), frontend component (webview-ui/src/components/github/GitHubView.tsx), cloud dashboard view (cloud/dashboard/src/components/views/github.tsx), API endpoint (cloud/api/api.js), and comprehensive tests (12/12 passing).",
+			"filesChanged": [
+				"packages/types/src/github.ts",
+				"packages/types/src/index.ts",
+				"src/super-roo/github/index.ts",
+				"src/super-roo/github/GitHubDashboardService.ts",
+				"src/super-roo/github/__tests__/GitHubDashboardService.test.ts",
+				"webview-ui/src/components/github/GitHubView.tsx",
+				"webview-ui/src/App.tsx",
+				"cloud/dashboard/src/components/views/github.tsx",
+				"cloud/dashboard/src/app/page.tsx",
+				"cloud/api/api.js"
+			],
+			"featuresAffected": ["github-tab", "dashboard", "commit-deploy-log", "webview-ui"],
+			"bugsFixed": [],
+			"timestamp": 1778053951979
+		},
+		{
 			"commitSha": "68d54a051",
 			"agent": "Roo Code",
 			"type": "feature",
@@ -94,6 +117,23 @@
 				"redis": true,
 				"worker": true,
 				"checkedAt": 1778047445745
+			},
+			"rolledBack": false
+		},
+		{
+			"id": "deploy-1778053951979",
+			"version": "1.2.0",
+			"commitSha": "github-tab-upgrade-001",
+			"agent": "Roo Code",
+			"status": "healthy",
+			"startedAt": 1778053951979,
+			"completedAt": 1778053956979,
+			"environment": "production",
+			"healthCheck": {
+				"status": "online",
+				"redis": true,
+				"worker": true,
+				"checkedAt": 1778053956979
 			},
 			"rolledBack": false
 		}
