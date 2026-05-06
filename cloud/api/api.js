@@ -1455,6 +1455,71 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// ── IDE Workspace routes ──────────────────────────────────────────────
+
+		// GET /ide-workspace/workspace — get or create workspace session
+		if (method === "GET" && normalizedUrl.startsWith("/ide-workspace/workspace")) {
+			sendJson(res, 200, {
+				workspaceId: null,
+				repoName: null,
+				branch: "main",
+				files: [],
+				openFiles: [],
+				activeFile: null,
+				pipeline: [
+					{ id: "plan", label: "Plan", status: "pending" },
+					{ id: "crawl", label: "Crawl", status: "pending" },
+					{ id: "patch", label: "Patch", status: "pending" },
+					{ id: "approval", label: "Approval", status: "pending" },
+					{ id: "tests", label: "Tests", status: "pending" },
+					{ id: "deploy", label: "Deploy", status: "pending" },
+				],
+				terminalSessions: [
+					{
+						id: "term-1",
+						name: "bash",
+						cwd: "/workspace",
+						createdAt: new Date().toISOString(),
+						output: ["Welcome to SuperRoo IDE Terminal", "Type a command to get started..."],
+					},
+				],
+				activeTerminal: "term-1",
+				chatMessages: [],
+				status: { connected: true, docker: false, redis: false, cpu: "0%", ram: "0MB" },
+			})
+			return
+		}
+
+		// POST /ide-workspace/workspace/reset — reset workspace
+		if (method === "POST" && normalizedUrl.startsWith("/ide-workspace/workspace/reset")) {
+			sendJson(res, 200, { ok: true, message: "Workspace reset" })
+			return
+		}
+
+		// POST /ide-workspace/terminal/execute — execute command
+		if (method === "POST" && normalizedUrl.startsWith("/ide-workspace/terminal/execute")) {
+			sendJson(res, 200, { ok: true, message: "Command executed (simulated)" })
+			return
+		}
+
+		// POST /ide-workspace/terminal/create — create terminal
+		if (method === "POST" && normalizedUrl.startsWith("/ide-workspace/terminal/create")) {
+			sendJson(res, 200, { ok: true, message: "Terminal created (simulated)" })
+			return
+		}
+
+		// POST /ide-workspace/chat — send chat message
+		if (method === "POST" && normalizedUrl.startsWith("/ide-workspace/chat")) {
+			sendJson(res, 200, { ok: true, message: "Message received (simulated)" })
+			return
+		}
+
+		// PATCH /ide-workspace/pipeline — update pipeline step
+		if (method === "PATCH" && normalizedUrl.startsWith("/ide-workspace/pipeline")) {
+			sendJson(res, 200, { ok: true, message: "Pipeline updated (simulated)" })
+			return
+		}
+
 		sendJson(res, 404, { error: "not_found", detail: `No route for ${method} ${url}` })
 	} catch (err) {
 		console.error(`[api] Error handling ${method} ${url}:`, err.message)
