@@ -23,6 +23,7 @@ import {
 	KeyRound,
 	SlidersHorizontal,
 	BrainCircuit,
+	Terminal,
 } from "lucide-react"
 
 const NAV = [
@@ -43,6 +44,7 @@ const NAV = [
 	{ id: "api-keys", icon: KeyRound, label: "API Keys" },
 	{ id: "settings", icon: SlidersHorizontal, label: "Settings" },
 	{ id: "ai", icon: Sparkles, label: "AI Assistant" },
+	{ id: "ide-terminal", icon: Terminal, label: "IDE Terminal" },
 ]
 
 export function Sidebar({ page, setPage }: { page: string; setPage: (p: string) => void }) {

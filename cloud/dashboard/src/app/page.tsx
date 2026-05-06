@@ -16,6 +16,7 @@ import { ApiKeysView } from "@/components/views/api-keys"
 import { SettingsView } from "@/components/views/settings"
 import { GitHubView } from "@/components/views/github"
 import ModelRouterView from "@/components/views/model-router"
+import IdeTerminalView from "@/components/views/ide-terminal"
 
 const PAGES: Record<string, React.FC> = {
 	overview: Overview,
@@ -31,6 +32,7 @@ const PAGES: Record<string, React.FC> = {
 	ai: AiAssistantView,
 	"model-router": ModelRouterView,
 	github: GitHubView,
+	"ide-terminal": IdeTerminalView,
 }
 
 function StatusDot({ online }: { online: boolean }) {
@@ -98,6 +100,7 @@ export default function Dashboard() {
 			settings: "Settings",
 			ai: "AI Assistant",
 			github: "GitHub",
+			"ide-terminal": "IDE Terminal",
 		}[page] || page
 
 	return (
