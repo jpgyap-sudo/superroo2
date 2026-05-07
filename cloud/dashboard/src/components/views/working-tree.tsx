@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import {
@@ -24,7 +23,6 @@ import {
 	Workflow,
 	Brain,
 	HeartPulse,
-	Container,
 	ChevronDown,
 	ChevronRight,
 	Info,
@@ -33,9 +31,14 @@ import {
 	XCircle,
 	RotateCcw,
 	Clock,
-	AlertTriangle,
 	BarChart3,
 	GitFork,
+	Link2,
+	Bookmark,
+	Hash,
+	ListTree,
+	X,
+	User,
 } from "lucide-react"
 
 // ── Working Tree Data Model ────────────────────────────────────────────────────
@@ -519,27 +522,42 @@ function TreeNode({
 					if (hasChildren) setExpanded(!expanded)
 				}}
 				className={cn(
-					"flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-all",
+					"group flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-all",
 					isSelected
-						? "bg-violet-600/15 text-violet-300 ring-1 ring-violet-600/20"
-						: "text-gray-400 hover:bg-[#1e2535] hover:text-gray-200",
+						? "bg-violet-600/15 text-violet-300 ring-1 ring-violet-600/25 shadow-sm shadow-violet-600/5"
+						: "text-gray-400 hover:bg-[#1a2035] hover:text-gray-200",
 				)}
-				style={{ paddingLeft: `${12 + depth * 16}px` }}>
+				style={{ paddingLeft: `${14 + depth * 18}px` }}>
+				{/* Expand/collapse indicator */}
 				{hasChildren ? (
 					expanded ? (
-						<ChevronDown className="h-3 w-3 shrink-0 text-gray-600" />
+						<ChevronDown className="h-3 w-3 shrink-0 text-gray-600 transition-transform" />
 					) : (
-						<ChevronRight className="h-3 w-3 shrink-0 text-gray-600" />
+						<ChevronRight className="h-3 w-3 shrink-0 text-gray-600 transition-transform" />
 					)
 				) : (
 					<span className="w-3 shrink-0" />
 				)}
-				<span className="shrink-0">{node.icon}</span>
+
+				{/* Icon */}
+				<span
+					className={cn(
+						"shrink-0 transition-colors",
+						isSelected ? "text-violet-400" : "text-gray-500 group-hover:text-gray-300",
+					)}>
+					{node.icon}
+				</span>
+
+				{/* Label */}
 				<span className="flex-1 truncate font-medium">{node.label}</span>
+
+				{/* Status dot */}
 				<span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", statusDot[node.status])} />
 			</button>
+
+			{/* Children */}
 			{hasChildren && expanded && (
-				<div>
+				<div className="ml-2 border-l border-[#1e2535]/60 pl-1">
 					{node.children!.map((child) => (
 						<TreeNode
 							key={child.id}
@@ -567,14 +585,18 @@ function ConnectionLines({ node, allNodes }: { node: WorkingTreeNode; allNodes: 
 	if (connected.length === 0) return null
 
 	return (
-		<div className="mt-3">
-			<div className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-gray-600">Connections</div>
+		<div>
+			<div className="mb-2 flex items-center gap-1.5">
+				<Link2 className="h-3 w-3 text-gray-600" />
+				<span className="text-[10px] font-semibold uppercase tracking-widest text-gray-600">Connections</span>
+				<span className="text-[10px] text-gray-700">({connected.length})</span>
+			</div>
 			<div className="flex flex-wrap gap-1.5">
 				{connected.map((c) => (
 					<span
 						key={c.id}
 						className={cn(
-							"inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[10px] font-medium ring-1",
+							"inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[10px] font-medium ring-1 transition-colors hover:brightness-125",
 							statusColor[c.status],
 						)}>
 						{c.icon}
@@ -687,12 +709,10 @@ function CommitDeployPanel() {
 
 	if (loading) {
 		return (
-			<Card>
-				<div className="flex items-center justify-center py-8">
-					<Clock className="h-5 w-5 animate-pulse text-gray-600" />
-					<span className="ml-2 text-xs text-gray-600">Loading commit & deploy log...</span>
-				</div>
-			</Card>
+			<div className="flex items-center justify-center py-6">
+				<Clock className="h-4 w-4 animate-pulse text-gray-600" />
+				<span className="ml-2 text-xs text-gray-600">Loading commit & deploy log...</span>
+			</div>
 		)
 	}
 
@@ -701,43 +721,43 @@ function CommitDeployPanel() {
 			{/* Stats Row */}
 			{stats && (
 				<div className="grid grid-cols-4 gap-2">
-					<div className="rounded-xl border border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] p-3 text-center">
-						<GitCommit className="mx-auto h-4 w-4 text-violet-400" />
-						<div className="mt-1 text-lg font-bold text-[#e2e8f0]">{stats.totalCommits}</div>
-						<div className="text-[10px] text-gray-500">Commits</div>
+					<div className="rounded-lg border border-[#1e2535] bg-[#0a0e1a] p-2.5 text-center">
+						<GitCommit className="mx-auto h-3.5 w-3.5 text-violet-400" />
+						<div className="mt-0.5 text-base font-bold text-[#e2e8f0]">{stats.totalCommits}</div>
+						<div className="text-[9px] text-gray-500">Commits</div>
 					</div>
-					<div className="rounded-xl border border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] p-3 text-center">
-						<Rocket className="mx-auto h-4 w-4 text-blue-400" />
-						<div className="mt-1 text-lg font-bold text-[#e2e8f0]">{stats.totalDeploys}</div>
-						<div className="text-[10px] text-gray-500">Deploys</div>
+					<div className="rounded-lg border border-[#1e2535] bg-[#0a0e1a] p-2.5 text-center">
+						<Rocket className="mx-auto h-3.5 w-3.5 text-blue-400" />
+						<div className="mt-0.5 text-base font-bold text-[#e2e8f0]">{stats.totalDeploys}</div>
+						<div className="text-[9px] text-gray-500">Deploys</div>
 					</div>
-					<div className="rounded-xl border border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] p-3 text-center">
-						<CheckCircle className="mx-auto h-4 w-4 text-emerald-400" />
-						<div className="mt-1 text-lg font-bold text-emerald-400">{stats.successfulDeploys}</div>
-						<div className="text-[10px] text-gray-500">Healthy</div>
+					<div className="rounded-lg border border-[#1e2535] bg-[#0a0e1a] p-2.5 text-center">
+						<CheckCircle className="mx-auto h-3.5 w-3.5 text-emerald-400" />
+						<div className="mt-0.5 text-base font-bold text-emerald-400">{stats.successfulDeploys}</div>
+						<div className="text-[9px] text-gray-500">Healthy</div>
 					</div>
-					<div className="rounded-xl border border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] p-3 text-center">
-						<XCircle className="mx-auto h-4 w-4 text-red-400" />
-						<div className="mt-1 text-lg font-bold text-red-400">
+					<div className="rounded-lg border border-[#1e2535] bg-[#0a0e1a] p-2.5 text-center">
+						<XCircle className="mx-auto h-3.5 w-3.5 text-red-400" />
+						<div className="mt-0.5 text-base font-bold text-red-400">
 							{stats.failedDeploys + stats.rolledBackDeploys}
 						</div>
-						<div className="text-[10px] text-gray-500">Failed/Rolled</div>
+						<div className="text-[9px] text-gray-500">Failed/Rolled</div>
 					</div>
 				</div>
 			)}
 
 			{/* Recent Commits */}
-			<Card className="border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a]">
-				<div className="mb-2 flex items-center gap-2">
-					<GitCommit className="h-3.5 w-3.5 text-violet-400" />
+			<div>
+				<div className="mb-1.5 flex items-center gap-1.5">
+					<GitCommit className="h-3 w-3 text-violet-400" />
 					<span className="text-[10px] font-semibold uppercase tracking-widest text-gray-600">
 						Recent Commits
 					</span>
 				</div>
 				{recentCommits.length === 0 ? (
-					<p className="py-3 text-center text-[11px] text-gray-600">No commits recorded yet</p>
+					<p className="py-2 text-center text-[11px] text-gray-600">No commits recorded yet</p>
 				) : (
-					<div className="space-y-1.5">
+					<div className="space-y-1">
 						{recentCommits.map((c) => (
 							<div
 								key={c.id}
@@ -762,20 +782,20 @@ function CommitDeployPanel() {
 						))}
 					</div>
 				)}
-			</Card>
+			</div>
 
 			{/* Recent Deploys */}
-			<Card className="border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a]">
-				<div className="mb-2 flex items-center gap-2">
-					<Rocket className="h-3.5 w-3.5 text-violet-400" />
+			<div>
+				<div className="mb-1.5 flex items-center gap-1.5">
+					<Rocket className="h-3 w-3 text-violet-400" />
 					<span className="text-[10px] font-semibold uppercase tracking-widest text-gray-600">
 						Recent Deploys
 					</span>
 				</div>
 				{recentDeploys.length === 0 ? (
-					<p className="py-3 text-center text-[11px] text-gray-600">No deploys recorded yet</p>
+					<p className="py-2 text-center text-[11px] text-gray-600">No deploys recorded yet</p>
 				) : (
-					<div className="space-y-1.5">
+					<div className="space-y-1">
 						{recentDeploys.map((d) => (
 							<div
 								key={d.id}
@@ -794,12 +814,16 @@ function CommitDeployPanel() {
 						))}
 					</div>
 				)}
-			</Card>
+			</div>
 
 			{error && <p className="text-[10px] text-red-400">{error}</p>}
 		</div>
 	)
 }
+
+// ── Detail Panel Tabs ─────────────────────────────────────────────────────────
+
+type DetailTab = "overview" | "features" | "connections" | "submodules"
 
 // ── Main View ─────────────────────────────────────────────────────────────────
 
@@ -808,6 +832,7 @@ export function WorkingTreeView() {
 	const [search, setSearch] = useState("")
 	const [filterStatus, setFilterStatus] = useState<string | null>(null)
 	const [showCommitLog, setShowCommitLog] = useState(false)
+	const [detailTab, setDetailTab] = useState<DetailTab>("overview")
 
 	const selectedNode = selected ? ALL_NODES.find((n) => n.id === selected) : null
 
@@ -848,15 +873,15 @@ export function WorkingTreeView() {
 	}
 
 	return (
-		<div className="flex h-full gap-4">
-			{/* Tree Panel */}
-			<div className="w-72 shrink-0 space-y-3">
+		<div className="flex h-full gap-5">
+			{/* ── Left Panel: Tree ── */}
+			<div className="w-80 shrink-0 space-y-3 overflow-y-auto">
 				{/* Module Overview Stats */}
 				<div className="rounded-xl border border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] p-3">
-					<div className="flex items-center gap-2 mb-2">
+					<div className="mb-2.5 flex items-center gap-2">
 						<BarChart3 className="h-3.5 w-3.5 text-violet-400" />
 						<span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">
-							Modules
+							Architecture Overview
 						</span>
 					</div>
 					<div className="grid grid-cols-2 gap-1.5">
@@ -887,22 +912,32 @@ export function WorkingTreeView() {
 					</div>
 				</div>
 
-				{/* Search */}
-				<div className="relative">
-					<Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-600" />
-					<input
-						type="text"
-						placeholder="Search modules, features..."
-						value={search}
-						onChange={(e) => {
-							setSearch(e.target.value)
-							setFilterStatus(null)
-						}}
-						className="w-full rounded-xl border border-[#1e2535] bg-[#0f1117] py-2 pl-8 pr-3 text-xs text-gray-300 placeholder-gray-600 outline-none focus:border-violet-600/50 transition-colors"
-					/>
+				{/* Search & Filter Row */}
+				<div className="flex items-center gap-2">
+					<div className="relative flex-1">
+						<Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-600" />
+						<input
+							type="text"
+							placeholder="Search modules..."
+							value={search}
+							onChange={(e) => {
+								setSearch(e.target.value)
+								setFilterStatus(null)
+							}}
+							className="w-full rounded-xl border border-[#1e2535] bg-[#0f1117] py-2 pl-8 pr-3 text-xs text-gray-300 placeholder-gray-600 outline-none focus:border-violet-600/50 transition-colors"
+						/>
+					</div>
+					{filterStatus && (
+						<button
+							onClick={() => setFilterStatus(null)}
+							className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#1e2535] text-gray-500 hover:text-gray-300 transition-colors"
+							title="Clear filter">
+							<X className="h-3.5 w-3.5" />
+						</button>
+					)}
 				</div>
 
-				{/* Status Filter */}
+				{/* Status Filter Chips */}
 				<div className="flex gap-1.5 flex-wrap">
 					{(["stable", "active", "experimental", "deprecated"] as const).map((s) => (
 						<button
@@ -923,7 +958,7 @@ export function WorkingTreeView() {
 				</div>
 
 				{/* Tree */}
-				<div className="space-y-0.5 rounded-xl border border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] p-1.5">
+				<div className="rounded-xl border border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] p-1.5">
 					{filteredTree.length === 0 ? (
 						<div className="py-8 text-center">
 							<Search className="mx-auto h-6 w-6 text-gray-700" />
@@ -940,7 +975,7 @@ export function WorkingTreeView() {
 				<button
 					onClick={() => setShowCommitLog(!showCommitLog)}
 					className={cn(
-						"flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs transition-colors border border-[#1e2535]",
+						"flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-xs transition-colors border border-[#1e2535]",
 						showCommitLog
 							? "bg-violet-600/15 text-violet-300 border-violet-600/30"
 							: "bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] text-gray-400 hover:border-gray-600 hover:text-gray-200",
@@ -957,72 +992,186 @@ export function WorkingTreeView() {
 				{showCommitLog && <CommitDeployPanel />}
 			</div>
 
-			{/* Detail Panel */}
+			{/* ── Right Panel: Detail ── */}
 			<div className="flex-1 overflow-y-auto">
 				{selectedNode ? (
 					<div className="space-y-4">
-						{/* Header */}
-						<Card className="border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a]">
+						{/* Header Card */}
+						<div className="rounded-xl border border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] p-4">
 							<div className="flex items-start justify-between gap-4">
 								<div className="flex items-center gap-3">
-									<div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-600/15 text-violet-400 ring-1 ring-violet-600/20">
+									<div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-600/15 text-violet-400 ring-1 ring-violet-600/20 shadow-sm shadow-violet-600/5">
 										{selectedNode.icon}
 									</div>
 									<div>
 										<h2 className="text-base font-semibold text-[#e2e8f0]">{selectedNode.label}</h2>
-										{selectedNode.owner && (
-											<p className="text-[11px] text-gray-500">
-												Owned by:{" "}
-												<span className="font-mono text-gray-400">{selectedNode.owner}</span>
-											</p>
-										)}
+										<div className="mt-0.5 flex items-center gap-2">
+											{selectedNode.owner && (
+												<p className="text-[11px] text-gray-500">
+													<span className="text-gray-600">Owner:</span>{" "}
+													<span className="font-mono text-gray-400">
+														{selectedNode.owner}
+													</span>
+												</p>
+											)}
+											<span className="text-gray-700">·</span>
+											<Badge status={selectedNode.status} label={selectedNode.status} />
+										</div>
 									</div>
 								</div>
-								<Badge status={selectedNode.status} label={selectedNode.status} />
 							</div>
 							<p className="mt-3 text-xs leading-relaxed text-gray-400">{selectedNode.description}</p>
+						</div>
 
-							{/* Features */}
-							{selectedNode.features && selectedNode.features.length > 0 && (
-								<div className="mt-4">
-									<div className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-gray-600">
-										Product Features
+						{/* Tab Navigation */}
+						<div className="flex gap-1 rounded-xl border border-[#1e2535] bg-[#0a0e1a] p-1">
+							{[
+								{ id: "overview" as DetailTab, label: "Overview", icon: Info },
+								{
+									id: "features" as DetailTab,
+									label: "Features",
+									icon: Zap,
+									count: selectedNode.features?.length,
+								},
+								{
+									id: "connections" as DetailTab,
+									label: "Connections",
+									icon: Link2,
+									count: selectedNode.connections?.length,
+								},
+								{
+									id: "submodules" as DetailTab,
+									label: "Sub-modules",
+									icon: GitFork,
+									count: selectedNode.children?.length,
+								},
+							].map((tab) => (
+								<button
+									key={tab.id}
+									onClick={() => setDetailTab(tab.id)}
+									className={cn(
+										"flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-[11px] font-medium transition-all",
+										detailTab === tab.id
+											? "bg-violet-600/15 text-violet-300 shadow-sm"
+											: "text-gray-500 hover:text-gray-300 hover:bg-[#0f1117]",
+									)}>
+									<tab.icon className="h-3 w-3" />
+									<span>{tab.label}</span>
+									{tab.count !== undefined && tab.count > 0 && (
+										<span className="ml-0.5 rounded-full bg-gray-700/50 px-1.5 text-[9px] text-gray-400">
+											{tab.count}
+										</span>
+									)}
+								</button>
+							))}
+						</div>
+
+						{/* Tab Content */}
+						{detailTab === "overview" && (
+							<div className="space-y-3">
+								{/* Description */}
+								<div className="rounded-xl border border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] p-4">
+									<div className="mb-2 flex items-center gap-1.5">
+										<Bookmark className="h-3 w-3 text-violet-400" />
+										<span className="text-[10px] font-semibold uppercase tracking-widest text-gray-600">
+											Description
+										</span>
 									</div>
-									<div className="flex flex-wrap gap-1.5">
-										{selectedNode.features.map((f) => (
-											<span
-												key={f}
-												className="inline-flex items-center gap-1 rounded-lg bg-violet-600/10 px-2.5 py-1 text-[10px] font-medium text-violet-400 ring-1 ring-violet-600/20">
-												<Zap className="h-3 w-3" />
-												{f}
+									<p className="text-xs leading-relaxed text-gray-400">{selectedNode.description}</p>
+								</div>
+
+								{/* Owner & Status */}
+								<div className="grid grid-cols-2 gap-3">
+									<div className="rounded-xl border border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] p-4">
+										<div className="mb-1.5 flex items-center gap-1.5">
+											<User className="h-3 w-3 text-violet-400" />
+											<span className="text-[10px] font-semibold uppercase tracking-widest text-gray-600">
+												Owner
 											</span>
-										))}
+										</div>
+										<p className="text-xs font-mono text-gray-300">
+											{selectedNode.owner || "Unassigned"}
+										</p>
 									</div>
+									<div className="rounded-xl border border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] p-4">
+										<div className="mb-1.5 flex items-center gap-1.5">
+											<Hash className="h-3 w-3 text-violet-400" />
+											<span className="text-[10px] font-semibold uppercase tracking-widest text-gray-600">
+												Status
+											</span>
+										</div>
+										<Badge status={selectedNode.status} label={selectedNode.status} />
+									</div>
+								</div>
+							</div>
+						)}
+
+						{detailTab === "features" && selectedNode.features && selectedNode.features.length > 0 && (
+							<div className="rounded-xl border border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] p-4">
+								<div className="mb-3 flex items-center gap-1.5">
+									<Zap className="h-3 w-3 text-violet-400" />
+									<span className="text-[10px] font-semibold uppercase tracking-widest text-gray-600">
+										Product Features
+									</span>
+									<span className="text-[10px] text-gray-700">({selectedNode.features.length})</span>
+								</div>
+								<div className="grid grid-cols-2 gap-2">
+									{selectedNode.features.map((f) => (
+										<div
+											key={f}
+											className="flex items-center gap-2 rounded-lg border border-[#1e2535] bg-[#0a0e1a] px-3 py-2">
+											<Zap className="h-3 w-3 shrink-0 text-violet-400" />
+											<span className="text-[11px] text-gray-300">{f}</span>
+										</div>
+									))}
+								</div>
+							</div>
+						)}
+
+						{detailTab === "features" && (!selectedNode.features || selectedNode.features.length === 0) && (
+							<div className="flex items-center justify-center rounded-xl border border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] p-8">
+								<p className="text-xs text-gray-600">No features defined for this module</p>
+							</div>
+						)}
+
+						{detailTab === "connections" && (
+							<div className="rounded-xl border border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] p-4">
+								<ConnectionLines node={selectedNode} allNodes={ALL_NODES} />
+							</div>
+						)}
+
+						{detailTab === "connections" &&
+							(!selectedNode.connections || selectedNode.connections.length === 0) && (
+								<div className="flex items-center justify-center rounded-xl border border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] p-8">
+									<p className="text-xs text-gray-600">No connections defined for this module</p>
 								</div>
 							)}
 
-							{/* Connections */}
-							<ConnectionLines node={selectedNode} allNodes={ALL_NODES} />
-						</Card>
-
-						{/* Children */}
-						{selectedNode.children && selectedNode.children.length > 0 && (
-							<Card className="border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a]">
-								<div className="flex items-center gap-2 mb-3">
-									<GitFork className="h-3.5 w-3.5 text-violet-400" />
+						{detailTab === "submodules" && selectedNode.children && selectedNode.children.length > 0 && (
+							<div className="rounded-xl border border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] p-4">
+								<div className="mb-3 flex items-center gap-1.5">
+									<GitFork className="h-3 w-3 text-violet-400" />
 									<span className="text-[10px] font-semibold uppercase tracking-widest text-gray-600">
-										Sub-modules ({selectedNode.children.length})
+										Sub-modules
 									</span>
+									<span className="text-[10px] text-gray-700">({selectedNode.children.length})</span>
 								</div>
 								<div className="grid grid-cols-2 gap-2">
 									{selectedNode.children.map((child) => (
 										<button
 											key={child.id}
-											onClick={() => setSelected(child.id)}
-											className="rounded-xl border border-[#1e2535] bg-gradient-to-b from-[#0a0e1a] to-[#080c14] p-3 text-left transition-all hover:border-violet-600/30 hover:bg-violet-600/5 hover:shadow-lg hover:shadow-violet-600/5">
+											onClick={() => {
+												setSelected(child.id)
+												setDetailTab("overview")
+											}}
+											className="rounded-xl border border-[#1e2535] bg-gradient-to-b from-[#0a0e1a] to-[#080c14] p-3 text-left transition-all hover:border-violet-600/30 hover:bg-violet-600/5 hover:shadow-lg hover:shadow-violet-600/5 group">
 											<div className="flex items-center gap-2">
-												<span className="text-violet-400">{child.icon}</span>
-												<span className="text-xs font-medium text-gray-300">{child.label}</span>
+												<span className="text-violet-400 group-hover:text-violet-300 transition-colors">
+													{child.icon}
+												</span>
+												<span className="text-xs font-medium text-gray-300 group-hover:text-gray-200 transition-colors">
+													{child.label}
+												</span>
 												<span
 													className={cn(
 														"ml-auto h-1.5 w-1.5 rounded-full",
@@ -1030,22 +1179,29 @@ export function WorkingTreeView() {
 													)}
 												/>
 											</div>
-											<p className="mt-1.5 text-[10px] leading-relaxed text-gray-500">
+											<p className="mt-1.5 text-[10px] leading-relaxed text-gray-500 group-hover:text-gray-400 transition-colors">
 												{child.description}
 											</p>
 										</button>
 									))}
 								</div>
-							</Card>
+							</div>
 						)}
+
+						{detailTab === "submodules" &&
+							(!selectedNode.children || selectedNode.children.length === 0) && (
+								<div className="flex items-center justify-center rounded-xl border border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] p-8">
+									<p className="text-xs text-gray-600">No sub-modules for this module</p>
+								</div>
+							)}
 					</div>
 				) : (
 					<div className="flex h-full items-center justify-center">
-						<div className="text-center rounded-xl border border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] p-12">
-							<Workflow className="mx-auto h-12 w-12 text-gray-700" />
+						<div className="text-center rounded-xl border border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] p-12 max-w-md">
+							<ListTree className="mx-auto h-12 w-12 text-gray-700" />
 							<p className="mt-3 text-sm text-gray-600">Select a module from the tree</p>
 							<p className="mt-1 text-[11px] text-gray-700">
-								Click any node to see its details, features, and connections
+								Click any node to explore its details, features, connections, and sub-modules
 							</p>
 						</div>
 					</div>
