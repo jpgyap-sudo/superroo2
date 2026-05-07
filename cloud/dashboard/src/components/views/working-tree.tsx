@@ -33,6 +33,9 @@ import {
 	XCircle,
 	RotateCcw,
 	Clock,
+	AlertTriangle,
+	BarChart3,
+	GitFork,
 } from "lucide-react"
 
 // ── Working Tree Data Model ────────────────────────────────────────────────────
@@ -516,9 +519,9 @@ function TreeNode({
 					if (hasChildren) setExpanded(!expanded)
 				}}
 				className={cn(
-					"flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors",
+					"flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-all",
 					isSelected
-						? "bg-violet-600/15 text-violet-300"
+						? "bg-violet-600/15 text-violet-300 ring-1 ring-violet-600/20"
 						: "text-gray-400 hover:bg-[#1e2535] hover:text-gray-200",
 				)}
 				style={{ paddingLeft: `${12 + depth * 16}px` }}>
@@ -571,7 +574,7 @@ function ConnectionLines({ node, allNodes }: { node: WorkingTreeNode; allNodes: 
 					<span
 						key={c.id}
 						className={cn(
-							"inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium",
+							"inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[10px] font-medium ring-1",
 							statusColor[c.status],
 						)}>
 						{c.icon}
@@ -698,20 +701,24 @@ function CommitDeployPanel() {
 			{/* Stats Row */}
 			{stats && (
 				<div className="grid grid-cols-4 gap-2">
-					<div className="rounded-lg border border-[#1e2535] bg-[#0a0e1a] p-2.5 text-center">
-						<div className="text-lg font-bold text-[#e2e8f0]">{stats.totalCommits}</div>
+					<div className="rounded-xl border border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] p-3 text-center">
+						<GitCommit className="mx-auto h-4 w-4 text-violet-400" />
+						<div className="mt-1 text-lg font-bold text-[#e2e8f0]">{stats.totalCommits}</div>
 						<div className="text-[10px] text-gray-500">Commits</div>
 					</div>
-					<div className="rounded-lg border border-[#1e2535] bg-[#0a0e1a] p-2.5 text-center">
-						<div className="text-lg font-bold text-[#e2e8f0]">{stats.totalDeploys}</div>
+					<div className="rounded-xl border border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] p-3 text-center">
+						<Rocket className="mx-auto h-4 w-4 text-blue-400" />
+						<div className="mt-1 text-lg font-bold text-[#e2e8f0]">{stats.totalDeploys}</div>
 						<div className="text-[10px] text-gray-500">Deploys</div>
 					</div>
-					<div className="rounded-lg border border-[#1e2535] bg-[#0a0e1a] p-2.5 text-center">
-						<div className="text-lg font-bold text-emerald-400">{stats.successfulDeploys}</div>
+					<div className="rounded-xl border border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] p-3 text-center">
+						<CheckCircle className="mx-auto h-4 w-4 text-emerald-400" />
+						<div className="mt-1 text-lg font-bold text-emerald-400">{stats.successfulDeploys}</div>
 						<div className="text-[10px] text-gray-500">Healthy</div>
 					</div>
-					<div className="rounded-lg border border-[#1e2535] bg-[#0a0e1a] p-2.5 text-center">
-						<div className="text-lg font-bold text-red-400">
+					<div className="rounded-xl border border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] p-3 text-center">
+						<XCircle className="mx-auto h-4 w-4 text-red-400" />
+						<div className="mt-1 text-lg font-bold text-red-400">
 							{stats.failedDeploys + stats.rolledBackDeploys}
 						</div>
 						<div className="text-[10px] text-gray-500">Failed/Rolled</div>
@@ -720,7 +727,7 @@ function CommitDeployPanel() {
 			)}
 
 			{/* Recent Commits */}
-			<Card>
+			<Card className="border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a]">
 				<div className="mb-2 flex items-center gap-2">
 					<GitCommit className="h-3.5 w-3.5 text-violet-400" />
 					<span className="text-[10px] font-semibold uppercase tracking-widest text-gray-600">
@@ -734,7 +741,7 @@ function CommitDeployPanel() {
 						{recentCommits.map((c) => (
 							<div
 								key={c.id}
-								className="flex items-center gap-2 rounded border border-[#1e2535] bg-[#0a0e1a] px-2.5 py-1.5">
+								className="flex items-center gap-2 rounded-lg border border-[#1e2535] bg-[#0a0e1a] px-2.5 py-1.5 hover:bg-[#0f1117] transition-colors">
 								<span className="shrink-0 font-mono text-[10px] text-gray-600">
 									{c.commitSha.slice(0, 7)}
 								</span>
@@ -742,12 +749,12 @@ function CommitDeployPanel() {
 								<span className="shrink-0 text-[10px] text-gray-500">{c.agent}</span>
 								<span
 									className={cn(
-										"shrink-0 rounded px-1.5 py-0.5 text-[9px] font-medium",
+										"shrink-0 rounded-lg px-1.5 py-0.5 text-[9px] font-medium ring-1",
 										c.type === "feature"
-											? "text-emerald-400 bg-emerald-500/10"
+											? "text-emerald-400 bg-emerald-500/10 ring-emerald-500/20"
 											: c.type === "bugfix"
-												? "text-red-400 bg-red-500/10"
-												: "text-gray-400 bg-gray-500/10",
+												? "text-red-400 bg-red-500/10 ring-red-500/20"
+												: "text-gray-400 bg-gray-500/10 ring-gray-500/20",
 									)}>
 									{c.type}
 								</span>
@@ -758,7 +765,7 @@ function CommitDeployPanel() {
 			</Card>
 
 			{/* Recent Deploys */}
-			<Card>
+			<Card className="border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a]">
 				<div className="mb-2 flex items-center gap-2">
 					<Rocket className="h-3.5 w-3.5 text-violet-400" />
 					<span className="text-[10px] font-semibold uppercase tracking-widest text-gray-600">
@@ -772,13 +779,13 @@ function CommitDeployPanel() {
 						{recentDeploys.map((d) => (
 							<div
 								key={d.id}
-								className="flex items-center gap-2 rounded border border-[#1e2535] bg-[#0a0e1a] px-2.5 py-1.5">
+								className="flex items-center gap-2 rounded-lg border border-[#1e2535] bg-[#0a0e1a] px-2.5 py-1.5 hover:bg-[#0f1117] transition-colors">
 								<span className="shrink-0 font-mono text-[10px] text-gray-600">{d.version}</span>
 								<span className="flex-1 truncate text-[11px] text-gray-300">{d.agent}</span>
 								<span
 									className={cn(
-										"inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-medium",
-										deployStatusColor[d.status] || "text-gray-400 bg-gray-500/10",
+										"inline-flex items-center gap-1 rounded-lg px-1.5 py-0.5 text-[9px] font-medium ring-1",
+										deployStatusColor[d.status] || "text-gray-400 bg-gray-500/10 ring-gray-500/20",
 									)}>
 									{deployStatusIcon[d.status] || null}
 									{d.status}
@@ -844,6 +851,42 @@ export function WorkingTreeView() {
 		<div className="flex h-full gap-4">
 			{/* Tree Panel */}
 			<div className="w-72 shrink-0 space-y-3">
+				{/* Module Overview Stats */}
+				<div className="rounded-xl border border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] p-3">
+					<div className="flex items-center gap-2 mb-2">
+						<BarChart3 className="h-3.5 w-3.5 text-violet-400" />
+						<span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">
+							Modules
+						</span>
+					</div>
+					<div className="grid grid-cols-2 gap-1.5">
+						<div className="flex items-center gap-1.5 rounded-lg bg-emerald-500/5 px-2 py-1">
+							<span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+							<span className="text-[10px] text-emerald-300 font-medium">
+								{ALL_NODES.filter((n) => n.status === "stable").length} stable
+							</span>
+						</div>
+						<div className="flex items-center gap-1.5 rounded-lg bg-blue-500/5 px-2 py-1">
+							<span className="h-1.5 w-1.5 rounded-full bg-blue-400" />
+							<span className="text-[10px] text-blue-300 font-medium">
+								{ALL_NODES.filter((n) => n.status === "active").length} active
+							</span>
+						</div>
+						<div className="flex items-center gap-1.5 rounded-lg bg-amber-500/5 px-2 py-1">
+							<span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+							<span className="text-[10px] text-amber-300 font-medium">
+								{ALL_NODES.filter((n) => n.status === "experimental").length} experimental
+							</span>
+						</div>
+						<div className="flex items-center gap-1.5 rounded-lg bg-gray-500/5 px-2 py-1">
+							<span className="h-1.5 w-1.5 rounded-full bg-gray-500" />
+							<span className="text-[10px] text-gray-400 font-medium">
+								{ALL_NODES.filter((n) => n.status === "deprecated").length} deprecated
+							</span>
+						</div>
+					</div>
+				</div>
+
 				{/* Search */}
 				<div className="relative">
 					<Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-600" />
@@ -855,12 +898,12 @@ export function WorkingTreeView() {
 							setSearch(e.target.value)
 							setFilterStatus(null)
 						}}
-						className="w-full rounded border border-[#1e2535] bg-[#0f1117] py-1.5 pl-8 pr-3 text-xs text-gray-300 placeholder-gray-600 outline-none focus:border-violet-600/50"
+						className="w-full rounded-xl border border-[#1e2535] bg-[#0f1117] py-2 pl-8 pr-3 text-xs text-gray-300 placeholder-gray-600 outline-none focus:border-violet-600/50 transition-colors"
 					/>
 				</div>
 
 				{/* Status Filter */}
-				<div className="flex gap-1.5">
+				<div className="flex gap-1.5 flex-wrap">
 					{(["stable", "active", "experimental", "deprecated"] as const).map((s) => (
 						<button
 							key={s}
@@ -869,7 +912,7 @@ export function WorkingTreeView() {
 								setSearch("")
 							}}
 							className={cn(
-								"rounded px-2 py-1 text-[10px] font-medium transition-colors",
+								"rounded-lg px-2.5 py-1 text-[10px] font-medium transition-colors",
 								filterStatus === s
 									? statusColor[s]
 									: "border border-[#1e2535] text-gray-500 hover:border-gray-600 hover:text-gray-400",
@@ -880,20 +923,27 @@ export function WorkingTreeView() {
 				</div>
 
 				{/* Tree */}
-				<div className="space-y-0.5">
-					{filteredTree.map((root) => (
-						<TreeNode key={root.id} node={root} selected={selected} onSelect={setSelected} />
-					))}
+				<div className="space-y-0.5 rounded-xl border border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] p-1.5">
+					{filteredTree.length === 0 ? (
+						<div className="py-8 text-center">
+							<Search className="mx-auto h-6 w-6 text-gray-700" />
+							<p className="mt-2 text-xs text-gray-600">No modules match your search</p>
+						</div>
+					) : (
+						filteredTree.map((root) => (
+							<TreeNode key={root.id} node={root} selected={selected} onSelect={setSelected} />
+						))
+					)}
 				</div>
 
 				{/* Commit & Deploy Log Toggle */}
 				<button
 					onClick={() => setShowCommitLog(!showCommitLog)}
 					className={cn(
-						"flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors",
+						"flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs transition-colors border border-[#1e2535]",
 						showCommitLog
-							? "bg-violet-600/15 text-violet-300"
-							: "text-gray-400 hover:bg-[#1e2535] hover:text-gray-200",
+							? "bg-violet-600/15 text-violet-300 border-violet-600/30"
+							: "bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] text-gray-400 hover:border-gray-600 hover:text-gray-200",
 					)}>
 					{showCommitLog ? (
 						<ChevronDown className="h-3 w-3 shrink-0 text-gray-600" />
@@ -912,10 +962,10 @@ export function WorkingTreeView() {
 				{selectedNode ? (
 					<div className="space-y-4">
 						{/* Header */}
-						<Card>
+						<Card className="border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a]">
 							<div className="flex items-start justify-between gap-4">
 								<div className="flex items-center gap-3">
-									<div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-600/15 text-violet-400">
+									<div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-600/15 text-violet-400 ring-1 ring-violet-600/20">
 										{selectedNode.icon}
 									</div>
 									<div>
@@ -942,7 +992,7 @@ export function WorkingTreeView() {
 										{selectedNode.features.map((f) => (
 											<span
 												key={f}
-												className="inline-flex items-center gap-1 rounded bg-violet-600/10 px-2 py-0.5 text-[10px] font-medium text-violet-400">
+												className="inline-flex items-center gap-1 rounded-lg bg-violet-600/10 px-2.5 py-1 text-[10px] font-medium text-violet-400 ring-1 ring-violet-600/20">
 												<Zap className="h-3 w-3" />
 												{f}
 											</span>
@@ -957,16 +1007,19 @@ export function WorkingTreeView() {
 
 						{/* Children */}
 						{selectedNode.children && selectedNode.children.length > 0 && (
-							<Card>
-								<div className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-gray-600">
-									Sub-modules ({selectedNode.children.length})
+							<Card className="border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a]">
+								<div className="flex items-center gap-2 mb-3">
+									<GitFork className="h-3.5 w-3.5 text-violet-400" />
+									<span className="text-[10px] font-semibold uppercase tracking-widest text-gray-600">
+										Sub-modules ({selectedNode.children.length})
+									</span>
 								</div>
 								<div className="grid grid-cols-2 gap-2">
 									{selectedNode.children.map((child) => (
 										<button
 											key={child.id}
 											onClick={() => setSelected(child.id)}
-											className="rounded-lg border border-[#1e2535] bg-[#0a0e1a] p-3 text-left transition-colors hover:border-violet-600/30 hover:bg-violet-600/5">
+											className="rounded-xl border border-[#1e2535] bg-gradient-to-b from-[#0a0e1a] to-[#080c14] p-3 text-left transition-all hover:border-violet-600/30 hover:bg-violet-600/5 hover:shadow-lg hover:shadow-violet-600/5">
 											<div className="flex items-center gap-2">
 												<span className="text-violet-400">{child.icon}</span>
 												<span className="text-xs font-medium text-gray-300">{child.label}</span>
@@ -988,7 +1041,7 @@ export function WorkingTreeView() {
 					</div>
 				) : (
 					<div className="flex h-full items-center justify-center">
-						<div className="text-center">
+						<div className="text-center rounded-xl border border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] p-12">
 							<Workflow className="mx-auto h-12 w-12 text-gray-700" />
 							<p className="mt-3 text-sm text-gray-600">Select a module from the tree</p>
 							<p className="mt-1 text-[11px] text-gray-700">
