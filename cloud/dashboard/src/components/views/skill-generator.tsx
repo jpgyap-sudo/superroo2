@@ -322,7 +322,7 @@ function SkillCard({ skill }: { skill: ExistingSkill }) {
 
 function RecommendationCard({ rec }: { rec: RecommendedSkill }) {
 	return (
-		<Card className="border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] transition-all hover:border-[#2a3550]">
+		<Card className="group border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] transition-all hover:border-[#2a3550]">
 			<div className="flex items-start gap-3">
 				<div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#1e2535] text-gray-400">
 					{rec.icon}
@@ -348,7 +348,7 @@ function RecommendationCard({ rec }: { rec: RecommendedSkill }) {
 						</span>
 					</div>
 				</div>
-				<button className="shrink-0 rounded border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] text-emerald-400 opacity-0 transition-all hover:bg-emerald-500/20 group-hover:opacity-100">
+				<button className="shrink-0 rounded border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] text-emerald-400 transition-all hover:bg-emerald-500/20">
 					<Plus className="mr-1 inline h-3 w-3" />
 					Generate
 				</button>
@@ -563,19 +563,25 @@ export function SkillGeneratorView() {
 			{/* ── Tab: Recommendations ── */}
 			{activeTab === "recommendations" && (
 				<div className="space-y-4">
-					<Card className="border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a]">
-						<div className="flex items-start gap-3">
-							<Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-cyan-400" />
-							<div>
-								<h3 className="text-sm font-semibold text-[#e2e8f0]">AI-Powered Recommendations</h3>
-								<p className="mt-0.5 text-[11px] leading-relaxed text-gray-500">
-									Based on analysis of the current skill library, project structure, and common
-									development patterns, these skills would fill critical gaps in SuperRoo's
-									capabilities. Click <strong>Generate</strong> to create a draft skill file.
-								</p>
+					<div className="flex items-center justify-between">
+						<Card className="flex-1 border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a]">
+							<div className="flex items-start gap-3">
+								<Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-cyan-400" />
+								<div>
+									<h3 className="text-sm font-semibold text-[#e2e8f0]">AI-Powered Recommendations</h3>
+									<p className="mt-0.5 text-[11px] leading-relaxed text-gray-500">
+										Based on analysis of the current skill library, project structure, and common
+										development patterns, these skills would fill critical gaps in SuperRoo's
+										capabilities. Click <strong>Generate</strong> to create a draft skill file.
+									</p>
+								</div>
 							</div>
-						</div>
-					</Card>
+						</Card>
+						<button className="ml-3 flex shrink-0 items-center gap-1.5 rounded border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[11px] font-medium text-emerald-400 transition-all hover:bg-emerald-500/20">
+							<Zap className="h-3.5 w-3.5" />
+							Generate All
+						</button>
+					</div>
 
 					<div className="space-y-2">
 						{RECOMMENDED_SKILLS.map((rec) => (
@@ -621,6 +627,32 @@ export function SkillGeneratorView() {
 							</button>
 						</div>
 					</div>
+
+					{/* Draft Summary Bar */}
+					{drafts.length > 0 && (
+						<Card className="border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a]">
+							<div className="flex items-center gap-4 text-[11px] text-gray-500">
+								<span className="font-medium text-gray-400">Summary:</span>
+								<span className="inline-flex items-center gap-1">
+									<span className="inline-block h-2 w-2 rounded-full bg-amber-400" />{" "}
+									{pendingDrafts.length} pending
+								</span>
+								<span className="inline-flex items-center gap-1">
+									<span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />{" "}
+									{approvedDrafts.length} approved
+								</span>
+								<span className="inline-flex items-center gap-1">
+									<span className="inline-block h-2 w-2 rounded-full bg-red-400" />{" "}
+									{drafts.filter((d) => d.status === "rejected").length} rejected
+								</span>
+								<span className="ml-auto text-gray-600">
+									{drafts.filter((d) => d.type === "skill").length} skills ·{" "}
+									{drafts.filter((d) => d.type === "workflow").length} workflows ·{" "}
+									{drafts.filter((d) => d.type === "resource").length} resources
+								</span>
+							</div>
+						</Card>
+					)}
 
 					{drafts.length === 0 ? (
 						<Card className="border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a]">
