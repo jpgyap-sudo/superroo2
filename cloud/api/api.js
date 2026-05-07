@@ -645,6 +645,42 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// Jobs summary
+		if (method === "GET" && (url === "/jobs/summary" || normalizedUrl === "/jobs/summary")) {
+			try {
+				const counts = await getJobCounts()
+				const totalJobs = counts.total
+				const running = counts.active
+				const completed = counts.completed
+				const failed = counts.failed
+				const queued = counts.waiting + counts.delayed
+				const successRate = completed + failed > 0 ? Math.round((completed / (completed + failed)) * 100) : 100
+				sendJson(res, 200, {
+					totalJobs,
+					running,
+					completed,
+					failed,
+					queued,
+					successRate,
+					aiCostToday: 0,
+					systemHealth: failed > 10 ? "Degraded" : "Healthy",
+				})
+			} catch (err) {
+				console.error("[api] Error getting jobs summary:", err.message)
+				sendJson(res, 200, {
+					totalJobs: 0,
+					running: 0,
+					completed: 0,
+					failed: 0,
+					queued: 0,
+					successRate: 100,
+					aiCostToday: 0,
+					systemHealth: "Unknown",
+				})
+			}
+			return
+		}
+
 		// List jobs
 		if (method === "GET" && (url.startsWith("/jobs") || normalizedUrl.startsWith("/jobs"))) {
 			const urlObj = new URL(url, `http://localhost:${PORT}`)
