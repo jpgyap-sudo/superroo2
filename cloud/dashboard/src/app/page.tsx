@@ -9,6 +9,7 @@ import { QueueView } from "@/components/views/queue"
 import { AgentsView } from "@/components/views/agents"
 import { AiAssistantView } from "@/components/views/ai-assistant"
 import { SkillGeneratorView } from "@/components/views/skill-generator"
+import { BugsView } from "@/components/views/bugs"
 import { LogsView } from "@/components/views/logs"
 import { DockerView } from "@/components/views/docker"
 import { WorkingTreeView } from "@/components/views/working-tree"
@@ -26,6 +27,7 @@ const PAGES: Record<string, React.FC> = {
 	jobs: JobsView,
 	queue: QueueView,
 	agents: AgentsView,
+	bugs: BugsView,
 	"skill-generator": SkillGeneratorView,
 	logs: LogsView,
 	docker: DockerView,
@@ -116,6 +118,7 @@ export default function Dashboard() {
 			jobs: "Jobs",
 			queue: "Queue",
 			agents: "Agents",
+			bugs: "Bugs",
 			"skill-generator": "Skill Generator",
 			logs: "Logs",
 			docker: "Docker Sandbox",
