@@ -17,6 +17,7 @@ import { SettingsView } from "@/components/views/settings"
 import { GitHubView } from "@/components/views/github"
 import ModelRouterView from "@/components/views/model-router"
 import IdeTerminalView from "@/components/views/ide-terminal"
+import { ProjectsView } from "@/components/views/projects"
 import { LoginPage } from "@/components/auth/login"
 
 const PAGES: Record<string, React.FC> = {
@@ -34,6 +35,7 @@ const PAGES: Record<string, React.FC> = {
 	"model-router": ModelRouterView,
 	github: GitHubView,
 	"ide-terminal": IdeTerminalView,
+	projects: ProjectsView,
 }
 
 function StatusDot({ online }: { online: boolean }) {
@@ -122,6 +124,7 @@ export default function Dashboard() {
 			ai: "AI Assistant",
 			github: "GitHub",
 			"ide-terminal": "IDE Terminal",
+			projects: "Projects",
 		}[page] || page
 
 	// Show login page while checking auth or if not authenticated
