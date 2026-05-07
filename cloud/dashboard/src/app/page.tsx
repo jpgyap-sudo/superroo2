@@ -39,7 +39,7 @@ const PAGES: Record<string, React.FC> = {
 function StatusDot({ online }: { online: boolean }) {
 	return (
 		<div
-			className="h-[7px] w-[7px] rounded-full"
+			className="h-[7px] w-[7px] rounded-full shrink-0"
 			style={{
 				background: online ? "#22c55e" : "#ef4444",
 				boxShadow: online ? "0 0 6px #22c55e" : "none",
@@ -68,6 +68,15 @@ export default function Dashboard() {
 			setAuthenticated(true)
 		} else {
 			setAuthenticated(false)
+		}
+	}, [])
+
+	// Register service worker for PWA
+	useEffect(() => {
+		if ("serviceWorker" in navigator) {
+			navigator.serviceWorker.register("/sw.js").catch(() => {
+				// Service worker registration failed — non-critical
+			})
 		}
 	}, [])
 
@@ -132,10 +141,10 @@ export default function Dashboard() {
 		<div className="flex h-screen overflow-hidden bg-[#070b14] text-[#e2e8f0]">
 			<Sidebar page={page} setPage={setPage} />
 
-			<div className="flex flex-1 flex-col overflow-hidden">
-				{/* Header */}
-				<div className="flex h-12 shrink-0 items-center gap-4 border-b border-[#1e2535] bg-[#0a0e1a] px-5">
-					<div className="flex items-center gap-3">
+			<div className="flex flex-1 flex-col overflow-hidden min-w-0">
+				{/* Header — responsive: hide status dots on very small screens */}
+				<div className="flex h-12 shrink-0 items-center gap-4 border-b border-[#1e2535] bg-[#0a0e1a] px-5 md:px-5 pl-14 md:pl-5">
+					<div className="flex items-center gap-3 max-sm:hidden">
 						<div className="flex items-center gap-1.5">
 							<StatusDot online={health?.status === "online"} />
 							<span className="text-[11px] text-gray-500">API</span>
@@ -159,10 +168,10 @@ export default function Dashboard() {
 					</div>
 				</div>
 
-				{/* Content */}
-				<div className="flex-1 overflow-y-auto p-5">
+				{/* Content — responsive padding */}
+				<div className="flex-1 overflow-y-auto p-3 sm:p-5">
 					<div className="mb-4 flex items-center justify-between">
-						<h1 className="text-lg font-semibold">{pageLabel}</h1>
+						<h1 className="text-base sm:text-lg font-semibold">{pageLabel}</h1>
 					</div>
 					<PageComponent />
 				</div>

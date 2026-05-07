@@ -48,11 +48,16 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
 	}
 
 	return (
-		<div className="flex h-screen items-center justify-center bg-[#070b14]">
+		<div className="flex min-h-screen items-center justify-center bg-[#070b14] px-4">
 			<form
 				onSubmit={handleSubmit}
-				className="w-full max-w-sm rounded-xl border border-[#1e2535] bg-[#0a0e1a] p-8 shadow-2xl">
+				className="w-full max-w-sm rounded-xl border border-[#1e2535] bg-[#0a0e1a] p-6 sm:p-8 shadow-2xl">
 				<div className="mb-6 text-center">
+					<div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-violet-600/20 text-violet-400">
+						<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+							<path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+						</svg>
+					</div>
 					<h1 className="text-xl font-semibold text-[#e2e8f0]">SuperRoo Dashboard</h1>
 					<p className="mt-1 text-sm text-gray-500">Sign in with your email</p>
 				</div>
@@ -65,7 +70,9 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
 							value={email}
 							onChange={(e) => setEmail(e.target.value)}
 							placeholder="you@email.com"
-							className="w-full rounded-lg border border-[#1e2535] bg-[#0f1117] px-3 py-2 text-sm text-[#e2e8f0] placeholder-gray-600 outline-none focus:border-[#3b82f6] focus:ring-1 focus:ring-[#3b82f6]"
+							autoComplete="email"
+							autoFocus
+							className="w-full rounded-lg border border-[#1e2535] bg-[#0f1117] px-3 py-2.5 sm:py-2 text-sm text-[#e2e8f0] placeholder-gray-600 outline-none focus:border-[#3b82f6] focus:ring-1 focus:ring-[#3b82f6]"
 							required
 						/>
 					</div>
@@ -79,10 +86,12 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
 					<button
 						type="submit"
 						disabled={loading}
-						className="w-full rounded-lg bg-[#3b82f6] px-4 py-2 text-sm font-medium text-white hover:bg-[#2563eb] disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+						className="w-full rounded-lg bg-[#3b82f6] px-4 py-2.5 sm:py-2 text-sm font-medium text-white hover:bg-[#2563eb] disabled:opacity-50 disabled:cursor-not-allowed transition-colors active:scale-[0.98]">
 						{loading ? "Signing in..." : "Sign In"}
 					</button>
 				</div>
+
+				<p className="mt-6 text-center text-[10px] text-gray-700">SuperRoo Cloud Dashboard v2.0.0</p>
 			</form>
 		</div>
 	)

@@ -23,6 +23,7 @@ module.exports = {
 				REDIS_URL: "redis://127.0.0.1:6379",
 				SUPERROO_QUEUE_NAME: "superroo-jobs",
 				API_PORT: "8787",
+				SUPERROO_VAULT_KEY: "D16PFwmjzXtmpEfFSYrAepsaveOB+fLuneeuQrvTYVw=",
 			},
 			log_file: "/opt/superroo2/cloud/logs/api-combined.log",
 			out_file: "/opt/superroo2/cloud/logs/api-out.log",
