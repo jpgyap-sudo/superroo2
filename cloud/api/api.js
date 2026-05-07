@@ -1498,7 +1498,15 @@ const server = http.createServer(async (req, res) => {
 
 		// POST /ide-workspace/terminal/execute — execute command
 		if (method === "POST" && normalizedUrl.startsWith("/ide-workspace/terminal/execute")) {
-			sendJson(res, 200, { ok: true, message: "Command executed (simulated)" })
+			sendJson(res, 200, {
+				ok: true,
+				message: "Command executed (simulated)",
+				output: [
+					`$ ${body?.command || "unknown"}`,
+					"stdout: Command completed successfully (simulated)",
+					"stderr: (empty)",
+				],
+			})
 			return
 		}
 
@@ -1510,13 +1518,49 @@ const server = http.createServer(async (req, res) => {
 
 		// POST /ide-workspace/chat — send chat message
 		if (method === "POST" && normalizedUrl.startsWith("/ide-workspace/chat")) {
-			sendJson(res, 200, { ok: true, message: "Message received (simulated)" })
+			const msg = body?.message || ""
+			sendJson(res, 200, {
+				ok: true,
+				message: "Message received (simulated)",
+				reply: `I received your message: "${msg.substring(0, 100)}". This is a simulated response — the AI backend is not yet connected.`,
+			})
 			return
 		}
 
 		// PATCH /ide-workspace/pipeline — update pipeline step
 		if (method === "PATCH" && normalizedUrl.startsWith("/ide-workspace/pipeline")) {
-			sendJson(res, 200, { ok: true, message: "Pipeline updated (simulated)" })
+			const stepId = body?.stepId || "unknown"
+			const action = body?.action || "unknown"
+			sendJson(res, 200, {
+				ok: true,
+				message: `Pipeline step "${stepId}" updated with action "${action}" (simulated)`,
+			})
+			return
+		}
+
+		// POST /ide-workspace/workspace/import-github — import GitHub repo
+		if (method === "POST" && normalizedUrl.startsWith("/ide-workspace/workspace/import-github")) {
+			const repoUrl = body?.repoUrl || ""
+			const branch = body?.branch || "main"
+			sendJson(res, 200, {
+				ok: true,
+				message: `Repository ${repoUrl} (branch: ${branch}) imported (simulated)`,
+				repoName: repoUrl.split("/").pop()?.replace(".git", "") || "imported-repo",
+				branch,
+				files: [
+					{
+						path: "/src",
+						name: "src",
+						kind: "folder",
+						children: [
+							{ path: "/src/index.ts", name: "index.ts", kind: "file" },
+							{ path: "/src/app.ts", name: "app.ts", kind: "file", modified: true },
+						],
+					},
+					{ path: "/package.json", name: "package.json", kind: "file" },
+					{ path: "/tsconfig.json", name: "tsconfig.json", kind: "file" },
+				],
+			})
 			return
 		}
 

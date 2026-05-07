@@ -240,7 +240,7 @@ export default function IdeTerminalView() {
 		setSending(true)
 
 		try {
-			const result = await api<{ ok: boolean; reply?: string }>("/chat", {
+			const result = await api<{ ok: boolean; message?: string; reply?: string }>("/chat", {
 				method: "POST",
 				body: JSON.stringify({
 					message: text,
@@ -248,13 +248,14 @@ export default function IdeTerminalView() {
 				}),
 			})
 
+			const replyText = result.reply || result.message || "Message received. Processing your request..."
 			const assistantMsg: ChatMessage = {
 				id: `msg-${Date.now() + 1}`,
 				role: "agent",
 				author: "Kimi",
 				meta: "coder · conf 92%",
 				time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-				content: result.reply || "Message received. Processing your request...",
+				content: replyText,
 			}
 			setMessages((prev) => [...prev, assistantMsg])
 		} catch (err) {
@@ -342,12 +343,14 @@ export default function IdeTerminalView() {
 		setTerminalInput("")
 
 		try {
-			const result = await api<{ ok: boolean; output?: string[] }>("/terminal/execute", {
+			const result = await api<{ ok: boolean; output?: string[]; message?: string }>("/terminal/execute", {
 				method: "POST",
 				body: JSON.stringify({ command: cmd, terminalId: "term-1" }),
 			})
 			if (result.output?.length) {
 				setTerminalOutput((prev) => [...prev, ...result.output!])
+			} else if (result.message) {
+				setTerminalOutput((prev) => [...prev, result.message!])
 			} else {
 				setTerminalOutput((prev) => [...prev, `Command executed: ${cmd}`])
 			}
@@ -386,18 +389,39 @@ export default function IdeTerminalView() {
 	const handleImport = useCallback(async () => {
 		if (!importUrl.trim()) return
 		try {
-			await api("/workspace/import-github", {
+			const result = await api<{
+				ok: boolean
+				repoName?: string
+				branch?: string
+				files?: WorkspaceFile[]
+				message?: string
+			}>("/workspace/import-github", {
 				method: "POST",
 				body: JSON.stringify({ repoUrl: importUrl, branch: "main" }),
 			})
 			setShowImport(false)
 			setImportUrl("")
-			const data = await api<{ repoName: string; branch: string; files: WorkspaceFile[] }>("/workspace")
-			if (data.repoName) setRepoName(data.repoName)
-			if (data.branch) setBranch(data.branch)
-			if (data.files?.length) setFiles(data.files)
+			if (result.repoName) setRepoName(result.repoName)
+			if (result.files?.length) setFiles(result.files)
+			// Add a system message about the import
+			const importMsg: ChatMessage = {
+				id: `msg-${Date.now()}`,
+				role: "agent",
+				author: "System",
+				time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+				content: result.message || `Repository imported: ${importUrl}`,
+			}
+			setMessages((prev) => [...prev, importMsg])
 		} catch (err) {
 			console.error("Import failed:", err)
+			const errorMsg: ChatMessage = {
+				id: `msg-${Date.now()}`,
+				role: "assistant",
+				author: "System",
+				time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+				content: `Import failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+			}
+			setMessages((prev) => [...prev, errorMsg])
 		}
 	}, [importUrl])
 
