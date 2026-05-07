@@ -152,6 +152,33 @@ const EXISTING_SKILLS: ExistingSkill[] = [
 		status: "active",
 		lines: 328,
 	},
+	{
+		id: "supabase",
+		name: "Supabase",
+		description: "Integrate Supabase (PostgreSQL, Auth, Realtime, Storage, Edge Functions) into SuperRoo apps",
+		emoji: "🔥",
+		category: "integration",
+		status: "active",
+		lines: 328,
+	},
+	{
+		id: "vercel",
+		name: "Vercel",
+		description: "Deploy and integrate Vercel (Next.js, Edge Functions, Serverless, Analytics, ISR) into SuperRoo apps",
+		emoji: "▲",
+		category: "deployment",
+		status: "active",
+		lines: 328,
+	},
+	{
+		id: "digitalocean-vps",
+		name: "DigitalOcean VPS",
+		description: "Deploy, manage, and maintain applications on DigitalOcean Droplets (VPS)",
+		emoji: "🐳",
+		category: "deployment",
+		status: "active",
+		lines: 328,
+	},
 ]
 
 const RECOMMENDED_SKILLS: RecommendedSkill[] = [
