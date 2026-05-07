@@ -1498,11 +1498,12 @@ const server = http.createServer(async (req, res) => {
 
 		// POST /ide-workspace/terminal/execute — execute command
 		if (method === "POST" && normalizedUrl.startsWith("/ide-workspace/terminal/execute")) {
+			const data = await parseBody(req)
 			sendJson(res, 200, {
 				ok: true,
 				message: "Command executed (simulated)",
 				output: [
-					`$ ${body?.command || "unknown"}`,
+					`$ ${data?.command || "unknown"}`,
 					"stdout: Command completed successfully (simulated)",
 					"stderr: (empty)",
 				],
@@ -1518,7 +1519,8 @@ const server = http.createServer(async (req, res) => {
 
 		// POST /ide-workspace/chat — send chat message
 		if (method === "POST" && normalizedUrl.startsWith("/ide-workspace/chat")) {
-			const msg = body?.message || ""
+			const data = await parseBody(req)
+			const msg = data?.message || ""
 			sendJson(res, 200, {
 				ok: true,
 				message: "Message received (simulated)",
@@ -1529,8 +1531,9 @@ const server = http.createServer(async (req, res) => {
 
 		// PATCH /ide-workspace/pipeline — update pipeline step
 		if (method === "PATCH" && normalizedUrl.startsWith("/ide-workspace/pipeline")) {
-			const stepId = body?.stepId || "unknown"
-			const action = body?.action || "unknown"
+			const data = await parseBody(req)
+			const stepId = data?.stepId || "unknown"
+			const action = data?.action || "unknown"
 			sendJson(res, 200, {
 				ok: true,
 				message: `Pipeline step "${stepId}" updated with action "${action}" (simulated)`,
@@ -1540,8 +1543,9 @@ const server = http.createServer(async (req, res) => {
 
 		// POST /ide-workspace/workspace/import-github — import GitHub repo
 		if (method === "POST" && normalizedUrl.startsWith("/ide-workspace/workspace/import-github")) {
-			const repoUrl = body?.repoUrl || ""
-			const branch = body?.branch || "main"
+			const data = await parseBody(req)
+			const repoUrl = data?.repoUrl || ""
+			const branch = data?.branch || "main"
 			sendJson(res, 200, {
 				ok: true,
 				message: `Repository ${repoUrl} (branch: ${branch}) imported (simulated)`,
