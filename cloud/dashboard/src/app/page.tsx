@@ -13,6 +13,7 @@ import { BugsView } from "@/components/views/bugs"
 import { LogsView } from "@/components/views/logs"
 import { DockerView } from "@/components/views/docker"
 import { WorkingTreeView } from "@/components/views/working-tree"
+import { ApprovalsView } from "@/components/views/approvals"
 import { ApiKeysView } from "@/components/views/api-keys"
 import { SettingsView } from "@/components/views/settings"
 import { GitHubView } from "@/components/views/github"
@@ -31,6 +32,7 @@ const PAGES: Record<string, React.FC> = {
 	"skill-generator": SkillGeneratorView,
 	logs: LogsView,
 	docker: DockerView,
+	approvals: ApprovalsView,
 	"api-keys": ApiKeysView,
 	settings: SettingsView,
 	ai: AiAssistantView,
@@ -122,6 +124,7 @@ export default function Dashboard() {
 			"skill-generator": "Skill Generator",
 			logs: "Logs",
 			docker: "Docker Sandbox",
+			approvals: "Approvals",
 			"api-keys": "API Keys",
 			settings: "Settings",
 			ai: "AI Assistant",
