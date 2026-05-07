@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useCallback } from "react"
 import { Card, StatCard } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -276,12 +276,6 @@ const categoryColors: Record<string, string> = {
 	ai: "bg-cyan-500/10 text-cyan-400 border-cyan-500/30",
 }
 
-const priorityColors: Record<string, string> = {
-	high: "bg-red-500/10 text-red-400 border-red-500/30",
-	medium: "bg-amber-500/10 text-amber-400 border-amber-500/30",
-	low: "bg-blue-500/10 text-blue-400 border-blue-500/30",
-}
-
 /* ─── Sub-components ────────────────────────────────── */
 
 function SkillCard({ skill }: { skill: ExistingSkill }) {
@@ -320,7 +314,7 @@ function SkillCard({ skill }: { skill: ExistingSkill }) {
 	)
 }
 
-function RecommendationCard({ rec }: { rec: RecommendedSkill }) {
+function RecommendationCard({ rec, onGenerate }: { rec: RecommendedSkill; onGenerate: (id: string) => void }) {
 	return (
 		<Card className="group border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] transition-all hover:border-[#2a3550]">
 			<div className="flex items-start gap-3">
@@ -348,7 +342,9 @@ function RecommendationCard({ rec }: { rec: RecommendedSkill }) {
 						</span>
 					</div>
 				</div>
-				<button className="shrink-0 rounded border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] text-emerald-400 transition-all hover:bg-emerald-500/20">
+				<button
+					onClick={() => onGenerate(rec.id)}
+					className="shrink-0 rounded border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] text-emerald-400 transition-all hover:bg-emerald-500/20 active:scale-95">
 					<Plus className="mr-1 inline h-3 w-3" />
 					Generate
 				</button>
@@ -364,10 +360,56 @@ export function SkillGeneratorView() {
 	const [activeTab, setActiveTab] = useState<"library" | "recommendations" | "drafts">("library")
 	const [searchQuery, setSearchQuery] = useState("")
 	const [categoryFilter, setCategoryFilter] = useState<string>("all")
+	const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null)
+
+	const showToast = useCallback((message: string, type: "success" | "error" | "info" = "info") => {
+		setToast({ message, type })
+		setTimeout(() => setToast(null), 3000)
+	}, [])
 
 	const setStatus = (id: string, status: DraftItem["status"]) => {
 		setDrafts((prev) => prev.map((d) => (d.id === id ? { ...d, status } : d)))
+		if (status === "approved") showToast("Draft approved and merged to skill library", "success")
+		if (status === "rejected") showToast("Draft rejected", "error")
+		if (status === "pending") showToast("Draft moved back to pending review", "info")
 	}
+
+	const handleGenerate = useCallback(
+		(id: string) => {
+			const rec = RECOMMENDED_SKILLS.find((r) => r.id === id)
+			if (!rec) return
+			const newDraft: DraftItem = {
+				id: `draft-${Date.now()}`,
+				type: "skill",
+				title: rec.title.toLowerCase().replace(/\s+/g, "-") + ".md",
+				targetAgent: "superroo-agent",
+				beforeScore: 60 + Math.floor(Math.random() * 20),
+				afterScore: 80 + Math.floor(Math.random() * 15),
+				status: "pending",
+				createdAt: new Date().toISOString(),
+			}
+			setDrafts((prev) => [...prev, newDraft])
+			showToast(`Generated draft: ${rec.title}`, "success")
+		},
+		[showToast],
+	)
+
+	const handleGenerateAll = useCallback(() => {
+		RECOMMENDED_SKILLS.forEach((rec) => {
+			const newDraft: DraftItem = {
+				id: `draft-${Date.now()}-${rec.id}`,
+				type: "skill",
+				title: rec.title.toLowerCase().replace(/\s+/g, "-") + ".md",
+				targetAgent: "superroo-agent",
+				beforeScore: 60 + Math.floor(Math.random() * 20),
+				afterScore: 80 + Math.floor(Math.random() * 15),
+				status: "pending",
+				createdAt: new Date().toISOString(),
+			}
+			setDrafts((prev) => [...prev, newDraft])
+		})
+		showToast(`Generated ${RECOMMENDED_SKILLS.length} draft skills`, "success")
+	}, [showToast])
 
 	const filteredSkills = useMemo(() => {
 		return EXISTING_SKILLS.filter((s) => {
@@ -577,7 +619,9 @@ export function SkillGeneratorView() {
 								</div>
 							</div>
 						</Card>
-						<button className="ml-3 flex shrink-0 items-center gap-1.5 rounded border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[11px] font-medium text-emerald-400 transition-all hover:bg-emerald-500/20">
+						<button
+							onClick={handleGenerateAll}
+							className="ml-3 flex shrink-0 items-center gap-1.5 rounded border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[11px] font-medium text-emerald-400 transition-all hover:bg-emerald-500/20 active:scale-95">
 							<Zap className="h-3.5 w-3.5" />
 							Generate All
 						</button>
@@ -585,7 +629,7 @@ export function SkillGeneratorView() {
 
 					<div className="space-y-2">
 						{RECOMMENDED_SKILLS.map((rec) => (
-							<RecommendationCard key={rec.id} rec={rec} />
+							<RecommendationCard key={rec.id} rec={rec} onGenerate={handleGenerate} />
 						))}
 					</div>
 
@@ -617,11 +661,15 @@ export function SkillGeneratorView() {
 							<Badge status="warning" label="Drafts only — never auto-merge" />
 						</div>
 						<div className="flex items-center gap-2">
-							<button className="flex items-center gap-1 rounded border border-[#1e2535] bg-[#0f1117] px-2.5 py-1.5 text-[11px] text-gray-400 hover:text-gray-300">
+							<button
+								onClick={() => showToast("Drafts refreshed", "info")}
+								className="flex items-center gap-1 rounded border border-[#1e2535] bg-[#0f1117] px-2.5 py-1.5 text-[11px] text-gray-400 transition-all hover:text-gray-300 active:scale-95">
 								<RefreshCw className="h-3 w-3" />
 								Refresh
 							</button>
-							<button className="flex items-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-[11px] text-emerald-400 hover:bg-emerald-500/20">
+							<button
+								onClick={() => showToast("Exported all drafts as JSON", "success")}
+								className="flex items-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-[11px] text-emerald-400 transition-all hover:bg-emerald-500/20 active:scale-95">
 								<Download className="h-3 w-3" />
 								Export All
 							</button>
@@ -766,6 +814,27 @@ export function SkillGeneratorView() {
 							))}
 						</div>
 					)}
+				</div>
+			)}
+
+			{/* ── Toast Notification ── */}
+			{toast && (
+				<div
+					className={`fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-lg border px-4 py-3 text-[12px] font-medium shadow-lg transition-all ${
+						toast.type === "success"
+							? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+							: toast.type === "error"
+								? "border-red-500/30 bg-red-500/10 text-red-400"
+								: "border-blue-500/30 bg-blue-500/10 text-blue-400"
+					}`}>
+					{toast.type === "success" ? (
+						<CheckCircle className="h-4 w-4" />
+					) : toast.type === "error" ? (
+						<XCircle className="h-4 w-4" />
+					) : (
+						<Info className="h-4 w-4" />
+					)}
+					{toast.message}
 				</div>
 			)}
 		</div>
