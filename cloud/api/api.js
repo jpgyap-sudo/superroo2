@@ -1455,6 +1455,25 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// ── Auth routes ───────────────────────────────────────────────────────
+
+		// POST /auth/login — authenticate by email only
+		if (method === "POST" && normalizedUrl === "/auth/login") {
+			const data = await parseBody(req)
+			const email = (data?.email || "").trim().toLowerCase()
+
+			if (email !== "jpgyap@gmail.com") {
+				sendJson(res, 403, { ok: false, error: "Access denied. Only jpgyap@gmail.com is allowed." })
+				return
+			}
+
+			// Simple token: base64 of email + timestamp
+			const token = Buffer.from(JSON.stringify({ email, ts: Date.now(), v: "1" })).toString("base64")
+
+			sendJson(res, 200, { ok: true, token, email })
+			return
+		}
+
 		// ── IDE Workspace routes ──────────────────────────────────────────────
 
 		// GET /ide-workspace/workspace — get or create workspace session

@@ -17,6 +17,7 @@ import { SettingsView } from "@/components/views/settings"
 import { GitHubView } from "@/components/views/github"
 import ModelRouterView from "@/components/views/model-router"
 import IdeTerminalView from "@/components/views/ide-terminal"
+import { LoginPage } from "@/components/auth/login"
 
 const PAGES: Record<string, React.FC> = {
 	overview: Overview,
@@ -51,12 +52,23 @@ export default function Dashboard() {
 	const [page, setPage] = useState("overview")
 	const [health, setHealth] = useState<any>(null)
 	const [time, setTime] = useState("")
+	const [authenticated, setAuthenticated] = useState<boolean | null>(null)
 
 	useEffect(() => {
 		const tick = () => setTime(new Date().toLocaleTimeString())
 		tick()
 		const iv = setInterval(tick, 1000)
 		return () => clearInterval(iv)
+	}, [])
+
+	// Check authentication on mount
+	useEffect(() => {
+		const token = localStorage.getItem("superroo_auth_token")
+		if (token) {
+			setAuthenticated(true)
+		} else {
+			setAuthenticated(false)
+		}
 	}, [])
 
 	// Listen for custom navigation events (e.g., from Settings → API Keys link)
@@ -102,6 +114,19 @@ export default function Dashboard() {
 			github: "GitHub",
 			"ide-terminal": "IDE Terminal",
 		}[page] || page
+
+	// Show login page while checking auth or if not authenticated
+	if (authenticated === null) {
+		return (
+			<div className="flex h-screen items-center justify-center bg-[#070b14]">
+				<div className="h-8 w-8 animate-spin rounded-full border-2 border-[#3b82f6] border-t-transparent" />
+			</div>
+		)
+	}
+
+	if (!authenticated) {
+		return <LoginPage onLogin={() => setAuthenticated(true)} />
+	}
 
 	return (
 		<div className="flex h-screen overflow-hidden bg-[#070b14] text-[#e2e8f0]">
