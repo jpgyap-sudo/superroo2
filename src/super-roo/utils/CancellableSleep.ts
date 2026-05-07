@@ -48,6 +48,11 @@ export class CancellableSleep {
 				resolve()
 			}
 
+			// Wake any previous pending sleep before overwriting to prevent orphaned promises
+			if (this.wakeFn) {
+				this.wakeFn()
+			}
+
 			this.wakeFn = wake
 		})
 	}

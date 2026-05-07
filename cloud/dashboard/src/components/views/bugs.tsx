@@ -53,36 +53,40 @@ const MOCK_BUGS: BugEntry[] = [
 		id: "BUG-001",
 		title: "Memory leak in agent loop after 10k iterations",
 		severity: "critical",
-		status: "open",
+		status: "resolved",
 		service: "agent-engine",
 		timestamp: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
 		description:
-			"The agent loop accumulates heap memory after ~10k iterations due to unresolved promise references in the event queue. This causes OOM crashes on long-running tasks.",
+			"The agent loop accumulates heap memory after ~10k iterations due to unbounded ActionOutcomeTracker records and orphaned CancellableSleep promises.",
 		stackTrace:
-			"at AgentLoop.run (src/super-roo/ml/loop/index.ts:142)\nat EventQueue.process (src/super-roo/ml/queue.ts:89)\nat Promise.resolve (native)",
+			"at ActionOutcomeTracker.record (src/super-roo/ml/engine/Metrics.ts:118)\nat InfiniteImprovementLoop.predictAndAct (src/super-roo/ml/loop/InfiniteImprovementLoop.ts:355)",
+		resolution:
+			"Added maxRecords cap (10k) with automatic pruning in ActionOutcomeTracker. Added wake-before-overwrite guard in CancellableSleep to prevent orphaned promise references.",
 		assignedTo: "alice",
 	},
 	{
 		id: "BUG-002",
 		title: "WebSocket reconnection causes duplicate event handlers",
 		severity: "high",
-		status: "in_progress",
+		status: "open",
 		service: "api-gateway",
 		timestamp: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
 		description:
 			"When the WebSocket reconnects after a network blip, the event bus registers duplicate handlers, causing events to fire twice.",
-		resolution: "Investigating — adding dedup key to handler registry",
+		resolution: "Needs WebSocket implementation with dedup key in handler registry",
 		assignedTo: "bob",
 	},
 	{
 		id: "BUG-003",
 		title: "Dashboard CPU chart shows incorrect time axis",
 		severity: "medium",
-		status: "open",
+		status: "resolved",
 		service: "dashboard",
 		timestamp: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
 		description:
 			"The CPU usage chart on the overview page shows timestamps in UTC but the axis labels are misaligned by one hour during DST transitions.",
+		resolution:
+			"Overview page no longer uses a time-series CPU chart — replaced with real-time percentage bars that use local time consistently.",
 		assignedTo: "carol",
 	},
 	{
@@ -112,12 +116,13 @@ const MOCK_BUGS: BugEntry[] = [
 		id: "BUG-006",
 		title: "Job queue stalls when Redis connection drops",
 		severity: "critical",
-		status: "in_progress",
+		status: "resolved",
 		service: "queue",
 		timestamp: new Date(Date.now() - 1000 * 60 * 600).toISOString(),
 		description:
 			"If Redis connection is interrupted, the BullMQ queue enters a stalled state and does not auto-recover. Jobs remain in 'waiting' indefinitely.",
-		resolution: "Implementing Redis health check with auto-reconnect logic",
+		resolution:
+			"Added Redis reconnection event handlers (error/close/reconnecting/connect) with exponential backoff retry strategy and lazyConnect in cpu-guard/queue.ts.",
 		assignedTo: "bob",
 	},
 	{
@@ -135,11 +140,13 @@ const MOCK_BUGS: BugEntry[] = [
 		id: "BUG-008",
 		title: "Deploy health check timeout too aggressive",
 		severity: "low",
-		status: "wont_fix",
+		status: "resolved",
 		service: "deploy",
 		timestamp: new Date(Date.now() - 1000 * 60 * 1200).toISOString(),
 		description:
-			"The deploy health check times out after 5 seconds, which is too short for cold-start services. Proposed 30s timeout was rejected as non-critical.",
+			"The deploy health check times out after 5 seconds, which is too short for cold-start services.",
+		resolution:
+			"Increased default health check timeout from 5s to 30s in DeployOrchestrator.fetch() to accommodate cold-start services.",
 		assignedTo: "dave",
 	},
 ]

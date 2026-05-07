@@ -114,6 +114,11 @@ export interface ActionOutcomeRecord {
 
 export class ActionOutcomeTracker {
 	private records: ActionOutcomeRecord[] = []
+	private readonly maxRecords: number
+
+	constructor(maxRecords = 10000) {
+		this.maxRecords = maxRecords
+	}
 
 	record(
 		predictionId: string,
@@ -130,6 +135,10 @@ export class ActionOutcomeTracker {
 			beforeScore,
 			afterScore,
 		})
+		// Prune oldest records when exceeding max to prevent memory leak
+		if (this.records.length > this.maxRecords) {
+			this.records = this.records.slice(-this.maxRecords)
+		}
 	}
 
 	/** Fraction of actions that improved the score (>0). */

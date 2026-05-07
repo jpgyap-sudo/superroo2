@@ -289,6 +289,7 @@ export class DeployOrchestrator {
 	}
 
 	private async fetch(url: string, opts: { timeout?: number } = {}): Promise<Response> {
-		return globalThis.fetch(url, { signal: AbortSignal.timeout(opts.timeout ?? 5000) })
+		// Use 30s default timeout to accommodate cold-start services
+		return globalThis.fetch(url, { signal: AbortSignal.timeout(opts.timeout ?? 30000) })
 	}
 }

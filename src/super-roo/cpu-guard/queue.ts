@@ -31,7 +31,32 @@ const QUEUE_NAME = process.env.AGENT_QUEUE_NAME ?? "superroo-agent-tasks"
 
 // ── Connection ───────────────────────────────────────────────────────────────
 
-export const connection = ioredisModule ? new ioredisModule.default(REDIS_URL, { maxRetriesPerRequest: null }) : null
+export const connection = ioredisModule
+	? new ioredisModule.default(REDIS_URL, {
+			maxRetriesPerRequest: null,
+			retryStrategy: (times: number) => {
+				// Exponential backoff: 1s, 2s, 4s, 8s ... capped at 30s
+				return Math.min(times * 1000, 30000)
+			},
+			lazyConnect: true,
+		})
+	: null
+
+// Attach reconnection event handlers to prevent permanent stall on connection drop
+if (connection) {
+	connection.on("error", (err: Error) => {
+		console.error("[QUEUE] Redis connection error:", err.message)
+	})
+	connection.on("close", () => {
+		console.warn("[QUEUE] Redis connection closed — will auto-reconnect with backoff")
+	})
+	connection.on("reconnecting", () => {
+		console.info("[QUEUE] Redis reconnecting...")
+	})
+	connection.on("connect", () => {
+		console.info("[QUEUE] Redis connected")
+	})
+}
 
 // ── Queue ────────────────────────────────────────────────────────────────────
 
