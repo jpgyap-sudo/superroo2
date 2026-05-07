@@ -20,6 +20,7 @@ import { GitHubView } from "@/components/views/github"
 import ModelRouterView from "@/components/views/model-router"
 import IdeTerminalView from "@/components/views/ide-terminal"
 import { ProjectsView } from "@/components/views/projects"
+import { TelegramView } from "@/components/views/telegram"
 import { LoginPage } from "@/components/auth/login"
 
 const PAGES: Record<string, React.FC> = {
@@ -40,6 +41,7 @@ const PAGES: Record<string, React.FC> = {
 	github: GitHubView,
 	"ide-terminal": IdeTerminalView,
 	projects: ProjectsView,
+	telegram: TelegramView,
 }
 
 function StatusDot({ online }: { online: boolean }) {
@@ -131,6 +133,7 @@ export default function Dashboard() {
 			github: "GitHub",
 			"ide-terminal": "IDE Terminal",
 			projects: "Projects",
+			telegram: "Telegram",
 		}[page] || page
 
 	// Show login page while checking auth or if not authenticated
