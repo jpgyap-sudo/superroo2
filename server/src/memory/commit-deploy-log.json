@@ -164,6 +164,25 @@
 			],
 			"bugsFixed": [],
 			"timestamp": "2026-05-05T05:57:45.320Z"
+		},
+		{
+			"id": "commit_61581624",
+			"commitSha": "615816247b217e67d2adfd0974a12d9c5e1f9f50",
+			"agent": "Roo Code",
+			"type": "bugfix",
+			"title": "fix: improve mobile responsiveness across cloud dashboard",
+			"description": "Mobile compatibility fixes: agent table→card layout on mobile, command strip scrollable, reduced grid columns, larger touch targets, PWA PNG icons, touch optimization CSS",
+			"filesChanged": [
+				"cloud/dashboard/public/manifest.json",
+				"cloud/dashboard/src/app/globals.css",
+				"cloud/dashboard/src/app/page.tsx",
+				"cloud/dashboard/src/components/sidebar.tsx",
+				"cloud/dashboard/src/components/views/overview.tsx",
+				"cloud/dashboard/src/components/views/settings.tsx"
+			],
+			"featuresAffected": ["dashboard"],
+			"bugsFixed": [],
+			"timestamp": "2026-05-08T05:26:00.000Z"
 		}
 	],
 	"deploys": [
@@ -228,6 +247,20 @@
 			"healthCheckPassed": null,
 			"healthCheckLatencyMs": null,
 			"startedAt": "2025-05-05T22:26:25.000Z",
+			"completedAt": null
+		},
+		{
+			"id": "deploy-1746689200000",
+			"version": "1.4.0",
+			"commitSha": "615816247b217e67d2adfd0974a12d9c5e1f9f50",
+			"agent": "Roo Code",
+			"status": "deploying",
+			"environment": "production",
+			"commitsIncluded": ["615816247b217e67d2adfd0974a12d9c5e1f9f50"],
+			"featuresDeployed": ["dashboard"],
+			"healthCheckPassed": null,
+			"healthCheckLatencyMs": null,
+			"startedAt": "2026-05-08T05:26:40.000Z",
 			"completedAt": null
 		}
 	]
