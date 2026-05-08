@@ -59,19 +59,39 @@ if (existsSync(publicDir)) {
 }
 
 /**
- * Copy a package from the pnpm store (node_modules/.pnpm) into the standalone output.
+ * Resolve the real (non-symlink) path of a pnpm store package.
+ * pnpm uses symlinks in node_modules/.pnpm/<pkg>@<version>/node_modules/<pkg>.
+ * We need to resolve through the symlink to get the actual package files.
+ * Checks that package.json exists to avoid incomplete pnpm store entries.
+ */
+function resolvePnpmStorePath(packageName, version) {
+	const candidates = [
+		// Try workspace root pnpm store first (has complete packages)
+		join(root, "..", "..", "node_modules", ".pnpm", `${packageName}@${version}`, "node_modules", packageName),
+		// Fall back to dashboard-level pnpm store
+		join(root, "node_modules", ".pnpm", `${packageName}@${version}`, "node_modules", packageName),
+	]
+
+	for (const candidate of candidates) {
+		if (existsSync(join(candidate, "package.json"))) {
+			return candidate
+		}
+	}
+	return null
+}
+
+/**
+ * Copy a package from the pnpm store into the standalone output.
  * Next.js standalone output in pnpm monorepos often misses transitive deps like
- * styled-jsx and react-dom. This helper resolves the pnpm store symlink and copies
+ * styled-jsx and react-dom. This helper resolves the pnpm store path and copies
  * the real package directory into the standalone node_modules.
  */
 function copyPnpmPackage(packageName, version) {
-	const pnpmDir = join(root, "node_modules", ".pnpm")
-	const pkgDirName = `${packageName}@${version}`
-	const srcPkg = join(pnpmDir, pkgDirName, "node_modules", packageName)
+	const srcPkg = resolvePnpmStorePath(packageName, version)
 	const destPkg = join(standaloneDir, "node_modules", packageName)
 
-	if (!existsSync(srcPkg)) {
-		console.error(`[prepare] WARNING: Cannot find ${packageName}@${version} in pnpm store at ${srcPkg}`)
+	if (!srcPkg) {
+		console.error(`[prepare] WARNING: Cannot find ${packageName}@${version} in any pnpm store`)
 		return false
 	}
 
@@ -82,7 +102,7 @@ function copyPnpmPackage(packageName, version) {
 
 	mkdirSync(dirname(destPkg), { recursive: true })
 	cpSync(srcPkg, destPkg, { force: true, recursive: true })
-	console.log(`[prepare] Copied ${packageName}@${version} -> standalone node_modules`)
+	console.log(`[prepare] Copied ${packageName}@${version} -> standalone node_modules (from ${srcPkg})`)
 	return true
 }
 
