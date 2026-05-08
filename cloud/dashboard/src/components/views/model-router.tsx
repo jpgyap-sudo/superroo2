@@ -131,8 +131,39 @@ function ProviderStatusStrip({ providers }: { providers: ProviderMetadata[] }) {
 	)
 }
 
-function RouteTable({ routes, providers }: { routes: ModelRoute[]; providers: ProviderMetadata[] }) {
+function RouteTable({
+	routes,
+	providers,
+	editingRouteId,
+	editForm,
+	onStartEdit,
+	onCancelEdit,
+	onEditField,
+	onSave,
+}: {
+	routes: ModelRoute[]
+	providers: ProviderMetadata[]
+	editingRouteId: string | null
+	editForm: {
+		primaryProvider: string
+		primaryModel: string
+		fallbackProvider1: string
+		fallbackModel1: string
+		fallbackProvider2: string
+		fallbackModel2: string
+	} | null
+	onStartEdit: (route: ModelRoute) => void
+	onCancelEdit: () => void
+	onEditField: (field: string, value: string) => void
+	onSave: (routeId: string) => void
+}) {
 	const allModels = providers.flatMap((p) => p.models)
+
+	// Get models for a given provider
+	function modelsForProvider(providerId: string) {
+		const p = providers.find((p) => p.providerId === providerId)
+		return p?.models || []
+	}
 
 	return (
 		<section className="rounded-2xl border border-slate-800 bg-slate-950/70 shadow-xl">
@@ -147,52 +178,161 @@ function RouteTable({ routes, providers }: { routes: ModelRoute[]; providers: Pr
 							<th className="px-5 py-3">Primary</th>
 							<th className="px-5 py-3">Fallback 1</th>
 							<th className="px-5 py-3">Fallback 2</th>
-							<th className="px-5 py-3">Status</th>
+							<th className="px-5 py-3">Actions</th>
 						</tr>
 					</thead>
 					<tbody className="divide-y divide-slate-800">
-						{routes.map((r) => (
-							<tr key={r.id} className="text-slate-200">
-								<td className="px-5 py-3 font-medium capitalize">{r.taskType}</td>
-								<td className="px-5 py-3">
-									<span className="text-emerald-400">{r.primaryProvider}</span>
-									<span className="text-slate-500"> / </span>
-									<span className="text-slate-300">{r.primaryModel}</span>
-								</td>
-								<td className="px-5 py-3">
-									{r.fallbackProvider1 ? (
-										<>
-											<span className="text-amber-400">{r.fallbackProvider1}</span>
-											<span className="text-slate-500"> / </span>
-											<span className="text-slate-300">{r.fallbackModel1}</span>
-										</>
-									) : (
-										<span className="text-slate-600">—</span>
-									)}
-								</td>
-								<td className="px-5 py-3">
-									{r.fallbackProvider2 ? (
-										<>
-											<span className="text-amber-400">{r.fallbackProvider2}</span>
-											<span className="text-slate-500"> / </span>
-											<span className="text-slate-300">{r.fallbackModel2}</span>
-										</>
-									) : (
-										<span className="text-slate-600">—</span>
-									)}
-								</td>
-								<td className="px-5 py-3">
-									<span
-										className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-											r.enabled
-												? "bg-emerald-500/15 text-emerald-300"
-												: "bg-slate-500/15 text-slate-400"
-										}`}>
-										{r.enabled ? "Active" : "Disabled"}
-									</span>
-								</td>
-							</tr>
-						))}
+						{routes.map((r) => {
+							const isEditing = editingRouteId === r.id
+							return (
+								<tr key={r.id} className="text-slate-200">
+									<td className="px-5 py-3 font-medium capitalize">{r.taskType}</td>
+
+									{/* Primary Provider + Model */}
+									<td className="px-5 py-3">
+										{isEditing && editForm ? (
+											<div className="flex flex-col gap-1.5">
+												<select
+													value={editForm.primaryProvider}
+													onChange={(e) => onEditField("primaryProvider", e.target.value)}
+													className="rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-violet-500">
+													<option value="" className="bg-slate-900 text-slate-500">— None —</option>
+													{providers.filter((p) => p.status === "tested").map((p) => (
+														<option key={p.providerId} value={p.providerId} className="bg-slate-900 text-slate-200">
+															{p.displayName}
+														</option>
+													))}
+												</select>
+												{editForm.primaryProvider && (
+													<select
+														value={editForm.primaryModel}
+														onChange={(e) => onEditField("primaryModel", e.target.value)}
+														className="rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-violet-500">
+														{modelsForProvider(editForm.primaryProvider).map((m) => (
+															<option key={m.id} value={m.id} className="bg-slate-900 text-slate-200">
+																{m.label}
+															</option>
+														))}
+													</select>
+												)}
+											</div>
+										) : (
+											<>
+												<span className="text-emerald-400">{r.primaryProvider}</span>
+												<span className="text-slate-500"> / </span>
+												<span className="text-slate-300">{r.primaryModel}</span>
+											</>
+										)}
+									</td>
+
+									{/* Fallback 1 */}
+									<td className="px-5 py-3">
+										{isEditing && editForm ? (
+											<div className="flex flex-col gap-1.5">
+												<select
+													value={editForm.fallbackProvider1}
+													onChange={(e) => onEditField("fallbackProvider1", e.target.value)}
+													className="rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-violet-500">
+													<option value="" className="bg-slate-900 text-slate-500">— None —</option>
+													{providers.filter((p) => p.status === "tested").map((p) => (
+														<option key={p.providerId} value={p.providerId} className="bg-slate-900 text-slate-200">
+															{p.displayName}
+														</option>
+													))}
+												</select>
+												{editForm.fallbackProvider1 && (
+													<select
+														value={editForm.fallbackModel1}
+														onChange={(e) => onEditField("fallbackModel1", e.target.value)}
+														className="rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-violet-500">
+														{modelsForProvider(editForm.fallbackProvider1).map((m) => (
+															<option key={m.id} value={m.id} className="bg-slate-900 text-slate-200">
+																{m.label}
+															</option>
+														))}
+													</select>
+												)}
+											</div>
+										) : (
+											r.fallbackProvider1 ? (
+												<>
+													<span className="text-amber-400">{r.fallbackProvider1}</span>
+													<span className="text-slate-500"> / </span>
+													<span className="text-slate-300">{r.fallbackModel1}</span>
+												</>
+											) : (
+												<span className="text-slate-600">—</span>
+											)
+										)}
+									</td>
+
+									{/* Fallback 2 */}
+									<td className="px-5 py-3">
+										{isEditing && editForm ? (
+											<div className="flex flex-col gap-1.5">
+												<select
+													value={editForm.fallbackProvider2}
+													onChange={(e) => onEditField("fallbackProvider2", e.target.value)}
+													className="rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-violet-500">
+													<option value="" className="bg-slate-900 text-slate-500">— None —</option>
+													{providers.filter((p) => p.status === "tested").map((p) => (
+														<option key={p.providerId} value={p.providerId} className="bg-slate-900 text-slate-200">
+															{p.displayName}
+														</option>
+													))}
+												</select>
+												{editForm.fallbackProvider2 && (
+													<select
+														value={editForm.fallbackModel2}
+														onChange={(e) => onEditField("fallbackModel2", e.target.value)}
+														className="rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-violet-500">
+														{modelsForProvider(editForm.fallbackProvider2).map((m) => (
+															<option key={m.id} value={m.id} className="bg-slate-900 text-slate-200">
+																{m.label}
+															</option>
+														))}
+													</select>
+												)}
+											</div>
+										) : (
+											r.fallbackProvider2 ? (
+												<>
+													<span className="text-amber-400">{r.fallbackProvider2}</span>
+													<span className="text-slate-500"> / </span>
+													<span className="text-slate-300">{r.fallbackModel2}</span>
+												</>
+											) : (
+												<span className="text-slate-600">—</span>
+											)
+										)}
+									</td>
+
+									{/* Actions */}
+									<td className="px-5 py-3">
+										{isEditing ? (
+											<div className="flex gap-1.5">
+												<button
+													onClick={() => onSave(r.id)}
+													className="rounded bg-emerald-600 px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-emerald-500 transition-colors">
+													Save
+												</button>
+												<button
+													onClick={onCancelEdit}
+													className="rounded bg-slate-700 px-2.5 py-1 text-[10px] font-semibold text-slate-300 hover:bg-slate-600 transition-colors">
+													Cancel
+												</button>
+											</div>
+										) : (
+											<button
+												onClick={() => onStartEdit(r)}
+												className="rounded bg-violet-700/50 px-2.5 py-1 text-[10px] font-semibold text-violet-200 hover:bg-violet-600/50 transition-colors">
+												Edit
+											</button>
+										)}
+									</td>
+								</tr>
+							)
+						})}
 					</tbody>
 				</table>
 			</div>
@@ -359,7 +499,16 @@ export default function ModelRouterView() {
 	const [loading, setLoading] = useState(true)
 	const [syncing, setSyncing] = useState(false)
 	const [testing, setTesting] = useState(false)
-	const [chatProvider, setChatProvider] = useState<string>("auto")
+	const [editingRouteId, setEditingRouteId] = useState<string | null>(null)
+	const [editForm, setEditForm] = useState<{
+		primaryProvider: string
+		primaryModel: string
+		fallbackProvider1: string
+		fallbackModel1: string
+		fallbackProvider2: string
+		fallbackModel2: string
+	} | null>(null)
+	const [saving, setSaving] = useState(false)
 
 	async function load() {
 		setLoading(true)
@@ -413,29 +562,88 @@ export default function ModelRouterView() {
 		}
 	}
 
-	// ── Chat provider dropdown ───────────────────────────────────────────
-	function handleChatProviderChange(providerId: string) {
-		setChatProvider(providerId)
-		if (typeof window !== "undefined") {
-			if (providerId === "auto") {
-				localStorage.removeItem("superroo-chat-provider")
-			} else {
-				localStorage.setItem("superroo-chat-provider", providerId)
+	// ── Route editing ────────────────────────────────────────────────────
+	function handleStartEdit(route: ModelRoute) {
+		setEditingRouteId(route.id)
+		setEditForm({
+			primaryProvider: route.primaryProvider,
+			primaryModel: route.primaryModel,
+			fallbackProvider1: route.fallbackProvider1 || "",
+			fallbackModel1: route.fallbackModel1 || "",
+			fallbackProvider2: route.fallbackProvider2 || "",
+			fallbackModel2: route.fallbackModel2 || "",
+		})
+	}
+
+	function handleCancelEdit() {
+		setEditingRouteId(null)
+		setEditForm(null)
+	}
+
+	function handleEditField(field: string, value: string) {
+		setEditForm((prev) => {
+			if (!prev) return prev
+			const updated = { ...prev, [field]: value }
+			// When provider changes, auto-select the first model for that provider
+			if (field === "primaryProvider" || field === "fallbackProvider1" || field === "fallbackProvider2") {
+				const modelField = field.replace("Provider", "Model")
+				const p = providers.find((pr) => pr.providerId === value)
+				if (p && p.models.length > 0) {
+					(updated as Record<string, string>)[modelField] = p.models[0].id
+				} else {
+					(updated as Record<string, string>)[modelField] = ""
+				}
 			}
+			return updated
+		})
+	}
+
+	async function handleSaveRoute(routeId: string) {
+		if (!editForm) return
+		setSaving(true)
+		try {
+			const res = await fetch(`/api/model-router/routes/${routeId}`, {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					primaryProvider: editForm.primaryProvider,
+					primaryModel: editForm.primaryModel,
+					fallbackProvider1: editForm.fallbackProvider1 || null,
+					fallbackModel1: editForm.fallbackModel1 || null,
+					fallbackProvider2: editForm.fallbackProvider2 || null,
+					fallbackModel2: editForm.fallbackModel2 || null,
+				}),
+			})
+			const data = await res.json()
+			if (data.success) {
+				setRoutes((prev) =>
+					prev.map((r) =>
+						r.id === routeId
+							? {
+									...r,
+									primaryProvider: editForm.primaryProvider,
+									primaryModel: editForm.primaryModel,
+									fallbackProvider1: editForm.fallbackProvider1 || undefined,
+									fallbackModel1: editForm.fallbackModel1 || undefined,
+									fallbackProvider2: editForm.fallbackProvider2 || undefined,
+									fallbackModel2: editForm.fallbackModel2 || undefined,
+								}
+							: r,
+					),
+				)
+				setEditingRouteId(null)
+				setEditForm(null)
+			}
+		} catch (err) {
+			console.error("[model-router] Failed to save route:", err)
+		} finally {
+			setSaving(false)
 		}
 	}
 
 	useEffect(() => {
 		load()
-		// Read saved chat provider from localStorage
-		if (typeof window !== "undefined") {
-			const saved = localStorage.getItem("superroo-chat-provider")
-			if (saved) setChatProvider(saved)
-		}
 	}, [])
-
-	// Connected providers (have a key and are tested)
-	const connectedProviders = providers.filter((p) => p.status === "tested")
 
 	if (loading) {
 		return (
@@ -450,7 +658,7 @@ export default function ModelRouterView() {
 			<div className="flex items-start justify-between">
 				<div>
 					<h2 className="text-lg font-semibold text-slate-100">AI Model Router</h2>
-					<p className="text-xs text-slate-500">Intelligently route tasks to the best model for each job</p>
+					<p className="text-xs text-slate-500">Configure which AI provider and model handles each task type</p>
 				</div>
 				<div className="flex items-center gap-2">
 					<button
@@ -468,45 +676,17 @@ export default function ModelRouterView() {
 				</div>
 			</div>
 
-			{/* Chat Provider Selector - prominent card */}
-			<section className="rounded-2xl border border-violet-900/40 bg-violet-950/40 p-5 shadow-xl">
-				<div className="flex items-center justify-between">
-					<div>
-						<h3 className="text-sm font-semibold text-slate-100">AI Chat Provider</h3>
-						<p className="text-xs text-slate-500 mt-0.5">
-							{chatProvider === "auto"
-								? "Automatically route chat to the best available provider"
-								: `Chat will use ${providers.find((p) => p.providerId === chatProvider)?.displayName || chatProvider}`}
-						</p>
-					</div>
-					<div className="flex items-center gap-3">
-						<select
-							value={chatProvider}
-							onChange={(e) => handleChatProviderChange(e.target.value)}
-							className="rounded-lg border border-violet-700/50 bg-violet-900/30 px-4 py-2.5 text-sm font-medium text-violet-100 transition-colors hover:bg-violet-800/40 focus:outline-none focus:ring-2 focus:ring-violet-500 cursor-pointer min-w-[180px]">
-							<option value="auto" className="bg-slate-900 text-slate-200">🤖 Auto (Route)</option>
-							{connectedProviders.map((p) => (
-								<option key={p.providerId} value={p.providerId} className="bg-slate-900 text-slate-200">
-									⚡ {p.displayName}
-								</option>
-							))}
-							{connectedProviders.length === 0 && (
-								<option value="" disabled className="bg-slate-900 text-slate-500">No providers connected</option>
-							)}
-						</select>
-						{chatProvider !== "auto" && (
-							<button
-								onClick={() => handleChatProviderChange("auto")}
-								className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2.5 text-xs font-medium text-slate-400 transition-colors hover:bg-slate-700 hover:text-slate-200">
-								Reset
-							</button>
-						)}
-					</div>
-				</div>
-			</section>
-
 			<ProviderStatusStrip providers={providers} />
-			<RouteTable routes={routes} providers={providers} />
+			<RouteTable
+				routes={routes}
+				providers={providers}
+				editingRouteId={editingRouteId}
+				editForm={editForm}
+				onStartEdit={handleStartEdit}
+				onCancelEdit={handleCancelEdit}
+				onEditField={handleEditField}
+				onSave={handleSaveRoute}
+			/>
 
 			<div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
 				<CostOptimizer />

@@ -1530,7 +1530,38 @@ const server = http.createServer(async (req, res) => {
 
 		// PATCH /model-router/routes/:id — update a route
 		if (method === "PATCH" && normalizedUrl.match(/^\/model-router\/routes\/[^/]+$/)) {
-			sendJson(res, 200, { success: true, message: "Route updated (in-memory)" })
+			const routeId = normalizedUrl.split("/").pop()
+			const data = await parseBody(req)
+			const settings = await loadSettings()
+			const agentRoutes = settings.routing.routes || DEFAULT_AGENT_ROUTES
+			// Map routeId (e.g. "route-coding") to agent type (e.g. "coding")
+			const taskType = routeId.replace("route-", "")
+			const existing = agentRoutes.find((r) => r.agent === taskType)
+			if (existing) {
+				existing.primary = { provider: data.primaryProvider, model: data.primaryModel }
+				existing.fallbacks = []
+				if (data.fallbackProvider1) {
+					existing.fallbacks.push({ provider: data.fallbackProvider1, model: data.fallbackModel1 })
+				}
+				if (data.fallbackProvider2) {
+					existing.fallbacks.push({ provider: data.fallbackProvider2, model: data.fallbackModel2 })
+				}
+			} else {
+				agentRoutes.push({
+					agent: taskType,
+					primary: { provider: data.primaryProvider, model: data.primaryModel },
+					fallbacks: [],
+				})
+				if (data.fallbackProvider1) {
+					agentRoutes[agentRoutes.length - 1].fallbacks.push({ provider: data.fallbackProvider1, model: data.fallbackModel1 })
+				}
+				if (data.fallbackProvider2) {
+					agentRoutes[agentRoutes.length - 1].fallbacks.push({ provider: data.fallbackProvider2, model: data.fallbackModel2 })
+				}
+			}
+			settings.routing.routes = agentRoutes
+			await saveSettings(settings)
+			sendJson(res, 200, { success: true, message: "Route updated and saved" })
 			return
 		}
 
