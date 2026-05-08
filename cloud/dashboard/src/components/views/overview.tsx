@@ -288,27 +288,29 @@ export function Overview() {
 	return (
 		<div className="space-y-3">
 			{/* ── Command Strip ── */}
-			<div className="flex items-center overflow-hidden rounded-xl border border-[rgba(82,120,190,0.22)] bg-[linear-gradient(180deg,rgba(13,20,34,0.94),rgba(6,11,22,0.96))] px-5 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_0_30px_rgba(40,110,255,0.08)]">
-				{MOCK_COMMAND_STRIP.map((s, i) => (
-					<div key={s.label} className="min-w-max border-r border-slate-800 px-5 last:border-r-0">
-						<p className="text-xs text-slate-400">{s.label}</p>
-						<p
-							className={`text-sm font-medium ${
-								s.tone === "green"
-									? "text-emerald-400"
-									: s.tone === "blue"
-										? "text-blue-400"
-										: s.tone === "greenBadge"
-											? "inline rounded border border-emerald-500/40 bg-emerald-500/10 px-2 text-emerald-300"
-											: "text-slate-100"
-							}`}>
-							{s.value}
-						</p>
+			<div className="overflow-x-auto rounded-xl border border-[rgba(82,120,190,0.22)] bg-[linear-gradient(180deg,rgba(13,20,34,0.94),rgba(6,11,22,0.96))] shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_0_30px_rgba(40,110,255,0.08)]">
+				<div className="flex items-center px-5 py-3 min-w-max">
+					{MOCK_COMMAND_STRIP.map((s, i) => (
+						<div key={s.label} className="shrink-0 border-r border-slate-800 px-3 sm:px-5 last:border-r-0">
+							<p className="text-xs text-slate-400">{s.label}</p>
+							<p
+								className={`text-sm font-medium ${
+									s.tone === "green"
+										? "text-emerald-400"
+										: s.tone === "blue"
+											? "text-blue-400"
+											: s.tone === "greenBadge"
+												? "inline rounded border border-emerald-500/40 bg-emerald-500/10 px-2 text-emerald-300"
+												: "text-slate-100"
+								}`}>
+								{s.value}
+							</p>
+						</div>
+					))}
+					<div className="ml-auto shrink-0 text-right text-xs text-slate-400">
+						<p>{timeStr}</p>
+						<p>{dateStr}</p>
 					</div>
-				))}
-				<div className="ml-auto text-right text-xs text-slate-400">
-					<p>{timeStr}</p>
-					<p>{dateStr}</p>
 				</div>
 			</div>
 
@@ -351,7 +353,8 @@ export function Overview() {
 						</span>
 					}
 					className="col-span-12 lg:col-span-5">
-					<div className="overflow-x-auto">
+					{/* Desktop table */}
+					<div className="hidden sm:block overflow-x-auto">
 						<table className="w-full text-left text-xs">
 							<thead className="text-slate-400">
 								<tr>
@@ -386,7 +389,27 @@ export function Overview() {
 							</tbody>
 						</table>
 					</div>
-					<div className="mt-4 grid grid-cols-5 gap-3 border-t border-slate-800 pt-3 text-center text-xs">
+					{/* Mobile card layout */}
+					<div className="space-y-2 sm:hidden">
+						{MOCK_AGENTS.map((a) => (
+							<div key={a.name} className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+								<div className="flex items-center justify-between mb-1">
+									<span className="text-sm font-medium text-slate-100">{a.name}</span>
+									<span className="rounded border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-[11px] text-violet-300">
+										{a.status}
+									</span>
+								</div>
+								<p className="text-xs text-slate-400 mb-2">{a.task}</p>
+								<div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500">
+									<span>CPU: {a.cpu}%</span>
+									<span>Tokens: {a.tokens}</span>
+									<span>Confidence: {a.confidence}%</span>
+									<span>{a.last}</span>
+								</div>
+							</div>
+						))}
+					</div>
+					<div className="mt-4 grid grid-cols-2 sm:grid-cols-5 gap-3 border-t border-slate-800 pt-3 text-center text-xs">
 						<Stat label="Total Agents" value="7" />
 						<Stat label="Active" value="4" />
 						<Stat label="Idle" value="2" />
@@ -433,26 +456,28 @@ export function Overview() {
 
 				{/* Queue Pipeline Overview */}
 				<Panel title="Queue Pipeline Overview" className="col-span-12 lg:col-span-8">
-					<div className="flex flex-wrap items-center gap-4">
+					<div className="grid grid-cols-2 sm:grid-cols-3 lg:flex lg:flex-wrap items-center gap-3">
 						{MOCK_PIPELINE.map((p, idx) => (
-							<div key={p.stage} className="flex flex-1 items-center gap-3">
+							<div key={p.stage} className="flex items-center gap-2 lg:flex-1">
 								<div
-									className={`w-full rounded-lg border p-4 ${
+									className={`w-full rounded-lg border p-3 sm:p-4 ${
 										p.bottleneck
 											? "border-amber-500/50 bg-amber-950/20"
 											: "border-blue-500/40 bg-blue-950/20"
 									}`}>
-									<p className="text-sm text-cyan-300">{p.stage}</p>
+									<p className="text-xs sm:text-sm text-cyan-300">{p.stage}</p>
 									<div className="mt-2 flex items-end justify-between">
-										<b className="text-2xl">{p.count}</b>
+										<b className="text-xl sm:text-2xl">{p.count}</b>
 										<span className="text-xs text-emerald-400">{p.delta}</span>
 									</div>
 								</div>
-								{idx < MOCK_PIPELINE.length - 1 && <div className="h-0.5 w-8 shrink-0 bg-violet-500" />}
+								{idx < MOCK_PIPELINE.length - 1 && (
+									<div className="hidden lg:block h-0.5 w-4 shrink-0 bg-violet-500" />
+								)}
 							</div>
 						))}
 					</div>
-					<div className="mt-4 grid grid-cols-6 gap-3">
+					<div className="mt-4 grid grid-cols-3 sm:grid-cols-6 gap-3">
 						<Stat label="Total Jobs" value={jobStats.total.toString()} />
 						<Stat label="Active" value={jobStats.active.toString()} />
 						<Stat label="Completed" value={jobStats.completed.toString()} />
@@ -464,11 +489,11 @@ export function Overview() {
 
 				{/* Quick Actions */}
 				<Panel title="Quick Actions" className="col-span-12 lg:col-span-4">
-					<div className="grid grid-cols-3 gap-2">
+					<div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
 						{QUICK_ACTIONS.map((x) => (
 							<button
 								key={x}
-								className={`rounded-lg border border-slate-700 bg-slate-900/70 p-3 text-xs hover:border-violet-400 ${
+								className={`rounded-lg border border-slate-700 bg-slate-900/70 p-2 sm:p-3 text-[11px] sm:text-xs hover:border-violet-400 ${
 									x === "Emergency Stop" ? "text-red-300" : "text-slate-200"
 								}`}>
 								{x}
@@ -502,7 +527,7 @@ export function Overview() {
 						<Stat label="Requests" value="12.8K" sub="↑ 9%" />
 					</div>
 					<div className="mt-3 flex justify-center">
-						<div className="h-32 w-32">
+						<div className="h-28 w-28 sm:h-32 sm:w-32">
 							<ResponsiveContainer width="100%" height="100%">
 								<PieChart>
 									<Pie
@@ -513,8 +538,8 @@ export function Overview() {
 											{ name: "Other", value: 10 },
 										]}
 										dataKey="value"
-										innerRadius={38}
-										outerRadius={58}>
+										innerRadius={32}
+										outerRadius={50}>
 										<Cell fill="#8b5cf6" />
 										<Cell fill="#3b82f6" />
 										<Cell fill="#10b981" />
@@ -533,7 +558,7 @@ export function Overview() {
 						<span className="rounded bg-emerald-500/15 px-2 py-1 text-xs text-emerald-300">Production</span>
 					}
 					className="col-span-12 md:col-span-6 lg:col-span-3">
-					<h2 className="text-3xl font-bold">v2.8.1</h2>
+					<h2 className="text-2xl sm:text-3xl font-bold">v2.8.1</h2>
 					<p className="mt-2 flex items-center gap-2 text-emerald-400">
 						<CheckCircle2 size={16} />
 						Healthy
@@ -568,7 +593,7 @@ export function Overview() {
 			</div>
 
 			{/* ── System Status Footer ── */}
-			<div className="flex flex-wrap justify-between gap-2 rounded-xl border border-slate-800 bg-slate-950/70 px-5 py-3 text-xs text-slate-400">
+			<div className="flex flex-col sm:flex-row flex-wrap justify-between gap-2 rounded-xl border border-slate-800 bg-slate-950/70 px-4 sm:px-5 py-3 text-xs text-slate-400">
 				<span>
 					<span className="mr-2 inline-block h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_12px_#22c55e]" />
 					System Status: <b className="text-emerald-400">All Systems Operational</b>

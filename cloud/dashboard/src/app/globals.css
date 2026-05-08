@@ -7,12 +7,34 @@
 	--foreground: #e2e8f0;
 }
 
+* {
+	-webkit-tap-highlight-color: transparent;
+}
+
 body {
 	background: var(--background);
 	color: var(--foreground);
 	font-family: "Inter", system-ui, sans-serif;
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
+	overscroll-behavior: none;
+	-webkit-overflow-scrolling: touch;
+}
+
+/* Prevent text size adjustment on orientation change */
+html {
+	-webkit-text-size-adjust: 100%;
+}
+
+/* Improve tap targets on mobile */
+@media (max-width: 767px) {
+	button,
+	a,
+	select,
+	input,
+	textarea {
+		touch-action: manipulation;
+	}
 }
 
 ::-webkit-scrollbar {

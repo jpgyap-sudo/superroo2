@@ -59,7 +59,7 @@ function ApprovalRow({
 	const tone = risk === "Low" ? "green" : risk === "Medium" ? "blue" : risk === "High" ? "amber" : "red"
 
 	return (
-		<div className="grid gap-3 rounded-xl border border-[#1e2535] bg-[#0a0e1a] p-4 md:grid-cols-[1fr_110px_130px] md:items-center">
+		<div className="flex flex-col gap-3 rounded-xl border border-[#1e2535] bg-[#0a0e1a] p-4 md:grid md:grid-cols-[1fr_110px_130px] md:items-center">
 			<div>
 				<div className="flex items-center gap-2">
 					<p className="font-semibold text-[#e2e8f0]">{action}</p>
@@ -67,10 +67,12 @@ function ApprovalRow({
 				</div>
 				<p className="mt-1 text-xs text-gray-500">{desc}</p>
 			</div>
-			<Toggle checked={checked} onChange={() => setChecked(!checked)} />
-			<button className="rounded-xl border border-[#1e2535] px-3 py-2 text-sm text-[#e2e8f0] hover:bg-[#1e2535]">
-				Edit Rules
-			</button>
+			<div className="flex items-center gap-3 md:block">
+				<Toggle checked={checked} onChange={() => setChecked(!checked)} />
+				<button className="rounded-xl border border-[#1e2535] px-3 py-2 text-sm text-[#e2e8f0] hover:bg-[#1e2535] md:mt-0">
+					Edit Rules
+				</button>
+			</div>
 		</div>
 	)
 }
@@ -179,16 +181,18 @@ export function SettingsView() {
 							].map(([name, agent, status, risk]) => (
 								<div
 									key={name}
-									className="grid gap-3 rounded-xl border border-[#1e2535] bg-[#0a0e1a] p-4 md:grid-cols-[1fr_130px_100px_100px] md:items-center">
+									className="flex flex-col gap-2 rounded-xl border border-[#1e2535] bg-[#0a0e1a] p-4 md:grid md:grid-cols-[1fr_130px_100px_100px] md:items-center">
 									<div>
 										<p className="font-semibold text-[#e2e8f0]">{name}</p>
 										<p className="text-xs text-gray-500">Assigned to {agent}</p>
 									</div>
-									<p className="text-sm text-gray-400">{agent}</p>
-									<Pill tone={status === "Online" ? "green" : "amber"}>{status}</Pill>
-									<button className="rounded-xl border border-[#1e2535] px-3 py-2 text-sm text-[#e2e8f0]">
-										Manage
-									</button>
+									<div className="flex items-center gap-3 md:block">
+										<p className="text-sm text-gray-400 md:hidden">{agent}</p>
+										<Pill tone={status === "Online" ? "green" : "amber"}>{status}</Pill>
+										<button className="rounded-xl border border-[#1e2535] px-3 py-2 text-sm text-[#e2e8f0]">
+											Manage
+										</button>
+									</div>
 								</div>
 							))}
 						</div>

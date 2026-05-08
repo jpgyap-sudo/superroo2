@@ -73,9 +73,9 @@ export function Sidebar({ page, setPage }: { page: string; setPage: (p: string) 
 			{/* Mobile hamburger button — visible only on small screens */}
 			<button
 				onClick={() => setMobileOpen(true)}
-				className="fixed left-3 top-3 z-50 flex h-9 w-9 items-center justify-center rounded-lg bg-[#0a0e1a] border border-[#1e2535] text-gray-400 hover:text-[#e2e8f0] md:hidden"
+				className="fixed left-3 top-3 z-50 flex h-10 w-10 items-center justify-center rounded-lg bg-[#0a0e1a] border border-[#1e2535] text-gray-400 hover:text-[#e2e8f0] active:scale-95 md:hidden"
 				aria-label="Open menu">
-				<Menu className="h-4 w-4" />
+				<Menu className="h-5 w-5" />
 			</button>
 
 			{/* Mobile overlay */}
@@ -107,14 +107,15 @@ export function Sidebar({ page, setPage }: { page: string; setPage: (p: string) 
 						<Sparkles className="h-4 w-4" />
 					</div>
 					{!collapsed && <span className="text-sm font-bold text-[#e2e8f0]">SuperRoo</span>}
-					{/* Close button on mobile */}
+					{/* Close button on mobile — larger touch target */}
 					<button
 						onClick={(e) => {
 							e.stopPropagation()
 							setMobileOpen(false)
 						}}
-						className="ml-auto flex h-6 w-6 items-center justify-center rounded text-gray-500 hover:text-[#e2e8f0] md:hidden">
-						<X className="h-4 w-4" />
+						className="ml-auto flex h-8 w-8 items-center justify-center rounded text-gray-500 hover:text-[#e2e8f0] active:scale-95 md:hidden"
+						aria-label="Close menu">
+						<X className="h-5 w-5" />
 					</button>
 					{/* Collapse toggle on desktop */}
 					<div className="ml-auto hidden md:block">
@@ -126,7 +127,7 @@ export function Sidebar({ page, setPage }: { page: string; setPage: (p: string) 
 					</div>
 				</div>
 
-				{/* Navigation */}
+				{/* Navigation — larger touch targets on mobile */}
 				<nav className="flex-1 overflow-y-auto py-2">
 					{NAV.map((n) => {
 						const Icon = n.icon
@@ -136,7 +137,7 @@ export function Sidebar({ page, setPage }: { page: string; setPage: (p: string) 
 								key={n.id}
 								onClick={() => handleNav(n.id)}
 								className={cn(
-									"flex w-full items-center gap-3 px-3 py-2.5 text-sm transition-colors",
+									"flex w-full items-center gap-3 px-3 py-3 md:py-2.5 text-sm transition-colors active:scale-[0.98]",
 									active
 										? "border-l-2 border-violet-600 bg-violet-600/10 text-violet-300"
 										: "border-l-2 border-transparent text-gray-500 hover:bg-[#0f1117] hover:text-[#e2e8f0]",

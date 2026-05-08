@@ -155,7 +155,7 @@ export default function Dashboard() {
 
 			<div className="flex flex-1 flex-col overflow-hidden min-w-0">
 				{/* Header — responsive: hide status dots on very small screens */}
-				<div className="flex h-12 shrink-0 items-center gap-4 border-b border-[#1e2535] bg-[#0a0e1a] px-5 md:px-5 pl-14 md:pl-5">
+				<div className="flex h-12 shrink-0 items-center gap-2 sm:gap-4 border-b border-[#1e2535] bg-[#0a0e1a] px-3 sm:px-5 pl-14 md:pl-5">
 					<div className="flex items-center gap-3 max-sm:hidden">
 						<div className="flex items-center gap-1.5">
 							<StatusDot online={health?.status === "online"} />
@@ -174,8 +174,10 @@ export default function Dashboard() {
 							<span className="text-[11px] text-gray-500">Docker</span>
 						</div>
 					</div>
-					<div className="ml-auto flex items-center gap-3">
-						<Badge status="warning" label="1 pending approval" />
+					<div className="ml-auto flex items-center gap-2 sm:gap-3">
+						<div className="max-sm:hidden">
+							<Badge status="warning" label="1 pending approval" />
+						</div>
 						<span className="text-[11px] text-gray-700">{time}</span>
 					</div>
 				</div>
