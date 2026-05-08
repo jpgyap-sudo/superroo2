@@ -1,5 +1,5 @@
 // SuperRoo Dashboard — Service Worker
-const CACHE = "superroo-v1"
+const CACHE = "superroo-v2"
 const ASSETS = ["/", "/manifest.json"]
 
 self.addEventListener("install", (event) => {
@@ -27,19 +27,16 @@ self.addEventListener("fetch", (event) => {
 		return
 	}
 
+	// Stale-while-revalidate: try network first, fall back to cache on failure
 	event.respondWith(
-		caches.match(event.request).then((cached) => {
-			// Return cached if available, otherwise fetch and cache
-			const fetchPromise = fetch(event.request)
-				.then((response) => {
-					if (response.ok && response.type === "basic") {
-						const clone = response.clone()
-						caches.open(CACHE).then((cache) => cache.put(event.request, clone))
-					}
-					return response
-				})
-				.catch(() => cached)
-			return cached || fetchPromise
-		}),
+		fetch(event.request)
+			.then((response) => {
+				if (response.ok && response.type === "basic") {
+					const clone = response.clone()
+					caches.open(CACHE).then((cache) => cache.put(event.request, clone))
+				}
+				return response
+			})
+			.catch(() => caches.match(event.request)),
 	)
 })
