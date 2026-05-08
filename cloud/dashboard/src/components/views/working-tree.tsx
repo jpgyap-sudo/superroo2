@@ -677,11 +677,10 @@ function CommitDeployPanel() {
 	useEffect(() => {
 		async function fetchData() {
 			try {
-				const baseUrl = "http://localhost:3001"
 				const [statsRes, commitsRes, deploysRes] = await Promise.all([
-					fetch(`${baseUrl}/api/commit-deploy-log/stats`).catch(() => null),
-					fetch(`${baseUrl}/api/commit-deploy-log/commits?limit=5`).catch(() => null),
-					fetch(`${baseUrl}/api/commit-deploy-log/deploys?limit=5`).catch(() => null),
+					fetch(`/api/commit-deploy-log/stats`).catch(() => null),
+					fetch(`/api/commit-deploy-log/commits?limit=5`).catch(() => null),
+					fetch(`/api/commit-deploy-log/deploys?limit=5`).catch(() => null),
 				])
 
 				if (statsRes?.ok) {

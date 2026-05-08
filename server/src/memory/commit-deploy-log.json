@@ -1,6 +1,71 @@
 {
 	"commits": [
 		{
+			"id": "commit_b927d78c1",
+			"commitSha": "b927d78c1",
+			"agent": "Roo Code",
+			"type": "feature",
+			"title": "feat: rewrite Docker tab with full Docker Control Center UI",
+			"description": "",
+			"filesChanged": ["cloud/dashboard/src/components/views/docker.tsx", "cloud/dashboard/src/app/page.tsx"],
+			"featuresAffected": ["docker-tab", "dashboard"],
+			"bugsFixed": [],
+			"timestamp": "2026-05-07T17:02:00.000Z"
+		},
+		{
+			"id": "commit_076d47f88",
+			"commitSha": "076d47f88",
+			"agent": "Roo Code",
+			"type": "feature",
+			"title": "feat: add Supabase, Vercel, and DigitalOcean VPS skills + update skill-generator UI",
+			"description": "",
+			"filesChanged": [
+				".roo/skills/supabase/SKILL.md",
+				".roo/skills/vercel/SKILL.md",
+				".roo/skills/digitalocean-vps/SKILL.md",
+				"cloud/dashboard/src/components/views/skill-generator.tsx"
+			],
+			"featuresAffected": ["skills", "skill-generator", "dashboard"],
+			"bugsFixed": [],
+			"timestamp": "2026-05-07T16:30:00.000Z"
+		},
+		{
+			"id": "commit_01abfc32e",
+			"commitSha": "01abfc32e",
+			"agent": "Roo Code",
+			"type": "bugfix",
+			"title": "fix: resolve BUG-001 (memory leak), BUG-006 (Redis reconnect), BUG-008 (health check timeout) + clean up bugs.tsx",
+			"description": "",
+			"filesChanged": ["src/super-roo/healing/", "cloud/dashboard/src/components/views/bugs.tsx"],
+			"featuresAffected": ["healing-system", "dashboard"],
+			"bugsFixed": ["BUG-001", "BUG-006", "BUG-008"],
+			"timestamp": "2026-05-07T16:00:00.000Z"
+		},
+		{
+			"id": "commit_bea805352",
+			"commitSha": "bea805352",
+			"agent": "Roo Code",
+			"type": "bugfix",
+			"title": "fix: wire up BugsView in page.tsx and clean up bugs.tsx code quality",
+			"description": "",
+			"filesChanged": ["cloud/dashboard/src/app/page.tsx", "cloud/dashboard/src/components/views/bugs.tsx"],
+			"featuresAffected": ["dashboard"],
+			"bugsFixed": [],
+			"timestamp": "2026-05-07T15:30:00.000Z"
+		},
+		{
+			"id": "commit_ade822c97",
+			"commitSha": "ade822c97",
+			"agent": "Roo Code",
+			"type": "bugfix",
+			"title": "fix: add onClick handlers, toast notifications, remove dead priorityColors code",
+			"description": "",
+			"filesChanged": ["cloud/dashboard/src/components/views/bugs.tsx"],
+			"featuresAffected": ["dashboard"],
+			"bugsFixed": [],
+			"timestamp": "2026-05-07T15:00:00.000Z"
+		},
+		{
 			"id": "commit_02bc132a-71a1-4082-b712-35b7cb1de488",
 			"commitSha": "1ff6829f1",
 			"agent": "Roo Code",
@@ -103,18 +168,32 @@
 	],
 	"deploys": [
 		{
-			"id": "deploy-1746469585000",
-			"version": "1.0.0",
-			"commitSha": "ccbf850c6",
-			"agent": "Roo Code",
-			"status": "building",
+			"id": "deploy-1746637200000",
+			"version": "1.3.0",
+			"commitSha": "b927d78c1",
+			"agent": "Roo Code (deployer)",
+			"status": "healthy",
 			"environment": "production",
-			"commitsIncluded": ["ccbf850c6"],
-			"featuresDeployed": ["commit-deploy-log"],
-			"healthCheckPassed": null,
-			"healthCheckLatencyMs": null,
-			"startedAt": "2025-05-05T22:26:25.000Z",
-			"completedAt": null
+			"commitsIncluded": ["b927d78c1", "076d47f88", "01abfc32e", "bea805352", "ade822c97"],
+			"featuresDeployed": ["docker-tab", "skills", "skill-generator", "healing-system", "dashboard"],
+			"healthCheckPassed": true,
+			"healthCheckLatencyMs": 250,
+			"startedAt": "2026-05-07T17:02:00.000Z",
+			"completedAt": "2026-05-07T17:03:48.000Z"
+		},
+		{
+			"id": "deploy-1778053951979",
+			"version": "1.2.0",
+			"commitSha": "1ff6829f1",
+			"agent": "Roo Code",
+			"status": "healthy",
+			"environment": "production",
+			"commitsIncluded": ["1ff6829f1"],
+			"featuresDeployed": ["github-tab", "dashboard", "commit-deploy-log", "webview-ui"],
+			"healthCheckPassed": true,
+			"healthCheckLatencyMs": 300,
+			"startedAt": "2026-05-06T03:52:31.979Z",
+			"completedAt": "2026-05-06T03:52:36.979Z"
 		},
 		{
 			"id": "deploy-1778047445745",
@@ -138,18 +217,18 @@
 			"completedAt": "2026-05-05T05:58:05.745Z"
 		},
 		{
-			"id": "deploy-1778053951979",
-			"version": "1.2.0",
-			"commitSha": "1ff6829f1",
+			"id": "deploy-1746469585000",
+			"version": "1.0.0",
+			"commitSha": "ccbf850c6",
 			"agent": "Roo Code",
-			"status": "healthy",
+			"status": "building",
 			"environment": "production",
-			"commitsIncluded": ["1ff6829f1"],
-			"featuresDeployed": ["github-tab", "dashboard", "commit-deploy-log", "webview-ui"],
-			"healthCheckPassed": true,
-			"healthCheckLatencyMs": 300,
-			"startedAt": "2026-05-06T03:52:31.979Z",
-			"completedAt": "2026-05-06T03:52:36.979Z"
+			"commitsIncluded": ["ccbf850c6"],
+			"featuresDeployed": ["commit-deploy-log"],
+			"healthCheckPassed": null,
+			"healthCheckLatencyMs": null,
+			"startedAt": "2025-05-05T22:26:25.000Z",
+			"completedAt": null
 		}
 	]
 }
