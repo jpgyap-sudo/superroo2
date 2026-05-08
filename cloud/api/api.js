@@ -3,7 +3,7 @@
  *
  * Minimal HTTP API that enqueues jobs into the BullMQ queue.
  * The worker picks them up and runs them inside the Docker sandbox.
- * Adds agent runtime routes.
+ * Adds agent runtime routes and Telegram bot webhook handler.
  */
 
 const http = require("http")
@@ -14,6 +14,11 @@ const { exec } = require("child_process")
 const { promisify } = require("util")
 const fs = require("fs").promises
 const path = require("path")
+
+// ── Telegram Bot ──────────────────────────────────────────────────────────────
+
+const telegramBot = require("./telegramBot")
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || ""
 
 const execAsync = promisify(exec)
 
@@ -1553,10 +1558,16 @@ const server = http.createServer(async (req, res) => {
 					fallbacks: [],
 				})
 				if (data.fallbackProvider1) {
-					agentRoutes[agentRoutes.length - 1].fallbacks.push({ provider: data.fallbackProvider1, model: data.fallbackModel1 })
+					agentRoutes[agentRoutes.length - 1].fallbacks.push({
+						provider: data.fallbackProvider1,
+						model: data.fallbackModel1,
+					})
 				}
 				if (data.fallbackProvider2) {
-					agentRoutes[agentRoutes.length - 1].fallbacks.push({ provider: data.fallbackProvider2, model: data.fallbackModel2 })
+					agentRoutes[agentRoutes.length - 1].fallbacks.push({
+						provider: data.fallbackProvider2,
+						model: data.fallbackModel2,
+					})
 				}
 			}
 			settings.routing.routes = agentRoutes
@@ -1890,6 +1901,71 @@ const server = http.createServer(async (req, res) => {
 					{ path: "/tsconfig.json", name: "tsconfig.json", kind: "file" },
 				],
 			})
+			return
+		}
+
+		// ── Telegram Bot Routes ────────────────────────────────────────────────
+
+		// POST /telegram/webhook — receive updates from Telegram
+		if (
+			(method === "POST" && (url === "/telegram/webhook" || normalizedUrl === "/telegram/webhook")) ||
+			(method === "POST" && url === "/api/telegram/webhook")
+		) {
+			if (!TELEGRAM_BOT_TOKEN) {
+				sendJson(res, 200, { ok: false, error: "TELEGRAM_BOT_TOKEN not configured" })
+				return
+			}
+			const update = await parseBody(req)
+			// Process asynchronously — respond 200 immediately to Telegram
+			telegramBot.handleUpdate(update, TELEGRAM_BOT_TOKEN, queue).catch((err) => {
+				console.error("[api] Telegram update handler error:", err.message)
+			})
+			sendJson(res, 200, { ok: true })
+			return
+		}
+
+		// GET /telegram/webhook-info — check current webhook status
+		if (method === "GET" && (url === "/telegram/webhook-info" || normalizedUrl === "/telegram/webhook-info")) {
+			if (!TELEGRAM_BOT_TOKEN) {
+				sendJson(res, 200, { success: false, error: "TELEGRAM_BOT_TOKEN not configured" })
+				return
+			}
+			const info = await telegramBot.getWebhookInfo(TELEGRAM_BOT_TOKEN)
+			sendJson(res, 200, { success: true, info })
+			return
+		}
+
+		// POST /telegram/set-webhook — set the webhook URL
+		if (method === "POST" && (url === "/telegram/set-webhook" || normalizedUrl === "/telegram/set-webhook")) {
+			if (!TELEGRAM_BOT_TOKEN) {
+				sendJson(res, 200, { success: false, error: "TELEGRAM_BOT_TOKEN not configured" })
+				return
+			}
+			const data = await parseBody(req)
+			const webhookUrl = data.url || "https://dev.abcx124.xyz/api/telegram/webhook"
+			const result = await telegramBot.setWebhook(TELEGRAM_BOT_TOKEN, webhookUrl)
+			sendJson(res, 200, { success: true, result })
+			return
+		}
+
+		// POST /telegram/test — send a test message to verify the bot works
+		if (method === "POST" && (url === "/telegram/test" || normalizedUrl === "/telegram/test")) {
+			if (!TELEGRAM_BOT_TOKEN) {
+				sendJson(res, 200, { success: false, error: "TELEGRAM_BOT_TOKEN not configured" })
+				return
+			}
+			const data = await parseBody(req)
+			const chatId = data.chatId
+			if (!chatId) {
+				sendJson(res, 400, { success: false, error: "chatId is required" })
+				return
+			}
+			await telegramBot.sendMessage(
+				TELEGRAM_BOT_TOKEN,
+				chatId,
+				"🤖 *SuperRoo Bot is connected!*\n\nSend `/help` to see available commands.",
+			)
+			sendJson(res, 200, { success: true, message: "Test message sent" })
 			return
 		}
 

@@ -37,6 +37,7 @@ module.exports = {
 				SUPERROO_QUEUE_NAME: "superroo-jobs",
 				API_PORT: "8787",
 				SUPERROO_VAULT_KEY: "D16PFwmjzXtmpEfFSYrAepsaveOB+fLuneeuQrvTYVw=",
+				TELEGRAM_BOT_TOKEN: "8645986629:AAGFH6aC6y_F39dLfAB2q95-1s-kKALm0RQ",
 			},
 			log_file: "/opt/superroo2/cloud/logs/api-combined.log",
 			out_file: "/opt/superroo2/cloud/logs/api-out.log",
