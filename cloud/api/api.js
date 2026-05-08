@@ -1916,8 +1916,29 @@ const server = http.createServer(async (req, res) => {
 				return
 			}
 			const update = await parseBody(req)
+			// Build a list of available AI providers for the bot's /ask and @mention support
+			const availableProviders = []
+			for (const p of PROVIDERS) {
+				const meta = providerMeta.get(p.id)
+				if (meta?.hasKey && meta?.status === "connected") {
+					const encrypted = encryptedSecrets.get(p.id)
+					if (encrypted) {
+						try {
+							const apiKey = decryptSecret(encrypted)
+							availableProviders.push({
+								providerId: p.id,
+								apiBaseUrl: p.apiBaseUrl,
+								apiKey,
+								model: p.defaultModel || "deepseek-chat",
+							})
+						} catch {
+							// skip providers with decryption errors
+						}
+					}
+				}
+			}
 			// Process asynchronously — respond 200 immediately to Telegram
-			telegramBot.handleUpdate(update, TELEGRAM_BOT_TOKEN, queue).catch((err) => {
+			telegramBot.handleUpdate(update, TELEGRAM_BOT_TOKEN, queue, availableProviders).catch((err) => {
 				console.error("[api] Telegram update handler error:", err.message)
 			})
 			sendJson(res, 200, { ok: true })
