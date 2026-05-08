@@ -141,7 +141,7 @@ function verifyTOTP(base32Secret, code) {
  * @returns {string}
  */
 function generateOTPAuthURI(base32Secret, accountName) {
-	const name = accountName || "superroo@telegram"
+	const name = accountName || "jpgyap@gmail.com"
 	const encodedName = encodeURIComponent(name)
 	const encodedIssuer = encodeURIComponent("SuperRoo Cloud")
 	return "otpauth://totp/" + encodedIssuer + ":" + encodedName + "?secret=" + base32Secret + "&issuer=" + encodedIssuer + "&algorithm=SHA1&digits=6&period=30"
@@ -827,6 +827,33 @@ async function handleLogs(botToken, chatId, args) {
 }
 
 /**
+ * Handles /projects - lists available projects on the VPS.
+ */
+async function handleProjects(botToken, chatId) {
+	await sendMessage(
+		botToken,
+		chatId,
+		"*Available Projects*\n\n" +
+			"1. *SuperRoo Cloud* — AI-powered coding assistant platform\n" +
+			"   Location: `/opt/superroo2`\n" +
+			"   Dashboard: https://dev.abcx124.xyz\n" +
+			"   Commands: `/code`, `/ask`, `/deploy`, `/status`\n\n" +
+			"2. *Product Image Studio* — AI product photography using GPT Image & Gemini\n" +
+			"   Location: `/root/productgenerator`\n" +
+			"   Port: 3003\n" +
+			"   Status: `product-image-studio` (PM2)\n\n" +
+			"3. *Web SuperRoo* — Public-facing web app\n" +
+			"   Location: `/opt/superroo2/apps/web-superroo`\n\n" +
+			"4. *Web Evals* — Evaluation system dashboard\n" +
+			"   Location: `/opt/superroo2/apps/web-evals`\n\n" +
+			"*To code in a project:*\n" +
+			"Use `/code <instruction>` to create a coding task.\n" +
+			"Use `/ask <question>` to ask about any project.\n\n" +
+			"*Dashboard:* https://dev.abcx124.xyz",
+	)
+}
+
+/**
  * Handles /help - shows all available commands.
  */
 async function handleHelp(botToken, chatId) {
@@ -840,6 +867,8 @@ async function handleHelp(botToken, chatId) {
 			"`/test <taskId>` - Run test suite\n" +
 			"`/approve <taskId>` - Approve pending changes\n" +
 			"`/deploy <taskId>` - Deploy approved build (OTP required)\n\n" +
+			"*Projects*\n" +
+			"`/projects` - List available projects\n\n" +
 			"*AI Support*\n" +
 			"`/ask <question>` - Ask the AI support assistant\n" +
 			"`@superroo_bot <question>` - Ask in group chat\n\n" +
@@ -965,6 +994,10 @@ async function handleUpdate(update, botToken, queue, providers) {
 
 		case "/logs":
 			await handleLogs(botToken, chatId, cmdArgs)
+			break
+
+		case "/projects":
+			await handleProjects(botToken, chatId)
 			break
 
 		default:
