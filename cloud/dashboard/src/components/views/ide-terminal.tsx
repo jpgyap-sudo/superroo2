@@ -33,25 +33,6 @@ import {
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
-type ProviderStatus = "missing" | "connected" | "invalid" | "not_tested"
-
-interface ProviderModel {
-	id: string
-	label: string
-	contextWindow: number
-	supportsImages: boolean
-	bestFor: string[]
-}
-
-interface ProviderOption {
-	id: string
-	name: string
-	status: ProviderStatus
-	hasKey: boolean
-	defaultModel: string
-	models: ProviderModel[]
-}
-
 interface WorkspaceFile {
 	path: string
 	name: string
@@ -189,9 +170,6 @@ export default function IdeTerminalView() {
 	const [branch, setBranch] = useState("auto-improvement")
 	const [importUrl, setImportUrl] = useState("")
 	const [showImport, setShowImport] = useState(false)
-	const [providers, setProviders] = useState<ProviderOption[]>([])
-	const [selectedProvider, setSelectedProvider] = useState<string>("auto")
-
 	const fileInputRef = useRef<HTMLInputElement>(null)
 	const imageInputRef = useRef<HTMLInputElement>(null)
 	const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -227,19 +205,6 @@ export default function IdeTerminalView() {
 			}
 		}
 		load()
-
-		// Fetch available providers for the dropdown
-		async function loadProviders() {
-			try {
-				const res = await api<{ success: boolean; providers: ProviderOption[] }>("/providers")
-				if (res.providers?.length) {
-					setProviders(res.providers)
-				}
-			} catch {
-				// non-critical
-			}
-		}
-		loadProviders()
 	}, [])
 
 	// ── Auto-scroll messages ──────────────────────────────────────────────
@@ -278,9 +243,10 @@ export default function IdeTerminalView() {
 				message: text,
 				attachments: attachments.map((a) => ({ filename: a.filename, type: a.type, size: a.size })),
 			}
-			// Pass selected provider if not "auto"
-			if (selectedProvider && selectedProvider !== "auto") {
-				body.provider = selectedProvider
+			// Read selected provider from localStorage (set by Model Router dropdown)
+			const storedProvider = typeof window !== "undefined" ? localStorage.getItem("superroo-chat-provider") : null
+			if (storedProvider && storedProvider !== "auto") {
+				body.provider = storedProvider
 			}
 			const result = await api<{
 				ok: boolean
@@ -315,7 +281,7 @@ export default function IdeTerminalView() {
 		} finally {
 			setSending(false)
 		}
-	}, [input, attachments, selectedProvider])
+	}, [input, attachments])
 
 	// ── Handle Enter key in chat ──────────────────────────────────────────
 	const handleKeyDown = useCallback(
@@ -807,21 +773,6 @@ export default function IdeTerminalView() {
 								</p>
 							</div>
 							<div className="flex items-center gap-1.5">
-								{/* Provider dropdown */}
-								<select
-									value={selectedProvider}
-									onChange={(e) => setSelectedProvider(e.target.value)}
-									className="bg-[#0f1117] border border-[#1e2535] rounded text-[9px] text-gray-300 px-1.5 py-0.5 outline-none focus:border-violet-600 max-w-[90px]"
-									title="Switch AI provider">
-									<option value="auto">Auto</option>
-									{providers
-										.filter((p) => p.hasKey && p.status === "connected")
-										.map((p) => (
-											<option key={p.id} value={p.id}>
-												{p.name}
-											</option>
-										))}
-								</select>
 								<span className="text-[10px] text-green-400 flex items-center gap-1">
 									<span className="w-1.5 h-1.5 rounded-full bg-green-500" /> routed
 								</span>

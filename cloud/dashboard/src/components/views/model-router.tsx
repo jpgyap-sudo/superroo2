@@ -359,6 +359,7 @@ export default function ModelRouterView() {
 	const [loading, setLoading] = useState(true)
 	const [syncing, setSyncing] = useState(false)
 	const [testing, setTesting] = useState(false)
+	const [chatProvider, setChatProvider] = useState<string>("auto")
 
 	async function load() {
 		setLoading(true)
@@ -412,9 +413,29 @@ export default function ModelRouterView() {
 		}
 	}
 
+	// ── Chat provider dropdown ───────────────────────────────────────────
+	function handleChatProviderChange(providerId: string) {
+		setChatProvider(providerId)
+		if (typeof window !== "undefined") {
+			if (providerId === "auto") {
+				localStorage.removeItem("superroo-chat-provider")
+			} else {
+				localStorage.setItem("superroo-chat-provider", providerId)
+			}
+		}
+	}
+
 	useEffect(() => {
 		load()
+		// Read saved chat provider from localStorage
+		if (typeof window !== "undefined") {
+			const saved = localStorage.getItem("superroo-chat-provider")
+			if (saved) setChatProvider(saved)
+		}
 	}, [])
+
+	// Connected providers (have a key and are tested)
+	const connectedProviders = providers.filter((p) => p.status === "tested")
 
 	if (loading) {
 		return (
@@ -431,7 +452,7 @@ export default function ModelRouterView() {
 					<h2 className="text-lg font-semibold text-slate-100">AI Model Router</h2>
 					<p className="text-xs text-slate-500">Intelligently route tasks to the best model for each job</p>
 				</div>
-				<div className="flex gap-2">
+				<div className="flex items-center gap-2">
 					<button
 						onClick={syncApiKeys}
 						disabled={syncing}
@@ -446,6 +467,43 @@ export default function ModelRouterView() {
 					</button>
 				</div>
 			</div>
+
+			{/* Chat Provider Selector - prominent card */}
+			<section className="rounded-2xl border border-violet-900/40 bg-violet-950/40 p-5 shadow-xl">
+				<div className="flex items-center justify-between">
+					<div>
+						<h3 className="text-sm font-semibold text-slate-100">AI Chat Provider</h3>
+						<p className="text-xs text-slate-500 mt-0.5">
+							{chatProvider === "auto"
+								? "Automatically route chat to the best available provider"
+								: `Chat will use ${providers.find((p) => p.providerId === chatProvider)?.displayName || chatProvider}`}
+						</p>
+					</div>
+					<div className="flex items-center gap-3">
+						<select
+							value={chatProvider}
+							onChange={(e) => handleChatProviderChange(e.target.value)}
+							className="rounded-lg border border-violet-700/50 bg-violet-900/30 px-4 py-2.5 text-sm font-medium text-violet-100 transition-colors hover:bg-violet-800/40 focus:outline-none focus:ring-2 focus:ring-violet-500 cursor-pointer min-w-[180px]">
+							<option value="auto" className="bg-slate-900 text-slate-200">🤖 Auto (Route)</option>
+							{connectedProviders.map((p) => (
+								<option key={p.providerId} value={p.providerId} className="bg-slate-900 text-slate-200">
+									⚡ {p.displayName}
+								</option>
+							))}
+							{connectedProviders.length === 0 && (
+								<option value="" disabled className="bg-slate-900 text-slate-500">No providers connected</option>
+							)}
+						</select>
+						{chatProvider !== "auto" && (
+							<button
+								onClick={() => handleChatProviderChange("auto")}
+								className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2.5 text-xs font-medium text-slate-400 transition-colors hover:bg-slate-700 hover:text-slate-200">
+								Reset
+							</button>
+						)}
+					</div>
+				</div>
+			</section>
 
 			<ProviderStatusStrip providers={providers} />
 			<RouteTable routes={routes} providers={providers} />
