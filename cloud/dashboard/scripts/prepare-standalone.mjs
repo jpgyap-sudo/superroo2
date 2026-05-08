@@ -1,4 +1,4 @@
-import { cpSync, existsSync, readdirSync, mkdirSync, readlinkSync, lstatSync, unlinkSync } from "node:fs"
+import { cpSync, existsSync, readdirSync, mkdirSync, readlinkSync, lstatSync } from "node:fs"
 import { join, dirname, resolve } from "node:path"
 
 const root = process.cwd()
@@ -61,7 +61,6 @@ if (existsSync(publicDir)) {
 /**
  * Resolve the real (non-symlink) path of a pnpm store package.
  * pnpm uses symlinks in node_modules/.pnpm/<pkg>@<version>/node_modules/<pkg>.
- * We need to resolve through the symlink to get the actual package files.
  * Checks that package.json exists to avoid incomplete pnpm store entries.
  */
 function resolvePnpmStorePath(packageName, version) {
@@ -120,10 +119,11 @@ copyPnpmPackage("react-dom", "18.3.1_react@18.3.1")
  * This causes: "Cannot find module 'styled-jsx/package.json'" even when styled-jsx
  * is present in standalone node_modules.
  *
- * The fix: Break the symlink and copy the real next package from the root pnpm store
- * (which has the complete package with package.json) into standalone node_modules.
+ * The fix: Copy styled-jsx into the pnpm store's next/node_modules directory so the
+ * require-hook can find it. This is the most targeted fix — we inject the missing
+ * dependency exactly where Next.js looks for it.
  */
-function resolveNextPnpmStorePath() {
+function copyStyledJsxToPnpmStoreNext() {
 	const standaloneNext = join(standaloneDir, "node_modules", "next")
 	if (!existsSync(standaloneNext)) {
 		console.error("[prepare] WARNING: node_modules/next not found in standalone output")
@@ -143,49 +143,35 @@ function resolveNextPnpmStorePath() {
 		return true
 	}
 
-	// Resolve the symlink target to extract the version string
+	// Resolve the symlink target to find the pnpm store's next directory
 	const linkTarget = readlinkSync(standaloneNext)
 	const resolvedTarget = resolve(dirname(standaloneNext), linkTarget)
 	console.log(`[prepare] node_modules/next is a symlink -> ${linkTarget} (resolved: ${resolvedTarget})`)
 
-	// Extract the pnpm store package name from the resolved path
-	// e.g., .../next@14.2.3_@opentelemetry+api@1.9.0_react-dom@18.3.1_react@18.3.1__react@18.3.1/node_modules/next
-	const pnpmDirName = dirname(dirname(resolvedTarget)) // get the .../next@14.2.3_... directory
-	const pnpmStorePkg = pnpmDirName.split("/").pop() || pnpmDirName.split("\\").pop()
-	// pnpmStorePkg is like "next@14.2.3_@opentelemetry+api@1.9.0_react-dom@18.3.1_react@18.3.1__react@18.3.1"
+	// The pnpm store's next directory is where require-hook runs from
+	// We need to copy styled-jsx into next's node_modules so the require-hook can find it
+	const pnpmStoreNextNodeModules = join(resolvedTarget, "node_modules")
+	const styledJsxDest = join(pnpmStoreNextNodeModules, "styled-jsx")
 
-	// Try to find the complete next package from the root pnpm store first
-	const rootStoreCandidates = [
-		join(root, "..", "..", "node_modules", ".pnpm", pnpmStorePkg, "node_modules", "next"),
-		// Also try the dashboard-level store as fallback
-		join(root, "node_modules", ".pnpm", pnpmStorePkg, "node_modules", "next"),
-	]
-
-	let srcPkg = null
-	for (const candidate of rootStoreCandidates) {
-		if (existsSync(join(candidate, "package.json"))) {
-			srcPkg = candidate
-			break
-		}
-	}
-
-	if (!srcPkg) {
-		console.error(`[prepare] WARNING: Cannot find complete next package (${pnpmStorePkg}) in any pnpm store`)
+	// Find styled-jsx from the root pnpm store
+	const styledJsxSrc = resolvePnpmStorePath("styled-jsx", "5.1.1_react@18.3.1")
+	if (!styledJsxSrc) {
+		console.error("[prepare] WARNING: Cannot find styled-jsx in pnpm store to copy into next's node_modules")
 		return false
 	}
 
-	// Remove the symlink
-	unlinkSync(standaloneNext)
-	console.log(`[prepare] Removed symlink node_modules/next`)
+	if (existsSync(styledJsxDest)) {
+		console.log("[prepare] styled-jsx already exists in pnpm store's next/node_modules, skipping")
+		return true
+	}
 
-	// Copy the real next package from the root pnpm store
-	cpSync(srcPkg, standaloneNext, { force: true, recursive: true })
-	console.log(`[prepare] Copied real next package from ${srcPkg} -> node_modules/next`)
-
+	mkdirSync(pnpmStoreNextNodeModules, { recursive: true })
+	cpSync(styledJsxSrc, styledJsxDest, { force: true, recursive: true })
+	console.log(`[prepare] Copied styled-jsx -> ${styledJsxDest} (pnpm store next/node_modules)`)
 	return true
 }
 
-// Break the next symlink so require-hook resolves styled-jsx from standalone node_modules
-resolveNextPnpmStorePath()
+// Inject styled-jsx into the pnpm store's next/node_modules so the require-hook can find it
+copyStyledJsxToPnpmStoreNext()
 
 console.log("[prepare] Standalone preparation complete.")
