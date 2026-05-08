@@ -254,14 +254,14 @@
 			"version": "1.4.0",
 			"commitSha": "615816247b217e67d2adfd0974a12d9c5e1f9f50",
 			"agent": "Roo Code",
-			"status": "deploying",
+			"status": "healthy",
 			"environment": "production",
 			"commitsIncluded": ["615816247b217e67d2adfd0974a12d9c5e1f9f50"],
 			"featuresDeployed": ["dashboard"],
-			"healthCheckPassed": null,
-			"healthCheckLatencyMs": null,
+			"healthCheckPassed": true,
+			"healthCheckLatencyMs": 250,
 			"startedAt": "2026-05-08T05:26:40.000Z",
-			"completedAt": null
+			"completedAt": "2026-05-08T05:31:40.000Z"
 		}
 	]
 }
