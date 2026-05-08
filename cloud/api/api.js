@@ -17,6 +17,115 @@ const path = require("path")
 
 const execAsync = promisify(exec)
 
+// ── AI Chat helper ─────────────────────────────────────────────────────────────
+
+/**
+ * Calls an OpenAI-compatible chat completion endpoint.
+ * Supports DeepSeek, OpenAI, OpenRouter, Groq, Kimi — all use the same /v1/chat/completions format.
+ */
+async function callChatCompletion(apiBaseUrl, apiKey, model, messages) {
+	const url = `${apiBaseUrl.replace(/\/+$/, "")}/chat/completions`
+	const res = await fetch(url, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			Authorization: `Bearer ${apiKey}`,
+		},
+		body: JSON.stringify({
+			model,
+			messages,
+			max_tokens: 4096,
+			temperature: 0.7,
+		}),
+		signal: AbortSignal.timeout(60_000),
+	})
+	if (!res.ok) {
+		const errBody = await res.text().catch(() => "")
+		throw new Error(`AI API error ${res.status}: ${errBody.slice(0, 200)}`)
+	}
+	const data = await res.json()
+	return data.choices?.[0]?.message?.content || "(no response)"
+}
+
+/**
+ * Resolves the best available provider for a given task type.
+ * Returns { providerId, apiBaseUrl, apiKey, model } or null if none available.
+ */
+function resolveProviderForTask(taskType) {
+	const settingsRoutes = DEFAULT_AGENT_ROUTES
+	const route = settingsRoutes.find((r) => r.agent === taskType) || settingsRoutes[0]
+	if (!route) return null
+
+	// Try primary first
+	const primaryMeta = providerMeta.get(route.primary.provider)
+	if (primaryMeta?.hasKey && primaryMeta?.status === "connected") {
+		const encrypted = encryptedSecrets.get(route.primary.provider)
+		if (encrypted) {
+			try {
+				const apiKey = decryptSecret(encrypted)
+				const providerDef = PROVIDERS.find((p) => p.id === route.primary.provider)
+				return {
+					providerId: route.primary.provider,
+					apiBaseUrl: providerDef?.apiBaseUrl || `https://api.${route.primary.provider}.com/v1`,
+					apiKey,
+					model: route.primary.model,
+				}
+			} catch {
+				// decryption failed, try fallbacks
+			}
+		}
+	}
+
+	// Try fallbacks
+	for (const fallback of route.fallbacks || []) {
+		const fbMeta = providerMeta.get(fallback.provider)
+		if (fbMeta?.hasKey && fbMeta?.status === "connected") {
+			const encrypted = encryptedSecrets.get(fallback.provider)
+			if (encrypted) {
+				try {
+					const apiKey = decryptSecret(encrypted)
+					const providerDef = PROVIDERS.find((p) => p.id === fallback.provider)
+					return {
+						providerId: fallback.provider,
+						apiBaseUrl: providerDef?.apiBaseUrl || `https://api.${fallback.provider}.com/v1`,
+						apiKey,
+						model: fallback.model,
+					}
+				} catch {
+					// try next fallback
+				}
+			}
+		}
+	}
+
+	return null
+}
+
+/**
+ * Resolves a specific provider by ID (for manual override).
+ * Returns { providerId, apiBaseUrl, apiKey, model } or null if not available.
+ */
+function resolveProviderById(providerId, modelOverride) {
+	const meta = providerMeta.get(providerId)
+	if (!meta?.hasKey || meta?.status !== "connected") return null
+
+	const encrypted = encryptedSecrets.get(providerId)
+	if (!encrypted) return null
+
+	try {
+		const apiKey = decryptSecret(encrypted)
+		const providerDef = PROVIDERS.find((p) => p.id === providerId)
+		return {
+			providerId,
+			apiBaseUrl: providerDef?.apiBaseUrl || `https://api.${providerId}.com/v1`,
+			apiKey,
+			model: modelOverride || providerDef?.defaultModel || "deepseek-chat",
+		}
+	} catch {
+		return null
+	}
+}
+
 let listAgents, getAgent, setAgentEnabled, toggleAgent
 try {
 	const agentRegistry = require("../agent-runtime/agentRegistry")
@@ -257,6 +366,42 @@ const DEFAULT_AGENT_ROUTES = [
 
 const encryptedSecrets = new Map() // providerId -> encrypted payload
 const providerMeta = new Map() // providerId -> { hasKey, lastTestedAt, latencyMs, status, keyHash }
+
+// ── Encrypted secrets persistence ───────────────────────────────────────────────
+
+const SECRETS_FILE = path.join(SETTINGS_DIR, "encrypted-secrets.json")
+
+async function saveEncryptedSecrets() {
+	await fs.mkdir(SETTINGS_DIR, { recursive: true })
+	const obj = {}
+	for (const [providerId, payload] of encryptedSecrets) {
+		obj[providerId] = payload
+	}
+	await fs.writeFile(SECRETS_FILE, JSON.stringify(obj, null, 2), "utf-8")
+}
+
+async function loadEncryptedSecrets() {
+	try {
+		const raw = await fs.readFile(SECRETS_FILE, "utf-8")
+		const obj = JSON.parse(raw)
+		for (const [providerId, payload] of Object.entries(obj)) {
+			encryptedSecrets.set(providerId, payload)
+			// Restore providerMeta entry so the key is recognised as present
+			if (!providerMeta.has(providerId)) {
+				providerMeta.set(providerId, {
+					hasKey: true,
+					status: "not_tested",
+					lastTestedAt: null,
+					latencyMs: null,
+					keyHash: null,
+				})
+			}
+		}
+		console.log(`[api] Loaded ${Object.keys(obj).length} encrypted API key(s) from disk`)
+	} catch {
+		// No saved secrets yet — that's fine
+	}
+}
 
 // ── Settings file helpers ───────────────────────────────────────────────────────
 
@@ -921,7 +1066,31 @@ const server = http.createServer(async (req, res) => {
 				latencyMs: null,
 				keyHash: hashApiKey(data.apiKey),
 			})
-			sendJson(res, 200, { success: true, providerId, maskedKey: maskSecret(data.apiKey) })
+			// Persist to disk immediately so the key survives server restarts
+			await saveEncryptedSecrets()
+
+			// Auto-test the key so it's usable right away without a separate "Test" click
+			let testResult = null
+			try {
+				const apiKey = decryptSecret(encrypted)
+				testResult = await testProviderKey(providerId, apiKey)
+				const meta = providerMeta.get(providerId) || { hasKey: true }
+				meta.status = testResult.ok ? "connected" : "invalid"
+				meta.lastTestedAt = Date.now()
+				meta.latencyMs = testResult.latencyMs
+				providerMeta.set(providerId, meta)
+			} catch (e) {
+				// Auto-test failed non-fatally — leave status as "not_tested"
+				console.error(`[api] Auto-test failed for ${providerId}:`, e.message)
+			}
+
+			sendJson(res, 200, {
+				success: true,
+				providerId,
+				maskedKey: maskSecret(data.apiKey),
+				autoTested: testResult?.ok === true,
+				status: providerMeta.get(providerId)?.status || "not_tested",
+			})
 			return
 		}
 
@@ -961,6 +1130,8 @@ const server = http.createServer(async (req, res) => {
 				latencyMs: null,
 				keyHash: null,
 			})
+			// Persist the removal to disk
+			await saveEncryptedSecrets()
 			sendJson(res, 200, { success: true, providerId, message: "Key removed" })
 			return
 		}
@@ -1572,15 +1743,83 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// GET /ide-workspace/providers — list available providers for the chat dropdown
+		if (method === "GET" && normalizedUrl.startsWith("/ide-workspace/providers")) {
+			const entries = PROVIDERS.map((p) => {
+				const meta = providerMeta.get(p.id) || { hasKey: false, status: "not_tested" }
+				return {
+					id: p.id,
+					name: p.name,
+					status: meta.status,
+					hasKey: meta.hasKey,
+					defaultModel: p.defaultModel,
+					models: p.models.map((m) => ({
+						id: m.id,
+						label: m.label,
+						contextWindow: m.contextWindow,
+						supportsImages: m.supportsImages,
+						bestFor: m.bestFor,
+					})),
+				}
+			})
+			sendJson(res, 200, { success: true, providers: entries })
+			return
+		}
+
 		// POST /ide-workspace/chat — send chat message
 		if (method === "POST" && normalizedUrl.startsWith("/ide-workspace/chat")) {
 			const data = await parseBody(req)
 			const msg = data?.message || ""
-			sendJson(res, 200, {
-				ok: true,
-				message: "Message received (simulated)",
-				reply: `I received your message: "${msg.substring(0, 100)}". This is a simulated response — the AI backend is not yet connected.`,
-			})
+			const requestedProvider = data?.provider || null
+			const requestedModel = data?.model || null
+
+			// If user specified a provider, try to use it directly
+			let provider = null
+			if (requestedProvider) {
+				provider = resolveProviderById(requestedProvider, requestedModel)
+			}
+
+			// Fall back to automatic routing if no specific provider requested or it's unavailable
+			if (!provider) {
+				provider = resolveProviderForTask("coder")
+			}
+
+			if (!provider) {
+				sendJson(res, 200, {
+					ok: true,
+					message: "No AI provider available",
+					reply: "No AI provider is configured and connected. Please go to the API Keys page to add and test a provider API key (e.g., DeepSeek, OpenAI, or Anthropic). After saving the key, click 'Test' to verify the connection.",
+				})
+				return
+			}
+
+			try {
+				const reply = await callChatCompletion(provider.apiBaseUrl, provider.apiKey, provider.model, [
+					{
+						role: "system",
+						content:
+							"You are SuperRoo, an expert AI coding assistant. You help users write, debug, and improve code. Be concise, technical, and provide actionable answers.",
+					},
+					{ role: "user", content: msg },
+				])
+				sendJson(res, 200, {
+					ok: true,
+					message: "OK",
+					reply,
+					provider: provider.providerId,
+					model: provider.model,
+				})
+			} catch (err) {
+				console.error(`[api] Chat error with ${provider.providerId}:`, err.message)
+				sendJson(res, 200, {
+					ok: true,
+					message: "AI call failed",
+					reply: `AI request failed: ${err.message}. Check your API key and try again.`,
+					provider: provider.providerId,
+					model: provider.model,
+					error: err.message,
+				})
+			}
 			return
 		}
 
@@ -1633,6 +1872,9 @@ const server = http.createServer(async (req, res) => {
 	}
 })
 
-server.listen(PORT, () => {
-	console.log(`[api] Listening on port ${PORT} | queue=${QUEUE_NAME} | redis=${REDIS_URL}`)
+// Load persisted encrypted secrets before accepting requests
+loadEncryptedSecrets().then(() => {
+	server.listen(PORT, () => {
+		console.log(`[api] Listening on port ${PORT} | queue=${QUEUE_NAME} | redis=${REDIS_URL}`)
+	})
 })

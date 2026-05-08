@@ -1,6 +1,12 @@
 /**
  * SuperRoo Cloud — PM2 Ecosystem
  *
+ * Crash-resilient PM2 configuration with:
+ * - Exponential backoff restart delays
+ * - Memory limits to prevent OOM
+ * - Max restart limits to avoid crash loops
+ * - Graceful shutdown timeouts
+ *
  * Usage:
  *   cd /opt/superroo2/cloud
  *   pm2 start ecosystem.config.js
@@ -18,6 +24,13 @@ module.exports = {
 			autorestart: true,
 			watch: false,
 			max_memory_restart: "256M",
+			// Crash resilience: exponential backoff restart
+			exp_backoff_restart_delay: 1000,
+			max_restarts: 10,
+			restart_delay: 5000,
+			min_uptime: 10000,
+			// Graceful shutdown
+			kill_timeout: 15000,
 			env: {
 				NODE_ENV: "production",
 				REDIS_URL: "redis://127.0.0.1:6379",
@@ -29,6 +42,7 @@ module.exports = {
 			out_file: "/opt/superroo2/cloud/logs/api-out.log",
 			error_file: "/opt/superroo2/cloud/logs/api-error.log",
 			log_date_format: "YYYY-MM-DD HH:mm:ss Z",
+			merge_logs: true,
 		},
 		{
 			name: "superroo-worker",
@@ -39,6 +53,13 @@ module.exports = {
 			autorestart: true,
 			watch: false,
 			max_memory_restart: "512M",
+			// Crash resilience: exponential backoff restart
+			exp_backoff_restart_delay: 2000,
+			max_restarts: 10,
+			restart_delay: 5000,
+			min_uptime: 15000,
+			// Graceful shutdown (matches worker.js shutdown handler)
+			kill_timeout: 30000,
 			env: {
 				NODE_ENV: "production",
 				REDIS_URL: "redis://127.0.0.1:6379",
@@ -46,11 +67,20 @@ module.exports = {
 				WORKER_CONCURRENCY: "2",
 				SUPERROO_ROOT: "/opt/superroo2",
 				SANDBOX_IMAGE: "superroo-sandbox:latest",
+				// Sandbox runner config
+				JOB_TIMEOUT_MS: "600000",
+				SANDBOX_MAX_RETRIES: "2",
+				SANDBOX_MEMORY: "512m",
+				SANDBOX_CPUS: "1",
+				// Worker resilience config
+				WORKER_MAX_REDIS_FAILURES: "5",
+				WORKER_HEALTH_CHECK_INTERVAL_MS: "30000",
 			},
 			log_file: "/opt/superroo2/cloud/logs/worker-combined.log",
 			out_file: "/opt/superroo2/cloud/logs/worker-out.log",
 			error_file: "/opt/superroo2/cloud/logs/worker-error.log",
 			log_date_format: "YYYY-MM-DD HH:mm:ss Z",
+			merge_logs: true,
 		},
 		{
 			name: "superroo-dashboard",
@@ -61,6 +91,11 @@ module.exports = {
 			autorestart: true,
 			watch: false,
 			max_memory_restart: "256M",
+			exp_backoff_restart_delay: 1000,
+			max_restarts: 10,
+			restart_delay: 5000,
+			min_uptime: 10000,
+			kill_timeout: 15000,
 			env: {
 				NODE_ENV: "production",
 				PORT: "3001",
@@ -69,6 +104,7 @@ module.exports = {
 			out_file: "/opt/superroo2/cloud/logs/dashboard-out.log",
 			error_file: "/opt/superroo2/cloud/logs/dashboard-error.log",
 			log_date_format: "YYYY-MM-DD HH:mm:ss Z",
+			merge_logs: true,
 		},
 	],
 }

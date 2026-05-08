@@ -2,6 +2,11 @@
 # SuperRoo Cloud — Docker Sandbox Deployment Script
 # Run this on the Ubuntu VPS as the user that owns /opt/superroo2
 #
+# Crash-resilient deployment with:
+# - Prunes old sandbox containers before build
+# - Validates Docker daemon health
+# - Cleans up zombie containers from previous runs
+#
 # Usage:
 #   chmod +x deploy-sandbox.sh
 #   ./deploy-sandbox.sh
@@ -32,6 +37,15 @@ fi
 if ! sudo systemctl is-active --quiet docker; then
     echo "Docker is not running. Starting it..."
     sudo systemctl start docker
+    # Wait for Docker daemon to be ready
+    for i in {1..10}; do
+        if docker info &>/dev/null; then
+            echo "Docker daemon ready."
+            break
+        fi
+        echo "Waiting for Docker daemon... ($i/10)"
+        sleep 2
+    done
 fi
 
 echo "Docker OK: $(docker --version)"
@@ -47,10 +61,16 @@ mkdir -p "${CLOUD_DIR}/worker"
 echo "Directories OK."
 
 # ---------------------------------------------------------------------------
-# 3. Build sandbox image
+# 3. Clean up zombie sandbox containers and build image
 # ---------------------------------------------------------------------------
 echo ""
-echo "[3/7] Building Docker image ${IMAGE_NAME}..."
+echo "[3/7] Cleaning up zombie containers and building image..."
+# Remove any leftover sandbox containers from crashed runs
+docker ps -a --filter "name=superroo-sandbox" --format "{{.ID}}" 2>/dev/null | while read -r cid; do
+    echo "  Cleaning up zombie container: $cid"
+    docker rm -f "$cid" 2>/dev/null || true
+done
+
 cd "${SANDBOX_DIR}"
 docker build -t "${IMAGE_NAME}" .
 echo "Image built OK."
@@ -64,7 +84,6 @@ cd "${CLOUD_DIR}"
 
 # Check if node_modules exists and has bullmq
 if [ ! -d "node_modules/bullmq" ] || [ ! -d "node_modules/ioredis" ]; then
-    # Use the Node version that matches the project (20.x)
     npm install bullmq ioredis
 else
     echo "Dependencies already present."
@@ -73,21 +92,24 @@ fi
 echo "Dependencies OK."
 
 # ---------------------------------------------------------------------------
-# 5. Start / restart PM2 worker
+# 5. Start / restart PM2 processes
 # ---------------------------------------------------------------------------
 echo ""
-echo "[5/7] Starting worker with PM2..."
+echo "[5/7] Starting PM2 processes..."
 cd "${CLOUD_DIR}"
 
 if pm2 describe superroo-worker &> /dev/null; then
-    echo "Worker already managed by PM2. Restarting..."
-    pm2 restart ecosystem.config.js
+    echo "Reloading PM2 ecosystem (graceful)..."
+    pm2 reload ecosystem.config.js --update-env || pm2 restart ecosystem.config.js --update-env
 else
-    echo "Starting worker for the first time..."
-    pm2 start ecosystem.config.js
+    echo "Starting PM2 for the first time..."
+    pm2 start ecosystem.config.js --update-env
 fi
 
-echo "Worker started."
+# Save PM2 process list for resurrection on reboot
+pm2 save
+
+echo "PM2 processes started."
 
 # ---------------------------------------------------------------------------
 # 6. Run test job
@@ -100,9 +122,10 @@ node test-job.js
 echo "Test job published."
 
 # ---------------------------------------------------------------------------
-# 7. Show logs
+# 7. Show status
 # ---------------------------------------------------------------------------
 echo ""
-echo "[7/7] Tailing worker logs (Ctrl+C to exit)..."
-sleep 2
-pm2 logs superroo-worker --lines 50
+echo "[7/7] Deployment status:"
+pm2 status
+echo ""
+echo "To view worker logs: pm2 logs superroo-worker --lines 50"
