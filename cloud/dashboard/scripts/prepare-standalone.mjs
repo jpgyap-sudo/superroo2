@@ -120,7 +120,8 @@ copyPnpmPackage("react-dom", "18.3.1_react@18.3.1")
  * This causes: "Cannot find module 'styled-jsx/package.json'" even when styled-jsx
  * is present in standalone node_modules.
  *
- * The fix: Break the symlink and copy the real next package into standalone node_modules.
+ * The fix: Break the symlink and copy the real next package from the root pnpm store
+ * (which has the complete package with package.json) into standalone node_modules.
  */
 function resolveNextPnpmStorePath() {
 	const standaloneNext = join(standaloneDir, "node_modules", "next")
@@ -142,24 +143,44 @@ function resolveNextPnpmStorePath() {
 		return true
 	}
 
-	// Resolve the symlink target
+	// Resolve the symlink target to extract the version string
 	const linkTarget = readlinkSync(standaloneNext)
 	const resolvedTarget = resolve(dirname(standaloneNext), linkTarget)
 	console.log(`[prepare] node_modules/next is a symlink -> ${linkTarget} (resolved: ${resolvedTarget})`)
 
-	// Verify the target exists and has package.json
-	if (!existsSync(join(resolvedTarget, "package.json"))) {
-		console.error(`[prepare] WARNING: Symlink target ${resolvedTarget} has no package.json`)
+	// Extract the pnpm store package name from the resolved path
+	// e.g., .../next@14.2.3_@opentelemetry+api@1.9.0_react-dom@18.3.1_react@18.3.1__react@18.3.1/node_modules/next
+	const pnpmDirName = dirname(dirname(resolvedTarget)) // get the .../next@14.2.3_... directory
+	const pnpmStorePkg = pnpmDirName.split("/").pop() || pnpmDirName.split("\\").pop()
+	// pnpmStorePkg is like "next@14.2.3_@opentelemetry+api@1.9.0_react-dom@18.3.1_react@18.3.1__react@18.3.1"
+
+	// Try to find the complete next package from the root pnpm store first
+	const rootStoreCandidates = [
+		join(root, "..", "..", "node_modules", ".pnpm", pnpmStorePkg, "node_modules", "next"),
+		// Also try the dashboard-level store as fallback
+		join(root, "node_modules", ".pnpm", pnpmStorePkg, "node_modules", "next"),
+	]
+
+	let srcPkg = null
+	for (const candidate of rootStoreCandidates) {
+		if (existsSync(join(candidate, "package.json"))) {
+			srcPkg = candidate
+			break
+		}
+	}
+
+	if (!srcPkg) {
+		console.error(`[prepare] WARNING: Cannot find complete next package (${pnpmStorePkg}) in any pnpm store`)
 		return false
 	}
 
 	// Remove the symlink
 	unlinkSync(standaloneNext)
-	console.log("[prepare] Removed symlink node_modules/next")
+	console.log(`[prepare] Removed symlink node_modules/next`)
 
-	// Copy the real next package from the resolved target
-	cpSync(resolvedTarget, standaloneNext, { force: true, recursive: true })
-	console.log(`[prepare] Copied real next package from ${resolvedTarget} -> node_modules/next`)
+	// Copy the real next package from the root pnpm store
+	cpSync(srcPkg, standaloneNext, { force: true, recursive: true })
+	console.log(`[prepare] Copied real next package from ${srcPkg} -> node_modules/next`)
 
 	return true
 }
