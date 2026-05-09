@@ -847,6 +847,10 @@ async function handleAuthRoute(method, url, req, res) {
 		return true
 	}
 
+	// Don't intercept the Telegram bot webhook — it has no auth header and must
+	// fall through to the dedicated handler in api.js
+	if (normalizedPath === "/telegram/webhook") return false
+
 	// ── Protected Web Auth Routes ───────────────────────────────────────────
 
 	const email = requireAuth(req, res)
