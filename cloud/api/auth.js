@@ -434,14 +434,16 @@ async function handleTelegramSessionCheck(body) {
 	const { telegramUserId, telegramChatId } = body || {}
 	if (!telegramUserId) return { authenticated: false }
 
+	// Prefer exact chatId match, fall back to any active session for this user
+	// This allows DM sessions to work in group chats and vice versa
+	const chatIdStr = String(telegramChatId || telegramUserId)
 	const session = telegramSessions
-		.filter(
-			(s) =>
-				s.telegramUserId === telegramUserId &&
-				s.telegramChatId === (telegramChatId || telegramUserId) &&
-				s.isActive,
-		)
-		.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
+		.filter((s) => s.telegramUserId === telegramUserId && s.isActive)
+		.sort((a, b) => {
+			if (String(a.telegramChatId) === chatIdStr) return -1
+			if (String(b.telegramChatId) === chatIdStr) return 1
+			return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+		})[0]
 
 	if (!session) return { authenticated: false }
 
@@ -477,14 +479,14 @@ async function handleTelegramSessionCheck(body) {
  * Internal: get active session for a Telegram user, or throw.
  */
 async function getTelegramSession(telegramUserId, telegramChatId) {
+	const chatIdStr = String(telegramChatId || telegramUserId)
 	const session = telegramSessions
-		.filter(
-			(s) =>
-				s.telegramUserId === telegramUserId &&
-				s.telegramChatId === (telegramChatId || telegramUserId) &&
-				s.isActive,
-		)
-		.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
+		.filter((s) => s.telegramUserId === telegramUserId && s.isActive)
+		.sort((a, b) => {
+			if (String(a.telegramChatId) === chatIdStr) return -1
+			if (String(b.telegramChatId) === chatIdStr) return 1
+			return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+		})[0]
 
 	if (!session || isExpired(session.expiresAt)) {
 		if (session) {
