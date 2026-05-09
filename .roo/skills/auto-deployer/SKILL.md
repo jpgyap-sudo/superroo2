@@ -9,6 +9,7 @@ description: 🤖 Auto-Deployer Bot — Self-retrying SSH deploy agent that kill
 
 Use this skill when:
 
+- The **coding bot hands off deployment** to you because it detected high traffic or deployment failures
 - The user asks to **auto-deploy**, **keep deploying until it works**, or **make deployment automatic**
 - The user says **"auto deploy after ssh fails"**, **"make a autodeployer agent bot"**, or **"keep deploying and killing ssh stucks until the deploy is successful"**
 - The user wants **traffic-based auto-deploy** (deploy when traffic is high)
@@ -19,27 +20,69 @@ Use this skill when:
 
 Create a self-healing, self-retrying deployment bot that:
 
-1. **Kills stuck SSH processes** automatically (detects hangs via timeout + ServerAlive)
-2. **Retries failed deploys** with exponential backoff until success
-3. **Auto-deploys when traffic is high** (monitors PM2 metrics, nginx logs, or API load)
-4. **Reports deploy status** to the user so they can move on to other work
-5. **Works as a global agent** — usable from any SuperRoo coding session
+1. **Receives handoff from coding bot** when deployment fails or traffic is high
+2. **Kills stuck SSH processes** automatically (detects hangs via timeout + ServerAlive)
+3. **Retries failed deploys** with exponential backoff until success
+4. **Auto-deploys when traffic is high** (monitors PM2 metrics, nginx logs, or API load)
+5. **Reports deploy status** to the user so they can move on to other work
+6. **Works as a global agent** — usable from any SuperRoo coding session
 
-## Architecture
+## Workflow: Coding Bot → Auto-Deployer Bot Handoff
+
+This is the core workflow. The **coding bot** (VS Code / IDE agent) tries to deploy first. If it fails or traffic is high, it hands off to the **auto-deployer bot**.
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                  Auto-Deployer Bot                           │
-│                                                             │
-│  ┌──────────────┐   ┌──────────────┐   ┌──────────────┐    │
-│  │  SSH Manager  │   │ Traffic      │   │  Retry       │    │
-│  │  - Kill stuck │──▶│ Monitor      │──▶│  Engine      │    │
-│  │  - Timeout    │   │ - PM2 stats  │   │  - Backoff   │    │
-│  │  - Alive check│   │ - nginx logs │   │  - Max retry │    │
-│  └──────────────┘   │ - API load   │   │  - Report    │    │
-│                     └──────────────┘   └──────────────┘    │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                     DEPLOYMENT WORKFLOW                           │
+│                                                                  │
+│  ┌──────────────┐                                                │
+│  │  User says   │                                                │
+│  │  "deploy"    │                                                │
+│  └──────┬───────┘                                                │
+│         │                                                        │
+│         ▼                                                        │
+│  ┌──────────────────────────────────────┐                        │
+│  │  STEP 1: Coding Bot tries to deploy  │                        │
+│  │  (VS Code / IDE agent)               │                        │
+│  │                                      │                        │
+│  │  - Runs remote-deploy-dashboard.sh   │                        │
+│  │  - Checks traffic levels             │                        │
+│  │  - Monitors SSH for hangs            │                        │
+│  └──────────┬───────────────────────────┘                        │
+│             │                                                    │
+│      ┌──────┴──────┐                                            │
+│      ▼              ▼                                            │
+│  ✅ Success    ❌ Fails OR                                       │
+│                📊 High Traffic                                   │
+│                   │                                              │
+│                   ▼                                              │
+│  ┌──────────────────────────────────────┐                        │
+│  │  STEP 2: Ask User for Handoff        │                        │
+│  │                                      │                        │
+│  │  "Deploy is failing / traffic is     │                        │
+│  │   high. Can I hand off to the        │                        │
+│  │   Auto-Deployer Bot in the cloud?    │                        │
+│  │   You can move on to other work."    │                        │
+│  └──────────┬───────────────────────────┘                        │
+│             │                                                    │
+│      ┌──────┴──────┐                                            │
+│      ▼              ▼                                            │
+│  ❌ User says    ✅ User says                                    │
+│  "no"            "yes"                                           │
+│      │              │                                            │
+│      ▼              ▼                                            │
+│  Stop           ┌──────────────────────────────────────┐         │
+│                 │  STEP 3: Auto-Deployer Bot takes over │         │
+│                 │  (runs in background / cloud)         │         │
+│                 │                                      │         │
+│                 │  - Kills stuck SSH                   │         │
+│                 │  - Retries with backoff              │         │
+│                 │  - Reports progress                  │         │
+│                 │  - Notifies when done                │         │
+│                 └──────────────────────────────────────┘         │
+└──────────────────────────────────────────────────────────────────┘
 ```
+
 
 ## SSH Hang Prevention (Built-in)
 

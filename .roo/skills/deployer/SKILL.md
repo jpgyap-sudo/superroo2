@@ -144,20 +144,72 @@ Avoid full monorepo installs when only a subset of packages changed:
 - Fix stuck deploys by updating their status to `"failed"` with a `failureReason` field.
 - Check `CommitDeployLog.getDeploys({ status: "building" })` before starting a new deploy.
 
-### 6. Deploy Scripts Reference
+### 6. Handoff to Auto-Deployer Bot
+
+When the coding bot (this skill) tries to deploy and encounters **failure** or **high traffic**, it should hand off to the **Auto-Deployer Bot** so the user can move on to other work.
+
+#### Handoff Flow
+
+1. **Coding bot tries to deploy** — runs `remote-deploy-dashboard.sh` or equivalent
+2. **Detects failure or high traffic** — SSH hangs, build fails, or nginx traffic > threshold
+3. **Asks user for permission** — "Deploy is failing / traffic is high. Can I hand off to the Auto-Deployer Bot in the cloud? You can move on to other work."
+4. **If user approves** — hands off to auto-deployer bot which runs `cloud/auto-deploy.sh` in background
+5. **If user declines** — stops and reports the failure
+
+#### Handoff Prompt Template
+
+When handing off, use this exact prompt to ask the user:
+
+```
+🤖 Deploy handoff request
+━━━━━━━━━━━━━━━━━━━━━━━━━
+Status: ❌ Deploy failed / 📊 High traffic detected
+Details: [SSH timeout / Build error / N req/min traffic]
+
+I can hand this off to the **Auto-Deployer Bot** in the SuperRoo cloud.
+It will:
+  • Kill stuck SSH processes automatically
+  • Retry with exponential backoff until success
+  • Report back when done
+  • Let you move on to other work
+
+👉 Can I hand off to the Auto-Deployer Bot?
+```
+
+#### Traffic Detection (for coding bot)
+
+Before deploying, the coding bot should check traffic levels:
+
+```bash
+# Quick traffic check via SSH
+TRAFFIC=$(timeout 15 ssh $SSH_OPTS $SSH_TARGET \
+  "tail -500 /var/log/nginx/access.log 2>/dev/null | \
+   awk -v date=\"\$(date -d '1 minute ago' '+%d/%b/%Y:%H:%M')\" \
+   '\$4 ~ date {count++} END {print count+0}'" 2>/dev/null || echo 0)
+
+if [ "$TRAFFIC" -ge 100 ] 2>/dev/null; then
+  echo "High traffic detected (${TRAFFIC} req/min) — consider handoff to auto-deployer"
+fi
+```
+
+### 7. Deploy Scripts Reference
 
 | Script                       | Location                                   | Purpose                                                 |
 | ---------------------------- | ------------------------------------------ | ------------------------------------------------------- |
 | remote-deploy-dashboard.sh   | cloud/remote-deploy-dashboard.sh           | Run from local machine to deploy to VPS via SSH         |
 | deploy-dashboard.sh          | cloud/deploy-dashboard.sh                  | Run directly on VPS for local deploy                    |
+| **auto-deploy.sh**           | **cloud/auto-deploy.sh**                   | **Self-retrying deploy bot (handoff target)**           |
 | remote-deploy-crash-fixes.sh | cloud/remote-deploy-crash-fixes.sh         | Crash resilience deploy (Docker sandbox, PM2 reload)    |
 | DeployOrchestrator.ts        | src/super-roo/deploy/DeployOrchestrator.ts | TypeScript orchestrator with health checks and rollback |
 
-### 7. Deploy Flow Diagram
+### 8. Deploy Flow Diagram
 
 ```
 [Git Pull] -> [pnpm install --filter] -> [pnpm build] ---+
                                                           +-> [PM2 restart] -> [Health Check] -> [Done]
 [Nginx SCP] -> [nginx -t] -> [systemctl reload] ---------+
          (parallel with build)                (wait for both)
+
+On failure or high traffic:
+  [Coding Bot] ──handoff request──> [Auto-Deployer Bot] ──retry loop──> [Success]
 ```
