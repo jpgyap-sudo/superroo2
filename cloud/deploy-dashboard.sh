@@ -49,7 +49,8 @@ run_with_timeout() {
     local desc="$2"
     shift 2
     check_timeout "${desc}"
-    if ! timeout "${timeout_sec}" "$@"; then
+    # Use bash -lc to load profile (ensures corepack/pnpm in PATH)
+    if ! timeout "${timeout_sec}" bash -lc "$*"; then
         local exit_code=$?
         if [ $exit_code -eq 124 ]; then
             echo "ERROR: Command timed out after ${timeout_sec}s during: ${desc}"
