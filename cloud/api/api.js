@@ -15,8 +15,9 @@ const { promisify } = require("util")
 const fs = require("fs").promises
 const path = require("path")
 
-// ── Telegram Bot ──────────────────────────────────────────────────────────────
+// ── Auth & Telegram Bot ───────────────────────────────────────────────────────
 
+const auth = require("./auth")
 const telegramBot = require("./telegramBot")
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || ""
 
@@ -63,11 +64,10 @@ function resolveProviderForTask(taskType) {
 
 	// Try primary first
 	const primaryMeta = providerMeta.get(route.primary.provider)
-	if (primaryMeta?.hasKey && primaryMeta?.status === "connected") {
-		const encrypted = encryptedSecrets.get(route.primary.provider)
-		if (encrypted) {
-			try {
-				const apiKey = decryptSecret(encrypted)
+	if (isProviderUsable(primaryMeta)) {
+		try {
+			const apiKey = readProviderApiKey(route.primary.provider)
+			if (apiKey) {
 				const providerDef = PROVIDERS.find((p) => p.id === route.primary.provider)
 				return {
 					providerId: route.primary.provider,
@@ -75,20 +75,19 @@ function resolveProviderForTask(taskType) {
 					apiKey,
 					model: route.primary.model,
 				}
-			} catch {
-				// decryption failed, try fallbacks
 			}
+		} catch {
+			// decryption failed, try fallbacks
 		}
 	}
 
 	// Try fallbacks
 	for (const fallback of route.fallbacks || []) {
 		const fbMeta = providerMeta.get(fallback.provider)
-		if (fbMeta?.hasKey && fbMeta?.status === "connected") {
-			const encrypted = encryptedSecrets.get(fallback.provider)
-			if (encrypted) {
-				try {
-					const apiKey = decryptSecret(encrypted)
+		if (isProviderUsable(fbMeta)) {
+			try {
+				const apiKey = readProviderApiKey(fallback.provider)
+				if (apiKey) {
 					const providerDef = PROVIDERS.find((p) => p.id === fallback.provider)
 					return {
 						providerId: fallback.provider,
@@ -96,9 +95,9 @@ function resolveProviderForTask(taskType) {
 						apiKey,
 						model: fallback.model,
 					}
-				} catch {
-					// try next fallback
 				}
+			} catch {
+				// try next fallback
 			}
 		}
 	}
@@ -112,13 +111,11 @@ function resolveProviderForTask(taskType) {
  */
 function resolveProviderById(providerId, modelOverride) {
 	const meta = providerMeta.get(providerId)
-	if (!meta?.hasKey || meta?.status !== "connected") return null
-
-	const encrypted = encryptedSecrets.get(providerId)
-	if (!encrypted) return null
+	if (!isProviderUsable(meta)) return null
 
 	try {
-		const apiKey = decryptSecret(encrypted)
+		const apiKey = readProviderApiKey(providerId)
+		if (!apiKey) return null
 		const providerDef = PROVIDERS.find((p) => p.id === providerId)
 		return {
 			providerId,
@@ -237,9 +234,11 @@ const PROVIDERS = [
 		id: "openai",
 		name: "OpenAI",
 		description: "GPT-4o, GPT-4o-mini, and o-series models",
+		envName: "OPENAI_API_KEY",
 		website: "https://openai.com",
 		docsUrl: "https://platform.openai.com/docs",
 		apiBaseUrl: "https://api.openai.com/v1",
+		defaultModel: "gpt-4o",
 		models: [
 			{ id: "gpt-4o", name: "GPT-4o" },
 			{ id: "gpt-4o-mini", name: "GPT-4o Mini" },
@@ -251,9 +250,11 @@ const PROVIDERS = [
 		id: "anthropic",
 		name: "Anthropic",
 		description: "Claude Sonnet 4, Haiku 3.5, and Opus models",
+		envName: "ANTHROPIC_API_KEY",
 		website: "https://anthropic.com",
 		docsUrl: "https://docs.anthropic.com",
 		apiBaseUrl: "https://api.anthropic.com/v1",
+		defaultModel: "claude-sonnet-4-20250514",
 		models: [
 			{ id: "claude-sonnet-4-20250514", name: "Claude Sonnet 4" },
 			{ id: "claude-3-5-haiku-20241022", name: "Claude 3.5 Haiku" },
@@ -264,9 +265,11 @@ const PROVIDERS = [
 		id: "deepseek",
 		name: "DeepSeek",
 		description: "DeepSeek V3 and R1 reasoning models",
+		envName: "DEEPSEEK_API_KEY",
 		website: "https://deepseek.com",
 		docsUrl: "https://platform.deepseek.com/docs",
 		apiBaseUrl: "https://api.deepseek.com/v1",
+		defaultModel: "deepseek-chat",
 		models: [
 			{ id: "deepseek-chat", name: "DeepSeek V3" },
 			{ id: "deepseek-reasoner", name: "DeepSeek R1" },
@@ -277,9 +280,11 @@ const PROVIDERS = [
 		id: "kimi",
 		name: "Kimi (Moonshot)",
 		description: "Moonshot AI's Kimi models",
+		envName: "MOONSHOT_API_KEY",
 		website: "https://moonshot.cn",
 		docsUrl: "https://platform.moonshot.cn/docs",
 		apiBaseUrl: "https://api.moonshot.cn/v1",
+		defaultModel: "kimi-latest",
 		models: [{ id: "kimi-latest", name: "Kimi Latest" }],
 		capabilities: ["chat", "vision"],
 	},
@@ -287,9 +292,11 @@ const PROVIDERS = [
 		id: "openrouter",
 		name: "OpenRouter",
 		description: "Unified API for 200+ models across providers",
+		envName: "OPENROUTER_API_KEY",
 		website: "https://openrouter.ai",
 		docsUrl: "https://openrouter.ai/docs",
 		apiBaseUrl: "https://openrouter.ai/api/v1",
+		defaultModel: "openrouter/auto",
 		models: [{ id: "openrouter/auto", name: "Auto (best model)" }],
 		capabilities: ["chat", "vision", "function-calling", "multi-provider"],
 	},
@@ -297,9 +304,11 @@ const PROVIDERS = [
 		id: "groq",
 		name: "Groq",
 		description: "Fast inference with open-source models",
+		envName: "GROQ_API_KEY",
 		website: "https://groq.com",
 		docsUrl: "https://console.groq.com/docs",
 		apiBaseUrl: "https://api.groq.com/openai/v1",
+		defaultModel: "llama-3.3-70b-versatile",
 		models: [
 			{ id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B" },
 			{ id: "mixtral-8x7b-32768", name: "Mixtral 8x7B" },
@@ -370,7 +379,19 @@ const DEFAULT_AGENT_ROUTES = [
 // ── In-memory encrypted secrets store ───────────────────────────────────────────
 
 const encryptedSecrets = new Map() // providerId -> encrypted payload
+const runtimeSecrets = new Map() // providerId -> plaintext env var payload, never persisted
 const providerMeta = new Map() // providerId -> { hasKey, lastTestedAt, latencyMs, status, keyHash }
+
+function isProviderUsable(meta) {
+	return meta?.hasKey === true && meta?.status !== "invalid" && meta?.status !== "missing"
+}
+
+function readProviderApiKey(providerId) {
+	if (runtimeSecrets.has(providerId)) return runtimeSecrets.get(providerId)
+	const encrypted = encryptedSecrets.get(providerId)
+	if (!encrypted) return null
+	return decryptSecret(encrypted)
+}
 
 // ── Encrypted secrets persistence ───────────────────────────────────────────────
 
@@ -395,7 +416,7 @@ async function loadEncryptedSecrets() {
 			if (!providerMeta.has(providerId)) {
 				providerMeta.set(providerId, {
 					hasKey: true,
-					status: "not_tested",
+					status: "connected",
 					lastTestedAt: null,
 					latencyMs: null,
 					keyHash: null,
@@ -409,6 +430,31 @@ async function loadEncryptedSecrets() {
 }
 
 // ── Settings file helpers ───────────────────────────────────────────────────────
+
+function loadEnvironmentSecrets() {
+	let loadedCount = 0
+	for (const provider of PROVIDERS) {
+		if (!provider.envName || !process.env[provider.envName] || encryptedSecrets.has(provider.id)) continue
+		try {
+			const apiKey = process.env[provider.envName]
+			runtimeSecrets.set(provider.id, apiKey)
+			providerMeta.set(provider.id, {
+				hasKey: true,
+				status: "connected",
+				lastTestedAt: null,
+				latencyMs: null,
+				keyHash: hashApiKey(apiKey),
+				source: "env",
+			})
+			loadedCount += 1
+		} catch (err) {
+			console.error(`[api] Failed to load ${provider.envName} for ${provider.id}:`, err.message)
+		}
+	}
+	if (loadedCount > 0) {
+		console.log(`[api] Loaded ${loadedCount} API key(s) from env`)
+	}
+}
 
 async function loadSettings() {
 	try {
@@ -1704,22 +1750,17 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
-		// ── Auth routes ───────────────────────────────────────────────────────
+		// ── Auth & Telegram routes (handled by auth module) ──────────────────────
 
-		// POST /auth/login — authenticate by email only
-		if (method === "POST" && normalizedUrl === "/auth/login") {
-			const data = await parseBody(req)
-			const email = (data?.email || "").trim().toLowerCase()
-
-			if (email !== "jpgyap@gmail.com") {
-				sendJson(res, 403, { ok: false, error: "Access denied. Only jpgyap@gmail.com is allowed." })
-				return
-			}
-
-			// Simple token: base64 of email + timestamp
-			const token = Buffer.from(JSON.stringify({ email, ts: Date.now(), v: "1" })).toString("base64")
-
-			sendJson(res, 200, { ok: true, token, email })
+		// Delegate to the unified auth module which handles:
+		//   POST /auth/register, /auth/login, /auth/verify, /auth/logout, /auth/profile
+		//   POST /auth/link-vscode
+		//   POST /telegram/auth/login, /telegram/session/check
+		//   POST /telegram/projects, /telegram/projects/:id/select
+		//   GET  /telegram/projects/:id/logs, /telegram/projects/:id/approvals
+		//   POST /orchestrator/instruction
+		//   POST /tasks/sync, GET /tasks, DELETE /tasks/:id
+		if (await auth.handleAuthRoute(method, url, req, res)) {
 			return
 		}
 
@@ -1920,20 +1961,18 @@ const server = http.createServer(async (req, res) => {
 			const availableProviders = []
 			for (const p of PROVIDERS) {
 				const meta = providerMeta.get(p.id)
-				if (meta?.hasKey && meta?.status === "connected") {
-					const encrypted = encryptedSecrets.get(p.id)
-					if (encrypted) {
-						try {
-							const apiKey = decryptSecret(encrypted)
-							availableProviders.push({
-								providerId: p.id,
-								apiBaseUrl: p.apiBaseUrl,
-								apiKey,
-								model: p.defaultModel || "deepseek-chat",
-							})
-						} catch {
-							// skip providers with decryption errors
-						}
+				if (isProviderUsable(meta)) {
+					try {
+						const apiKey = readProviderApiKey(p.id)
+						if (!apiKey) continue
+						availableProviders.push({
+							providerId: p.id,
+							apiBaseUrl: p.apiBaseUrl,
+							apiKey,
+							model: p.defaultModel || "deepseek-chat",
+						})
+					} catch {
+						// skip providers with decryption errors
 					}
 				}
 			}
@@ -2000,8 +2039,9 @@ const server = http.createServer(async (req, res) => {
 	}
 })
 
-// Load persisted encrypted secrets before accepting requests
-loadEncryptedSecrets().then(() => {
+// Load persisted encrypted secrets and auth store before accepting requests
+Promise.all([loadEncryptedSecrets(), auth.loadStore()]).then(() => {
+	loadEnvironmentSecrets()
 	server.listen(PORT, () => {
 		console.log(`[api] Listening on port ${PORT} | queue=${QUEUE_NAME} | redis=${REDIS_URL}`)
 	})

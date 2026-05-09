@@ -77,6 +77,116 @@ function ApprovalRow({
 	)
 }
 
+function AccountSection() {
+	const [email, setEmail] = useState("")
+	const [password, setPassword] = useState("")
+	const [name, setName] = useState("")
+	const [message, setMessage] = useState("")
+	const [error, setError] = useState("")
+	const [loading, setLoading] = useState(false)
+
+	const handleCreate = async (e: React.FormEvent) => {
+		e.preventDefault()
+		setError("")
+		setMessage("")
+		if (!email || !password || !name) {
+			setError("All fields are required.")
+			return
+		}
+		if (password.length < 6) {
+			setError("Password must be at least 6 characters.")
+			return
+		}
+		setLoading(true)
+		try {
+			const token = localStorage.getItem("superroo_auth_token")
+			const res = await fetch("/api/auth/register", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					...(token ? { Authorization: `Bearer ${token}` } : {}),
+				},
+				body: JSON.stringify({ email: email.trim().toLowerCase(), password, name: name.trim() }),
+			})
+			const data = await res.json()
+			if (!data.ok) {
+				setError(data.error || "Registration failed.")
+				return
+			}
+			setMessage(`Account created for ${data.email}.`)
+			setEmail("")
+			setPassword("")
+			setName("")
+		} catch {
+			setError("Network error.")
+		} finally {
+			setLoading(false)
+		}
+	}
+
+	return (
+		<Card>
+			<h2 className="text-lg font-bold">Create Account</h2>
+			<p className="mt-1 text-sm text-gray-500">
+				Create a new SuperRoo Cloud account. Users can sign in from the Web Dashboard, Telegram Mini App, or VS
+				Code Extension.
+			</p>
+			<form onSubmit={handleCreate} className="mt-4 space-y-3">
+				<div>
+					<label className="block text-xs font-medium text-gray-400 mb-1">Name</label>
+					<input
+						type="text"
+						value={name}
+						onChange={(e) => setName(e.target.value)}
+						placeholder="John Doe"
+						className="w-full rounded-lg border border-[#1e2535] bg-[#0a0e1a] px-3 py-2 text-sm text-[#e2e8f0] placeholder-gray-600 outline-none focus:border-[#3b82f6]"
+						required
+					/>
+				</div>
+				<div>
+					<label className="block text-xs font-medium text-gray-400 mb-1">Email</label>
+					<input
+						type="email"
+						value={email}
+						onChange={(e) => setEmail(e.target.value)}
+						placeholder="user@email.com"
+						className="w-full rounded-lg border border-[#1e2535] bg-[#0a0e1a] px-3 py-2 text-sm text-[#e2e8f0] placeholder-gray-600 outline-none focus:border-[#3b82f6]"
+						required
+					/>
+				</div>
+				<div>
+					<label className="block text-xs font-medium text-gray-400 mb-1">Password</label>
+					<input
+						type="password"
+						value={password}
+						onChange={(e) => setPassword(e.target.value)}
+						placeholder="At least 6 characters"
+						className="w-full rounded-lg border border-[#1e2535] bg-[#0a0e1a] px-3 py-2 text-sm text-[#e2e8f0] placeholder-gray-600 outline-none focus:border-[#3b82f6]"
+						required
+						minLength={6}
+					/>
+				</div>
+				{error && (
+					<div className="rounded-lg bg-red-900/20 border border-red-800/40 px-3 py-2 text-xs text-red-400">
+						{error}
+					</div>
+				)}
+				{message && (
+					<div className="rounded-lg bg-emerald-900/20 border border-emerald-800/40 px-3 py-2 text-xs text-emerald-400">
+						{message}
+					</div>
+				)}
+				<button
+					type="submit"
+					disabled={loading}
+					className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-500 disabled:opacity-50 transition-colors">
+					{loading ? "Creating..." : "Create Account"}
+				</button>
+			</form>
+		</Card>
+	)
+}
+
 export function SettingsView() {
 	const [autoApprove, setAutoApprove] = useState(true)
 	const [mcp, setMcp] = useState(true)
@@ -267,6 +377,8 @@ export function SettingsView() {
 							</a>
 						</div>
 					</Card>
+
+					<AccountSection />
 				</div>
 			</div>
 		</div>

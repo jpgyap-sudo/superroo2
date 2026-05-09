@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>SuperRoo Cloud Login</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="root">
+    <div class="shell">
+      <header class="topbar">
+        <div class="logo">
+          <span class="logo-icon">⚡</span>
+          <span class="logo-text">SuperRoo Cloud</span>
+        </div>
+      </header>
+
+      <!-- Landing Step -->
+      <section id="step-landing" class="card center">
+        <div class="landing-content">
+          <div class="avatar">🤖</div>
+          <h1>Welcome to SuperRoo Cloud</h1>
+          <p class="subtitle">Connect your Telegram account to start coding from anywhere.</p>
+          <button id="btn-start" class="btn-primary">Get Started</button>
+        </div>
+      </section>
+
+      <!-- Email Step -->
+      <section id="step-email" class="card" style="display:none">
+        <h2>Enter Your Email</h2>
+        <p class="step-desc">Use your SuperRoo Cloud account email.</p>
+        <input id="input-email" type="email" class="input-field" placeholder="you@example.com" autocomplete="email" />
+        <div id="email-error" class="error-text" style="display:none"></div>
+        <button id="btn-email-next" class="btn-primary">Next</button>
+        <button id="btn-email-back" class="btn-link">Back</button>
+      </section>
+
+      <!-- Password Step -->
+      <section id="step-password" class="card" style="display:none">
+        <h2>Enter Your Password</h2>
+        <p class="step-desc">Sign in to link your Telegram account.</p>
+        <input id="input-password" type="password" class="input-field" placeholder="Your password" autocomplete="current-password" />
+        <div id="password-error" class="error-text" style="display:none"></div>
+        <button id="btn-login" class="btn-primary">Sign In & Link</button>
+        <button id="btn-password-back" class="btn-link">Back</button>
+      </section>
+
+      <!-- Loading Step -->
+      <section id="step-loading" class="card center" style="display:none">
+        <div class="spinner"></div>
+        <p class="loading-text">Linking your account...</p>
+      </section>
+
+      <!-- Success Step -->
+      <section id="step-success" class="card success" style="display:none">
+        <div class="success-icon">✅</div>
+        <h2>Successfully Linked!</h2>
+        <p id="success-email" class="success-email"></p>
+        <p class="success-desc">Your Telegram account is now connected. You can close this window and return to Telegram.</p>
+        <button id="btn-close" class="btn-primary">Close</button>
+      </section>
+
+      <!-- Error Step -->
+      <section id="step-error" class="card error" style="display:none">
+        <div class="error-icon">❌</div>
+        <h2>Something went wrong</h2>
+        <p id="error-message" class="error-desc"></p>
+        <button id="btn-retry" class="btn-primary">Try Again</button>
+      </section>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

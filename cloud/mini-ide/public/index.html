@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>SuperRoo Mini IDE</title>
+  <link rel="stylesheet" href="styles.css" />
+  <!-- Monaco Editor from CDN -->
+  <link rel="stylesheet" data-name="vs/editor/editor.main" href="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/editor/editor.main.min.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Loading Screen -->
+    <div id="loading-screen" class="loading-screen">
+      <div class="loader">
+        <div class="loader-spinner"></div>
+        <p>Loading SuperRoo Mini IDE...</p>
+      </div>
+    </div>
+
+    <!-- Error Screen -->
+    <div id="error-screen" class="error-screen hidden">
+      <div class="error-card">
+        <div class="error-icon">⚠️</div>
+        <h2>Connection Error</h2>
+        <p id="error-message">Unable to connect to the Mini IDE server.</p>
+        <button onclick="location.reload()" class="btn primary">Retry</button>
+      </div>
+    </div>
+
+    <!-- Main App -->
+    <div id="main-app" class="app-shell hidden">
+      <!-- Glow effects -->
+      <div class="glow glow-a"></div>
+      <div class="glow glow-b"></div>
+
+      <div class="page">
+        <!-- Hero Header -->
+        <div class="hero card" id="hero-header">
+          <div class="hero-left">
+            <div class="logo">📱</div>
+            <div>
+              <div class="title-row">
+                <h1>SuperRoo Mini IDE</h1>
+                <span class="pill green" id="status-pill">Connected</span>
+              </div>
+              <p id="hero-subtitle">Open a workspace, edit files, send coding instructions, and approve agent changes inside Telegram.</p>
+            </div>
+          </div>
+          <div class="hero-actions">
+            <button class="btn secondary" onclick="syncExtension()">↻ Sync Extension</button>
+            <button class="btn primary" onclick="runAgent()">▶ Run Agent</button>
+          </div>
+        </div>
+
+        <!-- Notice bar -->
+        <div id="notice" class="notice hidden"></div>
+
+        <!-- Main Grid Layout -->
+        <div class="grid-layout">
+          <!-- Left Sidebar: Workspaces -->
+          <div class="card" id="workspace-panel">
+            <div class="section-head">
+              <h2>Workspaces</h2>
+              <span class="pill blue">/projects</span>
+            </div>
+            <div class="search-box">
+              <input type="text" id="workspace-search" placeholder="🔎 Search project..." oninput="filterWorkspaces(this.value)" />
+            </div>
+            <div class="workspace-list" id="workspace-list"></div>
+            <div class="secure-box">
+              <strong>🛡️ Secure Session</strong>
+              <p>Auto-lock after 30 minutes of inactivity.</p>
+            </div>
+          </div>
+
+          <!-- Main Column: Editor -->
+          <main class="main-column">
+            <!-- Workspace Header -->
+            <div class="card" id="workspace-header">
+              <div class="workspace-header">
+                <div>
+                  <h2 id="ws-name">Select a workspace <span class="pill yellow" id="ws-status">Idle</span></h2>
+                  <p id="ws-repo">—</p>
+                </div>
+                <div class="button-row">
+                  <button class="btn secondary" onclick="openTerminal()">⌨ Terminal</button>
+                  <button class="btn secondary" onclick="commitChanges()">🌿 Commit</button>
+                </div>
+              </div>
+              <div class="stats-grid" id="stats-grid"></div>
+            </div>
+
+            <!-- Editor -->
+            <div class="card editor-card" id="editor-card">
+              <div class="editor-head">
+                <span id="file-label">📄 Select a file</span>
+                <div class="editor-actions">
+                  <button class="btn secondary small" onclick="uploadFiles()" title="Upload files (images, PDFs, docs, etc.)">📎 Attach</button>
+                  <button class="btn primary small" onclick="saveFile()">💾 Save</button>
+                </div>
+              </div>
+              <div class="editor-layout">
+                <aside class="file-list" id="file-list"></aside>
+                <div id="editor-container" class="editor-container"></div>
+              </div>
+            </div>
+
+            <!-- File Attachments Preview -->
+            <div id="attachments-panel" class="card hidden">
+              <div class="section-head">
+                <h2>📎 Attachments</h2>
+                <button class="btn secondary small" onclick="clearAttachments()">Clear all</button>
+              </div>
+              <div class="attachments-grid" id="attachments-grid"></div>
+            </div>
+          </main>
+
+          <!-- Right Sidebar: AI Command, Logs, Quick Actions -->
+          <aside class="side-column">
+            <!-- AI Command -->
+            <div class="card">
+              <div class="section-head">
+                <h2>AI Coding Command</h2>
+                <span class="pill blue">Orchestrator</span>
+              </div>
+              <p class="muted">Ask SuperRoo to edit, test, deploy, or explain this workspace.</p>
+              <textarea id="ai-prompt" placeholder="Example: Fix the queue crash and create a PR..." rows="4"></textarea>
+              <button class="btn primary full" onclick="sendCommand()">✉ Send to agents</button>
+            </div>
+
+            <!-- Live Logs -->
+            <div class="card">
+              <div class="section-head">
+                <h2>Live Logs</h2>
+                <span class="online" id="log-status">●</span>
+              </div>
+              <div class="logs-container" id="logs-container"></div>
+            </div>
+
+            <!-- Recent Tasks -->
+            <div class="card">
+              <div class="section-head">
+                <h2>📋 Recent Tasks</h2>
+                <span class="pill blue" id="task-count">0</span>
+              </div>
+              <div class="tasks-container" id="tasks-container">
+                <p class="muted">No recent tasks. Send a command to get started.</p>
+              </div>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="card">
+              <h2>🧩 Quick Actions</h2>
+              <div class="quick-actions">
+                <button onclick="quickAction('Build')">Build</button>
+                <button onclick="quickAction('Test')">Test</button>
+                <button onclick="quickAction('Deploy')">Deploy</button>
+                <button onclick="quickAction('Diff')">Diff</button>
+                <button onclick="quickAction('Docker')">Docker</button>
+                <button onclick="quickAction('Approve')">Approve</button>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hidden file input for uploads -->
+  <input type="file" id="file-input" multiple style="display:none" onchange="handleFileSelect(event)" />
+
+  <!-- Monaco Editor -->
+  <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -12,9 +12,13 @@
  * to sensitive operations like /deploy.
  *
  * Uses the Telegram Bot API (no third-party libraries required).
+ *
+ * Integrated with the unified auth module (auth.js) for session-based
+ * authentication across Telegram, Web Dashboard, and VS Code extension.
  */
 
 const crypto = require("crypto")
+const auth = require("./auth")
 
 // ─── Configuration ─────────────────────────────────────────────────────────
 
@@ -22,6 +26,15 @@ const TELEGRAM_API_BASE = "https://api.telegram.org/bot"
 
 /** The bot username (without @) for mention detection */
 const BOT_USERNAME = "superroo_bot"
+
+/** Boss-only mode: only @jpgy888 can use the bot */
+const BOSS_USERNAME = "jpgy888"
+
+/** Commands that don't require an active Telegram session */
+const PUBLIC_COMMANDS = ["/start", "/login", "/help", "/about"]
+
+/** Mini App URL for login */
+const MINI_APP_URL = "https://dev.abcx124.xyz/telegram-miniapp"
 
 // ─── In-memory state ───────────────────────────────────────────────────────
 
@@ -144,7 +157,17 @@ function generateOTPAuthURI(base32Secret, accountName) {
 	const name = accountName || "jpgyap@gmail.com"
 	const encodedName = encodeURIComponent(name)
 	const encodedIssuer = encodeURIComponent("SuperRoo Cloud")
-	return "otpauth://totp/" + encodedIssuer + ":" + encodedName + "?secret=" + base32Secret + "&issuer=" + encodedIssuer + "&algorithm=SHA1&digits=6&period=30"
+	return (
+		"otpauth://totp/" +
+		encodedIssuer +
+		":" +
+		encodedName +
+		"?secret=" +
+		base32Secret +
+		"&issuer=" +
+		encodedIssuer +
+		"&algorithm=SHA1&digits=6&period=30"
+	)
 }
 
 // ─── Helper: Call Telegram API ─────────────────────────────────────────────
@@ -165,9 +188,9 @@ async function sendMessage(botToken, chatId, text, opts) {
 		parse_mode: opts.parseMode || "Markdown",
 		disable_web_page_preview: true,
 	}
-	// Copy any additional opts
 	if (opts.reply_to_message_id) body.reply_to_message_id = opts.reply_to_message_id
 	if (opts.disable_notification) body.disable_notification = opts.disable_notification
+	if (opts.reply_markup) body.reply_markup = opts.reply_markup
 	try {
 		const res = await fetch(url, {
 			method: "POST",
@@ -175,7 +198,9 @@ async function sendMessage(botToken, chatId, text, opts) {
 			body: JSON.stringify(body),
 		})
 		if (!res.ok) {
-			const err = await res.text().catch(function () { return "" })
+			const err = await res.text().catch(function () {
+				return ""
+			})
 			console.error("[telegram] sendMessage error: " + res.status + " " + err.slice(0, 200))
 		}
 	} catch (err) {
@@ -200,6 +225,84 @@ async function sendChatAction(botToken, chatId, action) {
 		})
 	} catch (err) {
 		// silently ignore
+	}
+}
+
+/**
+ * Sends a message with an inline keyboard.
+ * @param {string} botToken
+ * @param {number|string} chatId
+ * @param {string} text
+ * @param {Array} buttons - Array of [{ text, callback_data }] rows
+ * @param {object} [opts]
+ */
+async function sendInlineKeyboard(botToken, chatId, text, buttons, opts) {
+	opts = opts || {}
+	const reply_markup = {
+		inline_keyboard: buttons.map(function (row) {
+			return row.map(function (btn) {
+				if (btn.web_app) {
+					return { text: btn.text, web_app: { url: btn.web_app } }
+				}
+				if (btn.url) {
+					return { text: btn.text, url: btn.url }
+				}
+				return { text: btn.text, callback_data: btn.callback_data }
+			})
+		}),
+	}
+	await sendMessage(botToken, chatId, text, Object.assign({}, opts, { reply_markup: JSON.stringify(reply_markup) }))
+}
+
+/**
+ * Answers a callback query (removes the loading spinner on the button).
+ * @param {string} botToken
+ * @param {string} callbackQueryId
+ * @param {string} [text]
+ */
+async function answerCallbackQuery(botToken, callbackQueryId, text) {
+	const url = TELEGRAM_API_BASE + botToken + "/answerCallbackQuery"
+	try {
+		await fetch(url, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				callback_query_id: callbackQueryId,
+				text: text || "",
+			}),
+		})
+	} catch (err) {
+		// silently ignore
+	}
+}
+
+/**
+ * Edits a message text (used to update inline keyboard messages).
+ * @param {string} botToken
+ * @param {number|string} chatId
+ * @param {number} messageId
+ * @param {string} text
+ * @param {object} [opts]
+ */
+async function editMessageText(botToken, chatId, messageId, text, opts) {
+	opts = opts || {}
+	const url = TELEGRAM_API_BASE + botToken + "/editMessageText"
+	const body = {
+		chat_id: chatId,
+		message_id: messageId,
+		text: text,
+		parse_mode: opts.parseMode || "Markdown",
+		disable_web_page_preview: true,
+	}
+	if (opts.reply_markup) body.reply_markup = opts.reply_markup
+	try {
+		await fetch(url, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(body),
+		})
+	} catch (err) {
+		console.error("[telegram] editMessageText error:", err.message)
 	}
 }
 
@@ -286,6 +389,53 @@ function createOrRefreshSession(chatId) {
 	return session
 }
 
+// ─── Auth Module Integration ───────────────────────────────────────────────
+
+/**
+ * Checks if a Telegram user has an active session in the auth module.
+ * If they do, creates/refreshes the local session.
+ * @param {number} telegramUserId
+ * @param {number} chatId
+ * @returns {Promise<object|null>} The auth session or null
+ */
+async function checkAuthSession(telegramUserId, chatId) {
+	try {
+		const result = await auth.handleTelegramSessionCheck({
+			telegramUserId: telegramUserId,
+			telegramChatId: chatId,
+		})
+		if (result && result.authenticated) {
+			const localSession = createOrRefreshSession(chatId)
+			localSession.authSession = result
+			return result
+		}
+	} catch (err) {
+		console.error("[telegram] checkAuthSession error:", err.message)
+	}
+	return null
+}
+
+/**
+ * Gets the user's email from the auth module session.
+ * @param {number} telegramUserId
+ * @param {number} chatId
+ * @returns {Promise<string|null>}
+ */
+async function getAuthEmail(telegramUserId, chatId) {
+	try {
+		const result = await auth.handleTelegramSessionCheck({
+			telegramUserId: telegramUserId,
+			telegramChatId: chatId,
+		})
+		if (result && result.authenticated && result.email) {
+			return result.email
+		}
+	} catch (err) {
+		console.error("[telegram] getAuthEmail error:", err.message)
+	}
+	return null
+}
+
 // ─── AI Chat Helper ────────────────────────────────────────────────────────
 
 /**
@@ -301,19 +451,20 @@ async function askAI(message, providers) {
 		var provider = providers[i]
 		if (!provider.apiKey) continue
 		try {
-			var url = (provider.apiBaseUrl.replace(/\/+$/, "")) + "/chat/completions"
+			var url = provider.apiBaseUrl.replace(/\/+$/, "") + "/chat/completions"
 			var res = await fetch(url, {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"Authorization": "Bearer " + provider.apiKey,
+					Authorization: "Bearer " + provider.apiKey,
 				},
 				body: JSON.stringify({
 					model: provider.model,
 					messages: [
 						{
 							role: "system",
-							content: "You are SuperRoo AI Assistant, an expert support agent for the SuperRoo product. " +
+							content:
+								"You are SuperRoo AI Assistant, an expert support agent for the SuperRoo product. " +
 								"You have deep knowledge of the SuperRoo system architecture, modules, features, and capabilities. " +
 								"Answer questions concisely and accurately. If you don't know something, say so rather than guessing.\n\n" +
 								"## SuperRoo System Architecture\n\n" +
@@ -414,6 +565,8 @@ async function askAI(message, providers) {
 								"- /session - Check active session\n" +
 								"- /otp - Set up Google Authenticator\n" +
 								"- /logs [n] - View recent logs\n" +
+								"- /projects - List and select projects\n" +
+								"- /workspace - Show active workspace\n" +
 								"- /help - Show all commands\n\n" +
 								"## Dashboard Pages\n" +
 								"- Overview: System health, queue stats, recent activity\n" +
@@ -444,8 +597,17 @@ async function askAI(message, providers) {
 			})
 			if (!res.ok) {
 				var errBody = ""
-				try { errBody = await res.text() } catch (e) {}
-				console.error("[telegram] askAI error from " + provider.providerId + ": " + res.status + " " + errBody.slice(0, 100))
+				try {
+					errBody = await res.text()
+				} catch (e) {}
+				console.error(
+					"[telegram] askAI error from " +
+						provider.providerId +
+						": " +
+						res.status +
+						" " +
+						errBody.slice(0, 100),
+				)
 				continue
 			}
 			var data = await res.json()
@@ -502,7 +664,8 @@ async function handleCode(botToken, chatId, args, queue) {
 		return
 	}
 
-	var taskId = "TG-" + Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).slice(2, 6).toUpperCase()
+	var taskId =
+		"TG-" + Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).slice(2, 6).toUpperCase()
 	var branchName = "tg/" + taskId.toLowerCase()
 
 	var job = await queue.add("telegram-" + taskId, {
@@ -532,7 +695,17 @@ async function handleCode(botToken, chatId, args, queue) {
 	await sendMessage(
 		botToken,
 		chatId,
-		"*Coding task created!*\n\n*Task:* " + taskId + "\n*Instruction:* " + instruction + "\n*Branch:* `" + branchName + "`\n*Status:* Queued\n\nUse `/status " + taskId + "` to check progress.\nUse `/diff " + taskId + "` when ready to review.",
+		"*Coding task created!*\n\n*Task:* " +
+			taskId +
+			"\n*Instruction:* " +
+			instruction +
+			"\n*Branch:* `" +
+			branchName +
+			"`\n*Status:* Queued\n\nUse `/status " +
+			taskId +
+			"` to check progress.\nUse `/diff " +
+			taskId +
+			"` when ready to review.",
 	)
 }
 
@@ -543,7 +716,9 @@ async function handleStatus(botToken, chatId, args, queue) {
 	if (args.length > 0) {
 		var taskId = args[0].toUpperCase()
 		var tasks = userTasks.get(chatId) || []
-		var task = tasks.find(function (t) { return t.id === taskId })
+		var task = tasks.find(function (t) {
+			return t.id === taskId
+		})
 		if (!task) {
 			await sendMessage(botToken, chatId, "Task `" + taskId + "` not found.")
 			return
@@ -563,7 +738,19 @@ async function handleStatus(botToken, chatId, args, queue) {
 		await sendMessage(
 			botToken,
 			chatId,
-			emoji + " *Task " + taskId + "*\n\n*Instruction:* " + task.instruction + "\n*Branch:* `" + task.branchName + "`\n*Status:* `" + liveStatus + "`\n*Files changed:* " + task.changedFiles + "\n*Lines added:* " + task.linesAdded,
+			emoji +
+				" *Task " +
+				taskId +
+				"*\n\n*Instruction:* " +
+				task.instruction +
+				"\n*Branch:* `" +
+				task.branchName +
+				"`\n*Status:* `" +
+				liveStatus +
+				"`\n*Files changed:* " +
+				task.changedFiles +
+				"\n*Lines added:* " +
+				task.linesAdded,
 		)
 	} else {
 		var counts = { waiting: 0, active: 0, completed: 0, failed: 0 }
@@ -577,15 +764,29 @@ async function handleStatus(botToken, chatId, args, queue) {
 		} catch (e) {}
 
 		var userTaskList = userTasks.get(chatId) || []
-		var activeTasks = userTaskList.filter(function (t) { return t.status !== "completed" && t.status !== "failed" })
+		var activeTasks = userTaskList.filter(function (t) {
+			return t.status !== "completed" && t.status !== "failed"
+		})
 
 		await sendMessage(
 			botToken,
 			chatId,
 			"*SuperRoo System Status*\n\n" +
-				"*Queue:* " + counts.waiting + " waiting . " + counts.active + " active . " + counts.completed + " completed . " + counts.failed + " failed\n" +
-				"*Your tasks:* " + activeTasks.length + " active\n" +
-				"*Session:* " + (getSession(chatId) ? "Active" : "Expired") + "\n\n" +
+				"*Queue:* " +
+				counts.waiting +
+				" waiting . " +
+				counts.active +
+				" active . " +
+				counts.completed +
+				" completed . " +
+				counts.failed +
+				" failed\n" +
+				"*Your tasks:* " +
+				activeTasks.length +
+				" active\n" +
+				"*Session:* " +
+				(getSession(chatId) ? "Active" : "Expired") +
+				"\n\n" +
 				"Use `/code <instruction>` to create a new coding task.",
 		)
 	}
@@ -601,7 +802,13 @@ async function handleSession(botToken, chatId) {
 		await sendMessage(
 			botToken,
 			chatId,
-			"*Session Active*\n\nExpires in: " + remaining + " minutes\nChat: `" + chatId + "`\nOTP: " + (session.otpVerified ? "Verified" : "Not verified") + "\n\nUse `/otp` to set up Google Authenticator if not verified.",
+			"*Session Active*\n\nExpires in: " +
+				remaining +
+				" minutes\nChat: `" +
+				chatId +
+				"`\nOTP: " +
+				(session.otpVerified ? "Verified" : "Not verified") +
+				"\n\nUse `/otp` to set up Google Authenticator if not verified.",
 		)
 	} else {
 		createOrRefreshSession(chatId)
@@ -627,11 +834,7 @@ async function handleOTP(botToken, chatId, args) {
 		var pending = pendingOtpSecrets.get(chatId)
 
 		if (!pending || !pending.secret) {
-			await sendMessage(
-				botToken,
-				chatId,
-				"No pending OTP setup. Use `/otp` first to generate a secret key.",
-			)
+			await sendMessage(botToken, chatId, "No pending OTP setup. Use `/otp` first to generate a secret key.")
 			return
 		}
 
@@ -668,10 +871,14 @@ async function handleOTP(botToken, chatId, args) {
 			"1. Open Google Authenticator on your phone\n" +
 			"2. Tap *+* -> *Enter a setup key*\n" +
 			"3. Enter the following key:\n\n" +
-			"`" + secret + "`\n\n" +
+			"`" +
+			secret +
+			"`\n\n" +
 			"Or scan this URI in a QR generator:\n" +
 			"(copy the link below into any QR code generator)\n" +
-			"`" + otpUri + "`\n\n" +
+			"`" +
+			otpUri +
+			"`\n\n" +
 			"4. Then send the 6-digit code:\n" +
 			"`/otp <code>`\n\n" +
 			"Example: `/otp 123456`",
@@ -689,7 +896,9 @@ async function handleDiff(botToken, chatId, args) {
 	}
 
 	var tasks = userTasks.get(chatId) || []
-	var task = tasks.find(function (t) { return t.id === taskId.toUpperCase() })
+	var task = tasks.find(function (t) {
+		return t.id === taskId.toUpperCase()
+	})
 	if (!task) {
 		await sendMessage(botToken, chatId, "Task `" + taskId + "` not found.")
 		return
@@ -699,7 +908,11 @@ async function handleDiff(botToken, chatId, args) {
 		await sendMessage(
 			botToken,
 			chatId,
-			"*Diff for " + task.id + "*\n\nNo changes yet - task is still being processed.\n\nUse `/status " + task.id + "` to check progress.",
+			"*Diff for " +
+				task.id +
+				"*\n\nNo changes yet - task is still being processed.\n\nUse `/status " +
+				task.id +
+				"` to check progress.",
 		)
 		return
 	}
@@ -707,7 +920,17 @@ async function handleDiff(botToken, chatId, args) {
 	await sendMessage(
 		botToken,
 		chatId,
-		"*Diff for " + task.id + "*\n\n*" + task.changedFiles + " files changed*\n*" + task.linesAdded + " lines added*\n*Branch:* `" + task.branchName + "`\n\nUse `/approve " + task.id + "` to approve or check the dashboard for full diff.",
+		"*Diff for " +
+			task.id +
+			"*\n\n*" +
+			task.changedFiles +
+			" files changed*\n*" +
+			task.linesAdded +
+			" lines added*\n*Branch:* `" +
+			task.branchName +
+			"`\n\nUse `/approve " +
+			task.id +
+			"` to approve or check the dashboard for full diff.",
 	)
 }
 
@@ -722,7 +945,9 @@ async function handleApprove(botToken, chatId, args) {
 	}
 
 	var tasks = userTasks.get(chatId) || []
-	var task = tasks.find(function (t) { return t.id === taskId.toUpperCase() })
+	var task = tasks.find(function (t) {
+		return t.id === taskId.toUpperCase()
+	})
 	if (!task) {
 		await sendMessage(botToken, chatId, "Task `" + taskId + "` not found.")
 		return
@@ -733,7 +958,13 @@ async function handleApprove(botToken, chatId, args) {
 	await sendMessage(
 		botToken,
 		chatId,
-		"*Task " + task.id + " Approved!*\n\nChanges will be applied to branch `" + task.branchName + "`.\nUse `/deploy " + task.id + "` to deploy when ready.",
+		"*Task " +
+			task.id +
+			" Approved!*\n\nChanges will be applied to branch `" +
+			task.branchName +
+			"`.\nUse `/deploy " +
+			task.id +
+			"` to deploy when ready.",
 	)
 }
 
@@ -783,7 +1014,9 @@ async function handleDeploy(botToken, chatId, args, queue) {
 	}
 
 	var tasks = userTasks.get(chatId) || []
-	var task = tasks.find(function (t) { return t.id === taskId.toUpperCase() })
+	var task = tasks.find(function (t) {
+		return t.id === taskId.toUpperCase()
+	})
 	if (!task) {
 		await sendMessage(botToken, chatId, "Task `" + taskId + "` not found.")
 		return
@@ -810,7 +1043,13 @@ async function handleDeploy(botToken, chatId, args, queue) {
 	await sendMessage(
 		botToken,
 		chatId,
-		"*Deploy triggered!*\n\nTask: " + task.id + "\nBranch: `" + task.branchName + "`\nJob: `" + job.id + "`\n\nUse `/status` to monitor deployment.",
+		"*Deploy triggered!*\n\nTask: " +
+			task.id +
+			"\nBranch: `" +
+			task.branchName +
+			"`\nJob: `" +
+			job.id +
+			"`\n\nUse `/status` to monitor deployment.",
 	)
 }
 
@@ -822,14 +1061,491 @@ async function handleLogs(botToken, chatId, args) {
 	await sendMessage(
 		botToken,
 		chatId,
-		"*Recent Logs (last " + limit + ")*\n\nLogs are available in the dashboard at https://dev.abcx124.xyz/logs\n\nUse `/status` to check system health.",
+		"*Recent Logs (last " +
+			limit +
+			")*\n\nLogs are available in the dashboard at https://dev.abcx124.xyz/logs\n\nUse `/status` to check system health.",
+	)
+}
+
+// ─── New Auth-Integrated Command Handlers ────────────────────────────────
+
+/**
+ * Handles /login - opens the Mini App login panel or shows login instructions.
+ * Users authenticate via the Telegram Mini App which links their Telegram
+ * account to their SuperRoo Cloud account.
+ */
+async function handleLogin(botToken, chatId, telegramUserId) {
+	// Check if already authenticated via auth module
+	var authSession = await checkAuthSession(telegramUserId, chatId)
+	if (authSession) {
+		var email = authSession.email || "your account"
+		await sendMessage(
+			botToken,
+			chatId,
+			"*Already Logged In* ✅\n\nYou are signed in as: `" +
+				email +
+				"`\n\nUse `/projects` to view your projects.\nUse `/code <instruction>` to start a coding task.\nUse `/session` to check session details.",
+		)
+		return
+	}
+
+	// Send login button that opens the Mini App
+	var loginButton = [
+		[
+			{
+				text: "🔐 Login to SuperRoo Cloud",
+				url: MINI_APP_URL + "?chat_id=" + chatId + "&telegram_id=" + telegramUserId,
+			},
+		],
+	]
+
+	await sendInlineKeyboard(
+		botToken,
+		chatId,
+		"*Login to SuperRoo Cloud*\n\n" +
+			"Click the button below to open the login panel and authenticate with your SuperRoo Cloud account.\n\n" +
+			"After logging in, you'll be able to:\n" +
+			"• View and select projects\n" +
+			"• Send coding instructions\n" +
+			"• Monitor task status\n" +
+			"• Approve and deploy changes\n\n" +
+			"*Don't have an account?*\n" +
+			"Create one in the Settings tab at https://dev.abcx124.xyz",
+		loginButton,
 	)
 }
 
 /**
- * Handles /projects - lists available projects on the VPS.
+ * Handles /projects - lists available projects from the auth module.
+ * Shows project cards with inline keyboard for selection.
  */
-async function handleProjects(botToken, chatId) {
+async function handleProjects(botToken, chatId, telegramUserId) {
+	// Check auth session first
+	var authSession = await checkAuthSession(telegramUserId, chatId)
+	if (!authSession) {
+		await sendMessage(
+			botToken,
+			chatId,
+			"*Authentication Required*\n\nPlease login first using `/login` to view your projects.",
+		)
+		return
+	}
+
+	await sendChatAction(botToken, chatId, "typing")
+
+	try {
+		var result = await auth.handleTelegramProjects({
+			telegramUserId: telegramUserId,
+			telegramChatId: chatId,
+		})
+
+		if (!result || !result.projects || result.projects.length === 0) {
+			await sendMessage(
+				botToken,
+				chatId,
+				"*No Projects Found*\n\nYou don't have any projects yet. Create one in the dashboard at https://dev.abcx124.xyz\n\nUse `/code <instruction>` to start a coding task in the default workspace.",
+			)
+			return
+		}
+
+		var projectList = result.projects
+			.map(function (p, i) {
+				return (
+					"*" +
+					(i + 1) +
+					". " +
+					p.name +
+					"*" +
+					(p.description ? "\n   " + p.description : "") +
+					"\n   Status: " +
+					(p.status || "active") +
+					"\n   ID: `" +
+					p.id +
+					"`"
+				)
+			})
+			.join("\n\n")
+
+		// Build inline keyboard for project selection
+		var projectButtons = result.projects.map(function (p) {
+			return [{ text: p.name, callback_data: "project:" + p.id }]
+		})
+
+		await sendInlineKeyboard(
+			botToken,
+			chatId,
+			"*Your Projects*\n\n" + projectList + "\n\nSelect a project to set as your active workspace:",
+			projectButtons,
+		)
+	} catch (err) {
+		console.error("[telegram] handleProjects error:", err.message)
+		await sendMessage(
+			botToken,
+			chatId,
+			"*Error loading projects*\n\n" + err.message + "\n\nPlease try again later.",
+		)
+	}
+}
+
+/**
+ * Handles /workspace - shows the currently active workspace/project.
+ */
+async function handleWorkspace(botToken, chatId, telegramUserId) {
+	var authSession = await checkAuthSession(telegramUserId, chatId)
+	if (!authSession) {
+		await sendMessage(botToken, chatId, "*Authentication Required*\n\nPlease login first using `/login`.")
+		return
+	}
+
+	try {
+		var result = await auth.handleTelegramProjects({
+			telegramUserId: telegramUserId,
+			telegramChatId: chatId,
+		})
+
+		var activeProject = null
+		if (result && result.projects) {
+			activeProject = result.projects.find(function (p) {
+				return p.is_active
+			})
+		}
+
+		if (activeProject) {
+			await sendMessage(
+				botToken,
+				chatId,
+				"*Active Workspace*\n\n" +
+					"*Project:* " +
+					activeProject.name +
+					"\n" +
+					(activeProject.description ? "*Description:* " + activeProject.description + "\n" : "") +
+					"*Status:* " +
+					(activeProject.status || "active") +
+					"\n" +
+					"*ID:* `" +
+					activeProject.id +
+					"`\n\n" +
+					"Use `/projects` to switch projects.\n" +
+					"Use `/code <instruction>` to start coding.",
+			)
+		} else {
+			await sendMessage(
+				botToken,
+				chatId,
+				"*No Active Workspace*\n\nUse `/projects` to select a project as your active workspace.",
+			)
+		}
+	} catch (err) {
+		console.error("[telegram] handleWorkspace error:", err.message)
+		await sendMessage(botToken, chatId, "*Error*\n\nCould not load workspace information.")
+	}
+}
+
+/**
+ * Handles /agents - shows available agents and their status.
+ */
+async function handleAgents(botToken, chatId) {
+	await sendMessage(
+		botToken,
+		chatId,
+		"*Available Agents*\n\n" +
+			"1. *Coder* — Code generation & implementation\n" +
+			"2. *Debugger* — Bug investigation & root cause analysis\n" +
+			"3. *Tester* — Test execution & quality gates\n" +
+			"4. *Deploy Checker* — Deployment verification\n" +
+			"5. *PM Agent* — Product management & feature tracking\n\n" +
+			"Use `/code <instruction>` to assign a task to the Coder agent.\n" +
+			"Use `/status` to check agent activity.",
+	)
+}
+
+/**
+ * Handles /settings - shows settings options.
+ */
+async function handleSettings(botToken, chatId) {
+	await sendMessage(
+		botToken,
+		chatId,
+		"*Settings*\n\n" +
+			"Manage your account and preferences at the dashboard:\n" +
+			"https://dev.abcx124.xyz/settings\n\n" +
+			"*Available options:*\n" +
+			"• Create/update your account (email + password)\n" +
+			"• Link Telegram to your account\n" +
+			"• Manage API keys\n" +
+			"• Configure agent routing\n" +
+			"• Set guardrails and approval rules",
+	)
+}
+
+/**
+ * Handles /about - shows bot information.
+ */
+/**
+ * Handles /miniide command — sends inline keyboard with Mini IDE WebApp button.
+ * @param {string} botToken
+ * @param {number} chatId
+ * @param {number} telegramUserId
+ */
+async function handleMiniIde(botToken, chatId, telegramUserId) {
+	var authSession = await checkAuthSession(telegramUserId, chatId)
+	if (!authSession) {
+		await sendMessage(botToken, chatId, "*Authentication Required*\n\nPlease login first using `/login`.")
+		return
+	}
+
+	try {
+		var result = await auth.handleTelegramProjects({
+			telegramUserId: telegramUserId,
+			telegramChatId: chatId,
+		})
+		var projects = (result && result.projects) || []
+
+		if (projects.length === 0) {
+			await sendMessage(
+				botToken,
+				chatId,
+				"*No Projects Found*\n\nYou don't have any projects yet. Create one in the SuperRoo Cloud Dashboard.\n\nhttps://dev.abcx124.xyz",
+			)
+			return
+		}
+
+		if (projects.length === 1) {
+			// Single project — open Mini IDE directly
+			var project = projects[0]
+			var miniIdeUrl =
+				"https://dev.abcx124.xyz/tg?workspace=" +
+				encodeURIComponent(project.id || project.project_id) +
+				"&chat_id=" +
+				chatId
+			await sendInlineKeyboard(
+				botToken,
+				chatId,
+				"*Mini IDE* 🚀\n\nActive workspace: *" +
+					(project.name || project.project_name) +
+					"*\n\nOpen the Mini IDE to code with a full editor, file browser, AI assistant, and file uploads.",
+				[
+					[{ text: "🚀 Open Mini IDE", web_app: miniIdeUrl }],
+					[
+						{ text: "📁 Projects", callback_data: "projects" },
+						{ text: "❓ Help", callback_data: "help" },
+					],
+				],
+			)
+		} else {
+			// Multiple projects — show project list first
+			var buttons = projects.map(function (p) {
+				return [
+					{ text: "📁 " + (p.name || p.project_name), callback_data: "project:" + (p.id || p.project_id) },
+				]
+			})
+			await sendInlineKeyboard(
+				botToken,
+				chatId,
+				"*Select a Workspace*\n\nChoose a project to open in the Mini IDE:",
+				buttons,
+			)
+		}
+	} catch (err) {
+		console.error("[telegram] handleMiniIde error:", err.message)
+		await sendMessage(botToken, chatId, "*Error*\n\nCould not load projects. " + err.message)
+	}
+}
+
+async function handleAbout(botToken, chatId) {
+	await sendMessage(
+		botToken,
+		chatId,
+		"*SuperRoo Bot* 🤖\n\n" +
+			"Version: 2.0.0\n" +
+			"Framework: Telegram Bot API (native)\n" +
+			"Backend: SuperRoo Cloud API\n\n" +
+			"*Features:*\n" +
+			"• Unified auth across Telegram, Web, and VS Code\n" +
+			"• Project management with workspace switching\n" +
+			"• AI-powered coding assistant\n" +
+			"• Task queue with status tracking\n" +
+			"• Secure deploy with Google Authenticator OTP\n\n" +
+			"*Dashboard:* https://dev.abcx124.xyz\n" +
+			"*Support:* Use `/ask <question>` or tag @superroo_bot in group chat",
+	)
+}
+
+/**
+ * Handles project selection from inline keyboard callback.
+ * @param {string} botToken
+ * @param {number} chatId
+ * @param {number} messageId
+ * @param {string} projectId
+ * @param {number} telegramUserId
+ */
+async function handleProjectSelect(botToken, chatId, messageId, projectId, telegramUserId) {
+	var authSession = await checkAuthSession(telegramUserId, chatId)
+	if (!authSession) {
+		await sendMessage(botToken, chatId, "*Authentication Required*\n\nPlease login first using `/login`.")
+		return
+	}
+
+	try {
+		var result = await auth.handleTelegramProjectSelect(projectId, {
+			telegramUserId: telegramUserId,
+			telegramChatId: chatId,
+		})
+
+		if (result && result.project) {
+			// Update the original message to show selection
+			await editMessageText(
+				botToken,
+				chatId,
+				messageId,
+				"*Project Selected* ✅\n\n*" +
+					result.project.name +
+					"* is now your active workspace.\n\n" +
+					"Use `/code <instruction>` to start coding in this project.\n" +
+					"Use `/workspace` to view the active workspace.",
+			)
+
+			// Send a follow-up message with Mini IDE WebApp button
+			const miniIdeUrl =
+				"https://dev.abcx124.xyz/tg?workspace=" + encodeURIComponent(projectId) + "&chat_id=" + chatId
+			await sendInlineKeyboard(
+				botToken,
+				chatId,
+				"*Ready to Code* 🚀\n\nActive workspace: *" +
+					result.project.name +
+					"*\n\n" +
+					"📱 *Open Mini IDE* — Full code editor with file browser, AI assistant, and file uploads.\n" +
+					"Or send commands directly in chat:\n" +
+					"`/code <instruction>` — Start coding\n" +
+					"`/workspace` — View workspace\n" +
+					"`/status` — Check status",
+				[
+					[{ text: "🚀 Open Mini IDE", web_app: miniIdeUrl }],
+					[
+						{ text: "📁 My Projects", callback_data: "projects" },
+						{ text: "❓ Help", callback_data: "help" },
+					],
+				],
+			)
+		} else {
+			await editMessageText(botToken, chatId, messageId, "*Error*\n\nCould not select project. Please try again.")
+		}
+	} catch (err) {
+		console.error("[telegram] handleProjectSelect error:", err.message)
+		await editMessageText(botToken, chatId, messageId, "*Error selecting project*\n\n" + err.message)
+	}
+}
+
+/**
+ * Routes a natural language text message to the orchestrator.
+ * This is used when a user types a coding instruction directly (not as a command).
+ * @param {string} botToken
+ * @param {number} chatId
+ * @param {string} text - The user's message
+ * @param {number} telegramUserId
+ * @param {object} queue - BullMQ queue
+ */
+async function handleNaturalLanguageInstruction(botToken, chatId, text, telegramUserId, queue) {
+	var authSession = await checkAuthSession(telegramUserId, chatId)
+	if (!authSession) {
+		// If not authenticated, treat as /ask
+		return false
+	}
+
+	// Check if user has an active project selected
+	try {
+		var result = await auth.handleTelegramProjects({
+			telegramUserId: telegramUserId,
+			telegramChatId: chatId,
+		})
+
+		var activeProject = null
+		if (result && result.projects) {
+			activeProject = result.projects.find(function (p) {
+				return p.is_active
+			})
+		}
+
+		if (activeProject) {
+			// Route to orchestrator as a coding instruction
+			await sendChatAction(botToken, chatId, "typing")
+
+			// Log the instruction via auth module
+			try {
+				await auth.handleOrchestratorInstruction({
+					userId: authSession.userId,
+					projectId: activeProject.id,
+					instruction: text,
+					source: "telegram",
+				})
+			} catch (logErr) {
+				// Non-critical - just log it
+				console.error("[telegram] Failed to log orchestrator instruction:", logErr.message)
+			}
+
+			// Create a coding task
+			var taskId =
+				"TG-" +
+				Date.now().toString(36).toUpperCase() +
+				"-" +
+				Math.random().toString(36).slice(2, 6).toUpperCase()
+			var branchName = "tg/" + taskId.toLowerCase()
+
+			var job = await queue.add("telegram-" + taskId, {
+				task: text,
+				agentId: "coder",
+				commands: [],
+				network: "none",
+				telegram: {
+					chatId: chatId,
+					taskId: taskId,
+					branchName: branchName,
+				},
+			})
+
+			if (!userTasks.has(chatId)) userTasks.set(chatId, [])
+			userTasks.get(chatId).push({
+				id: taskId,
+				instruction: text,
+				status: "queued",
+				branchName: branchName,
+				changedFiles: 0,
+				linesAdded: 0,
+				createdAt: new Date().toISOString(),
+				jobId: job.id,
+			})
+
+			await sendMessage(
+				botToken,
+				chatId,
+				"*Coding task created!* 🚀\n\n*Project:* " +
+					activeProject.name +
+					"\n*Task:* " +
+					taskId +
+					"\n*Instruction:* " +
+					text +
+					"\n*Branch:* `" +
+					branchName +
+					"`\n*Status:* Queued\n\nUse `/status " +
+					taskId +
+					"` to check progress.\nUse `/diff " +
+					taskId +
+					"` when ready to review.",
+			)
+			return true
+		}
+	} catch (err) {
+		console.error("[telegram] handleNaturalLanguageInstruction error:", err.message)
+	}
+
+	return false
+}
+
+/**
+ * Handles /projects - lists available projects on the VPS (legacy static version).
+ * Kept for backward compatibility.
+ */
+async function handleProjectsLegacy(botToken, chatId) {
 	await sendMessage(
 		botToken,
 		chatId,
@@ -861,23 +1577,29 @@ async function handleHelp(botToken, chatId) {
 		botToken,
 		chatId,
 		"*SuperRoo Bot Commands*\n\n" +
+			"*Account*\n" +
+			"`/login` - Login to SuperRoo Cloud (opens Mini App)\n" +
+			"`/session` - Check active session\n" +
+			"`/otp [code]` - Set up Google Authenticator\n\n" +
+			"*Projects*\n" +
+			"`/projects` - List and select projects\n" +
+			"`/workspace` - Show active workspace\n" +
+			"`/miniide` - Open Mini IDE (full code editor in Telegram)\n" +
+			"`/agents` - Show available agents\n\n" +
 			"*Coding*\n" +
 			"`/code <instruction>` - Create a coding task\n" +
 			"`/diff <taskId>` - Show changed files\n" +
 			"`/test <taskId>` - Run test suite\n" +
 			"`/approve <taskId>` - Approve pending changes\n" +
 			"`/deploy <taskId>` - Deploy approved build (OTP required)\n\n" +
-			"*Projects*\n" +
-			"`/projects` - List available projects\n\n" +
 			"*AI Support*\n" +
 			"`/ask <question>` - Ask the AI support assistant\n" +
 			"`@superroo_bot <question>` - Ask in group chat\n\n" +
-			"*Account*\n" +
-			"`/session` - Check active session\n" +
-			"`/otp [code]` - Set up Google Authenticator\n\n" +
 			"*System*\n" +
 			"`/status [taskId]` - Check system or task status\n" +
 			"`/logs [n]` - View recent logs\n" +
+			"`/settings` - Account and system settings\n" +
+			"`/about` - Bot information\n" +
 			"`/help` - Show this message\n\n" +
 			"*Dashboard:* https://dev.abcx124.xyz\n" +
 			"*Need help?* Use `/ask <question>` or tag `@superroo_bot` in group chat.",
@@ -887,6 +1609,7 @@ async function handleHelp(botToken, chatId) {
 /**
  * Main update handler — routes incoming Telegram updates to the appropriate handler.
  * Supports both direct commands and @superroo_bot mentions in groups.
+ * Includes session guard: blocks non-public commands until authenticated via auth module.
  *
  * @param {object} update - Telegram webhook update object
  * @param {string} botToken
@@ -894,12 +1617,34 @@ async function handleHelp(botToken, chatId) {
  * @param {Array} [providers] - AI provider configs for /ask and @mention support
  */
 async function handleUpdate(update, botToken, queue, providers) {
+	// Handle callback queries (inline keyboard button presses)
+	if (update && update.callback_query) {
+		var cq = update.callback_query
+		var cqChatId = cq.message.chat.id
+		var cqMessageId = cq.message.message_id
+		var cqData = cq.data || ""
+		var cqUserId = cq.from.id
+
+		// Answer the callback query to remove loading state
+		await answerCallbackQuery(botToken, cq.id)
+
+		// Handle project selection
+		if (cqData.startsWith("project:")) {
+			var projectId = cqData.slice(8)
+			await handleProjectSelect(botToken, cqChatId, cqMessageId, projectId, cqUserId)
+			return
+		}
+
+		return
+	}
+
 	if (!update || !update.message) return
 
 	var msg = update.message
 	var chatId = msg.chat.id
 	var text = (msg.text || "").trim()
 	var entities = msg.entities || []
+	var telegramUserId = msg.from ? msg.from.id : chatId
 
 	if (!text) return
 
@@ -926,12 +1671,6 @@ async function handleUpdate(update, botToken, queue, providers) {
 		text = text.replace(/@superroo_bot/gi, "").trim()
 	}
 
-	// Ensure session exists
-	var session = getSession(chatId)
-	if (!session) {
-		createOrRefreshSession(chatId)
-	}
-
 	// Parse command and arguments
 	var args = text.split(/\s+/)
 	var command = args[0] ? args[0].toLowerCase() : ""
@@ -943,17 +1682,68 @@ async function handleUpdate(update, botToken, queue, providers) {
 		cmdArgs = text.split(/\s+/)
 	}
 
+	// ─── Session Guard ──────────────────────────────────────────────────
+	// Block non-public commands until the user has an active auth session.
+	// PUBLIC_COMMANDS: /start, /login, /help, /about
+	if (PUBLIC_COMMANDS.indexOf(command) === -1) {
+		var authSession = await checkAuthSession(telegramUserId, chatId)
+		if (!authSession) {
+			// Also check if there's a local session (for backward compatibility)
+			var localSession = getSession(chatId)
+			if (!localSession) {
+				await sendMessage(
+					botToken,
+					chatId,
+					"*Authentication Required* 🔒\n\nPlease login first to use this command.\n\nUse `/login` to authenticate with your SuperRoo Cloud account.\n\n*Public commands:* `/start`, `/help`, `/about`, `/login`",
+				)
+				return
+			}
+		}
+	}
+
+	// ─── Boss-Only Guard ────────────────────────────────────────────────
+	// Only @jpgy888 (boss) can use the bot. Others get a polite rejection.
+	var senderUsername = (msg.from && msg.from.username) || ""
+	if (senderUsername.toLowerCase() !== BOSS_USERNAME.toLowerCase()) {
+		await sendMessage(
+			botToken,
+			chatId,
+			"*Access Restricted* 🔒\n\nThis bot is configured for private use only. If you believe this is an error, please contact the administrator.\n\n_Bot ID: superroo_bot_",
+		)
+		return
+	}
+
+	// Ensure local session exists
+	var session = getSession(chatId)
+	if (!session) {
+		createOrRefreshSession(chatId)
+	}
+
 	switch (command) {
 		case "/start":
 			await sendMessage(
 				botToken,
 				chatId,
-				"*SuperRoo Bot* 🤖\n\nWelcome to SuperRoo Cloud! I can help you code, test, deploy, and answer questions about the system.\n\nUse `/help` to see all commands.\nUse `/code <instruction>` to start a coding task.\nUse `/ask <question>` to ask the AI support assistant.",
+				"*SuperRoo Bot* 🤖\n\nWelcome to SuperRoo Cloud! I can help you code, test, deploy, and answer questions about the system.\n\n" +
+					"*Get Started:*\n" +
+					"1. Use `/login` to authenticate with your SuperRoo Cloud account\n" +
+					"2. Use `/projects` to view and select a project\n" +
+					"3. Use `/code <instruction>` to start a coding task\n\n" +
+					"Use `/help` to see all commands.\n" +
+					"Use `/ask <question>` to ask the AI support assistant.",
 			)
+			break
+
+		case "/login":
+			await handleLogin(botToken, chatId, telegramUserId)
 			break
 
 		case "/help":
 			await handleHelp(botToken, chatId)
+			break
+
+		case "/about":
+			await handleAbout(botToken, chatId)
 			break
 
 		case "/ask":
@@ -997,7 +1787,24 @@ async function handleUpdate(update, botToken, queue, providers) {
 			break
 
 		case "/projects":
-			await handleProjects(botToken, chatId)
+			// Try auth-based projects first, fall back to legacy
+			await handleProjects(botToken, chatId, telegramUserId)
+			break
+
+		case "/workspace":
+			await handleWorkspace(botToken, chatId, telegramUserId)
+			break
+
+		case "/agents":
+			await handleAgents(botToken, chatId)
+			break
+
+		case "/miniide":
+			await handleMiniIde(botToken, chatId, telegramUserId)
+			break
+
+		case "/settings":
+			await handleSettings(botToken, chatId)
 			break
 
 		default:
@@ -1005,11 +1812,11 @@ async function handleUpdate(update, botToken, queue, providers) {
 			if (isGroup && botMentioned) {
 				await handleAsk(botToken, chatId, text.split(/\s+/), providers || [])
 			} else {
-				await sendMessage(
-					botToken,
-					chatId,
-					"Unknown command. Use `/help` to see available commands.",
-				)
+				// Try natural language instruction routing
+				var handled = await handleNaturalLanguageInstruction(botToken, chatId, text, telegramUserId, queue)
+				if (!handled) {
+					await sendMessage(botToken, chatId, "Unknown command. Use `/help` to see available commands.")
+				}
 			}
 			break
 	}
@@ -1018,6 +1825,9 @@ async function handleUpdate(update, botToken, queue, providers) {
 module.exports = {
 	sendMessage,
 	sendChatAction,
+	sendInlineKeyboard,
+	answerCallbackQuery,
+	editMessageText,
 	setWebhook,
 	getWebhookInfo,
 	deleteWebhook,

@@ -68,3 +68,7 @@ plans/
 cloud/agent-state.json
 
 roo-cli-*.tar.gz*
+
+# Temp / scratch dirs
+tmp/
+temp/
