@@ -1074,7 +1074,7 @@ async function handleLogs(botToken, chatId, args) {
  * Users authenticate via the Telegram Mini App which links their Telegram
  * account to their SuperRoo Cloud account.
  */
-async function handleLogin(botToken, chatId, telegramUserId) {
+async function handleLogin(botToken, chatId, telegramUserId, isGroup) {
 	// Check if already authenticated via auth module
 	var authSession = await checkAuthSession(telegramUserId, chatId)
 	if (authSession) {
@@ -1089,16 +1089,20 @@ async function handleLogin(botToken, chatId, telegramUserId) {
 		return
 	}
 
-	// Send login button that opens the Mini App
-	var loginButton = [
-		[
-			{
-				text: "🔐 Login to SuperRoo Cloud",
-				url: MINI_APP_URL + "?chat_id=" + chatId + "&telegram_id=" + telegramUserId,
-			},
-		],
-	]
+	// In groups, redirect to DM — Mini App login only works in private chat
+	if (isGroup) {
+		await sendInlineKeyboard(
+			botToken,
+			chatId,
+			"*Login Required* 🔐\n\nTap below to open a private chat with @" +
+				BOT_USERNAME +
+				" and log in there.\n\nOnce logged in via DM, all your commands in this group will be authenticated.",
+			[[{ text: "🔐 Login via Private Chat", url: "https://t.me/" + BOT_USERNAME + "?start=login" }]],
+		)
+		return
+	}
 
+	// DM: send Mini App login button
 	await sendInlineKeyboard(
 		botToken,
 		chatId,
@@ -1111,7 +1115,14 @@ async function handleLogin(botToken, chatId, telegramUserId) {
 			"• Approve and deploy changes\n\n" +
 			"*Don't have an account?*\n" +
 			"Create one in the Settings tab at https://dev.abcx124.xyz",
-		loginButton,
+		[
+			[
+				{
+					text: "🔐 Login to SuperRoo Cloud",
+					url: MINI_APP_URL + "?chat_id=" + chatId + "&telegram_id=" + telegramUserId,
+				},
+			],
+		],
 	)
 }
 
@@ -1653,7 +1664,7 @@ async function handleUpdate(update, botToken, queue, providers) {
 	var botMentioned = false
 
 	if (isGroup) {
-		// Look for @superroo_bot in entities
+		// Check for @superroo_bot mention OR /command@superroo_bot format
 		for (var i = 0; i < entities.length; i++) {
 			var entity = entities[i]
 			if (entity.type === "mention") {
@@ -1663,18 +1674,27 @@ async function handleUpdate(update, botToken, queue, providers) {
 					break
 				}
 			}
+			// Handle /command@superroo_bot (bot_command entity containing the bot username)
+			if (entity.type === "bot_command") {
+				var cmdText = text.slice(entity.offset, entity.offset + entity.length)
+				if (cmdText.toLowerCase().includes("@" + BOT_USERNAME.toLowerCase())) {
+					botMentioned = true
+					break
+				}
+			}
 		}
 		// In groups, only respond if explicitly mentioned
 		if (!botMentioned) return
 
-		// Strip the @mention from the text for command processing
-		text = text.replace(/@superroo_bot/gi, "").trim()
+		// Strip @botname suffix from commands and mentions
+		text = text.replace(new RegExp("@" + BOT_USERNAME, "gi"), "").trim()
 	}
 
 	// Parse command and arguments
 	var args = text.split(/\s+/)
 	var command = args[0] ? args[0].toLowerCase() : ""
 	var cmdArgs = args.slice(1)
+	console.log("[telegram] Message from " + telegramUserId + " in chat " + chatId + ": " + text.slice(0, 80))
 
 	// If no command but bot was mentioned, treat as /ask
 	if (isGroup && botMentioned && !command.startsWith("/")) {
@@ -1708,7 +1728,7 @@ async function handleUpdate(update, botToken, queue, providers) {
 		await sendMessage(
 			botToken,
 			chatId,
-			"*Access Restricted* 🔒\n\nThis bot is configured for private use only. If you believe this is an error, please contact the administrator.\n\n_Bot ID: superroo_bot_",
+			"*Access Restricted* 🔒\n\nThis bot is configured for private use only. If you believe this is an error, please contact the administrator.",
 		)
 		return
 	}
@@ -1728,14 +1748,14 @@ async function handleUpdate(update, botToken, queue, providers) {
 					"*Get Started:*\n" +
 					"1. Use `/login` to authenticate with your SuperRoo Cloud account\n" +
 					"2. Use `/projects` to view and select a project\n" +
-					"3. Use `/code <instruction>` to start a coding task\n\n" +
+					"3. Use `/code` with an instruction to start a coding task\n\n" +
 					"Use `/help` to see all commands.\n" +
-					"Use `/ask <question>` to ask the AI support assistant.",
+					"Use `/ask` to ask the AI support assistant.",
 			)
 			break
 
 		case "/login":
-			await handleLogin(botToken, chatId, telegramUserId)
+			await handleLogin(botToken, chatId, telegramUserId, isGroup)
 			break
 
 		case "/help":
