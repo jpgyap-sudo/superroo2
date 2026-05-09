@@ -1694,6 +1694,7 @@ async function handleUpdate(update, botToken, queue, providers) {
 	var args = text.split(/\s+/)
 	var command = args[0] ? args[0].toLowerCase() : ""
 	var cmdArgs = args.slice(1)
+	console.log("[telegram] Message from " + telegramUserId + " in chat " + chatId + ": " + text.slice(0, 80))
 
 	// If no command but bot was mentioned, treat as /ask
 	if (isGroup && botMentioned && !command.startsWith("/")) {
@@ -1727,7 +1728,7 @@ async function handleUpdate(update, botToken, queue, providers) {
 		await sendMessage(
 			botToken,
 			chatId,
-			"*Access Restricted* 🔒\n\nThis bot is configured for private use only. If you believe this is an error, please contact the administrator.\n\n_Bot ID: superroo_bot_",
+			"*Access Restricted* 🔒\n\nThis bot is configured for private use only. If you believe this is an error, please contact the administrator.",
 		)
 		return
 	}
@@ -1747,9 +1748,9 @@ async function handleUpdate(update, botToken, queue, providers) {
 					"*Get Started:*\n" +
 					"1. Use `/login` to authenticate with your SuperRoo Cloud account\n" +
 					"2. Use `/projects` to view and select a project\n" +
-					"3. Use `/code <instruction>` to start a coding task\n\n" +
+					"3. Use `/code` with an instruction to start a coding task\n\n" +
 					"Use `/help` to see all commands.\n" +
-					"Use `/ask <question>` to ask the AI support assistant.",
+					"Use `/ask` to ask the AI support assistant.",
 			)
 			break
 
