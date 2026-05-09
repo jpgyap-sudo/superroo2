@@ -25,11 +25,11 @@ export const EXTERNAL_LINKS = {
 	OFFICE_HOURS_PODCAST: "https://www.youtube.com/@SuperRooYT/podcasts",
 	FAQ: "https://superroo.com/#faq",
 	TESTIMONIALS: "https://superroo.com/#testimonials",
-	CLOUD_APP_LOGIN: "https://app.superroo.com/sign-in",
-	CLOUD_APP_SIGNUP: "https://app.superroo.com/sign-up",
-	CLOUD_APP_SIGNUP_HOME: "https://app.superroo.com/sign-up?redirect_url=/cloud-agents/setup",
-	CLOUD_APP_SIGNUP_PRO: "https://app.superroo.com/sign-up?redirect_url=/cloud-agents/setup",
-	CLOUD_APP_TEAM_TRIAL: "https://app.superroo.com/checkout/team",
+	CLOUD_APP_LOGIN: "https://clerk.superroo.com/sign-in",
+	CLOUD_APP_SIGNUP: "https://clerk.superroo.com/sign-up",
+	CLOUD_APP_SIGNUP_HOME: "https://clerk.superroo.com/sign-up?redirect_url=/cloud-agents/setup",
+	CLOUD_APP_SIGNUP_PRO: "https://clerk.superroo.com/sign-up?redirect_url=/cloud-agents/setup",
+	CLOUD_APP_TEAM_TRIAL: "https://clerk.superroo.com/checkout/team",
 	SUPPORT: "mailto:support@superroo.com",
 }
 

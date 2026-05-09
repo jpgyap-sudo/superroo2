@@ -1,6 +1,22 @@
 {
 	"commits": [
 		{
+			"id": "commit_telegram_group_fix_001",
+			"commitSha": "telegram-group-fix-001",
+			"agent": "Roo Code",
+			"type": "bugfix",
+			"title": "fix: Telegram bot not responding in group chats + 404 login URL",
+			"description": "Two bugs fixed:\n\n1. Telegram bot now responds in group chats: refactored bot.ts to factory pattern (createBot) with proper group chat support including bot_command entity detection, @mention detection, reply-to-bot detection, my_chat_member handling (bot added to group), and configurable authorization per chat type. Added 35 tests covering all scenarios.\n\n2. Login 404: Changed CLOUD_APP_LOGIN and related URLs from app.superroo.com/sign-in to clerk.superroo.com/sign-in since the Clerk auth pages are hosted at clerk.superroo.com, not app.superroo.com.",
+			"filesChanged": [
+				"src/telegram/bot.ts",
+				"src/telegram/__tests__/bot.test.ts",
+				"apps/web-superroo/src/lib/constants.ts"
+			],
+			"featuresAffected": ["telegram-bot", "web-superroo"],
+			"bugsFixed": ["Telegram bot not responding in group chats", "404 error when logging in via Telegram"],
+			"timestamp": "2026-05-09T15:36:25.000Z"
+		},
+		{
 			"id": "commit_b927d78c1",
 			"commitSha": "b927d78c1",
 			"agent": "Roo Code",
