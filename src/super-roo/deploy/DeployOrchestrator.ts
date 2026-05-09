@@ -302,14 +302,29 @@ export class DeployOrchestrator {
 
 		await this.createDeployBundle(bundlePath)
 
+		// SSH hang prevention flags:
+		//   ServerAliveInterval=15  — send keepalive every 15s
+		//   ServerAliveCountMax=3   — disconnect after 3 missed keepalives (45s silence)
+		//   ConnectTimeout=15       — fail fast if host unreachable
+		const sshHangPrevention = [
+			"-o",
+			"ConnectTimeout=15",
+			"-o",
+			"ServerAliveInterval=15",
+			"-o",
+			"ServerAliveCountMax=3",
+		]
+
 		const keyArgs = this.config.vpsKeyPath ? ["-i", this.config.vpsKeyPath] : []
 		this.runCommand("scp", [
+			...sshHangPrevention,
 			...keyArgs,
 			bundlePath,
 			`${this.config.vpsUser}@${this.config.vpsHost}:${this.config.vpsDeployPath}/`,
 		])
 
 		this.runCommand("ssh", [
+			...sshHangPrevention,
 			...keyArgs,
 			`${this.config.vpsUser}@${this.config.vpsHost}`,
 			`cd ${this.shellQuote(this.config.vpsDeployPath)} && tar -xzf ${this.shellQuote(`${version}.tar.gz`)} && ./scripts/restart.sh`,

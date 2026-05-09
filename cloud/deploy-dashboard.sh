@@ -12,6 +12,7 @@
 #   - Build caching: preserves .next/cache across deploys
 #   - Timeout monitoring: logs elapsed time per step, 600s overall timeout
 #   - Prefer offline: skips network resolution when lockfile unchanged
+#   - SSH hang prevention: uses timeout(1) + ServerAliveInterval for all remote ops
 
 set -euo pipefail
 
@@ -39,6 +40,24 @@ check_timeout() {
         exit 1
     fi
     echo "[time: ${elapsed}s] ${step_name}"
+}
+
+# Helper: run a command with a timeout to prevent hangs
+# Usage: run_with_timeout <timeout_seconds> <description> <command...>
+run_with_timeout() {
+    local timeout_sec="$1"
+    local desc="$2"
+    shift 2
+    check_timeout "${desc}"
+    if ! timeout "${timeout_sec}" "$@"; then
+        local exit_code=$?
+        if [ $exit_code -eq 124 ]; then
+            echo "ERROR: Command timed out after ${timeout_sec}s during: ${desc}"
+        else
+            echo "ERROR: Command failed (exit code: ${exit_code}) during: ${desc}"
+        fi
+        exit 1
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -80,18 +99,20 @@ fi
 # ---------------------------------------------------------------------------
 echo ""
 echo "[4/8] Installing dashboard dependencies (filtered)..."
-cd "${PROJECT_ROOT}"
 
 if [ ! -d "node_modules" ] || [ ! -d "${DASHBOARD_DIR}/node_modules" ]; then
     echo "Installing dependencies (filtered) and building..."
     corepack enable
     # Use --filter to only install dashboard deps instead of full monorepo
     # Use --prefer-offline to skip network resolution if lockfile is cached
-    pnpm install --filter cloud/dashboard --frozen-lockfile --prefer-offline
-    pnpm --dir "${DASHBOARD_DIR}" run build
+    # Timeout: 180s for filtered install
+    run_with_timeout 180 "pnpm install (filtered)" pnpm install --filter cloud/dashboard --frozen-lockfile --prefer-offline
+    # Timeout: 300s for Next.js build
+    run_with_timeout 300 "pnpm build" pnpm --dir "${DASHBOARD_DIR}" run build
 else
     echo "Dependencies already present. Rebuilding..."
-    pnpm --dir "${DASHBOARD_DIR}" run build
+    # Timeout: 300s for Next.js build
+    run_with_timeout 300 "pnpm build" pnpm --dir "${DASHBOARD_DIR}" run build
 fi
 check_timeout "pnpm install + build"
 
