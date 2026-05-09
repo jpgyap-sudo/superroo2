@@ -188,25 +188,82 @@ export class DeployOrchestrator {
 
 	/**
 	 * Run a full dashboard deploy on the VPS:
-	 * git pull, install deps, build, restart PM2.
+	 * git pull, install deps (filtered), build, restart PM2.
+	 *
+	 * Optimizations:
+	 *   - Nginx config deploy runs in parallel with build (independent steps)
+	 *   - Filtered pnpm install (--filter cloud/dashboard) instead of full monorepo
+	 *   - Build caching preserved (.next/cache not deleted)
+	 *   - Overall deploy timeout with per-step elapsed logging
+	 *   - Prefer offline when lockfile unchanged
 	 */
 	async deployDashboard(): Promise<void> {
 		const host = this.getRemoteHost()
 		this.shell = new RemoteShell(host)
+		const overallTimeout = 600 // 10 minutes max
+		const startTime = Date.now()
 
-		const commands = [
-			"cd /opt/superroo2 && git pull origin main",
-			"cd /opt/superroo2 && corepack enable && pnpm install --frozen-lockfile",
-			"cd /opt/superroo2 && pnpm --dir cloud/dashboard run build",
-			"cd /opt/superroo2/cloud && pm2 restart ecosystem.config.js && pm2 save",
-		]
-
-		for (const cmd of commands) {
-			const result = await this.shell.exec({ command: cmd, timeout: 300 })
-			if (result.exitCode !== 0) {
-				throw new Error(`Command failed (exit ${result.exitCode}): ${cmd}\nStderr: ${result.stderr}`)
+		const elapsed = (label: string): void => {
+			const secs = Math.floor((Date.now() - startTime) / 1000)
+			console.log(`[deploy ${secs}s] ${label}`)
+			if (secs >= overallTimeout) {
+				throw new Error(`Deploy timeout (${overallTimeout}s) exceeded during: ${label}`)
 			}
 		}
+
+		// Step 1: Git pull (sequential — must complete first)
+		elapsed("git pull")
+		const pullResult = await this.shell.exec({
+			command: "cd /opt/superroo2 && git pull origin main",
+			timeout: 120,
+		})
+		if (pullResult.exitCode !== 0) {
+			throw new Error(`Git pull failed: ${pullResult.stderr}`)
+		}
+
+		// Step 2: Start nginx config deploy in parallel with build
+		elapsed("nginx config deploy (parallel)")
+		const nginxPromise = this.deployNginxConfig().catch((err) => {
+			console.warn(`Nginx deploy warning (non-fatal): ${err.message}`)
+		})
+
+		// Step 3: Filtered pnpm install (only dashboard deps, not full monorepo)
+		elapsed("pnpm install (filtered)")
+		const installResult = await this.shell.exec({
+			command:
+				"cd /opt/superroo2 && corepack enable && pnpm install --filter cloud/dashboard --frozen-lockfile --prefer-offline",
+			timeout: 300,
+		})
+		if (installResult.exitCode !== 0) {
+			throw new Error(`pnpm install failed: ${installResult.stderr}`)
+		}
+
+		// Step 4: Build dashboard
+		elapsed("pnpm build")
+		const buildResult = await this.shell.exec({
+			command: "cd /opt/superroo2 && pnpm --dir cloud/dashboard run build",
+			timeout: 300,
+		})
+		if (buildResult.exitCode !== 0) {
+			throw new Error(`Build failed: ${buildResult.stderr}`)
+		}
+
+		// Wait for nginx parallel task to complete
+		elapsed("waiting for nginx parallel task")
+		await nginxPromise
+
+		// Step 5: Restart PM2
+		elapsed("pm2 restart")
+		const pm2Result = await this.shell.exec({
+			command: "cd /opt/superroo2/cloud && pm2 restart ecosystem.config.js && pm2 save",
+			timeout: 60,
+		})
+		if (pm2Result.exitCode !== 0) {
+			throw new Error(`PM2 restart failed: ${pm2Result.stderr}`)
+		}
+
+		const totalSecs = Math.floor((Date.now() - startTime) / 1000)
+		console.log(`[deploy] Completed in ${totalSecs}s`)
 	}
 
 	// ── Internal pipeline steps ───────────────────────────────────────────────

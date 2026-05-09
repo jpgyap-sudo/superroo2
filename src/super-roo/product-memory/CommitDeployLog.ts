@@ -58,6 +58,8 @@ export interface DeployRecord {
 	healthCheckLatencyMs: number | null
 	rollbackFrom?: string // version rolled back from
 	error?: string
+	/** Human-readable reason for failure — used when marking stuck deploys as failed */
+	failureReason?: string
 	startedAt: string
 	completedAt: string | null
 }
@@ -217,6 +219,8 @@ export class CommitDeployLog {
 			healthCheckLatencyMs?: number | null
 			error?: string
 			rollbackFrom?: string
+			/** Human-readable reason for failure — used when marking stuck deploys as failed */
+			failureReason?: string
 		},
 	): Promise<DeployRecord> {
 		const log = await this.readLog()
@@ -230,6 +234,7 @@ export class CommitDeployLog {
 		if (update.healthCheckLatencyMs !== undefined) deploy.healthCheckLatencyMs = update.healthCheckLatencyMs
 		if (update.error) deploy.error = update.error
 		if (update.rollbackFrom) deploy.rollbackFrom = update.rollbackFrom
+		if (update.failureReason) deploy.failureReason = update.failureReason
 
 		if (["healthy", "unhealthy", "rolled_back", "failed"].includes(update.status)) {
 			deploy.completedAt = new Date().toISOString()

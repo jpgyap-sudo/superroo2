@@ -240,14 +240,15 @@
 			"version": "1.0.0",
 			"commitSha": "ccbf850c6",
 			"agent": "Roo Code",
-			"status": "building",
+			"status": "failed",
 			"environment": "production",
 			"commitsIncluded": ["ccbf850c6"],
 			"featuresDeployed": ["commit-deploy-log"],
 			"healthCheckPassed": null,
 			"healthCheckLatencyMs": null,
 			"startedAt": "2025-05-05T22:26:25.000Z",
-			"completedAt": null
+			"completedAt": "2026-05-09T12:37:00.000Z",
+			"failureReason": "Deploy pipeline was interrupted before completion — status was stuck as 'building' for over 1 year. Marked as failed by deployer agent upgrade."
 		},
 		{
 			"id": "deploy-1746689200000",

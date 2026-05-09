@@ -104,3 +104,60 @@ When performing deployment work, report:
 ## SuperRoo Project Notes
 
 For this workspace, prefer `pnpm` workflows and existing package scripts. Before deploying extension or webview changes, run relevant type checks and focused tests where practical. If the deployment touches Settings UI behavior, preserve the repository rule that SettingsView inputs bind to local `cachedState` until the user saves.
+
+## Performance Optimizations
+
+### 1. Parallel Execution
+
+Run independent deploy steps concurrently to reduce total deploy time:
+
+- **Nginx config deploy** (SCP + test + reload) is independent of code build — run it in parallel with `pnpm install` / `pnpm build`.
+- **Health check** can start as soon as PM2 restarts — don't wait for nginx config to finish.
+- Use `&` + `wait` in shell scripts or `Promise.all` in TypeScript for parallel execution.
+
+### 2. Filtered / Incremental Installs
+
+Avoid full monorepo installs when only a subset of packages changed:
+
+- Use `pnpm install --filter cloud/dashboard --frozen-lockfile` instead of `pnpm install --frozen-lockfile` when only the dashboard changed.
+- Use `pnpm install --filter cloud/api --frozen-lockfile` when only the API changed.
+- The pnpm store is already shared — filtered installs skip unrelated workspace packages.
+- If multiple packages changed, use `pnpm install --filter ...{cloud/dashboard,cloud/api}... --frozen-lockfile`.
+
+### 3. Build Caching
+
+- Next.js build cache (`cloud/dashboard/.next/cache`) persists across deploys — do NOT delete it.
+- pnpm store (`~/.local/share/pnpm/store`) is shared across all projects — avoid `pnpm store prune` before deploys.
+- Use `--prefer-offline` flag when lockfile hasn't changed to skip network resolution.
+
+### 4. Deploy Timeout Monitoring
+
+- Set an overall deploy timeout (recommended: 600s = 10 minutes max).
+- Log elapsed time per step to identify slow stages.
+- If a step exceeds 120s without output, log a warning but continue.
+- Record deploy duration in `CommitDeployLog` for trend analysis.
+
+### 5. Deploy History & Stuck Deployments
+
+- All deploys are recorded in `server/src/memory/commit-deploy-log.json`.
+- If a deploy has `status: "building"` with `completedAt: null` for more than 1 hour, it is stuck.
+- Fix stuck deploys by updating their status to `"failed"` with a `failureReason` field.
+- Check `CommitDeployLog.getDeploys({ status: "building" })` before starting a new deploy.
+
+### 6. Deploy Scripts Reference
+
+| Script                       | Location                                   | Purpose                                                 |
+| ---------------------------- | ------------------------------------------ | ------------------------------------------------------- |
+| remote-deploy-dashboard.sh   | cloud/remote-deploy-dashboard.sh           | Run from local machine to deploy to VPS via SSH         |
+| deploy-dashboard.sh          | cloud/deploy-dashboard.sh                  | Run directly on VPS for local deploy                    |
+| remote-deploy-crash-fixes.sh | cloud/remote-deploy-crash-fixes.sh         | Crash resilience deploy (Docker sandbox, PM2 reload)    |
+| DeployOrchestrator.ts        | src/super-roo/deploy/DeployOrchestrator.ts | TypeScript orchestrator with health checks and rollback |
+
+### 7. Deploy Flow Diagram
+
+```
+[Git Pull] -> [pnpm install --filter] -> [pnpm build] ---+
+                                                          +-> [PM2 restart] -> [Health Check] -> [Done]
+[Nginx SCP] -> [nginx -t] -> [systemctl reload] ---------+
+         (parallel with build)                (wait for both)
+```
