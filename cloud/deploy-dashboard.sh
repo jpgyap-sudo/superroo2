@@ -101,19 +101,21 @@ fi
 echo ""
 echo "[4/8] Installing dashboard dependencies (filtered)..."
 
+# Use corepack pnpm directly (the /usr/bin/pnpm symlink may be broken)
+PNPM="corepack pnpm"
+
 if [ ! -d "node_modules" ] || [ ! -d "${DASHBOARD_DIR}/node_modules" ]; then
     echo "Installing dependencies (filtered) and building..."
-    corepack enable
     # Use --filter to only install dashboard deps instead of full monorepo
     # Use --prefer-offline to skip network resolution if lockfile is cached
     # Timeout: 180s for filtered install
-    run_with_timeout 180 "pnpm install (filtered)" pnpm install --filter cloud/dashboard --frozen-lockfile --prefer-offline
+    run_with_timeout 180 "pnpm install (filtered)" ${PNPM} install --filter cloud/dashboard --frozen-lockfile --prefer-offline
     # Timeout: 300s for Next.js build
-    run_with_timeout 300 "pnpm build" pnpm --dir "${DASHBOARD_DIR}" run build
+    run_with_timeout 300 "pnpm build" ${PNPM} --dir "${DASHBOARD_DIR}" run build
 else
     echo "Dependencies already present. Rebuilding..."
     # Timeout: 300s for Next.js build
-    run_with_timeout 300 "pnpm build" pnpm --dir "${DASHBOARD_DIR}" run build
+    run_with_timeout 300 "pnpm build" ${PNPM} --dir "${DASHBOARD_DIR}" run build
 fi
 check_timeout "pnpm install + build"
 
