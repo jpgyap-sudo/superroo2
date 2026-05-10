@@ -13,12 +13,16 @@ The Super Debug Team is an autonomous multi-agent system designed to solve compl
 
 ```
 SuperDebugLoop (orchestrator)
-  ├── PhaseBreakdownEngine      — Decomposes complex goals into sequential phases
-  ├── HypothesisEngine          — Manages assumptions, critical thinking, evidence tracking
-  ├── ContainerSandbox          — Docker-based safe execution for 24/7 iteration
-  ├── RollbackManager           — Git snapshots + automatic rollback on failure
-  ├── FeatureSyncOrchestrator   — Coordinates multi-feature integration
-  └── SkillsGenerator           — Auto-creates .roo/skills/ from failures & lessons
+  ├── PhaseBreakdownEngine        — Decomposes complex goals into sequential phases
+  ├── HypothesisEngine            — Manages assumptions, critical thinking, evidence tracking
+  ├── ContainerSandbox            — Docker-based safe execution for 24/7 iteration
+  ├── RollbackManager             — Git snapshots + automatic rollback on failure
+  ├── FeatureSyncOrchestrator     — Coordinates multi-feature integration
+  ├── SkillsGenerator             — Auto-creates .roo/skills/ from failures & lessons
+  ├── OpenClawAdapter             — Analysis-only repo investigation (no code writing)
+  ├── HermesClawAdapter           — Memory & context recall via OpenAI API
+  ├── AceTeamReportGenerator      — Comprehensive accomplishment reports & Telegram notifications
+  └── InfiniteImprovementLoop     — ML pattern detection, failure analysis, improvement suggestions
 ```
 
 ## When to Use
@@ -31,6 +35,7 @@ Use the Super Debug Team when:
 4. **Cross-feature coordination** — Changes that affect multiple features
 5. **Unknown unknowns** — Problems where the root cause isn't clear
 6. **24/7 autonomous operation** — When you want the system to keep trying without supervision
+7. **Ace Team Mode** — When you want fully autonomous coding/debugging with comprehensive logging, ML insights, and Telegram reports
 
 ## ⚠️ Auto-Approval Mode
 
@@ -43,6 +48,54 @@ When the Super Debug Team is **ACTIVE**:
 - **Automatic rollback** — Any test failure triggers immediate rollback
 - **Automatic retry** — Failed attempts generate improved hypotheses
 - **Automatic skill generation** — Failures create reusable skills
+
+## Ace Team Mode (`/aceteam`)
+
+The **Ace Team** is a fully autonomous coding and debugging mode that can be activated via Telegram with `/aceteam`. When active:
+
+### Features
+
+- **Comprehensive Logging** — Every job, error, skill generated, and ML insight is recorded
+- **Accomplishment Reports** — Auto-generated reports with session summary, per-job details, ML insights, and system health
+- **ML Pattern Detection** — Uses `InfiniteImprovementLoop` to detect patterns across jobs:
+  - High rollback rates
+  - Many hypotheses per job (indecision)
+  - Recurring failure types
+  - Confidence trends
+- **Telegram Notifications** — Reports are automatically sent to the Telegram group at configurable intervals
+- **Session Stats** — Real-time stats available via `getAceTeamSessionStats()`
+
+### Activation
+
+```typescript
+// Via Telegram
+/aceteam
+
+// Programmatically
+debugLoop.enableAceTeam({
+  telegramBotToken: "YOUR_BOT_TOKEN",
+  telegramChatId: "-1001234567890",
+  reportIntervalMs: 300_000, // 5 minutes
+  enableML: true,
+})
+```
+
+### Report Format
+
+Reports include:
+- Session duration and job counts
+- Per-job details (goal, status, attempts, rollbacks, hypotheses, lessons)
+- ML insights (patterns detected, common failures, suggestions)
+- Skills generated during the session
+- Error records with timestamps and context
+- System health (memory usage, active jobs, queue depth)
+
+### Deactivation
+
+```typescript
+// Generates final report before deactivating
+const finalReport = debugLoop.disableAceTeam()
+```
 
 ## Workflow
 
@@ -71,6 +124,10 @@ const stats = debugLoop.getStats()
 //   totalRollbacks: 2,
 //   totalSkillsGenerated: 3,
 //   autoApprovalMode: true,
+//   aceTeamMode: true,
+//   aceTeamReportsGenerated: 2,
+//   mlPatternsDetected: 4,
+//   mlSuggestionsGenerated: 3,
 //   ...
 // }
 
@@ -133,6 +190,16 @@ const config: Partial<SuperDebugConfig> = {
 	autoApprovalMode: true, // Full autonomous mode
 	autoDeploy: false, // Auto-deploy after success
 	deployTarget: "staging", // Target environment
+	// Ace Team config
+	aceTeamMode: false, // Enable Ace Team autonomous mode
+	aceTeamTelegramChatId: "", // Telegram chat ID for reports
+	aceTeamTelegramBotToken: "", // Telegram bot token
+	aceTeamReportIntervalMs: 300000, // Report interval (5 min)
+	enableML: true, // Enable ML pattern detection
+	// Adapter config
+	openClawCommand: "openclaw", // OpenClaw CLI command
+	hermesClawApiKey: "", // OpenAI API key for HermesClaw
+	hermesClawModel: "gpt-4o-mini", // HermesClaw model
 }
 ```
 
@@ -148,6 +215,9 @@ The Super Debug Team integrates with:
 - **FeatureRegistry** — Feature dependency tracking
 - **RemoteShell** — VPS operations for deployment
 - **AgentBus** — Inter-agent communication
+- **OpenClaw** — Analysis-only repo investigation (no code writing)
+- **HermesClaw** — Memory & context recall via OpenAI API
+- **Telegram Bot** — `/aceteam` command activation and report delivery
 
 ## Safety Rules
 
@@ -158,6 +228,8 @@ The Super Debug Team integrates with:
 5. **Confidence threshold**: Changes below the confidence threshold are rejected
 6. **Network isolation**: Sandbox runs with `--network none` by default
 7. **Resource limits**: Sandbox has memory (2g) and CPU (2) limits
+8. **OpenClaw analysis-only**: OpenClaw NEVER writes code — analysis only
+9. **Ace Team rate limiting**: Reports are sent at configurable intervals (default 5 min) to avoid Telegram spam
 
 ## Files
 
@@ -169,3 +241,8 @@ The Super Debug Team integrates with:
 - [`src/super-roo/debug-team/sandbox/RollbackManager.ts`](src/super-roo/debug-team/sandbox/RollbackManager.ts) — Git snapshots
 - [`src/super-roo/debug-team/engines/FeatureSyncOrchestrator.ts`](src/super-roo/debug-team/engines/FeatureSyncOrchestrator.ts) — Feature sync
 - [`src/super-roo/debug-team/engines/SkillsGenerator.ts`](src/super-roo/debug-team/engines/SkillsGenerator.ts) — Skill generation
+- [`src/super-roo/debug-team/adapters/OpenClawAdapter.ts`](src/super-roo/debug-team/adapters/OpenClawAdapter.ts) — Analysis-only repo investigation
+- [`src/super-roo/debug-team/adapters/HermesClawAdapter.ts`](src/super-roo/debug-team/adapters/HermesClawAdapter.ts) — Memory & context recall
+- [`src/super-roo/debug-team/reporting/AceTeamReportGenerator.ts`](src/super-roo/debug-team/reporting/AceTeamReportGenerator.ts) — Accomplishment reports
+- [`cloud/api/telegramBot.js`](cloud/api/telegramBot.js) — Telegram bot with `/aceteam` command
+- [`cloud/api/tgEndpoints.js`](cloud/api/tgEndpoints.js) — Telegram endpoint handlers including `startAceTeam`
