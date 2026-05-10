@@ -827,7 +827,7 @@ async function logChatExchange(chatId, role, content, metadata) {
  */
 function buildSystemPrompt() {
 	return (
-		"You are SuperRoo AI Assistant — the Telegram AI Agent. You are the smartest, most capable AI in the SuperRoo system. " +
+		"You are OpenClaw — the SuperRoo Telegram AI Agent. You are the smartest, most capable AI in the SuperRoo system. " +
 		"Your role is to provide expert-level support, consultation, analysis, and recommendations to the user. " +
 		"You have deep knowledge of the entire SuperRoo system architecture, all 19 modules, cloud infrastructure, and capabilities. " +
 		"You are a READ-ONLY agent — you cannot make code changes, deploy, or modify files. " +
@@ -2845,7 +2845,7 @@ async function handleHelp(botToken, chatId) {
 			"`/test <taskId>` - Run test suite\n" +
 			"`/approve <taskId>` - Approve pending changes\n" +
 			"`/deploy <taskId>` - Deploy approved build (OTP required)\n\n" +
-			"*OpenClaw Assistant (Smart Dispatch)*\n" +
+			"*OpenClaw AI Assistant*\n" +
 			"`/debug <description>` - Create a structured debug plan\n" +
 			"`/logs [target] [lines]` - Read PM2/Docker logs\n" +
 			"`/tests [project]` - Run tests for a project\n" +
@@ -3441,8 +3441,10 @@ async function handleUpdate(update, botToken, queue, providers) {
 
 	// ─── Boss-Only Guard ────────────────────────────────────────────────
 	// Only @jpgy888 (boss) can use the bot. Others get a polite rejection.
+	// PUBLIC_COMMANDS (/start, /login, /help, /about, /debug, /logs, /tests, /restart)
+	// are allowed through so users can authenticate or get help.
 	var senderUsername = (msg.from && msg.from.username) || ""
-	if (senderUsername.toLowerCase() !== BOSS_USERNAME.toLowerCase()) {
+	if (senderUsername.toLowerCase() !== BOSS_USERNAME.toLowerCase() && PUBLIC_COMMANDS.indexOf(command) === -1) {
 		await sendMessage(
 			botToken,
 			chatId,
@@ -3483,7 +3485,7 @@ async function handleUpdate(update, botToken, queue, providers) {
 		await sendMessage(
 			botToken,
 			chatId,
-			"*SuperRoo Bot* 🤖\n\nWelcome to SuperRoo Cloud! I'm your AI coding assistant.\n\n" +
+			"*OpenClaw* 🤖\n\nWelcome to SuperRoo Cloud! I'm OpenClaw, your AI assistant.\n\n" +
 				"*Get Started:*\n" +
 				"1. Use `/login` to authenticate with your SuperRoo Cloud account\n" +
 				"2. Use `/projects` to view and select a project\n" +
