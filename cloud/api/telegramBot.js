@@ -23,6 +23,10 @@ const path = require("path")
 const auth = require("./auth")
 const telegramLearner = require("./telegramLearner")
 const telegramNotifier = require("./telegramNotifier")
+const telegramClassifier = require("./telegramClassifier")
+const telegramPolicy = require("./telegramPolicy")
+const telegramEngineer = require("./telegramEngineer")
+const tgEndpoints = require("./tgEndpoints")
 
 // ─── Configuration ─────────────────────────────────────────────────────────
 
@@ -35,7 +39,7 @@ const BOT_USERNAME = "superroo_bot"
 const BOSS_USERNAME = "jpgy888"
 
 /** Commands that don't require an active Telegram session */
-const PUBLIC_COMMANDS = ["/start", "/login", "/help", "/about"]
+const PUBLIC_COMMANDS = ["/start", "/login", "/help", "/about", "/debug", "/logs", "/tests", "/restart"]
 
 /** Mini App URL for login */
 const MINI_APP_URL = "https://dev.abcx124.xyz/telegram-miniapp"
@@ -2549,29 +2553,123 @@ async function handleNaturalLanguageInstruction(botToken, chatId, text, telegram
 		return false
 	}
 
-	// Detect intent
-	var intent = detectIntent(text)
+	// ─── OpenClaw: LLM-Powered Intent Classification ────────────────────
+	// Use the classifier to detect intent with LLM, fallback to keyword matching.
+	var classified = await telegramClassifier.classifyIntent(text, providers || [])
+	var intentKind = classified.kind
+	var confidence = classified.confidence
 
-	// ─── Ask / Question Intent ──────────────────────────────────────────
-	// Handle questions directly with the enhanced AI (conversation context, ML learning, recommendations)
-	if (intent === "ask") {
+	console.log(
+		"[telegram] OpenClaw classified '" +
+			text.slice(0, 60) +
+			"' as " +
+			intentKind +
+			" (confidence: " +
+			confidence.toFixed(2) +
+			")",
+	)
+
+	// ─── Chat Intent ────────────────────────────────────────────────────
+	// Handle questions directly with the enhanced AI
+	if (intentKind === "chat") {
 		await sendChatAction(botToken, chatId, "typing")
 		console.log("[telegram] AI query from " + chatId + ": " + text.slice(0, 100))
 		var reply = await askAI(text, providers || [], chatId)
-		// sendMessage auto-splits long messages to respect Telegram's 4096-char limit
 		await sendMessage(botToken, chatId, reply)
 		return true
 	}
 
-	// ─── Consultant Intent ──────────────────────────────────────────────
-	// Consultant works independently — no project needed, does research and returns answer
-	if (intent === "consultant") {
-		await sendChatAction(botToken, chatId, "typing")
-		await handleConsultant(botToken, chatId, text, providers || null, {
-			telegramUserId: telegramUserId,
-		})
+	// ─── OpenClaw: Policy Check ─────────────────────────────────────────
+	// Check if the action can run without approval.
+	// Blocked actions (deploy, delete_data, shell) require dashboard approval.
+	if (!telegramPolicy.canRunWithoutApproval(intentKind)) {
+		var blockedMsg = telegramPolicy.getBlockedReason(intentKind)
+		await sendMessage(botToken, chatId, blockedMsg)
 		return true
 	}
+
+	// ─── OpenClaw: Direct Endpoint Actions ──────────────────────────────
+	// For debug_plan, read_logs, run_tests, restart_worker — execute directly
+	// without going through the BullMQ queue. These are fast, read-only operations.
+
+	if (intentKind === "debug_plan") {
+		await sendChatAction(botToken, chatId, "typing")
+		try {
+			var debugResult = await tgEndpoints.debugPlan(text)
+			var debugReply = await telegramEngineer.seniorEngineerReply(
+				"Summarize this debug plan for the user:\n" + JSON.stringify(debugResult, null, 2),
+				providers || [],
+			)
+			await sendMessage(botToken, chatId, debugReply)
+		} catch (err) {
+			console.error("[telegram] debug_plan error:", err.message)
+			await sendMessage(
+				botToken,
+				chatId,
+				telegramEngineer.formatDebugPlan({
+					incidentId: "ERR-" + Date.now().toString(36).toUpperCase(),
+					phases: ["Error creating debug plan: " + err.message],
+				}),
+			)
+		}
+		return true
+	}
+
+	if (intentKind === "read_logs") {
+		await sendChatAction(botToken, chatId, "typing")
+		try {
+			var target = classified.target || "all"
+			var logsResult = await tgEndpoints.readLogs(target)
+			var logsReply = telegramEngineer.formatLogsResult(logsResult)
+			await sendMessage(botToken, chatId, logsReply)
+		} catch (err) {
+			console.error("[telegram] read_logs error:", err.message)
+			await sendMessage(botToken, chatId, "*Logs Error* ❌\n\n" + err.message)
+		}
+		return true
+	}
+
+	if (intentKind === "run_tests") {
+		await sendChatAction(botToken, chatId, "typing")
+		try {
+			var testProject = classified.project || ""
+			var testResult = await tgEndpoints.runTests(testProject)
+			var testReply = telegramEngineer.formatTestResult(testResult)
+			await sendMessage(botToken, chatId, testReply)
+		} catch (err) {
+			console.error("[telegram] run_tests error:", err.message)
+			await sendMessage(botToken, chatId, "*Test Error* ❌\n\n" + err.message)
+		}
+		return true
+	}
+
+	if (intentKind === "restart_worker") {
+		await sendChatAction(botToken, chatId, "typing")
+		try {
+			var workerName = classified.target || "superroo-api"
+			var restartResult = await tgEndpoints.restartWorker(workerName)
+			var restartReply = telegramEngineer.formatRestartResult(restartResult)
+			await sendMessage(botToken, chatId, restartReply)
+		} catch (err) {
+			console.error("[telegram] restart_worker error:", err.message)
+			await sendMessage(botToken, chatId, "*Restart Error* ❌\n\n" + err.message)
+		}
+		return true
+	}
+
+	// ─── Legacy: Agent Routing via BullMQ ───────────────────────────────
+	// For create_branch, create_pr, and other complex actions that need
+	// the full agent pipeline, fall through to the existing BullMQ routing.
+
+	// Map OpenClaw kinds to legacy agent IDs
+	var openclawToLegacy = {
+		create_branch: "coder",
+		create_pr: "coder",
+		deploy: "deployer",
+		delete_data: "deployer",
+		shell: "coder",
+	}
+	var legacyIntent = openclawToLegacy[intentKind] || "coder"
 
 	// Check if user has an active project selected
 	try {
@@ -2588,8 +2686,6 @@ async function handleNaturalLanguageInstruction(botToken, chatId, text, telegram
 		}
 
 		// ─── Group Workspace Binding ────────────────────────────────────
-		// If no active project but this chat has a bound workspace (via /specify),
-		// automatically select the bound project as active.
 		if (!activeProject && chatId < 0) {
 			var boundWorkspace = groupWorkspaces.get(String(chatId))
 			if (boundWorkspace && result && result.projects) {
@@ -2598,7 +2694,6 @@ async function handleNaturalLanguageInstruction(botToken, chatId, text, telegram
 					var pj = result.projects[pi]
 					var pjName = (pj.name || pj.repoName || "").toLowerCase()
 					if (pjName === lowerBound || pjName.includes(lowerBound) || lowerBound.includes(pjName)) {
-						// Select this project as active
 						try {
 							await auth.handleTelegramProjectSelect(pj.id, {
 								telegramUserId: telegramUserId,
@@ -2618,8 +2713,6 @@ async function handleNaturalLanguageInstruction(botToken, chatId, text, telegram
 		}
 
 		if (!activeProject) {
-			// No active project — can't route to agents
-			// Send a helpful message asking user to select a project
 			await sendMessage(
 				botToken,
 				chatId,
@@ -2628,7 +2721,6 @@ async function handleNaturalLanguageInstruction(botToken, chatId, text, telegram
 			return true
 		}
 
-		// Route to appropriate agent based on intent
 		await sendChatAction(botToken, chatId, "typing")
 
 		// Log the instruction via auth module
@@ -2637,7 +2729,7 @@ async function handleNaturalLanguageInstruction(botToken, chatId, text, telegram
 				userId: authSession.userId,
 				projectId: activeProject.id,
 				instruction: text,
-				mode: intent,
+				mode: legacyIntent,
 				source: "telegram",
 			})
 		} catch (logErr) {
@@ -2649,12 +2741,11 @@ async function handleNaturalLanguageInstruction(botToken, chatId, text, telegram
 			"TG-" + Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).slice(2, 6).toUpperCase()
 		var branchName = "tg/" + taskId.toLowerCase()
 
-		// Build conversation summary for the worker so it has context
 		var conversationSummary = buildConversationSummary(chatId)
 
 		var job = await queue.add("telegram-" + taskId, {
 			task: text,
-			agentId: intent, // "coder", "debugger", "deployer", "tester"
+			agentId: legacyIntent,
 			commands: [],
 			network: "none",
 			telegram: {
@@ -2684,17 +2775,15 @@ async function handleNaturalLanguageInstruction(botToken, chatId, text, telegram
 			tester: "Testing",
 			consultant: "Consultant",
 		}
-		var label = intentLabels[intent] || "Task"
+		var label = intentLabels[legacyIntent] || "Task"
 
-		// Log the agent-routed task to daily chat log
-		logChatExchange(chatId, "user", text, { intent: intent, taskId: taskId }).catch(function () {})
-		logChatExchange(chatId, "system", "Task routed to " + intent + " agent", {
+		logChatExchange(chatId, "user", text, { intent: intentKind, taskId: taskId }).catch(function () {})
+		logChatExchange(chatId, "system", "Task routed to " + legacyIntent + " agent", {
 			taskId: taskId,
-			agentId: intent,
+			agentId: legacyIntent,
 		}).catch(function () {})
 
-		// Send rich notification with action buttons
-		await telegramNotifier.sendTaskStarted(botToken, chatId, taskId, text, intent)
+		await telegramNotifier.sendTaskStarted(botToken, chatId, taskId, text, legacyIntent)
 		return true
 	} catch (err) {
 		console.error("[telegram] handleNaturalLanguageInstruction error:", err.message)
@@ -2756,15 +2845,20 @@ async function handleHelp(botToken, chatId) {
 			"`/test <taskId>` - Run test suite\n" +
 			"`/approve <taskId>` - Approve pending changes\n" +
 			"`/deploy <taskId>` - Deploy approved build (OTP required)\n\n" +
+			"*OpenClaw Assistant (Smart Dispatch)*\n" +
+			"`/debug <description>` - Create a structured debug plan\n" +
+			"`/logs [target] [lines]` - Read PM2/Docker logs\n" +
+			"`/tests [project]` - Run tests for a project\n" +
+			"`/restart <worker>` - Restart a whitelisted PM2 worker\n\n" +
 			"*AI Assistant (Natural Language)*\n" +
 			"• Just type naturally to chat with the AI assistant\n" +
+			'• Say *"debug this issue"* or *"check the logs"* for smart dispatch\n' +
 			'• Say *"fix this bug"* or *"code this feature"* to trigger cloud agents\n' +
 			'• Say *"deploy"* or *"test"* to run those actions\n' +
 			'• Ask *"should I use X?"* or *"analyze Y"* for expert consultant analysis\n' +
 			"• In groups, I respond to every message automatically — no need to tag me!\n\n" +
 			"*System*\n" +
 			"`/status [taskId]` - Check system or task status\n" +
-			"`/logs [n]` - View recent logs\n" +
 			"`/settings` - Account and system settings\n" +
 			"`/about` - Bot information\n" +
 			"`/help` - Show this message\n\n" +
@@ -3420,6 +3514,79 @@ async function handleUpdate(update, botToken, queue, providers) {
 		} else {
 			await sendMessage(botToken, chatId, "Nothing to cancel.")
 		}
+	} else if (command === "/debug") {
+		// ─── OpenClaw: Debug Plan ──────────────────────────────────────
+		// Creates a structured debug plan for an issue description.
+		await sendChatAction(botToken, chatId, "typing")
+		var debugText = cmdArgs.join(" ") || text
+		try {
+			var debugResult = await tgEndpoints.debugPlan(debugText)
+			var debugReply = telegramEngineer.formatDebugPlan(debugResult)
+			await sendMessage(botToken, chatId, debugReply)
+		} catch (err) {
+			console.error("[telegram] /debug error:", err.message)
+			await sendMessage(botToken, chatId, "*Debug Plan Error* ❌\n\n" + err.message)
+		}
+	} else if (command === "/logs") {
+		// ─── OpenClaw: Read Logs ──────────────────────────────────────
+		// Reads PM2/Docker logs. Optional: /logs <target> [lines]
+		await sendChatAction(botToken, chatId, "typing")
+		var logTarget = cmdArgs[0] || "all"
+		var logLines = parseInt(cmdArgs[1], 10) || 30
+		try {
+			var logsResult = await tgEndpoints.readLogs(logTarget, logLines)
+			var logsReply = telegramEngineer.formatLogsResult(logsResult)
+			await sendMessage(botToken, chatId, logsReply)
+		} catch (err) {
+			console.error("[telegram] /logs error:", err.message)
+			await sendMessage(botToken, chatId, "*Logs Error* ❌\n\n" + err.message)
+		}
+	} else if (command === "/tests") {
+		// ─── OpenClaw: Run Tests ──────────────────────────────────────
+		// Runs tests for a project. Optional: /tests <project>
+		await sendChatAction(botToken, chatId, "typing")
+		var testProject = cmdArgs[0] || ""
+		try {
+			var testResult = await tgEndpoints.runTests(testProject)
+			var testReply = telegramEngineer.formatTestResult(testResult)
+			await sendMessage(botToken, chatId, testReply)
+		} catch (err) {
+			console.error("[telegram] /tests error:", err.message)
+			await sendMessage(botToken, chatId, "*Test Error* ❌\n\n" + err.message)
+		}
+	} else if (command === "/restart") {
+		// ─── OpenClaw: Restart Worker ──────────────────────────────────
+		// Restarts a whitelisted PM2 worker. Usage: /restart <worker-name>
+		await sendChatAction(botToken, chatId, "typing")
+		var restartTarget = cmdArgs[0]
+		if (!restartTarget) {
+			await sendMessage(
+				botToken,
+				chatId,
+				"*Restart Worker* 🔄\n\nPlease specify a worker name.\n\nUsage: `/restart <worker-name>`\n\nAllowed workers:\n" +
+					[
+						"superroo-api",
+						"superroo-worker",
+						"superroo-worker-2",
+						"superroo-worker-3",
+						"superroo-worker-4",
+						"superroo-worker-5",
+					]
+						.map(function (w) {
+							return "• `" + w + "`"
+						})
+						.join("\n"),
+			)
+		} else {
+			try {
+				var restartResult = await tgEndpoints.restartWorker(restartTarget)
+				var restartReply = telegramEngineer.formatRestartResult(restartResult)
+				await sendMessage(botToken, chatId, restartReply)
+			} catch (err) {
+				console.error("[telegram] /restart error:", err.message)
+				await sendMessage(botToken, chatId, "*Restart Error* ❌\n\n" + err.message)
+			}
+		}
 	} else {
 		// ─── Check for Email OTP Login Flow ────────────────────────────
 		// If the user is in the middle of an email OTP login, intercept
@@ -3497,4 +3664,9 @@ module.exports = {
 	handleDeployStaging,
 	handleDeployProduction,
 	handleRollbackCallback,
+	// OpenClaw modules
+	telegramClassifier,
+	telegramPolicy,
+	telegramEngineer,
+	tgEndpoints,
 }

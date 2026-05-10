@@ -2494,6 +2494,121 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// ── OpenClaw Telegram API Endpoints ────────────────────────────────────
+		// These endpoints are called by the OpenClaw-style classifier after intent
+		// classification and policy check. They provide real backend operations.
+		// Auth: Bearer token via TELEGRAM_API_TOKEN env var.
+
+		const TG_API_TOKEN = process.env.TELEGRAM_API_TOKEN || ""
+
+		function tgAuth(req) {
+			const authHeader = req.headers["authorization"] || ""
+			if (!TG_API_TOKEN) return true // No token configured = allow all (dev mode)
+			return authHeader === "Bearer " + TG_API_TOKEN
+		}
+
+		// POST /api/tg/debug-plan — Create a structured debug plan
+		if (method === "POST" && (url === "/api/tg/debug-plan" || normalizedUrl === "/api/tg/debug-plan")) {
+			if (!tgAuth(req)) {
+				sendJson(res, 401, { error: "unauthorized", detail: "Invalid or missing Bearer token" })
+				return
+			}
+			try {
+				const data = await parseBody(req)
+				const result = await telegramBot.tgEndpoints.debugPlan(data.text || "", data.project)
+				sendJson(res, 200, { success: true, data: result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /api/tg/read-logs — Read PM2/Docker logs
+		if (method === "POST" && (url === "/api/tg/read-logs" || normalizedUrl === "/api/tg/read-logs")) {
+			if (!tgAuth(req)) {
+				sendJson(res, 401, { error: "unauthorized", detail: "Invalid or missing Bearer token" })
+				return
+			}
+			try {
+				const data = await parseBody(req)
+				const result = await telegramBot.tgEndpoints.readLogs(data.target, data.lines)
+				sendJson(res, 200, { success: true, data: result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /api/tg/run-tests — Run tests for a project
+		if (method === "POST" && (url === "/api/tg/run-tests" || normalizedUrl === "/api/tg/run-tests")) {
+			if (!tgAuth(req)) {
+				sendJson(res, 401, { error: "unauthorized", detail: "Invalid or missing Bearer token" })
+				return
+			}
+			try {
+				const data = await parseBody(req)
+				const result = await telegramBot.tgEndpoints.runTests(data.project || "")
+				sendJson(res, 200, { success: true, data: result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /api/tg/create-branch — Create a git branch
+		if (method === "POST" && (url === "/api/tg/create-branch" || normalizedUrl === "/api/tg/create-branch")) {
+			if (!tgAuth(req)) {
+				sendJson(res, 401, { error: "unauthorized", detail: "Invalid or missing Bearer token" })
+				return
+			}
+			try {
+				const data = await parseBody(req)
+				const result = await telegramBot.tgEndpoints.createBranch(data.branch, data.baseBranch, data.project)
+				sendJson(res, 200, { success: true, data: result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /api/tg/create-pr — Create a GitHub PR
+		if (method === "POST" && (url === "/api/tg/create-pr" || normalizedUrl === "/api/tg/create-pr")) {
+			if (!tgAuth(req)) {
+				sendJson(res, 401, { error: "unauthorized", detail: "Invalid or missing Bearer token" })
+				return
+			}
+			try {
+				const data = await parseBody(req)
+				const result = await telegramBot.tgEndpoints.createPr(
+					data.title,
+					data.body,
+					data.project,
+					data.headBranch,
+					data.baseBranch,
+				)
+				sendJson(res, 200, { success: true, data: result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /api/tg/restart-worker — Restart a whitelisted PM2 worker
+		if (method === "POST" && (url === "/api/tg/restart-worker" || normalizedUrl === "/api/tg/restart-worker")) {
+			if (!tgAuth(req)) {
+				sendJson(res, 401, { error: "unauthorized", detail: "Invalid or missing Bearer token" })
+				return
+			}
+			try {
+				const data = await parseBody(req)
+				const result = await telegramBot.tgEndpoints.restartWorker(data.worker)
+				sendJson(res, 200, { success: true, data: result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
 		sendJson(res, 404, { error: "not_found", detail: `No route for ${method} ${url}` })
 	} catch (err) {
 		console.error(`[api] Error handling ${method} ${url}:`, err.message)
