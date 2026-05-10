@@ -1,0 +1,100 @@
+version: '3.8'
+# n8n Workflow Automation — Docker Compose for SuperRoo VPS
+#
+# Deploy:
+#   scp cloud/docker-compose.n8n.yml root@104.248.225.250:/opt/superroo2/cloud/
+#   ssh root@104.248.225.250
+#   cd /opt/superroo2/cloud
+#   docker compose -f docker-compose.n8n.yml up -d
+#
+# Environment variables (set in /opt/superroo2/.env):
+#   N8N_ENCRYPTION_KEY       — openssl rand -hex 32
+#   N8N_BASIC_AUTH_PASSWORD  — openssl rand -hex 16
+#   SUPABASE_DB_HOST         — Supabase PostgreSQL host
+#   SUPABASE_DB_PASSWORD     — Supabase PostgreSQL password
+#
+# Nginx reverse proxy (add to cloud/nginx-dashboard.conf):
+#   location /n8n/ {
+#       proxy_pass http://127.0.0.1:5678/;
+#       proxy_http_version 1.1;
+#       proxy_set_header Upgrade $http_upgrade;
+#       proxy_set_header Connection "upgrade";
+#       proxy_set_header Host $host;
+#       proxy_read_timeout 3600s;
+#   }
+
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+    # Bind to localhost only — route through nginx for HTTPS
+    ports:
+      - "127.0.0.1:5678:5678"
+    environment:
+      # Core
+      - N8N_HOST=n8n.abcx124.xyz
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=https
+      - WEBHOOK_URL=https://n8n.abcx124.xyz
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+
+      # Database — use existing Supabase PostgreSQL
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=${SUPABASE_DB_HOST}
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=${SUPABASE_DB_NAME:-postgres}
+      - DB_POSTGRESDB_USER=${SUPABASE_DB_USER:-postgres}
+      - DB_POSTGRESDB_PASSWORD=${SUPABASE_DB_PASSWORD}
+      - DB_POSTGRESDB_POOL_ENABLED=true
+      - DB_POSTGRESDB_POOL_SIZE=3
+
+      # Security
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD}
+
+      # Execution management
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=168
+      - N8N_EXECUTIONS_TIMEOUT=3600
+      - N8N_EXECUTIONS_TIMEOUT_PRIORITY=600
+      - N8N_EXECUTIONS_DATA_SAVE_ON_ERROR=all
+      - N8N_EXECUTIONS_DATA_SAVE_ON_SUCCESS=none
+      - N8N_EXECUTIONS_DATA_SAVE_ON_PROGRESS=false
+
+      # Monitoring
+      - N8N_METRICS=true
+      - N8N_METRICS_INCLUDE_DEFAULT_METRICS=true
+
+      # Audit logging
+      - N8N_EVENT_BUS_ENABLED=true
+      - N8N_EVENT_BUS_LOG_FILE=/var/log/n8n/events.log
+
+      # Workflow concurrency
+      - N8N_CONCURRENCY_PRODUCTION_LIMIT=5
+      - N8N_PAYLOAD_SIZE_MAX=16
+
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - /opt/superroo2/cloud/logs/n8n:/var/log/n8n
+    networks:
+      - superroo_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:5678/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  n8n_data:
+
+networks:
+  superroo_network:
+    external: true
