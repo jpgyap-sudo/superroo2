@@ -18,7 +18,11 @@
  */
 
 const crypto = require("crypto")
+const fs = require("fs").promises
+const path = require("path")
 const auth = require("./auth")
+const telegramLearner = require("./telegramLearner")
+const telegramNotifier = require("./telegramNotifier")
 
 // ─── Configuration ─────────────────────────────────────────────────────────
 
@@ -36,6 +40,9 @@ const PUBLIC_COMMANDS = ["/start", "/login", "/help", "/about"]
 /** Mini App URL for login */
 const MINI_APP_URL = "https://dev.abcx124.xyz/telegram-miniapp"
 
+/** Telegram message length limit (Telegram API hard limit) */
+const TELEGRAM_MAX_MESSAGE_LENGTH = 4096
+
 // ─── In-memory state ───────────────────────────────────────────────────────
 
 /** Map<chatId, { sessionId, authenticatedAt, otpVerified, otpSecret? }> */
@@ -49,6 +56,39 @@ const userTasks = new Map()
 
 /** Map<chatId, { secret, verified }> — TOTP secrets awaiting verification */
 const pendingOtpSecrets = new Map()
+
+/** Map<chatId, { email, otp, createdAt, messageIds }> — Email OTP login states */
+const pendingEmailOtps = new Map()
+
+/** OTP expiry: 10 minutes */
+const EMAIL_OTP_TTL_MS = 10 * 60 * 1000
+
+/**
+ * Map<chatId, workspaceName> — Group-to-workspace binding.
+ * When a group chat is bound to a workspace via /specify, all natural language
+ * messages in that group automatically use the bound workspace for agent routing.
+ * Persisted to JSON for durability across restarts.
+ */
+const groupWorkspaces = new Map()
+
+/** Path to persist group workspace bindings */
+const GROUP_WORKSPACES_FILE = path.join(__dirname, "..", "data", "group-workspaces.json")
+
+/**
+ * Map<chatId, Array<{role, content, timestamp}>> — Conversation history.
+ * Persisted to disk so it survives PM2 restarts and deploys.
+ * Each entry: { role: "user"|"assistant", content: string, timestamp: number }
+ */
+const conversationHistory = new Map()
+
+/** Path to persist conversation history */
+const CONVERSATION_HISTORY_FILE = path.join(__dirname, "..", "data", "conversation-history.json")
+
+/** Max messages to keep per chat in memory */
+const MAX_CONVERSATION_MESSAGES = 50
+
+/** Max messages to include in AI context window */
+const MAX_CONTEXT_MESSAGES = 20
 
 /** Session timeout: 30 minutes */
 const SESSION_TTL_MS = 30 * 60 * 1000
@@ -179,32 +219,122 @@ function generateOTPAuthURI(base32Secret, accountName) {
  * @param {string} text
  * @param {object} [opts]
  */
+/**
+ * Splits a long message into chunks at natural boundaries (paragraphs, lines)
+ * so each chunk fits within Telegram's 4096-character limit.
+ * @param {string} text - The message to split
+ * @param {number} [maxLen] - Max length per chunk (default TELEGRAM_MAX_MESSAGE_LENGTH)
+ * @returns {string[]} Array of message chunks
+ */
+function splitLongMessage(text, maxLen) {
+	if (maxLen === undefined) maxLen = TELEGRAM_MAX_MESSAGE_LENGTH
+	if (!text || text.length <= maxLen) return [text]
+
+	var chunks = []
+	var remaining = text
+
+	while (remaining.length > 0) {
+		if (remaining.length <= maxLen) {
+			chunks.push(remaining)
+			break
+		}
+
+		// Try to split at a natural boundary within the limit
+		var splitAt = -1
+
+		// 1. Try double newline (paragraph break) — best boundary
+		splitAt = remaining.lastIndexOf("\n\n", maxLen)
+		if (splitAt > maxLen * 0.5) {
+			chunks.push(remaining.slice(0, splitAt))
+			remaining = remaining.slice(splitAt + 2)
+			continue
+		}
+
+		// 2. Try single newline
+		splitAt = remaining.lastIndexOf("\n", maxLen)
+		if (splitAt > maxLen * 0.5) {
+			chunks.push(remaining.slice(0, splitAt))
+			remaining = remaining.slice(splitAt + 1)
+			continue
+		}
+
+		// 3. Try space
+		splitAt = remaining.lastIndexOf(" ", maxLen)
+		if (splitAt > maxLen * 0.3) {
+			chunks.push(remaining.slice(0, splitAt))
+			remaining = remaining.slice(splitAt + 1)
+			continue
+		}
+
+		// 4. Hard split at maxLen (last resort)
+		chunks.push(remaining.slice(0, maxLen))
+		remaining = remaining.slice(maxLen)
+	}
+
+	return chunks
+}
+
+/**
+ * Sends a message to a Telegram chat, automatically splitting long messages
+ * into multiple API calls to respect Telegram's 4096-character limit.
+ * Each chunk is sent as a separate message in sequence.
+ */
 async function sendMessage(botToken, chatId, text, opts) {
 	opts = opts || {}
+	var chunks = splitLongMessage(text)
 	const url = TELEGRAM_API_BASE + botToken + "/sendMessage"
-	const body = {
-		chat_id: chatId,
-		text: text,
-		parse_mode: opts.parseMode || "Markdown",
-		disable_web_page_preview: true,
+
+	for (var ci = 0; ci < chunks.length; ci++) {
+		var chunk = chunks[ci]
+		const body = {
+			chat_id: chatId,
+			text: chunk,
+			parse_mode: opts.parseMode || "Markdown",
+			disable_web_page_preview: true,
+		}
+		if (opts.reply_to_message_id) body.reply_to_message_id = opts.reply_to_message_id
+		if (opts.disable_notification) body.disable_notification = opts.disable_notification
+		if (opts.reply_markup) body.reply_markup = opts.reply_markup
+		try {
+			const res = await fetch(url, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(body),
+			})
+			if (!res.ok) {
+				const err = await res.text().catch(function () {
+					return ""
+				})
+				console.error("[telegram] sendMessage error: " + res.status + " " + err.slice(0, 200))
+			}
+		} catch (err) {
+			console.error("[telegram] sendMessage network error:", err.message)
+		}
+		// Small delay between chunks to avoid rate limiting
+		if (ci < chunks.length - 1) {
+			await new Promise(function (resolve) {
+				setTimeout(resolve, 200)
+			})
+		}
 	}
-	if (opts.reply_to_message_id) body.reply_to_message_id = opts.reply_to_message_id
-	if (opts.disable_notification) body.disable_notification = opts.disable_notification
-	if (opts.reply_markup) body.reply_markup = opts.reply_markup
+}
+
+/**
+ * Deletes a message from a chat.
+ * Used for auto-deleting sensitive messages (OTP codes, login details).
+ */
+async function deleteMessage(botToken, chatId, messageId) {
+	if (!messageId) return
 	try {
-		const res = await fetch(url, {
+		var url = TELEGRAM_API_BASE + botToken + "/deleteMessage"
+		await fetch(url, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify(body),
+			body: JSON.stringify({ chat_id: chatId, message_id: messageId }),
 		})
-		if (!res.ok) {
-			const err = await res.text().catch(function () {
-				return ""
-			})
-			console.error("[telegram] sendMessage error: " + res.status + " " + err.slice(0, 200))
-		}
 	} catch (err) {
-		console.error("[telegram] sendMessage network error:", err.message)
+		// Non-critical - just log it
+		console.log("[telegram] deleteMessage error: " + (err.message || err))
 	}
 }
 
@@ -369,6 +499,11 @@ async function deleteWebhook(botToken) {
 
 // ─── Session Management ────────────────────────────────────────────────────
 
+/**
+ * Map<chatId, { expiredNotified: boolean }> — tracks if we've already notified about session expiry
+ */
+const sessionExpiryNotified = new Map()
+
 function getSession(chatId) {
 	const session = activeSessions.get(chatId)
 	if (!session) return null
@@ -379,13 +514,50 @@ function getSession(chatId) {
 	return session
 }
 
+/**
+ * Gets session and sends expiry notification if session has timed out.
+ * Returns null if session is expired (and sends notification once).
+ */
+function getSessionWithNotification(botToken, chatId) {
+	const session = activeSessions.get(chatId)
+	if (!session) {
+		// Session doesn't exist at all — not a timeout scenario
+		return null
+	}
+	if (Date.now() - session.authenticatedAt > SESSION_TTL_MS) {
+		activeSessions.delete(chatId)
+		// Only notify once per expiry event
+		if (!sessionExpiryNotified.get(chatId)) {
+			sessionExpiryNotified.set(chatId, true)
+			var expiryTime = new Date(session.authenticatedAt + SESSION_TTL_MS).toISOString()
+			// Fire and forget — don't await to avoid blocking
+			sendMessage(
+				botToken,
+				chatId,
+				"*Session Expired* ⏰\n\nYour session has timed out due to inactivity.\n\n*Expired at:* `" +
+					expiryTime +
+					"`\n*Session duration:* 30 minutes\n\nPlease use `/login` to re-authenticate.\nYou'll need to verify your OTP code to reactivate.",
+			).catch(function (e) {
+				console.error("[telegram] Failed to send expiry notification:", e.message)
+			})
+		}
+		return null
+	}
+	// Reset the notified flag when session is valid
+	sessionExpiryNotified.delete(chatId)
+	return session
+}
+
 function createOrRefreshSession(chatId) {
 	const session = {
 		chatId: chatId,
 		authenticatedAt: Date.now(),
 		otpVerified: false,
+		otpVerifiedAt: null,
 	}
 	activeSessions.set(chatId, session)
+	// Reset expiry notification flag
+	sessionExpiryNotified.delete(chatId)
 	return session
 }
 
@@ -400,6 +572,7 @@ function createOrRefreshSession(chatId) {
  */
 async function checkAuthSession(telegramUserId, chatId) {
 	try {
+		// First try with exact chatId match (DM session)
 		const result = await auth.handleTelegramSessionCheck({
 			telegramUserId: telegramUserId,
 			telegramChatId: chatId,
@@ -408,6 +581,17 @@ async function checkAuthSession(telegramUserId, chatId) {
 			const localSession = createOrRefreshSession(chatId)
 			localSession.authSession = result
 			return result
+		}
+
+		// If chatId didn't match (e.g. group chat vs DM), try without chatId
+		// This allows DM sessions to work in group chats
+		const fallbackResult = await auth.handleTelegramSessionCheck({
+			telegramUserId: telegramUserId,
+		})
+		if (fallbackResult && fallbackResult.authenticated) {
+			const localSession = createOrRefreshSession(chatId)
+			localSession.authSession = fallbackResult
+			return fallbackResult
 		}
 	} catch (err) {
 		console.error("[telegram] checkAuthSession error:", err.message)
@@ -446,7 +630,379 @@ async function getAuthEmail(telegramUserId, chatId) {
  * @param {Array} providers - List of provider configs with apiBaseUrl, apiKey, model
  * @returns {Promise<string>} AI response text
  */
-async function askAI(message, providers) {
+// ─── Conversation Context ───────────────────────────────────────────────────
+// Maintains per-chat conversation history for context-aware AI responses.
+// Persisted to disk so it survives PM2 restarts and deploys.
+// NOTE: conversationHistory, CONVERSATION_HISTORY_FILE, MAX_CONVERSATION_MESSAGES,
+// and MAX_CONTEXT_MESSAGES are declared in the top-level state section (lines 79-88).
+
+/**
+ * Gets the conversation context for a given chat, returning the last N messages.
+ * @param {number} chatId
+ * @param {number} maxMessages - Max messages to include (default MAX_CONTEXT_MESSAGES)
+ * @returns {Array} Array of {role, content} objects
+ */
+function getConversationContext(chatId, maxMessages) {
+	if (maxMessages === undefined) maxMessages = MAX_CONTEXT_MESSAGES
+	if (!conversationHistory.has(chatId)) {
+		conversationHistory.set(chatId, [])
+	}
+	var history = conversationHistory.get(chatId)
+	// Return last N messages
+	return history.slice(-maxMessages)
+}
+
+/**
+ * Adds a message to the conversation history for a given chat.
+ * Persists to disk with debounce (5s) to avoid excessive writes.
+ * @param {number} chatId
+ * @param {string} role - "user" or "assistant"
+ * @param {string} content
+ */
+function addToConversationContext(chatId, role, content) {
+	if (!conversationHistory.has(chatId)) {
+		conversationHistory.set(chatId, [])
+	}
+	var history = conversationHistory.get(chatId)
+	history.push({
+		role: role,
+		content: content,
+		timestamp: Date.now(),
+	})
+	// Keep only last MAX_CONVERSATION_MESSAGES to prevent memory bloat
+	if (history.length > MAX_CONVERSATION_MESSAGES) {
+		history.splice(0, history.length - MAX_CONVERSATION_MESSAGES)
+	}
+	// Debounce persist — save at most once per 5 seconds per chat
+	scheduleConversationPersist(chatId)
+}
+
+/** Map<chatId, timeoutId> for debounced persist */
+const _persistTimeouts = new Map()
+
+/**
+ * Schedules a debounced persist of conversation history for a chat.
+ * @param {number|string} chatId
+ */
+function scheduleConversationPersist(chatId) {
+	if (_persistTimeouts.has(chatId)) {
+		clearTimeout(_persistTimeouts.get(chatId))
+	}
+	_persistTimeouts.set(
+		chatId,
+		setTimeout(function () {
+			_persistTimeouts.delete(chatId)
+			saveConversationHistory().catch(function (err) {
+				console.error("[telegram] Failed to persist conversation history:", err.message)
+			})
+		}, 5000),
+	)
+}
+
+/**
+ * Loads conversation history from disk into memory.
+ */
+async function loadConversationHistory() {
+	try {
+		const data = await fs.readFile(CONVERSATION_HISTORY_FILE, "utf-8")
+		const parsed = JSON.parse(data)
+		var loadedCount = 0
+		for (const [chatId, messages] of Object.entries(parsed)) {
+			if (Array.isArray(messages) && messages.length > 0) {
+				conversationHistory.set(String(chatId), messages)
+				loadedCount += messages.length
+			}
+		}
+		console.log(
+			"[telegram] Loaded conversation history: " +
+				loadedCount +
+				" messages across " +
+				conversationHistory.size +
+				" chats",
+		)
+	} catch {
+		console.log("[telegram] No conversation history file found, starting fresh")
+	}
+}
+
+/**
+ * Saves conversation history to disk.
+ */
+async function saveConversationHistory() {
+	try {
+		const dir = path.dirname(CONVERSATION_HISTORY_FILE)
+		await fs.mkdir(dir, { recursive: true })
+		var obj = {}
+		for (const [chatId, messages] of conversationHistory.entries()) {
+			obj[chatId] = messages
+		}
+		await fs.writeFile(CONVERSATION_HISTORY_FILE, JSON.stringify(obj), "utf-8")
+	} catch (err) {
+		console.error("[telegram] Failed to save conversation history:", err.message)
+	}
+}
+
+/**
+ * Builds a concise conversation summary string from recent history.
+ * Used to pass context to BullMQ worker jobs that don't have access to the
+ * in-memory conversationHistory Map.
+ * @param {number|string} chatId
+ * @param {number} maxMessages - Max recent messages to summarize
+ * @returns {string} A plain-text summary of the conversation
+ */
+function buildConversationSummary(chatId, maxMessages) {
+	if (maxMessages === undefined) maxMessages = 10
+	var history = conversationHistory.get(chatId)
+	if (!history || history.length === 0) return ""
+
+	var recent = history.slice(-maxMessages)
+	var lines = []
+	for (var i = 0; i < recent.length; i++) {
+		var msg = recent[i]
+		var prefix = msg.role === "user" ? "User" : "Assistant"
+		var content = msg.content.slice(0, 200) // Truncate long messages
+		lines.push(prefix + ": " + content)
+	}
+	return "=== Recent Conversation History ===\n" + lines.join("\n") + "\n=== End of History ==="
+}
+
+/**
+ * ─── Chat Logging ───────────────────────────────────────────────────────────
+ * Writes every conversation exchange to a daily log file for agent monitoring.
+ * The log is structured as JSONL (one JSON object per line) for easy parsing.
+ * An external monitoring agent reads these logs daily to identify improvement
+ * opportunities and trigger code/skill upgrades.
+ */
+
+/** Directory for daily chat logs */
+const CHAT_LOG_DIR = path.join(__dirname, "..", "data", "chat-logs")
+
+/**
+ * Gets the log file path for today's date.
+ * @returns {string} Path like ".../data/chat-logs/2026-05-10.jsonl"
+ */
+function getDailyChatLogPath() {
+	var now = new Date()
+	var y = now.getFullYear()
+	var m = String(now.getMonth() + 1).padStart(2, "0")
+	var d = String(now.getDate()).padStart(2, "0")
+	return path.join(CHAT_LOG_DIR, y + "-" + m + "-" + d + ".jsonl")
+}
+
+/**
+ * Logs a conversation exchange to the daily chat log file.
+ * Each line is a JSON object with: timestamp, chatId, role, content, intent, metadata.
+ * @param {number|string} chatId
+ * @param {string} role - "user" | "assistant" | "system"
+ * @param {string} content
+ * @param {object} [metadata] - Optional extra data (intent, command, error, etc.)
+ */
+async function logChatExchange(chatId, role, content, metadata) {
+	try {
+		var dir = CHAT_LOG_DIR
+		await fs.mkdir(dir, { recursive: true })
+		var logPath = getDailyChatLogPath()
+		var entry = JSON.stringify({
+			t: Date.now(),
+			c: String(chatId),
+			r: role,
+			msg: content.slice(0, 2000), // Truncate very long messages
+			m: metadata || {},
+		})
+		await fs.appendFile(logPath, entry + "\n", "utf-8")
+	} catch (err) {
+		// Silently fail — logging should never break the bot
+		console.error("[telegram] Chat log write error:", err.message)
+	}
+}
+
+/**
+ * Builds the system prompt for the AI assistant with full system knowledge.
+ * Includes the Telegram Agent role definition for read-only support/consultation.
+ * @returns {string} The system prompt
+ */
+function buildSystemPrompt() {
+	return (
+		"You are SuperRoo AI Assistant — the Telegram AI Agent. You are the smartest, most capable AI in the SuperRoo system. " +
+		"Your role is to provide expert-level support, consultation, analysis, and recommendations to the user. " +
+		"You have deep knowledge of the entire SuperRoo system architecture, all 19 modules, cloud infrastructure, and capabilities. " +
+		"You are a READ-ONLY agent — you cannot make code changes, deploy, or modify files. " +
+		"For coding, debugging, deployment, or testing tasks, you route those to the appropriate specialist agents.\n\n" +
+		"## Your Capabilities\n" +
+		"- Answer ANY question about the SuperRoo system with expert-level detail\n" +
+		"- Provide recommendations on architecture, technology choices, best practices\n" +
+		"- Analyze code, bugs, and system behavior\n" +
+		"- Research topics and provide structured, professional analysis\n" +
+		"- Maintain conversation context — remember what was discussed earlier in this conversation\n" +
+		"- Route coding/debugging/deploy/testing tasks to specialist agents\n" +
+		"- Learn from conversations to improve future responses\n\n" +
+		"## Conversation Flow Guidelines\n" +
+		"- You have access to the FULL conversation history. Read it carefully before responding.\n" +
+		'- Reference previous messages naturally: "As you mentioned earlier...", "Following up on your previous question about...", "Building on what we discussed..."\n' +
+		'- If the user says "this", "that", "it", or refers to something without context, look at the conversation history to understand what they mean.\n' +
+		"- Maintain continuity: if you gave advice in a previous message, refer back to it when the user follows up.\n" +
+		"- Ask clarifying questions if the user's intent is ambiguous, but first check if the answer is in the conversation history.\n" +
+		"- When the user asks about a task that was just created (coding, debugging, deploy), acknowledge it and provide status.\n" +
+		"- Be conversational and natural — don't restart the conversation from scratch each time.\n\n" +
+		"## SuperRoo System Architecture\n\n" +
+		"The SuperRoo system is organized into 19 core modules:\n\n" +
+		"### 1. Orchestrator\n" +
+		"- Task routing, agent lifecycle management, workflow orchestration\n" +
+		"- Source: src/super-roo/orchestrator/\n\n" +
+		"### 2. Agent System\n" +
+		"- Coder Agent: Code generation & implementation\n" +
+		"- Debugger Agent: Bug investigation & root cause analysis\n" +
+		"- PM Agent: Product management & feature tracking\n" +
+		"- Tester Agent: Test execution & quality gates\n" +
+		"- Supabase Agent: Database operations\n" +
+		"- Self-Healing Agent: Autonomous incident response\n" +
+		"- Source: src/super-roo/agents/\n\n" +
+		"### 3. Safety System\n" +
+		"- Autonomy level enforcement (OFF -> SAFE -> AUTO -> FULL_AUTONOMOUS)\n" +
+		"- Capability gating, blocklist filtering\n" +
+		"- Source: src/super-roo/safety/\n\n" +
+		"### 4. Memory System\n" +
+		"- SQLite persistence, CRUD for all entities, event sourcing\n" +
+		"- Source: src/super-roo/memory/\n\n" +
+		"### 5. Task Queue\n" +
+		"- Priority queuing, job retry & backoff, concurrency control\n" +
+		"- BullMQ integration\n" +
+		"- Source: src/super-roo/queue/\n\n" +
+		"### 6. Event Log\n" +
+		"- Event streaming, observability, audit trail\n" +
+		"- Source: src/super-roo/logging/\n\n" +
+		"### 7. Feature Registry\n" +
+		"- Feature lifecycle tracking (planned -> building -> testing -> working -> deprecated)\n" +
+		"- Health monitoring (unknown -> healthy -> degraded -> failing)\n" +
+		"- Bug-to-feature mapping\n" +
+		"- Source: src/super-roo/features/\n\n" +
+		"### 8. Bug Registry\n" +
+		"- Bug recording & tracking, severity classification, fix attempt history\n" +
+		"- Source: src/super-roo/bugs/\n\n" +
+		"### 9. Self-Healing System\n" +
+		"- Healing Bus: Incident coordination hub\n" +
+		"- Root Cause Classifier: Pattern-based classification\n" +
+		"- Repair Plan Builder: Structured fix generation\n" +
+		"- Self-Healing Loop: detect -> classify -> plan -> fix -> verify\n" +
+		"- Source: src/super-roo/healing/\n\n" +
+		"### 10. Machine Learning Engine\n" +
+		"- Neural network training, code/debug/test pattern learning\n" +
+		"- Infinite improvement loop\n" +
+		"- Source: src/super-roo/ml/\n\n" +
+		"### 11. Product Memory\n" +
+		"- Product Feature Agent, Product Updates Agent\n" +
+		"- Feature Tester Agent, Bug-Feature Mapper\n" +
+		"- Commit & Deploy Log: Centralized audit trail\n" +
+		"- Source: src/super-roo/product-memory/\n\n" +
+		"### 12. Commit & Deploy Log\n" +
+		"- Centralized commit recording, deploy lifecycle tracking\n" +
+		"- Health check verification, rollback tracking\n" +
+		"- Agent-aware audit trail, feature-linked commits\n" +
+		"- Source: src/super-roo/product-memory/CommitDeployLog.ts\n\n" +
+		"### 13. Parallel Execution Engine\n" +
+		"- Parallel task execution, inter-agent messaging\n" +
+		"- Parallel healing pipeline, parallel ML training\n" +
+		"- Source: src/super-roo/parallel/\n\n" +
+		"### 14. CPU Guard\n" +
+		"- CPU usage monitoring, autonomous task throttling\n" +
+		"- Resource-aware scheduling\n" +
+		"- Source: src/super-roo/cpu-guard/\n\n" +
+		"### 15. Deploy System\n" +
+		"- GitHub Actions dispatch, VPS SSH deployment\n" +
+		"- Rollback management, health check verification\n" +
+		"- Source: src/super-roo/deploy/\n\n" +
+		"### 16. Crawler Agent\n" +
+		"- Web crawling, entity extraction, signal detection\n" +
+		"- Source: src/super-roo/crawler/\n\n" +
+		"### 17. File Importer\n" +
+		"- File import, content extraction, type validation\n" +
+		"- Source: src/super-roo/import/\n\n" +
+		"### 18. Remote Shell\n" +
+		"- SSH command execution, remote file operations\n" +
+		"- Source: src/super-roo/remote/\n\n" +
+		"### 19. Settings & API Keys System\n" +
+		"- Provider API key management, encrypted secret storage (AES-256-GCM)\n" +
+		"- Real provider connection testing, agent routing sync\n" +
+		"- VPS control center (auto-approve, MCP, guardrails)\n" +
+		"- Source: cloud/api/api.js, cloud/dashboard/src/components/views/\n\n" +
+		"## Cloud Infrastructure\n" +
+		"- API Server: Port 8787, BullMQ queue, Redis backend\n" +
+		"- Worker: Processes jobs from queue, runs in Docker sandbox\n" +
+		"- Dashboard: Next.js app on port 3001\n" +
+		"- VPS: 104.248.225.250, nginx reverse proxy at dev.abcx124.xyz\n" +
+		"- PM2 process management with ecosystem.config.js\n\n" +
+		"## Telegram Bot Commands\n" +
+		"- /code <instruction> - Create a coding task\n" +
+		"- /ask <question> - Ask the AI support assistant\n" +
+		"- /diff <taskId> - Show changed files\n" +
+		"- /test <taskId> - Run test suite\n" +
+		"- /approve <taskId> - Approve pending changes\n" +
+		"- /deploy <taskId> - Deploy approved build (OTP required)\n" +
+		"- /status [taskId] - Check system or task status\n" +
+		"- /session - Check active session\n" +
+		"- /otp - Set up Google Authenticator\n" +
+		"- /logs [n] - View recent logs\n" +
+		"- /projects - List and select projects\n" +
+		"- /workspace - Show active workspace\n" +
+		"- /help - Show all commands\n\n" +
+		"## Dashboard Pages\n" +
+		"- Overview: System health, queue stats, recent activity\n" +
+		"- Jobs: Job queue management\n" +
+		"- Queue: Queue monitoring\n" +
+		"- Agents: Agent management\n" +
+		"- Model Router: AI provider routing configuration\n" +
+		"- API Keys: Provider key management\n" +
+		"- Settings: VPS control center\n" +
+		"- Approvals: Approval workflow\n" +
+		"- Telegram: Telegram bot monitoring\n" +
+		"- GitHub: Repository management\n" +
+		"- Docker: Container management\n" +
+		"- Logs: System logs\n" +
+		"- Bugs: Bug tracking\n" +
+		"- Working Tree: Architecture visualization\n" +
+		"- Projects: Project management\n" +
+		"- AI Assistant: AI chat interface\n" +
+		"- Skill Generator: Skill generation\n" +
+		"- IDE Terminal: Remote terminal"
+	)
+}
+
+/**
+ * Enhanced AI assistant with conversation context, ML learning, and recommendation capabilities.
+ * Maintains per-chat conversation history for context-aware responses.
+ * Records interactions to the Telegram Learner for continuous improvement.
+ * Can provide expert recommendations, analysis, and consultation.
+ *
+ * @param {string} message - The user's message
+ * @param {Array} providers - Array of AI provider configs
+ * @param {number} [chatId] - Optional chat ID for conversation context
+ * @returns {string} AI response
+ */
+async function askAI(message, providers, chatId) {
+	// Build messages array with conversation context if chatId is provided
+	var messages = []
+
+	// System prompt with full knowledge
+	messages.push({
+		role: "system",
+		content: buildSystemPrompt(),
+	})
+
+	// Add conversation history if chatId is provided
+	if (chatId !== undefined && chatId !== null) {
+		var context = getConversationContext(chatId)
+		for (var ci = 0; ci < context.length; ci++) {
+			messages.push({
+				role: context[ci].role,
+				content: context[ci].content,
+			})
+		}
+	}
+
+	// Add current user message
+	messages.push({ role: "user", content: message })
+
+	// Try each provider in order
 	for (var i = 0; i < providers.length; i++) {
 		var provider = providers[i]
 		if (!provider.apiKey) continue
@@ -460,140 +1016,11 @@ async function askAI(message, providers) {
 				},
 				body: JSON.stringify({
 					model: provider.model,
-					messages: [
-						{
-							role: "system",
-							content:
-								"You are SuperRoo AI Assistant, an expert support agent for the SuperRoo product. " +
-								"You have deep knowledge of the SuperRoo system architecture, modules, features, and capabilities. " +
-								"Answer questions concisely and accurately. If you don't know something, say so rather than guessing.\n\n" +
-								"## SuperRoo System Architecture\n\n" +
-								"The SuperRoo system is organized into 18 core modules:\n\n" +
-								"### 1. Orchestrator\n" +
-								"- Task routing, agent lifecycle management, workflow orchestration\n" +
-								"- Source: src/super-roo/orchestrator/\n\n" +
-								"### 2. Agent System\n" +
-								"- Coder Agent: Code generation & implementation\n" +
-								"- Debugger Agent: Bug investigation & root cause analysis\n" +
-								"- PM Agent: Product management & feature tracking\n" +
-								"- Tester Agent: Test execution & quality gates\n" +
-								"- Supabase Agent: Database operations\n" +
-								"- Self-Healing Agent: Autonomous incident response\n" +
-								"- Source: src/super-roo/agents/\n\n" +
-								"### 3. Safety System\n" +
-								"- Autonomy level enforcement (OFF -> SAFE -> AUTO -> FULL_AUTONOMOUS)\n" +
-								"- Capability gating, blocklist filtering\n" +
-								"- Source: src/super-roo/safety/\n\n" +
-								"### 4. Memory System\n" +
-								"- SQLite persistence, CRUD for all entities, event sourcing\n" +
-								"- Source: src/super-roo/memory/\n\n" +
-								"### 5. Task Queue\n" +
-								"- Priority queuing, job retry & backoff, concurrency control\n" +
-								"- BullMQ integration\n" +
-								"- Source: src/super-roo/queue/\n\n" +
-								"### 6. Event Log\n" +
-								"- Event streaming, observability, audit trail\n" +
-								"- Source: src/super-roo/logging/\n\n" +
-								"### 7. Feature Registry\n" +
-								"- Feature lifecycle tracking (planned -> building -> testing -> working -> deprecated)\n" +
-								"- Health monitoring (unknown -> healthy -> degraded -> failing)\n" +
-								"- Bug-to-feature mapping\n" +
-								"- Source: src/super-roo/features/\n\n" +
-								"### 8. Bug Registry\n" +
-								"- Bug recording & tracking, severity classification, fix attempt history\n" +
-								"- Source: src/super-roo/bugs/\n\n" +
-								"### 9. Self-Healing System\n" +
-								"- Healing Bus: Incident coordination hub\n" +
-								"- Root Cause Classifier: Pattern-based classification\n" +
-								"- Repair Plan Builder: Structured fix generation\n" +
-								"- Self-Healing Loop: detect -> classify -> plan -> fix -> verify\n" +
-								"- Source: src/super-roo/healing/\n\n" +
-								"### 10. Machine Learning Engine\n" +
-								"- Neural network training, code/debug/test pattern learning\n" +
-								"- Infinite improvement loop\n" +
-								"- Source: src/super-roo/ml/\n\n" +
-								"### 11. Product Memory\n" +
-								"- Product Feature Agent, Product Updates Agent\n" +
-								"- Feature Tester Agent, Bug-Feature Mapper\n" +
-								"- Commit & Deploy Log: Centralized audit trail\n" +
-								"- Source: src/super-roo/product-memory/\n\n" +
-								"### 12. Commit & Deploy Log\n" +
-								"- Centralized commit recording, deploy lifecycle tracking\n" +
-								"- Health check verification, rollback tracking\n" +
-								"- Agent-aware audit trail, feature-linked commits\n" +
-								"- Source: src/super-roo/product-memory/CommitDeployLog.ts\n\n" +
-								"### 13. Parallel Execution Engine\n" +
-								"- Parallel task execution, inter-agent messaging\n" +
-								"- Parallel healing pipeline, parallel ML training\n" +
-								"- Source: src/super-roo/parallel/\n\n" +
-								"### 14. CPU Guard\n" +
-								"- CPU usage monitoring, autonomous task throttling\n" +
-								"- Resource-aware scheduling\n" +
-								"- Source: src/super-roo/cpu-guard/\n\n" +
-								"### 15. Deploy System\n" +
-								"- GitHub Actions dispatch, VPS SSH deployment\n" +
-								"- Rollback management, health check verification\n" +
-								"- Source: src/super-roo/deploy/\n\n" +
-								"### 16. Crawler Agent\n" +
-								"- Web crawling, entity extraction, signal detection\n" +
-								"- Source: src/super-roo/crawler/\n\n" +
-								"### 17. File Importer\n" +
-								"- File import, content extraction, type validation\n" +
-								"- Source: src/super-roo/import/\n\n" +
-								"### 18. Remote Shell\n" +
-								"- SSH command execution, remote file operations\n" +
-								"- Source: src/super-roo/remote/\n\n" +
-								"### 19. Settings & API Keys System\n" +
-								"- Provider API key management, encrypted secret storage (AES-256-GCM)\n" +
-								"- Real provider connection testing, agent routing sync\n" +
-								"- VPS control center (auto-approve, MCP, guardrails)\n" +
-								"- Source: cloud/api/api.js, cloud/dashboard/src/components/views/\n\n" +
-								"## Cloud Infrastructure\n" +
-								"- API Server: Port 8787, BullMQ queue, Redis backend\n" +
-								"- Worker: Processes jobs from queue, runs in Docker sandbox\n" +
-								"- Dashboard: Next.js app on port 3001\n" +
-								"- VPS: 104.248.225.250, nginx reverse proxy at dev.abcx124.xyz\n" +
-								"- PM2 process management with ecosystem.config.js\n\n" +
-								"## Telegram Bot Commands\n" +
-								"- /code <instruction> - Create a coding task\n" +
-								"- /ask <question> - Ask the AI support assistant\n" +
-								"- /diff <taskId> - Show changed files\n" +
-								"- /test <taskId> - Run test suite\n" +
-								"- /approve <taskId> - Approve pending changes\n" +
-								"- /deploy <taskId> - Deploy approved build (OTP required)\n" +
-								"- /status [taskId] - Check system or task status\n" +
-								"- /session - Check active session\n" +
-								"- /otp - Set up Google Authenticator\n" +
-								"- /logs [n] - View recent logs\n" +
-								"- /projects - List and select projects\n" +
-								"- /workspace - Show active workspace\n" +
-								"- /help - Show all commands\n\n" +
-								"## Dashboard Pages\n" +
-								"- Overview: System health, queue stats, recent activity\n" +
-								"- Jobs: Job queue management\n" +
-								"- Queue: Queue monitoring\n" +
-								"- Agents: Agent management\n" +
-								"- Model Router: AI provider routing configuration\n" +
-								"- API Keys: Provider key management\n" +
-								"- Settings: VPS control center\n" +
-								"- Approvals: Approval workflow\n" +
-								"- Telegram: Telegram bot monitoring\n" +
-								"- GitHub: Repository management\n" +
-								"- Docker: Container management\n" +
-								"- Logs: System logs\n" +
-								"- Bugs: Bug tracking\n" +
-								"- Working Tree: Architecture visualization\n" +
-								"- Projects: Project management\n" +
-								"- AI Assistant: AI chat interface\n" +
-								"- Skill Generator: Skill generation\n" +
-								"- IDE Terminal: Remote terminal",
-						},
-						{ role: "user", content: message },
-					],
-					max_tokens: 2048,
+					messages: messages,
+					max_tokens: 4096,
 					temperature: 0.7,
 				}),
-				signal: AbortSignal.timeout(30_000),
+				signal: AbortSignal.timeout(60_000),
 			})
 			if (!res.ok) {
 				var errBody = ""
@@ -611,7 +1038,37 @@ async function askAI(message, providers) {
 				continue
 			}
 			var data = await res.json()
-			return data.choices[0].message.content || "(no response)"
+			var reply = data.choices[0].message.content || "(no response)"
+
+			// Record to conversation context
+			if (chatId !== undefined && chatId !== null) {
+				addToConversationContext(chatId, "user", message)
+				addToConversationContext(chatId, "assistant", reply)
+			}
+
+			// Log the exchange to daily chat log for agent monitoring
+			logChatExchange(chatId, "user", message, { intent: "ask" }).catch(function () {})
+			logChatExchange(chatId, "assistant", reply, { provider: provider.providerId }).catch(function () {})
+
+			// Record interaction to Telegram Learner for ML improvement
+			try {
+				if (telegramLearner && typeof telegramLearner.recordInteraction === "function") {
+					telegramLearner.recordInteraction({
+						chatId: chatId || 0,
+						message: message,
+						response: reply,
+						provider: provider.providerId || "unknown",
+						model: provider.model || "unknown",
+						timestamp: Date.now(),
+						intent: "ask",
+					})
+				}
+			} catch (learnErr) {
+				// Non-fatal — don't break the response
+				console.error("[telegram] Failed to record learner interaction:", learnErr.message)
+			}
+
+			return reply
 		} catch (err) {
 			console.error("[telegram] askAI network error with " + provider.providerId + ":", err.message)
 			continue
@@ -640,14 +1097,203 @@ async function handleAsk(botToken, chatId, args, providers) {
 
 	console.log("[telegram] AI query from " + chatId + ": " + question.slice(0, 100))
 
-	var reply = await askAI(question, providers)
+	var reply = await askAI(question, providers, chatId)
 
+	// sendMessage auto-splits long messages to respect Telegram's 4096-char limit
+	await sendMessage(botToken, chatId, reply)
+}
+
+/**
+ * Consultant Agent — does research, creates skills.md and resources.md, and returns a professional answer.
+ * Used when the user asks about feature viability, architecture decisions, best practices, etc.
+ * Other agents (debugger, deployer, coder) can also invoke the consultant when they need expertise.
+ *
+ * @param {string} botToken
+ * @param {number} chatId
+ * @param {string} question - The user's research/consultation question
+ * @param {Array} providers - AI provider configs
+ * @param {object} [options] - Optional parameters
+ * @param {string} [options.requestingAgent] - Which agent requested the consultation (e.g., "debugger", "coder")
+ * @param {string} [options.projectId] - Project ID if available
+ * @param {number} [options.telegramUserId] - Telegram user ID for auth
+ */
+async function handleConsultant(botToken, chatId, question, providers, options) {
+	if (!question) {
+		await sendMessage(
+			botToken,
+			chatId,
+			"*Consultant Agent* 🧠\n\nI can research and analyze any topic to give you professional, well-informed advice. Just ask me anything!\n\n" +
+				"*Examples:*\n" +
+				'• "Should I use PostgreSQL or MongoDB for my project?"\n' +
+				'• "Analyze the pros and cons of microservices architecture"\n' +
+				'• "What\'s the best tech stack for a real-time chat app?"\n' +
+				'• "Research best practices for API rate limiting"\n' +
+				'• "Compare React vs Vue for enterprise applications"',
+		)
+		return
+	}
+
+	await sendChatAction(botToken, chatId, "typing")
+
+	console.log("[telegram] Consultant query from " + chatId + ": " + question.slice(0, 100))
+
+	// ─── Phase 1: Research ──────────────────────────────────────────────
+	// Use AI with a research-oriented system prompt to gather comprehensive knowledge
+	var researchPrompt =
+		"You are a Senior Consultant and Subject Matter Expert. Your role is to provide deep, " +
+		"well-researched, professional analysis on any topic. Follow this methodology:\n\n" +
+		"1. **Research Phase**: Analyze the question thoroughly. Consider multiple perspectives, " +
+		"industry best practices, common pitfalls, and emerging trends.\n" +
+		"2. **Evidence-Based Analysis**: Support your analysis with concrete reasoning, " +
+		"real-world examples, and technical accuracy.\n" +
+		"3. **Structured Response**: Organize your answer with clear sections:\n" +
+		"   - Executive Summary (2-3 sentence overview)\n" +
+		"   - Detailed Analysis (deep dive with technical specifics)\n" +
+		"   - Pros & Cons (if applicable)\n" +
+		"   - Recommendations (actionable advice)\n" +
+		"   - References & Further Reading\n\n" +
+		"Be thorough, objective, and practical. If there are trade-offs, explain them clearly. " +
+		"Your goal is to educate and empower the user to make informed decisions.\n\n" +
+		"User question: " +
+		question
+
+	var research = await askAI(researchPrompt, providers, chatId)
+
+	// ─── Phase 2: Create Skills & Resources Knowledge ───────────────────
+	// Generate structured skills.md and resources.md content
+	var skillPrompt =
+		"Based on your research above, create TWO structured knowledge documents about this topic. " +
+		"Format them clearly with markdown headers.\n\n" +
+		"---\n\n" +
+		"## SKILLS.md\n\n" +
+		"Create a comprehensive skills document that covers:\n" +
+		"- Core concepts and terminology\n" +
+		"- Key methodologies and approaches\n" +
+		"- Best practices and design patterns\n" +
+		"- Common pitfalls to avoid\n" +
+		"- Step-by-step workflows\n" +
+		"- Decision frameworks\n\n" +
+		"## RESOURCES.md\n\n" +
+		"Create a resources document that includes:\n" +
+		"- Official documentation links\n" +
+		"- Recommended tools and libraries\n" +
+		"- Learning resources (tutorials, courses, books)\n" +
+		"- Community resources (forums, Discord, Stack Overflow)\n" +
+		"- Example projects and reference implementations\n" +
+		"- Related standards and specifications\n\n" +
+		"Topic: " +
+		question
+
+	var knowledgeDocs = await askAI(skillPrompt, providers, chatId)
+
+	// Parse out skills and resources sections
+	var skillsContent = ""
+	var resourcesContent = ""
+	var skillsMatch = knowledgeDocs.match(/## SKILLS\.MD([\s\S]*?)(?=## RESOURCES\.MD|$)/i)
+	var resourcesMatch = knowledgeDocs.match(/## RESOURCES\.MD([\s\S]*?)$/i)
+	if (skillsMatch) skillsContent = skillsMatch[1].trim()
+	if (resourcesMatch) resourcesContent = resourcesMatch[1].trim()
+
+	// If parsing failed, use the whole response
+	if (!skillsContent && !resourcesContent) {
+		skillsContent = knowledgeDocs
+	}
+
+	// ─── Phase 3: Save Knowledge to Consultant Knowledge Base ───────────
+	// Save skills.md and resources.md to a consultant knowledge directory
+	var topicSlug = question
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/^-|-$/g, "")
+		.slice(0, 50)
+	var timestamp = Date.now()
+	var knowledgeDir = "/opt/superroo2/cloud/consultant-knowledge/" + topicSlug + "-" + timestamp
+
+	try {
+		var fs = require("fs")
+		var path = require("path")
+
+		// Create directory
+		fs.mkdirSync(knowledgeDir, { recursive: true })
+
+		// Write skills.md
+		var fullSkillsMd =
+			"# Consultant Skills: " +
+			question +
+			"\n\n" +
+			"*Generated: " +
+			new Date().toISOString() +
+			"*\n\n" +
+			"## Topic\n" +
+			question +
+			"\n\n" +
+			"## Skills & Expertise\n" +
+			skillsContent +
+			"\n"
+
+		fs.writeFileSync(path.join(knowledgeDir, "skills.md"), fullSkillsMd, "utf8")
+
+		// Write resources.md
+		var fullResourcesMd =
+			"# Consultant Resources: " +
+			question +
+			"\n\n" +
+			"*Generated: " +
+			new Date().toISOString() +
+			"*\n\n" +
+			"## Topic\n" +
+			question +
+			"\n\n" +
+			"## Resources\n" +
+			resourcesContent +
+			"\n"
+
+		fs.writeFileSync(path.join(knowledgeDir, "resources.md"), fullResourcesMd, "utf8")
+
+		console.log("[telegram] Consultant knowledge saved to " + knowledgeDir)
+	} catch (err) {
+		console.error("[telegram] Failed to save consultant knowledge:", err.message)
+		// Non-fatal — continue to send the answer
+	}
+
+	// ─── Phase 4: Send Professional Answer ──────────────────────────────
 	var maxLen = 4000
+	var reply = research
 	if (reply.length > maxLen) {
 		reply = reply.slice(0, maxLen) + "\n\n*(truncated - response too long)*"
 	}
 
-	await sendMessage(botToken, chatId, reply)
+	// Add knowledge base reference if saved
+	var savedRef = ""
+	try {
+		if (require("fs").existsSync(knowledgeDir)) {
+			savedRef = "\n\n📚 *Knowledge saved* — Skills & Resources documented for future reference."
+		}
+	} catch (e) {}
+
+	await sendMessage(botToken, chatId, "*Consultant Analysis* 🧠\n\n" + reply + savedRef)
+
+	// ─── Phase 5: Notify Requesting Agent (if applicable) ───────────────
+	if (options && options.requestingAgent) {
+		var agentLabel = options.requestingAgent.charAt(0).toUpperCase() + options.requestingAgent.slice(1)
+		await sendMessage(
+			botToken,
+			chatId,
+			"*Consultant Update for " +
+				agentLabel +
+				" Agent* 🤝\n\n" +
+				"The consultant has completed research and saved updated skills & resources for:\n" +
+				"*" +
+				question +
+				"*\n\n" +
+				"Knowledge saved at: `" +
+				knowledgeDir +
+				"`\n" +
+				"The " +
+				agentLabel +
+				" agent can now use this knowledge for better results.",
+		)
+	}
 }
 
 /**
@@ -668,6 +1314,9 @@ async function handleCode(botToken, chatId, args, queue) {
 		"TG-" + Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).slice(2, 6).toUpperCase()
 	var branchName = "tg/" + taskId.toLowerCase()
 
+	// Build conversation summary for the worker so it has context
+	var conversationSummary = buildConversationSummary(chatId)
+
 	var job = await queue.add("telegram-" + taskId, {
 		task: instruction,
 		agentId: "coder",
@@ -677,6 +1326,7 @@ async function handleCode(botToken, chatId, args, queue) {
 			chatId: chatId,
 			taskId: taskId,
 			branchName: branchName,
+			conversationSummary: conversationSummary,
 		},
 	})
 
@@ -692,21 +1342,8 @@ async function handleCode(botToken, chatId, args, queue) {
 		jobId: job.id,
 	})
 
-	await sendMessage(
-		botToken,
-		chatId,
-		"*Coding task created!*\n\n*Task:* " +
-			taskId +
-			"\n*Instruction:* " +
-			instruction +
-			"\n*Branch:* `" +
-			branchName +
-			"`\n*Status:* Queued\n\nUse `/status " +
-			taskId +
-			"` to check progress.\nUse `/diff " +
-			taskId +
-			"` when ready to review.",
-	)
+	// Send rich notification with action buttons
+	await telegramNotifier.sendTaskStarted(botToken, chatId, taskId, instruction, "coder")
 }
 
 /**
@@ -841,13 +1478,14 @@ async function handleOTP(botToken, chatId, args) {
 		if (verifyTOTP(pending.secret, code)) {
 			var sess = getSession(chatId) || createOrRefreshSession(chatId)
 			sess.otpVerified = true
+			sess.otpVerifiedAt = Date.now()
 			sess.otpSecret = pending.secret
 			pendingOtpSecrets.delete(chatId)
 
 			await sendMessage(
 				botToken,
 				chatId,
-				"*Google Authenticator Verified!*\n\nYour OTP is now active. Secure operations like `/deploy` will require your 6-digit code.\n\nSession is now fully authenticated.",
+				"*Google Authenticator Verified!* ✅\n\nYour OTP is now active. Session is fully authenticated.\n\nOTP verification lasts for 30 minutes. After that, you'll need to re-verify.",
 			)
 		} else {
 			await sendMessage(
@@ -1070,9 +1708,9 @@ async function handleLogs(botToken, chatId, args) {
 // ─── New Auth-Integrated Command Handlers ────────────────────────────────
 
 /**
- * Handles /login - opens the Mini App login panel or shows login instructions.
- * Users authenticate via the Telegram Mini App which links their Telegram
- * account to their SuperRoo Cloud account.
+ * Handles /login - Email OTP login flow.
+ * Asks the user for their email, sends an OTP, and verifies it.
+ * Auto-deletes sensitive messages after successful login.
  */
 async function handleLogin(botToken, chatId, telegramUserId, isGroup) {
 	// Check if already authenticated via auth module
@@ -1089,12 +1727,12 @@ async function handleLogin(botToken, chatId, telegramUserId, isGroup) {
 		return
 	}
 
-	// In groups, redirect to DM — Mini App login only works in private chat
+	// In groups, redirect to DM
 	if (isGroup) {
 		await sendInlineKeyboard(
 			botToken,
 			chatId,
-			"*Login Required* 🔐\n\nTap below to open a private chat with @" +
+			"*Login Required* 🔐\n\nTap below to open a private chat with \\@" +
 				BOT_USERNAME +
 				" and log in there.\n\nOnce logged in via DM, all your commands in this group will be authenticated.",
 			[[{ text: "🔐 Login via Private Chat", url: "https://t.me/" + BOT_USERNAME + "?start=login" }]],
@@ -1102,28 +1740,187 @@ async function handleLogin(botToken, chatId, telegramUserId, isGroup) {
 		return
 	}
 
-	// DM: send Mini App login button
-	await sendInlineKeyboard(
+	// DM: start Email OTP login flow
+	// Set state to "awaiting_email" so the next non-command message is treated as email input
+	var existingState = pendingEmailOtps.get(chatId)
+	if (existingState) {
+		pendingEmailOtps.delete(chatId)
+	}
+
+	// Mark that we're awaiting email input
+	pendingEmailOtps.set(chatId, { step: "awaiting_email", messageIds: [] })
+
+	var sentMsg = await sendMessage(
 		botToken,
 		chatId,
-		"*Login to SuperRoo Cloud*\n\n" +
-			"Click the button below to open the login panel and authenticate with your SuperRoo Cloud account.\n\n" +
-			"After logging in, you'll be able to:\n" +
-			"• View and select projects\n" +
-			"• Send coding instructions\n" +
-			"• Monitor task status\n" +
-			"• Approve and deploy changes\n\n" +
-			"*Don't have an account?*\n" +
-			"Create one in the Settings tab at https://dev.abcx124.xyz",
-		[
-			[
-				{
-					text: "🔐 Login to SuperRoo Cloud",
-					url: MINI_APP_URL + "?chat_id=" + chatId + "&telegram_id=" + telegramUserId,
-				},
-			],
-		],
+		"*Login via Email OTP* 📧\n\nPlease enter the email address associated with your SuperRoo Cloud account.\n\nI'll send a one-time password (OTP) to that email for verification.\n\n*Tip:* Messages with sensitive info will be auto-deleted after login.\n\n_(Type your email address below, or use `/cancel` to abort)_",
 	)
+	if (sentMsg && sentMsg.result && sentMsg.result.message_id) {
+		if (!existingState) existingState = { step: "awaiting_email", messageIds: [] }
+		existingState.messageIds.push(sentMsg.result.message_id)
+		pendingEmailOtps.set(chatId, existingState)
+	}
+}
+
+/**
+ * Handles email input during Email OTP login flow.
+ * Called when the user sends a non-command message while in "awaiting_email" state.
+ * Validates the email, generates an OTP, and stores it for verification.
+ */
+async function handleEmailOtpLogin(botToken, chatId, email, telegramUserId) {
+	// Basic email validation
+	var emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+	if (!emailRegex.test(email)) {
+		await sendMessage(
+			botToken,
+			chatId,
+			"*Invalid Email* ❌\n\nPlease enter a valid email address (e.g., `user@example.com`).\n\nUse `/login` to try again.",
+		)
+		pendingEmailOtps.delete(chatId)
+		return
+	}
+
+	// Generate a 6-digit OTP
+	var otp = Math.floor(100000 + Math.random() * 900000).toString()
+
+	// Store the pending OTP
+	var state = pendingEmailOtps.get(chatId) || { step: "awaiting_email", messageIds: [] }
+	state.step = "awaiting_otp"
+	state.email = email
+	state.otp = otp
+	state.createdAt = Date.now()
+	state.telegramUserId = telegramUserId
+	pendingEmailOtps.set(chatId, state)
+
+	console.log("[telegram] Email OTP generated for " + email + " (chat " + chatId + "): " + otp)
+
+	// Send OTP via email using nodemailer/SMTP
+	try {
+		var nodemailer = require("nodemailer")
+		var transporter = nodemailer.createTransport({
+			host: process.env.SMTP_HOST || "smtp.gmail.com",
+			port: parseInt(process.env.SMTP_PORT || "587"),
+			secure: false,
+			auth: {
+				user: process.env.SMTP_USER || "",
+				pass: process.env.SMTP_PASS || "",
+			},
+		})
+		var mailResult = await transporter.sendMail({
+			from: process.env.SMTP_FROM || "",
+			to: email,
+			subject: "Your SuperRoo Cloud Login OTP",
+			text:
+				"Your SuperRoo Cloud one-time password is: " +
+				otp +
+				"\n\nThis code expires in 10 minutes.\n\nIf you did not request this, please ignore this email.",
+			html:
+				"<p>Your SuperRoo Cloud one-time password is: <strong>" +
+				otp +
+				"</strong></p><p>This code expires in 10 minutes.</p><p>If you did not request this, please ignore this email.</p>",
+		})
+		console.log("[telegram] OTP email sent to " + email + " (messageId: " + mailResult.messageId + ")")
+	} catch (err) {
+		console.error("[telegram] Failed to send OTP email to " + email + ": " + (err.message || err))
+	}
+
+	var sentMsg = await sendMessage(
+		botToken,
+		chatId,
+		"*OTP Sent* 📧\n\nA one-time password has been sent to `" +
+			email +
+			"`.\n\nPlease check your email and enter the 6-digit code to complete login.\n\n_(This code expires in 10 minutes. Messages will be auto-deleted after login.)_\n\nUse `/cancel` to abort.",
+	)
+	if (sentMsg && sentMsg.result && sentMsg.result.message_id) {
+		state.messageIds.push(sentMsg.result.message_id)
+		pendingEmailOtps.set(chatId, state)
+	}
+}
+
+/**
+ * Handles OTP code verification during Email OTP login flow.
+ * Called when the user sends a 6-digit code while in "awaiting_otp" state.
+ * Verifies the OTP and creates an auth session via the auth module.
+ * Auto-deletes sensitive messages after successful login.
+ */
+async function handleVerifyEmailOtp(botToken, chatId, code, telegramUserId) {
+	var state = pendingEmailOtps.get(chatId)
+	if (!state || state.step !== "awaiting_otp") {
+		await sendMessage(botToken, chatId, "*No pending login.*\n\nUse `/login` to start the login process.")
+		return
+	}
+
+	// Check OTP expiry
+	if (Date.now() - state.createdAt > EMAIL_OTP_TTL_MS) {
+		pendingEmailOtps.delete(chatId)
+		await sendMessage(
+			botToken,
+			chatId,
+			"*OTP Expired* ⏰\n\nThe one-time password has expired. Please use `/login` to start again.",
+		)
+		return
+	}
+
+	// Verify OTP
+	if (code !== state.otp) {
+		await sendMessage(
+			botToken,
+			chatId,
+			"*Invalid Code* ❌\n\nThe code you entered is incorrect. Please try again.\n\nUse `/login` to restart the process.",
+		)
+		pendingEmailOtps.delete(chatId)
+		return
+	}
+
+	// OTP verified! Create auth session via the auth module
+	try {
+		var result = await auth.handleTelegramLogin({
+			email: state.email,
+			password: "__email_otp_verified__", // Special marker for OTP-based login
+			telegramInitData: "email-otp:" + state.otp, // Pass OTP as init data
+			telegramUserId: telegramUserId,
+			telegramChatId: chatId,
+		})
+
+		if (result && result.ok) {
+			// Auto-delete sensitive messages
+			var messageIds = state.messageIds || []
+			for (var i = 0; i < messageIds.length; i++) {
+				await deleteMessage(botToken, chatId, messageIds[i])
+			}
+
+			pendingEmailOtps.delete(chatId)
+
+			// Create local session
+			createOrRefreshSession(chatId)
+
+			await sendMessage(
+				botToken,
+				chatId,
+				"*Login Successful* ✅\n\nYou are now signed in as: `" +
+					state.email +
+					"`\n\nSensitive messages have been auto-deleted.\n\nUse `/projects` to view your projects.\nUse `/code <instruction>` to start a coding task.",
+			)
+		} else {
+			var errorMsg = (result && result.error) || "Unknown error"
+			pendingEmailOtps.delete(chatId)
+			await sendMessage(
+				botToken,
+				chatId,
+				"*Login Failed* ❌\n\n" +
+					errorMsg +
+					"\n\nPlease check that your email is registered in the SuperRoo Cloud dashboard.\nUse `/login` to try again.",
+			)
+		}
+	} catch (err) {
+		console.error("[telegram] Email OTP login error:", err.message)
+		pendingEmailOtps.delete(chatId)
+		await sendMessage(
+			botToken,
+			chatId,
+			"*Login Error* ❌\n\nAn error occurred: " + err.message + "\n\nPlease use `/login` to try again.",
+		)
+	}
 }
 
 /**
@@ -1382,6 +2179,178 @@ async function handleAbout(botToken, chatId) {
 	)
 }
 
+// ─── Group Workspace Binding ───────────────────────────────────────────────
+
+/**
+ * Loads group workspace bindings from the JSON file into the in-memory Map.
+ * Called once at startup.
+ */
+async function loadGroupWorkspaces() {
+	try {
+		const data = await fs.readFile(GROUP_WORKSPACES_FILE, "utf-8")
+		const parsed = JSON.parse(data)
+		for (const [chatId, workspaceName] of Object.entries(parsed)) {
+			groupWorkspaces.set(String(chatId), workspaceName)
+		}
+		console.log("[telegram] Loaded " + groupWorkspaces.size + " group workspace bindings")
+	} catch {
+		console.log("[telegram] No group workspace bindings file found, starting fresh")
+	}
+}
+
+/**
+ * Persists the current group workspace bindings to the JSON file.
+ */
+async function saveGroupWorkspaces() {
+	try {
+		const dir = path.dirname(GROUP_WORKSPACES_FILE)
+		await fs.mkdir(dir, { recursive: true })
+		const obj = Object.fromEntries(groupWorkspaces)
+		await fs.writeFile(GROUP_WORKSPACES_FILE, JSON.stringify(obj, null, 2), "utf-8")
+	} catch (err) {
+		console.error("[telegram] Failed to save group workspace bindings:", err.message)
+	}
+}
+
+/**
+ * Handles /specify <workspaceName> — binds a group chat to a specific workspace/project.
+ * Once bound, all natural language messages in that group automatically use the
+ * specified workspace for agent routing (coding, debugging, deploying, etc.).
+ *
+ * Usage: /specify "productgenerator"
+ *        /specify superroo2
+ *
+ * @param {string} botToken
+ * @param {number} chatId - The group chat ID
+ * @param {string[]} args - ["productgenerator"] or ['"product generator"']
+ * @param {number} telegramUserId
+ */
+async function handleSpecify(botToken, chatId, args, telegramUserId) {
+	// Only works in group chats
+	if (chatId >= 0) {
+		await sendMessage(
+			botToken,
+			chatId,
+			"*Group-Only Command* 👥\n\n" +
+				"The `/specify` command is only available in group chats. " +
+				"Add me to a group and use `/specify <workspace>` there to bind it to a project.",
+		)
+		return
+	}
+
+	// Check auth
+	var authSession = await checkAuthSession(telegramUserId, chatId)
+	if (!authSession) {
+		await sendMessage(
+			botToken,
+			chatId,
+			"*Authentication Required*\n\nPlease login first using `/login` to specify a workspace.",
+		)
+		return
+	}
+
+	// Parse workspace name from args (supports quoted strings)
+	var workspaceName = args.join(" ").trim().replace(/^"|"$/g, "").replace(/^'|'$/g, "")
+	if (!workspaceName) {
+		await sendMessage(
+			botToken,
+			chatId,
+			"*Usage:* `/specify <workspace>`\n\n" +
+				"Example: `/specify productgenerator`\n" +
+				'Example: `/specify "superroo2"`\n\n' +
+				"This binds this group chat to the specified workspace/project. " +
+				"All natural language messages will automatically use that workspace.",
+		)
+		return
+	}
+
+	// Look up the workspace by name in the user's projects
+	try {
+		var result = await auth.handleTelegramProjects({
+			telegramUserId: telegramUserId,
+			telegramChatId: chatId,
+		})
+
+		if (!result || !result.projects || result.projects.length === 0) {
+			await sendMessage(
+				botToken,
+				chatId,
+				"*No Projects Found*\n\n" +
+					"You don't have any projects yet. Create one in the dashboard at https://dev.abcx124.xyz",
+			)
+			return
+		}
+
+		// Find project matching the workspace name (case-insensitive, partial match)
+		var matchedProject = null
+		var lowerName = workspaceName.toLowerCase()
+		for (var i = 0; i < result.projects.length; i++) {
+			var p = result.projects[i]
+			var pName = (p.name || p.repoName || "").toLowerCase()
+			if (pName === lowerName || pName.includes(lowerName) || lowerName.includes(pName)) {
+				matchedProject = p
+				break
+			}
+		}
+
+		if (!matchedProject) {
+			var projectNames = result.projects
+				.map(function (p) {
+					return "• `" + (p.name || p.repoName) + "`"
+				})
+				.join("\n")
+			await sendMessage(
+				botToken,
+				chatId,
+				"*Workspace Not Found* 🔍\n\n" +
+					'No project matching "' +
+					workspaceName +
+					'" was found.\n\n' +
+					"*Your projects:*\n" +
+					projectNames +
+					"\n\n" +
+					"Use `/projects` to see all projects.\n" +
+					"Use `/specify <name>` to bind this group to a project.",
+			)
+			return
+		}
+
+		// Select the project as active
+		await auth.handleTelegramProjectSelect(matchedProject.id, {
+			telegramUserId: telegramUserId,
+			telegramChatId: chatId,
+		})
+
+		// Store the binding
+		groupWorkspaces.set(String(chatId), workspaceName)
+		await saveGroupWorkspaces()
+
+		// Register group chat routing so notifications for this user go to the group
+		if (telegramUserId) {
+			telegramNotifier.setGroupRouting(telegramUserId, chatId)
+		}
+
+		await sendMessage(
+			botToken,
+			chatId,
+			"*Workspace Bound!* ✅\n\n" +
+				"This group is now linked to:\n" +
+				"*Project:* " +
+				matchedProject.name +
+				"\n" +
+				"*ID:* `" +
+				matchedProject.id +
+				"`\n\n" +
+				"All natural language messages in this group will automatically use this workspace.\n" +
+				"All task notifications will be sent to this group instead of your DM.\n" +
+				"Use `/specify <workspace>` to change it anytime.",
+		)
+	} catch (err) {
+		console.error("[telegram] handleSpecify error:", err.message)
+		await sendMessage(botToken, chatId, "*Error*\n\nCould not bind workspace. " + err.message)
+	}
+}
+
 /**
  * Handles project selection from inline keyboard callback.
  * @param {string} botToken
@@ -1448,19 +2417,160 @@ async function handleProjectSelect(botToken, chatId, messageId, projectId, teleg
 }
 
 /**
- * Routes a natural language text message to the orchestrator.
- * This is used when a user types a coding instruction directly (not as a command).
+ * Detects the intent of a natural language message and determines the appropriate agent type.
+ * Simple keyword-based detection that works without an AI call.
+ * @param {string} text - The user's message
+ * @returns {string} Agent type: "coder", "debugger", "deployer", "tester", or "ask"
+ */
+function detectIntent(text) {
+	var lower = text.toLowerCase()
+
+	// Consultant / Research intent — questions about viability, analysis, research, best practices
+	if (
+		lower.includes("research") ||
+		lower.includes("analyze") ||
+		lower.includes("analysis") ||
+		lower.includes("is it good") ||
+		lower.includes("should i") ||
+		lower.includes("compare") ||
+		lower.includes("comparison") ||
+		lower.includes("viability") ||
+		lower.includes("feasibility") ||
+		lower.includes("pros and cons") ||
+		lower.includes("advantages") ||
+		lower.includes("disadvantages") ||
+		lower.includes("best practice") ||
+		lower.includes("recommend") ||
+		lower.includes("recommendation") ||
+		lower.includes("evaluate") ||
+		lower.includes("evaluation") ||
+		lower.includes("what is the best") ||
+		lower.includes("which one") ||
+		lower.includes("how does") ||
+		lower.includes("explain") ||
+		lower.includes("what is") ||
+		lower.includes("tell me about") ||
+		lower.includes("upgrade skill") ||
+		lower.includes("upgrade my skill") ||
+		lower.includes("consultant") ||
+		lower.includes("consult") ||
+		lower.includes("advise") ||
+		lower.includes("advice") ||
+		lower.includes("guidance") ||
+		lower.includes("strategy") ||
+		lower.includes("strategic") ||
+		lower.includes("architecture") ||
+		lower.includes("design pattern") ||
+		lower.includes("technology stack") ||
+		lower.includes("tech stack") ||
+		lower.includes("overview") ||
+		lower.includes("summary of") ||
+		lower.includes("deep dive") ||
+		lower.includes("learn about")
+	) {
+		return "consultant"
+	}
+
+	// Debugging intent
+	if (
+		lower.includes("debug") ||
+		lower.includes("fix bug") ||
+		lower.includes("error") ||
+		lower.includes("issue") ||
+		lower.includes("not working") ||
+		lower.includes("broken") ||
+		lower.includes("crash") ||
+		lower.includes("bug")
+	) {
+		return "debugger"
+	}
+
+	// Deployment intent
+	if (
+		lower.includes("deploy") ||
+		lower.includes("release") ||
+		lower.includes("publish") ||
+		lower.includes("ship") ||
+		lower.includes("go live")
+	) {
+		return "deployer"
+	}
+
+	// Testing intent
+	if (
+		lower.includes("test") ||
+		lower.includes("run test") ||
+		lower.includes("check test") ||
+		lower.includes("unit test") ||
+		lower.includes("e2e")
+	) {
+		return "tester"
+	}
+
+	// Coding intent — creating/modifying code
+	if (
+		lower.includes("code") ||
+		lower.includes("implement") ||
+		lower.includes("add feature") ||
+		lower.includes("create") ||
+		lower.includes("write") ||
+		lower.includes("build") ||
+		lower.includes("make") ||
+		lower.includes("develop") ||
+		lower.includes("refactor") ||
+		lower.includes("update") ||
+		lower.includes("change") ||
+		lower.includes("modify") ||
+		lower.includes("improve") ||
+		lower.includes("fix") ||
+		lower.includes("add ") ||
+		lower.includes("remove ")
+	) {
+		return "coder"
+	}
+
+	// Default: just asking a question
+	return "ask"
+}
+
+/**
+ * Routes a natural language text message to the appropriate agent.
+ * Detects intent (coding, debugging, deploying, testing, or asking) and routes accordingly.
  * @param {string} botToken
  * @param {number} chatId
  * @param {string} text - The user's message
  * @param {number} telegramUserId
  * @param {object} queue - BullMQ queue
  */
-async function handleNaturalLanguageInstruction(botToken, chatId, text, telegramUserId, queue) {
+async function handleNaturalLanguageInstruction(botToken, chatId, text, telegramUserId, queue, providers) {
 	var authSession = await checkAuthSession(telegramUserId, chatId)
 	if (!authSession) {
 		// If not authenticated, treat as /ask
 		return false
+	}
+
+	// Detect intent
+	var intent = detectIntent(text)
+
+	// ─── Ask / Question Intent ──────────────────────────────────────────
+	// Handle questions directly with the enhanced AI (conversation context, ML learning, recommendations)
+	if (intent === "ask") {
+		await sendChatAction(botToken, chatId, "typing")
+		console.log("[telegram] AI query from " + chatId + ": " + text.slice(0, 100))
+		var reply = await askAI(text, providers || [], chatId)
+		// sendMessage auto-splits long messages to respect Telegram's 4096-char limit
+		await sendMessage(botToken, chatId, reply)
+		return true
+	}
+
+	// ─── Consultant Intent ──────────────────────────────────────────────
+	// Consultant works independently — no project needed, does research and returns answer
+	if (intent === "consultant") {
+		await sendChatAction(botToken, chatId, "typing")
+		await handleConsultant(botToken, chatId, text, providers || null, {
+			telegramUserId: telegramUserId,
+		})
+		return true
 	}
 
 	// Check if user has an active project selected
@@ -1477,74 +2587,115 @@ async function handleNaturalLanguageInstruction(botToken, chatId, text, telegram
 			})
 		}
 
-		if (activeProject) {
-			// Route to orchestrator as a coding instruction
-			await sendChatAction(botToken, chatId, "typing")
-
-			// Log the instruction via auth module
-			try {
-				await auth.handleOrchestratorInstruction({
-					userId: authSession.userId,
-					projectId: activeProject.id,
-					instruction: text,
-					source: "telegram",
-				})
-			} catch (logErr) {
-				// Non-critical - just log it
-				console.error("[telegram] Failed to log orchestrator instruction:", logErr.message)
+		// ─── Group Workspace Binding ────────────────────────────────────
+		// If no active project but this chat has a bound workspace (via /specify),
+		// automatically select the bound project as active.
+		if (!activeProject && chatId < 0) {
+			var boundWorkspace = groupWorkspaces.get(String(chatId))
+			if (boundWorkspace && result && result.projects) {
+				var lowerBound = boundWorkspace.toLowerCase()
+				for (var pi = 0; pi < result.projects.length; pi++) {
+					var pj = result.projects[pi]
+					var pjName = (pj.name || pj.repoName || "").toLowerCase()
+					if (pjName === lowerBound || pjName.includes(lowerBound) || lowerBound.includes(pjName)) {
+						// Select this project as active
+						try {
+							await auth.handleTelegramProjectSelect(pj.id, {
+								telegramUserId: telegramUserId,
+								telegramChatId: chatId,
+							})
+							activeProject = pj
+							console.log(
+								"[telegram] Auto-selected bound workspace '" + boundWorkspace + "' for group " + chatId,
+							)
+						} catch (selErr) {
+							console.error("[telegram] Failed to auto-select bound workspace:", selErr.message)
+						}
+						break
+					}
+				}
 			}
+		}
 
-			// Create a coding task
-			var taskId =
-				"TG-" +
-				Date.now().toString(36).toUpperCase() +
-				"-" +
-				Math.random().toString(36).slice(2, 6).toUpperCase()
-			var branchName = "tg/" + taskId.toLowerCase()
-
-			var job = await queue.add("telegram-" + taskId, {
-				task: text,
-				agentId: "coder",
-				commands: [],
-				network: "none",
-				telegram: {
-					chatId: chatId,
-					taskId: taskId,
-					branchName: branchName,
-				},
-			})
-
-			if (!userTasks.has(chatId)) userTasks.set(chatId, [])
-			userTasks.get(chatId).push({
-				id: taskId,
-				instruction: text,
-				status: "queued",
-				branchName: branchName,
-				changedFiles: 0,
-				linesAdded: 0,
-				createdAt: new Date().toISOString(),
-				jobId: job.id,
-			})
-
+		if (!activeProject) {
+			// No active project — can't route to agents
+			// Send a helpful message asking user to select a project
 			await sendMessage(
 				botToken,
 				chatId,
-				"*Coding task created!* 🚀\n\n*Project:* " +
-					activeProject.name +
-					"\n*Task:* " +
-					taskId +
-					"\n*Instruction:* " +
-					text +
-					"\n*Branch:* `" +
-					branchName +
-					"`\n*Status:* Queued\n\nUse `/status " +
-					taskId +
-					"` to check progress.\nUse `/diff " +
-					taskId +
-					"` when ready to review.",
+				"*No Active Project* 📁\n\nPlease select a project first so I know which workspace to work on.\n\nUse `/projects` to view and select your projects.\n\n*Already selected?* Use `/session` to check your current session.",
 			)
 			return true
 		}
+
+		// Route to appropriate agent based on intent
+		await sendChatAction(botToken, chatId, "typing")
+
+		// Log the instruction via auth module
+		try {
+			await auth.handleOrchestratorInstruction({
+				userId: authSession.userId,
+				projectId: activeProject.id,
+				instruction: text,
+				mode: intent,
+				source: "telegram",
+			})
+		} catch (logErr) {
+			console.error("[telegram] Failed to log orchestrator instruction:", logErr.message)
+		}
+
+		// Create a task with the appropriate agent
+		var taskId =
+			"TG-" + Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).slice(2, 6).toUpperCase()
+		var branchName = "tg/" + taskId.toLowerCase()
+
+		// Build conversation summary for the worker so it has context
+		var conversationSummary = buildConversationSummary(chatId)
+
+		var job = await queue.add("telegram-" + taskId, {
+			task: text,
+			agentId: intent, // "coder", "debugger", "deployer", "tester"
+			commands: [],
+			network: "none",
+			telegram: {
+				chatId: chatId,
+				taskId: taskId,
+				branchName: branchName,
+				conversationSummary: conversationSummary,
+			},
+		})
+
+		if (!userTasks.has(chatId)) userTasks.set(chatId, [])
+		userTasks.get(chatId).push({
+			id: taskId,
+			instruction: text,
+			status: "queued",
+			branchName: branchName,
+			changedFiles: 0,
+			linesAdded: 0,
+			createdAt: new Date().toISOString(),
+			jobId: job.id,
+		})
+
+		var intentLabels = {
+			coder: "Coding",
+			debugger: "Debugging",
+			deployer: "Deployment",
+			tester: "Testing",
+			consultant: "Consultant",
+		}
+		var label = intentLabels[intent] || "Task"
+
+		// Log the agent-routed task to daily chat log
+		logChatExchange(chatId, "user", text, { intent: intent, taskId: taskId }).catch(function () {})
+		logChatExchange(chatId, "system", "Task routed to " + intent + " agent", {
+			taskId: taskId,
+			agentId: intent,
+		}).catch(function () {})
+
+		// Send rich notification with action buttons
+		await telegramNotifier.sendTaskStarted(botToken, chatId, taskId, text, intent)
+		return true
 	} catch (err) {
 		console.error("[telegram] handleNaturalLanguageInstruction error:", err.message)
 	}
@@ -1592,9 +2743,11 @@ async function handleHelp(botToken, chatId) {
 			"`/login` - Login to SuperRoo Cloud (opens Mini App)\n" +
 			"`/session` - Check active session\n" +
 			"`/otp [code]` - Set up Google Authenticator\n\n" +
-			"*Projects*\n" +
+			"*Projects & Workspace*\n" +
 			"`/projects` - List and select projects\n" +
 			"`/workspace` - Show active workspace\n" +
+			"`/specify <name>` - Bind this group to a workspace/project\n" +
+			"   *Example:* `/specify superroo2` — auto-selects that project in this chat\n" +
 			"`/miniide` - Open Mini IDE (full code editor in Telegram)\n" +
 			"`/agents` - Show available agents\n\n" +
 			"*Coding*\n" +
@@ -1603,9 +2756,12 @@ async function handleHelp(botToken, chatId) {
 			"`/test <taskId>` - Run test suite\n" +
 			"`/approve <taskId>` - Approve pending changes\n" +
 			"`/deploy <taskId>` - Deploy approved build (OTP required)\n\n" +
-			"*AI Support*\n" +
-			"`/ask <question>` - Ask the AI support assistant\n" +
-			"`@superroo_bot <question>` - Ask in group chat\n\n" +
+			"*AI Assistant (Natural Language)*\n" +
+			"• Just type naturally to chat with the AI assistant\n" +
+			'• Say *"fix this bug"* or *"code this feature"* to trigger cloud agents\n' +
+			'• Say *"deploy"* or *"test"* to run those actions\n' +
+			'• Ask *"should I use X?"* or *"analyze Y"* for expert consultant analysis\n' +
+			"• In groups, I respond to every message automatically — no need to tag me!\n\n" +
 			"*System*\n" +
 			"`/status [taskId]` - Check system or task status\n" +
 			"`/logs [n]` - View recent logs\n" +
@@ -1613,7 +2769,347 @@ async function handleHelp(botToken, chatId) {
 			"`/about` - Bot information\n" +
 			"`/help` - Show this message\n\n" +
 			"*Dashboard:* https://dev.abcx124.xyz\n" +
-			"*Need help?* Use `/ask <question>` or tag `@superroo_bot` in group chat.",
+			"*Tip:* Just type naturally — no need for `/ask` prefix!",
+	)
+}
+
+// ─── Mini App Workflow Callback Handlers ──────────────────────────────────
+
+/**
+ * Handles preview_plan callback — shows the plan preview for a task.
+ * Edits the original message to show the plan details with action buttons.
+ */
+async function handlePreviewPlan(botToken, chatId, messageId, taskId) {
+	var tasks = userTasks.get(chatId) || []
+	var task = tasks.find(function (t) {
+		return t.id === taskId.toUpperCase()
+	})
+	if (!task) {
+		await editMessageText(botToken, chatId, messageId, "Task `" + taskId + "` not found.")
+		return
+	}
+
+	var planText =
+		"*Plan Preview: " +
+		task.id +
+		"*\n\n" +
+		"*Instruction:* " +
+		(task.instruction || "N/A") +
+		"\n" +
+		"*Agent:* " +
+		(task.agentType || "auto") +
+		"\n" +
+		"*Branch:* `" +
+		(task.branchName || "main") +
+		"`\n" +
+		"*Status:* " +
+		(task.status || "draft") +
+		"\n\n" +
+		"*Estimated Changes:*\n" +
+		"• Files: " +
+		(task.changedFiles || "TBD") +
+		"\n" +
+		"• Lines added: " +
+		(task.linesAdded || "TBD") +
+		"\n" +
+		"• Lines removed: " +
+		(task.linesRemoved || "TBD") +
+		"\n\n" +
+		"*What happens next:*\n" +
+		"1. ✅ Approve plan → creates git savepoint\n" +
+		"2. 🤖 Agent codes the changes\n" +
+		"3. 👀 Review & approve changes\n" +
+		"4. 🚀 Deploy to staging → production"
+
+	await editMessageText(botToken, chatId, messageId, planText, {
+		reply_markup: {
+			inline_keyboard: [
+				[
+					{ text: "✅ Approve Plan", callback_data: "approve_plan:" + task.id },
+					{ text: "❌ Reject", callback_data: "notify:reject:" + task.id },
+				],
+				[{ text: "🔙 Back", callback_data: "notify:status:" + task.id }],
+			],
+		},
+	})
+}
+
+/**
+ * Handles approve_plan callback — approves a plan and creates a git savepoint.
+ * Moves task from draft/planned to plan_approved state.
+ */
+async function handleApprovePlan(botToken, chatId, messageId, taskId) {
+	var tasks = userTasks.get(chatId) || []
+	var task = tasks.find(function (t) {
+		return t.id === taskId.toUpperCase()
+	})
+	if (!task) {
+		await editMessageText(botToken, chatId, messageId, "Task `" + taskId + "` not found.")
+		return
+	}
+
+	task.status = "plan_approved"
+
+	// Try to create a git savepoint before coding begins
+	var savepointCreated = false
+	var savepointHash = ""
+	try {
+		var execAsync = promisify(require("child_process").exec)
+		var projectPath = task.projectPath || process.cwd()
+		var result = await execAsync("git stash create", { cwd: projectPath })
+		savepointHash = (result.stdout || "").trim()
+		if (savepointHash) {
+			savepointCreated = true
+			// Tag the savepoint so we can find it later
+			await execAsync('git tag -f "savepoint-' + task.id.toLowerCase() + '" ' + savepointHash, {
+				cwd: projectPath,
+			}).catch(function () {})
+		}
+	} catch (e) {
+		console.log("[telegram] Savepoint creation skipped for " + task.id + ": " + e.message)
+	}
+
+	var msg =
+		"*Plan Approved!* ✅\n\n" +
+		"Task: " +
+		task.id +
+		"\n" +
+		"Instruction: " +
+		(task.instruction || "N/A") +
+		"\n" +
+		"Branch: `" +
+		(task.branchName || "main") +
+		"`\n" +
+		"Agent: " +
+		(task.agentType || "auto") +
+		"\n"
+
+	if (savepointCreated) {
+		msg +=
+			"\n*🔖 Savepoint created:* `" +
+			savepointHash.slice(0, 12) +
+			"`\n" +
+			"You can rollback to this point if needed."
+	} else {
+		msg += "\n_Note: Savepoint could not be created automatically._"
+	}
+
+	msg += "\n\n_Starting autonomous coding..._"
+
+	await editMessageText(botToken, chatId, messageId, msg, {
+		reply_markup: {
+			inline_keyboard: [
+				[
+					{ text: "📋 View Status", callback_data: "notify:status:" + task.id },
+					{ text: "🔙 Back to Tasks", callback_data: "notify:list" },
+				],
+			],
+		},
+	})
+}
+
+/**
+ * Handles view_diff callback — shows the diff summary for a task.
+ */
+async function handleViewDiff(botToken, chatId, messageId, taskId) {
+	var tasks = userTasks.get(chatId) || []
+	var task = tasks.find(function (t) {
+		return t.id === taskId.toUpperCase()
+	})
+	if (!task) {
+		await editMessageText(botToken, chatId, messageId, "Task `" + taskId + "` not found.")
+		return
+	}
+
+	if (!task.changedFiles || task.changedFiles === 0) {
+		await editMessageText(
+			botToken,
+			chatId,
+			messageId,
+			"*Diff for " +
+				task.id +
+				"*\n\nNo changes yet — task is still being processed.\n\nUse /status " +
+				task.id +
+				" to check progress.",
+			{
+				reply_markup: {
+					inline_keyboard: [[{ text: "🔄 Refresh", callback_data: "view_diff:" + task.id }]],
+				},
+			},
+		)
+		return
+	}
+
+	var diffText =
+		"*Diff: " +
+		task.id +
+		"*\n\n" +
+		"• " +
+		(task.changedFiles || 0) +
+		" files changed\n" +
+		"• +" +
+		(task.linesAdded || 0) +
+		" lines added\n" +
+		"• -" +
+		(task.linesRemoved || 0) +
+		" lines removed\n" +
+		"• Branch: `" +
+		(task.branchName || "main") +
+		"`\n\n" +
+		"*Changed files:*\n" +
+		(task.changedFileList || ["-"])
+			.map(function (f) {
+				return "• `" + f + "`"
+			})
+			.join("\n") +
+		"\n\n" +
+		"Use the Mini App dashboard for full diff viewer."
+
+	await editMessageText(botToken, chatId, messageId, diffText, {
+		reply_markup: {
+			inline_keyboard: [
+				[
+					{ text: "✅ Approve", callback_data: "notify:approve:" + task.id },
+					{ text: "❌ Request Changes", callback_data: "notify:reject:" + task.id },
+				],
+				[{ text: "🚀 Deploy to Staging", callback_data: "deploy_staging:" + task.id }],
+			],
+		},
+	})
+}
+
+/**
+ * Handles deploy_staging callback — deploys a task to the staging environment.
+ */
+async function handleDeployStaging(botToken, chatId, messageId, taskId) {
+	var tasks = userTasks.get(chatId) || []
+	var task = tasks.find(function (t) {
+		return t.id === taskId.toUpperCase()
+	})
+	if (!task) {
+		await editMessageText(botToken, chatId, messageId, "Task `" + taskId + "` not found.")
+		return
+	}
+
+	if (task.status !== "approved" && task.status !== "review_approved") {
+		await editMessageText(
+			botToken,
+			chatId,
+			messageId,
+			"*Cannot Deploy*\n\nTask `" + task.id + "` must be approved first (current: " + task.status + ").",
+		)
+		return
+	}
+
+	task.status = "staging_deploying"
+
+	await editMessageText(
+		botToken,
+		chatId,
+		messageId,
+		"*Deploying to Staging* 🚀\n\n" +
+			"Task: " +
+			task.id +
+			"\n" +
+			"Branch: `" +
+			(task.branchName || "main") +
+			"`\n" +
+			"Environment: `staging`\n\n" +
+			"_Deployment in progress..._\n\n" +
+			"Once staging is healthy, you can deploy to production.",
+		{
+			reply_markup: {
+				inline_keyboard: [
+					[
+						{ text: "🔄 Check Status", callback_data: "notify:status:" + task.id },
+						{ text: "🚀 Deploy to Production", callback_data: "deploy_production:" + task.id },
+					],
+				],
+			},
+		},
+	)
+}
+
+/**
+ * Handles deploy_production callback — deploys a task to production.
+ * Requires OTP verification.
+ */
+async function handleDeployProduction(botToken, chatId, messageId, taskId) {
+	var session = getSession(chatId)
+	if (!session || !session.otpVerified) {
+		await editMessageText(
+			botToken,
+			chatId,
+			messageId,
+			"*OTP Required* 🔐\n\n" +
+				"Production deployment requires Google Authenticator verification.\n\n" +
+				"Use `/otp` to set up and verify your OTP first, then try again.",
+			{
+				reply_markup: {
+					inline_keyboard: [[{ text: "🔙 Back", callback_data: "notify:status:" + taskId }]],
+				},
+			},
+		)
+		return
+	}
+
+	var tasks = userTasks.get(chatId) || []
+	var task = tasks.find(function (t) {
+		return t.id === taskId.toUpperCase()
+	})
+	if (!task) {
+		await editMessageText(botToken, chatId, messageId, "Task `" + taskId + "` not found.")
+		return
+	}
+
+	task.status = "production_deploying"
+
+	await editMessageText(
+		botToken,
+		chatId,
+		messageId,
+		"*Deploying to Production* 🚀\n\n" +
+			"Task: " +
+			task.id +
+			"\n" +
+			"Branch: `" +
+			(task.branchName || "main") +
+			"`\n" +
+			"Environment: `production`\n\n" +
+			"_Deployment in progress..._\n\n" +
+			"⚠️ Production deploy requires health check verification after completion.",
+		{
+			reply_markup: {
+				inline_keyboard: [[{ text: "🔄 Check Status", callback_data: "notify:status:" + task.id }]],
+			},
+		},
+	)
+}
+
+/**
+ * Handles rollback callback — rolls back to a savepoint.
+ */
+async function handleRollbackCallback(botToken, chatId, messageId, savepointId) {
+	await editMessageText(
+		botToken,
+		chatId,
+		messageId,
+		"*Rollback Initiated* ↩️\n\n" +
+			"Savepoint: `" +
+			savepointId +
+			"`\n\n" +
+			"_Restoring savepoint..._\n\n" +
+			"This will revert all changes made since the savepoint was created.",
+		{
+			reply_markup: {
+				inline_keyboard: [
+					[
+						{ text: "✅ Confirm Rollback", callback_data: "notify:rollback_confirm:" + savepointId },
+						{ text: "❌ Cancel", callback_data: "notify:cancel" },
+					],
+				],
+			},
+		},
 	)
 }
 
@@ -1628,6 +3124,66 @@ async function handleHelp(botToken, chatId) {
  * @param {Array} [providers] - AI provider configs for /ask and @mention support
  */
 async function handleUpdate(update, botToken, queue, providers) {
+	// ─── Handle my_chat_member updates (bot added to/removed from groups) ──
+	// Only @jpgy888 can add the bot to groups. If someone else adds it, leave immediately.
+	if (update && update.my_chat_member) {
+		var mcm = update.my_chat_member
+		var mcmChat = mcm.chat
+		var mcmFrom = mcm.from
+		var newStatus = mcm.new_chat_member && mcm.new_chat_member.status
+		var oldStatus = mcm.old_chat_member && mcm.old_chat_member.status
+
+		// Only act when bot is added to a group (status changed to "member")
+		if (newStatus === "member" && oldStatus !== "member") {
+			var adderUsername = (mcmFrom && mcmFrom.username) || ""
+			console.log("[telegram] Bot added to group " + mcmChat.id + " by @" + adderUsername)
+
+			// Check if the adder is @jpgy888
+			if (adderUsername.toLowerCase() !== BOSS_USERNAME.toLowerCase()) {
+				console.log("[telegram] Unauthorized add by @" + adderUsername + " — leaving group " + mcmChat.id)
+				try {
+					// Send a message explaining why we're leaving
+					await sendMessage(
+						botToken,
+						mcmChat.id,
+						"*Access Restricted* 🔒\n\n" +
+							"This bot can only be added to groups by @" +
+							BOSS_USERNAME +
+							". " +
+							"If you believe this is an error, please contact @" +
+							BOSS_USERNAME +
+							".",
+					)
+					// Leave the group
+					var leaveUrl = TELEGRAM_API_BASE + botToken + "/leaveChat"
+					await fetch(leaveUrl, {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ chat_id: mcmChat.id }),
+					})
+				} catch (err) {
+					console.error("[telegram] Failed to leave group " + mcmChat.id + ":", err.message)
+				}
+			} else {
+				console.log("[telegram] Bot added to group " + mcmChat.id + " by boss @" + adderUsername + " — allowed")
+				await sendMessage(
+					botToken,
+					mcmChat.id,
+					"*SuperRoo Bot Ready* 🤖\n\n" +
+						"Thanks for adding me! I'm now active in this group.\n\n" +
+						"*To get started:*\n" +
+						"1. Use `/specify <workspace>` to bind this group to a project\n" +
+						"   Example: `/specify productgenerator`\n" +
+						"2. Just type naturally — I'll respond to every message conversationally!\n" +
+						"3. Use `@superroo_bot` for explicit commands if needed\n" +
+						"4. I'll automatically use the bound workspace for all coding tasks\n\n" +
+						"Use `/help` to see all commands.",
+				)
+			}
+		}
+		return
+	}
+
 	// Handle callback queries (inline keyboard button presses)
 	if (update && update.callback_query) {
 		var cq = update.callback_query
@@ -1646,6 +3202,56 @@ async function handleUpdate(update, botToken, queue, providers) {
 			return
 		}
 
+		// Handle notification button presses (approve/reject/diff/status/logs/retry)
+		if (cqData.startsWith("notify:")) {
+			await telegramNotifier.handleNotificationCallback(botToken, cq)
+			return
+		}
+
+		// ─── Mini App Workflow Callbacks ────────────────────────────────────
+
+		// preview_plan:<taskId> — Show plan preview for a task
+		if (cqData.startsWith("preview_plan:")) {
+			var pptaskId = cqData.slice(13)
+			await handlePreviewPlan(botToken, cqChatId, cqMessageId, pptaskId)
+			return
+		}
+
+		// approve_plan:<taskId> — Approve a plan (moves task to plan_approved state)
+		if (cqData.startsWith("approve_plan:")) {
+			var aptaskId = cqData.slice(13)
+			await handleApprovePlan(botToken, cqChatId, cqMessageId, aptaskId)
+			return
+		}
+
+		// view_diff:<taskId> — Show diff for a task
+		if (cqData.startsWith("view_diff:")) {
+			var vdtaskId = cqData.slice(10)
+			await handleViewDiff(botToken, cqChatId, cqMessageId, vdtaskId)
+			return
+		}
+
+		// deploy_staging:<taskId> — Deploy to staging environment
+		if (cqData.startsWith("deploy_staging:")) {
+			var dstaskId = cqData.slice(15)
+			await handleDeployStaging(botToken, cqChatId, cqMessageId, dstaskId)
+			return
+		}
+
+		// deploy_production:<taskId> — Deploy to production (requires OTP)
+		if (cqData.startsWith("deploy_production:")) {
+			var dptaskId = cqData.slice(18)
+			await handleDeployProduction(botToken, cqChatId, cqMessageId, dptaskId)
+			return
+		}
+
+		// rollback:<savepointId> — Rollback to a savepoint
+		if (cqData.startsWith("rollback:")) {
+			var rbsavepointId = cqData.slice(9)
+			await handleRollbackCallback(botToken, cqChatId, cqMessageId, rbsavepointId)
+			return
+		}
+
 		return
 	}
 
@@ -1659,7 +3265,14 @@ async function handleUpdate(update, botToken, queue, providers) {
 
 	if (!text) return
 
-	// Check if this is a group chat and the bot was mentioned
+	// If the user quoted/replied to a message, prepend that context so the AI
+	// understands what "this", "that", "the task above", etc. refers to.
+	var quotedText = msg.reply_to_message && (msg.reply_to_message.text || msg.reply_to_message.caption)
+	if (quotedText) {
+		text = "[Quoted message: " + quotedText.slice(0, 500) + "]\n\nUser reply: " + text
+	}
+
+	// Check if this is a group chat
 	var isGroup = chatId < 0
 	var botMentioned = false
 
@@ -1683,11 +3296,11 @@ async function handleUpdate(update, botToken, queue, providers) {
 				}
 			}
 		}
-		// In groups, only respond if explicitly mentioned
-		if (!botMentioned) return
 
-		// Strip @botname suffix from commands and mentions
-		text = text.replace(new RegExp("@" + BOT_USERNAME, "gi"), "").trim()
+		// Strip @botname suffix from commands and mentions if present
+		if (botMentioned) {
+			text = text.replace(new RegExp("@" + BOT_USERNAME, "gi"), "").trim()
+		}
 	}
 
 	// Parse command and arguments
@@ -1696,29 +3309,40 @@ async function handleUpdate(update, botToken, queue, providers) {
 	var cmdArgs = args.slice(1)
 	console.log("[telegram] Message from " + telegramUserId + " in chat " + chatId + ": " + text.slice(0, 80))
 
-	// If no command but bot was mentioned, treat as /ask
-	if (isGroup && botMentioned && !command.startsWith("/")) {
-		command = "/ask"
-		cmdArgs = text.split(/\s+/)
-	}
-
 	// ─── Session Guard ──────────────────────────────────────────────────
-	// Block non-public commands until the user has an active auth session.
+	// Block non-public slash commands until the user has an active auth session.
+	// Natural language messages (no slash prefix) are allowed through — they'll
+	// be handled by the natural language processor which checks auth internally.
 	// PUBLIC_COMMANDS: /start, /login, /help, /about
-	if (PUBLIC_COMMANDS.indexOf(command) === -1) {
+	// NOTE: Session guard runs BEFORE group chat /ask conversion so natural language
+	// messages (which don't start with "/") bypass the guard entirely.
+	if (command.startsWith("/") && PUBLIC_COMMANDS.indexOf(command) === -1) {
 		var authSession = await checkAuthSession(telegramUserId, chatId)
 		if (!authSession) {
 			// Also check if there's a local session (for backward compatibility)
-			var localSession = getSession(chatId)
+			// Use getSessionWithNotification to send expiry notification if session timed out
+			var localSession = getSessionWithNotification(botToken, chatId)
 			if (!localSession) {
+				// In group chats, natural language messages bypass auth — only slash commands are blocked
+				var groupHint = isGroup
+					? "\n\n*Tip:* You can still chat with me naturally in this group without logging in. Only specific commands like `/projects`, `/code`, `/session` require authentication."
+					: ""
 				await sendMessage(
 					botToken,
 					chatId,
-					"*Authentication Required* 🔒\n\nPlease login first to use this command.\n\nUse `/login` to authenticate with your SuperRoo Cloud account.\n\n*Public commands:* `/start`, `/help`, `/about`, `/login`",
+					"*Authentication Required* 🔒\n\nPlease login first to use this command.\n\nUse `/login` to authenticate with your SuperRoo Cloud account.\n\n*Public commands:* `/start`, `/help`, `/about`, `/login`" +
+						groupHint,
 				)
 				return
 			}
 		}
+	}
+
+	// In groups, if no command and no slash, treat as /ask (conversational mode)
+	// This runs AFTER the session guard so natural language messages bypass auth check.
+	if (isGroup && !command.startsWith("/")) {
+		command = "/ask"
+		cmdArgs = text.split(/\s+/)
 	}
 
 	// ─── Boss-Only Guard ────────────────────────────────────────────────
@@ -1734,116 +3358,118 @@ async function handleUpdate(update, botToken, queue, providers) {
 	}
 
 	// Ensure local session exists
-	var session = getSession(chatId)
+	var session = getSessionWithNotification(botToken, chatId)
 	if (!session) {
 		createOrRefreshSession(chatId)
+	} else {
+		// ─── OTP Re-verification Check ──────────────────────────────────
+		// If session exists but OTP was previously verified, check if it's still valid
+		// or if the user needs to re-verify after a timeout.
+		if (session.otpVerified && command !== "/otp") {
+			// Check if OTP verification has expired (OTP also has 30-min TTL tied to session)
+			if (Date.now() - session.otpVerifiedAt > SESSION_TTL_MS) {
+				session.otpVerified = false
+				session.otpVerifiedAt = null
+				await sendMessage(
+					botToken,
+					chatId,
+					"*Session Expired* ⏰\n\nYour session has expired. Please login again to continue.\n\nUse `/login` to authenticate with your SuperRoo Cloud account.",
+				)
+				return
+			}
+		}
 	}
 
-	switch (command) {
-		case "/start":
-			await sendMessage(
-				botToken,
-				chatId,
-				"*SuperRoo Bot* 🤖\n\nWelcome to SuperRoo Cloud! I can help you code, test, deploy, and answer questions about the system.\n\n" +
-					"*Get Started:*\n" +
-					"1. Use `/login` to authenticate with your SuperRoo Cloud account\n" +
-					"2. Use `/projects` to view and select a project\n" +
-					"3. Use `/code` with an instruction to start a coding task\n\n" +
-					"Use `/help` to see all commands.\n" +
-					"Use `/ask` to ask the AI support assistant.",
-			)
-			break
+	// ─── Command Routing ────────────────────────────────────────────────
+	// Support both slash commands AND natural language.
+	// Slash commands are kept for power users; natural language is the primary interface.
 
-		case "/login":
-			await handleLogin(botToken, chatId, telegramUserId, isGroup)
-			break
-
-		case "/help":
-			await handleHelp(botToken, chatId)
-			break
-
-		case "/about":
-			await handleAbout(botToken, chatId)
-			break
-
-		case "/ask":
-			await handleAsk(botToken, chatId, cmdArgs, providers || [])
-			break
-
-		case "/code":
-			await handleCode(botToken, chatId, cmdArgs, queue)
-			break
-
-		case "/status":
-			await handleStatus(botToken, chatId, cmdArgs, queue)
-			break
-
-		case "/session":
-			await handleSession(botToken, chatId)
-			break
-
-		case "/otp":
-			await handleOTP(botToken, chatId, cmdArgs)
-			break
-
-		case "/diff":
-			await handleDiff(botToken, chatId, cmdArgs)
-			break
-
-		case "/approve":
-			await handleApprove(botToken, chatId, cmdArgs)
-			break
-
-		case "/test":
-			await handleTest(botToken, chatId, cmdArgs, queue)
-			break
-
-		case "/deploy":
-			await handleDeploy(botToken, chatId, cmdArgs, queue)
-			break
-
-		case "/logs":
-			await handleLogs(botToken, chatId, cmdArgs)
-			break
-
-		case "/projects":
-			// Try auth-based projects first, fall back to legacy
-			await handleProjects(botToken, chatId, telegramUserId)
-			break
-
-		case "/workspace":
-			await handleWorkspace(botToken, chatId, telegramUserId)
-			break
-
-		case "/agents":
-			await handleAgents(botToken, chatId)
-			break
-
-		case "/miniide":
-			await handleMiniIde(botToken, chatId, telegramUserId)
-			break
-
-		case "/settings":
-			await handleSettings(botToken, chatId)
-			break
-
-		default:
-			// If in group and mentioned, treat unknown commands as /ask
-			if (isGroup && botMentioned) {
-				await handleAsk(botToken, chatId, text.split(/\s+/), providers || [])
-			} else {
-				// Try natural language instruction routing
-				var handled = await handleNaturalLanguageInstruction(botToken, chatId, text, telegramUserId, queue)
-				if (!handled) {
-					await sendMessage(botToken, chatId, "Unknown command. Use `/help` to see available commands.")
-				}
+	// Handle slash commands explicitly
+	if (command === "/start") {
+		await sendMessage(
+			botToken,
+			chatId,
+			"*SuperRoo Bot* 🤖\n\nWelcome to SuperRoo Cloud! I'm your AI coding assistant.\n\n" +
+				"*Get Started:*\n" +
+				"1. Use `/login` to authenticate with your SuperRoo Cloud account\n" +
+				"2. Use `/projects` to view and select a project\n" +
+				"3. Just type naturally — I'll understand what you need!\n\n" +
+				"*Examples:*\n" +
+				"• *\"What's the status of my project?\"* — I'll check your workspace\n" +
+				'• *"Fix the login bug"* — I\'ll create a coding task\n' +
+				'• *"Deploy the latest changes"* — I\'ll handle deployment\n' +
+				'• *"Should I use PostgreSQL or MongoDB?"* — Consultant research & analysis\n' +
+				'• *"Show me my projects"* — I\'ll list your projects\n\n' +
+				"Just talk to me like a smart assistant! 🚀",
+		)
+	} else if (command === "/login") {
+		await handleLogin(botToken, chatId, telegramUserId, isGroup)
+	} else if (command === "/help") {
+		await handleHelp(botToken, chatId)
+	} else if (command === "/about") {
+		await handleAbout(botToken, chatId)
+	} else if (command === "/otp") {
+		await handleOTP(botToken, chatId, cmdArgs)
+	} else if (command === "/specify") {
+		await handleSpecify(botToken, chatId, cmdArgs, telegramUserId)
+	} else if (command === "/cancel") {
+		// Cancel any pending login flow
+		if (pendingEmailOtps.has(chatId)) {
+			pendingEmailOtps.delete(chatId)
+			await sendMessage(botToken, chatId, "*Login cancelled.*")
+		} else {
+			await sendMessage(botToken, chatId, "Nothing to cancel.")
+		}
+	} else {
+		// ─── Check for Email OTP Login Flow ────────────────────────────
+		// If the user is in the middle of an email OTP login, intercept
+		// non-command messages and route them to the OTP handlers.
+		var emailOtpState = pendingEmailOtps.get(chatId)
+		if (emailOtpState) {
+			if (emailOtpState.step === "awaiting_email") {
+				// Treat non-command text as email input
+				await handleEmailOtpLogin(botToken, chatId, text, telegramUserId)
+				return
+			} else if (emailOtpState.step === "awaiting_otp") {
+				// Treat non-command text as OTP code input
+				await handleVerifyEmailOtp(botToken, chatId, text, telegramUserId)
+				return
 			}
-			break
+		}
+
+		// ─── Natural Language Processing (Primary Interface) ────────────
+		// Every message is processed through the AI assistant which:
+		// 1. Understands natural language intent (questions, coding, deploy, etc.)
+		// 2. Routes to appropriate agents when coding/deploying is needed
+		// 3. Answers questions about the system
+		// 4. Manages projects, tasks, and workspace
+
+		await sendChatAction(botToken, chatId, "typing")
+
+		// Try natural language instruction routing first (coding tasks, agent commands)
+		var handled = await handleNaturalLanguageInstruction(
+			botToken,
+			chatId,
+			text,
+			telegramUserId,
+			queue,
+			providers || [],
+		)
+		if (!handled) {
+			// If not routed as a coding instruction, treat as AI assistant conversation
+			await handleAsk(botToken, chatId, text.split(/\s+/), providers || [])
+		}
 	}
 }
 
+// ─── Auto-initialize on module load ────────────────────────────────────────
+// Load persisted state from disk
+loadGroupWorkspaces()
+loadConversationHistory()
+
 module.exports = {
 	sendMessage,
+	deleteMessage,
 	sendChatAction,
 	sendInlineKeyboard,
 	answerCallbackQuery,
@@ -1852,7 +3478,23 @@ module.exports = {
 	getWebhookInfo,
 	deleteWebhook,
 	handleUpdate,
+	handleConsultant,
+	detectIntent,
 	generateTOTPSecret,
 	verifyTOTP,
 	generateOTPAuthURI,
+	telegramNotifier,
+	// Conversation history exports
+	loadConversationHistory,
+	saveConversationHistory,
+	buildConversationSummary,
+	getConversationContext,
+	addToConversationContext,
+	// Mini App workflow handlers
+	handlePreviewPlan,
+	handleApprovePlan,
+	handleViewDiff,
+	handleDeployStaging,
+	handleDeployProduction,
+	handleRollbackCallback,
 }

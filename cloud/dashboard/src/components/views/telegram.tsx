@@ -24,11 +24,33 @@ import {
 	AlertTriangle,
 	Rocket,
 	Settings,
+	Layers,
+	Undo2,
+	ExternalLink,
+	Flag,
+	GitCommit,
+	GitPullRequest,
+	GitMerge,
+	RefreshCw,
 } from "lucide-react"
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+/** Full workflow state machine matching the kit's ARCHITECTURE.md */
 type CodingTaskStatus =
+	| "draft"
+	| "planned"
+	| "plan_approved"
+	| "savepoint_created"
+	| "coding"
+	| "tests_running"
+	| "review"
+	| "review_approved"
+	| "staging_deployed"
+	| "production_pending_otp"
+	| "production_deployed"
+	| "verified"
+	| "closed"
 	| "queued"
 	| "running"
 	| "waiting_approval"
@@ -45,7 +67,13 @@ interface CodingTask {
 	branchName: string
 	changedFiles: number
 	linesAdded: number
+	linesRemoved: number
+	changedFileList: string[]
+	agentType: string
+	projectPath: string
 	createdAt: string
+	savepointHash?: string
+	environment?: "staging" | "production"
 }
 
 interface CommandPermission {
@@ -68,53 +96,126 @@ interface ActivityItem {
 	time: string
 }
 
+interface Savepoint {
+	id: string
+	taskId: string
+	hash: string
+	branch: string
+	createdAt: string
+	description: string
+}
+
+// ─── Workflow Pipeline Stages ────────────────────────────────────────────────
+
+const WORKFLOW_STAGES = [
+	{ key: "draft", label: "Draft", icon: FileText },
+	{ key: "planned", label: "Planned", icon: GitBranch },
+	{ key: "plan_approved", label: "Plan Approved", icon: Check },
+	{ key: "savepoint_created", label: "Savepoint", icon: Flag },
+	{ key: "coding", label: "Coding", icon: Code },
+	{ key: "tests_running", label: "Testing", icon: Play },
+	{ key: "review", label: "Review", icon: GitPullRequest },
+	{ key: "review_approved", label: "Approved", icon: GitMerge },
+	{ key: "staging_deployed", label: "Staging", icon: Layers },
+	{ key: "production_deployed", label: "Production", icon: Rocket },
+	{ key: "verified", label: "Verified", icon: Check },
+	{ key: "closed", label: "Closed", icon: X },
+]
+
+/** Map old statuses to new workflow statuses for backward compatibility */
+const LEGACY_STATUS_MAP: Record<string, CodingTaskStatus> = {
+	queued: "draft",
+	running: "coding",
+	waiting_approval: "review",
+	approved: "review_approved",
+	testing: "tests_running",
+	completed: "closed",
+}
+
 // ─── Mock Data ───────────────────────────────────────────────────────────────
 
 const MOCK_TASKS: CodingTask[] = [
 	{
 		id: "TG-221",
 		instruction: "Fix Telegram auth session timeout bug",
-		status: "waiting_approval",
+		status: "review",
 		branchName: "tg/tg-221",
 		changedFiles: 3,
 		linesAdded: 148,
+		linesRemoved: 12,
+		changedFileList: ["src/api/telegramBot.js", "src/api/auth.js", "src/api/session.js"],
+		agentType: "debugger",
+		projectPath: "/home/user/superroo2",
 		createdAt: "2m ago",
 	},
 	{
 		id: "TG-220",
 		instruction: "Add /logs command with pagination",
-		status: "testing",
+		status: "tests_running",
 		branchName: "tg/tg-220",
 		changedFiles: 2,
 		linesAdded: 89,
+		linesRemoved: 0,
+		changedFileList: ["src/api/telegramBot.js", "src/api/telegramNotifier.js"],
+		agentType: "coder",
+		projectPath: "/home/user/superroo2",
 		createdAt: "15m ago",
 	},
 	{
 		id: "TG-219",
 		instruction: "Update deploy gate to require fresh OTP",
-		status: "approved",
+		status: "review_approved",
 		branchName: "tg/tg-219",
 		changedFiles: 1,
 		linesAdded: 24,
+		linesRemoved: 3,
+		changedFileList: ["src/api/deployGate.js"],
+		agentType: "coder",
+		projectPath: "/home/user/superroo2",
 		createdAt: "1h ago",
+		savepointHash: "a1b2c3d4e5f6",
 	},
 	{
 		id: "TG-218",
 		instruction: "Add webhook health check endpoint",
-		status: "completed",
+		status: "production_deployed",
 		branchName: "tg/tg-218",
 		changedFiles: 4,
 		linesAdded: 212,
+		linesRemoved: 15,
+		changedFileList: ["src/api/webhook.js", "src/api/health.js", "src/api/routes.js", "tests/webhook.test.js"],
+		agentType: "coder",
+		projectPath: "/home/user/superroo2",
 		createdAt: "3h ago",
+		savepointHash: "b2c3d4e5f6a7",
+		environment: "production",
 	},
 	{
 		id: "TG-217",
 		instruction: "Implement QR provisioning for Google Authenticator",
-		status: "running",
+		status: "coding",
 		branchName: "tg/tg-217",
 		changedFiles: 5,
 		linesAdded: 367,
+		linesRemoved: 0,
+		changedFileList: ["src/api/otp.js", "src/api/qr.js", "src/api/auth.js", "tests/otp.test.js", "docs/otp.md"],
+		agentType: "coder",
+		projectPath: "/home/user/superroo2",
 		createdAt: "5h ago",
+		savepointHash: "c3d4e5f6a7b8",
+	},
+	{
+		id: "TG-216",
+		instruction: "Add rate limiting to API endpoints",
+		status: "rejected",
+		branchName: "tg/tg-216",
+		changedFiles: 3,
+		linesAdded: 67,
+		linesRemoved: 0,
+		changedFileList: ["src/api/rateLimit.js", "src/api/middleware.js", "tests/rateLimit.test.js"],
+		agentType: "coder",
+		projectPath: "/home/user/superroo2",
+		createdAt: "6h ago",
 	},
 ]
 
@@ -127,6 +228,8 @@ const COMMANDS: CommandPermission[] = [
 	{ cmd: "/logs", desc: "View recent agent logs", mode: "safe", enabled: true },
 	{ cmd: "/session", desc: "Check active session status", mode: "safe", enabled: true },
 	{ cmd: "/status", desc: "Get system status summary", mode: "safe", enabled: true },
+	{ cmd: "/rollback", desc: "Rollback to savepoint", mode: "re-auth", enabled: true },
+	{ cmd: "/miniide", desc: "Open Mini IDE in Telegram", mode: "safe", enabled: true },
 ]
 
 const ACTIVITY: ActivityItem[] = [
@@ -140,6 +243,19 @@ const ACTIVITY: ActivityItem[] = [
 		time: "10m ago",
 	},
 	{ icon: "x", title: "TG-216 rejected", detail: "Branch contained debug console.log statements", time: "25m ago" },
+	{ icon: "flag", title: "Savepoint created", detail: "TG-217 savepoint tagged for rollback", time: "30m ago" },
+	{
+		icon: "layers",
+		title: "TG-218 deployed to staging",
+		detail: "Health check passed · ready for production",
+		time: "1h ago",
+	},
+	{
+		icon: "rocket",
+		title: "TG-218 deployed to production",
+		detail: "OTP verified · deploy successful",
+		time: "30m ago",
+	},
 ]
 
 const ALERT_RULES: AlertRule[] = [
@@ -149,6 +265,27 @@ const ALERT_RULES: AlertRule[] = [
 	{ label: "Task completed", enabled: true, icon: "check" },
 	{ label: "Idle session expired", enabled: true, icon: "clock" },
 	{ label: "New approval request", enabled: true, icon: "shield" },
+	{ label: "Savepoint created", enabled: true, icon: "flag" },
+	{ label: "Rollback executed", enabled: true, icon: "undo" },
+]
+
+const MOCK_SAVEPOINTS: Savepoint[] = [
+	{
+		id: "sp-1",
+		taskId: "TG-217",
+		hash: "c3d4e5f6a7b8",
+		branch: "tg/tg-217",
+		createdAt: "5h ago",
+		description: "Before QR provisioning implementation",
+	},
+	{
+		id: "sp-2",
+		taskId: "TG-219",
+		hash: "a1b2c3d4e5f6",
+		branch: "tg/tg-219",
+		createdAt: "1h ago",
+		description: "Before deploy gate OTP update",
+	},
 ]
 
 // ─── Sub-Components ──────────────────────────────────────────────────────────
@@ -223,7 +360,20 @@ function StatusCard({ label, value, color }: { label: string; value: string; col
 }
 
 function TaskStatusBadge({ status }: { status: CodingTaskStatus }) {
-	const styles: Record<CodingTaskStatus, string> = {
+	const styles: Record<string, string> = {
+		draft: "bg-slate-500/10 text-slate-300 border-slate-500/30",
+		planned: "bg-blue-500/10 text-blue-300 border-blue-500/30",
+		plan_approved: "bg-indigo-500/10 text-indigo-300 border-indigo-500/30",
+		savepoint_created: "bg-violet-500/10 text-violet-300 border-violet-500/30",
+		coding: "bg-cyan-500/10 text-cyan-300 border-cyan-500/30",
+		tests_running: "bg-amber-500/10 text-amber-300 border-amber-500/30",
+		review: "bg-orange-500/10 text-orange-300 border-orange-500/30",
+		review_approved: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30",
+		staging_deployed: "bg-teal-500/10 text-teal-300 border-teal-500/30",
+		production_pending_otp: "bg-rose-500/10 text-rose-300 border-rose-500/30",
+		production_deployed: "bg-green-500/10 text-green-300 border-green-500/30",
+		verified: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30",
+		closed: "bg-slate-500/10 text-slate-300 border-slate-500/30",
 		queued: "bg-slate-500/10 text-slate-300 border-slate-500/30",
 		running: "bg-blue-500/10 text-blue-300 border-blue-500/30",
 		waiting_approval: "bg-amber-500/10 text-amber-300 border-amber-500/30",
@@ -233,7 +383,20 @@ function TaskStatusBadge({ status }: { status: CodingTaskStatus }) {
 		failed: "bg-red-500/10 text-red-300 border-red-500/30",
 		completed: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30",
 	}
-	const labels: Record<CodingTaskStatus, string> = {
+	const labels: Record<string, string> = {
+		draft: "Draft",
+		planned: "Planned",
+		plan_approved: "Plan Approved",
+		savepoint_created: "Savepoint",
+		coding: "Coding",
+		tests_running: "Testing",
+		review: "Review",
+		review_approved: "Approved",
+		staging_deployed: "Staging",
+		production_pending_otp: "OTP Needed",
+		production_deployed: "Production",
+		verified: "Verified",
+		closed: "Closed",
 		queued: "Queued",
 		running: "Running",
 		waiting_approval: "Waiting Approval",
@@ -244,9 +407,51 @@ function TaskStatusBadge({ status }: { status: CodingTaskStatus }) {
 		completed: "Completed",
 	}
 	return (
-		<span className={cn("rounded-full border px-2.5 py-0.5 text-[10px] font-medium", styles[status])}>
-			{labels[status]}
+		<span
+			className={cn("rounded-full border px-2.5 py-0.5 text-[10px] font-medium", styles[status] || styles.draft)}>
+			{labels[status] || status}
 		</span>
+	)
+}
+
+// ─── Workflow Pipeline ────────────────────────────────────────────────────────
+
+function WorkflowPipeline({ status }: { status: CodingTaskStatus }) {
+	const currentIdx = WORKFLOW_STAGES.findIndex((s) => s.key === status)
+	return (
+		<div className="overflow-x-auto">
+			<div className="flex items-center gap-1 min-w-max">
+				{WORKFLOW_STAGES.map((stage, idx) => {
+					const Icon = stage.icon
+					const isCompleted = idx < currentIdx
+					const isCurrent = idx === currentIdx
+					const isPending = idx > currentIdx
+					return (
+						<div key={stage.key} className="flex items-center gap-1">
+							<div
+								className={cn(
+									"flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-medium whitespace-nowrap transition-colors",
+									isCompleted && "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30",
+									isCurrent &&
+										"bg-cyan-500/15 text-cyan-200 border border-cyan-500/40 ring-1 ring-cyan-500/30",
+									isPending && "bg-slate-800/50 text-slate-500 border border-slate-700/50",
+								)}>
+								<Icon size={12} />
+								<span>{stage.label}</span>
+							</div>
+							{idx < WORKFLOW_STAGES.length - 1 && (
+								<div
+									className={cn(
+										"h-px w-3",
+										idx < currentIdx ? "bg-emerald-500/40" : "bg-slate-700/50",
+									)}
+								/>
+							)}
+						</div>
+					)
+				})}
+			</div>
+		</div>
 	)
 }
 
@@ -285,7 +490,7 @@ export function TelegramView() {
 						<StatusCard label="Queue" value={`${MOCK_TASKS.length} tasks`} color="text-white" />
 						<StatusCard
 							label="Approvals"
-							value={`${MOCK_TASKS.filter((t) => t.status === "waiting_approval").length} pending`}
+							value={`${MOCK_TASKS.filter((t) => t.status === "waiting_approval" || t.status === "review").length} pending`}
 							color="text-amber-300"
 						/>
 					</div>
@@ -335,6 +540,51 @@ export function TelegramView() {
 									</button>
 								))}
 							</div>
+						</div>
+					</Card>
+
+					{/* Workflow Pipeline */}
+					<Card className="border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a]">
+						<CardHeader
+							icon={GitBranch}
+							title="Workflow Pipeline"
+							subtitle="Task lifecycle: from draft to production deployment."
+							right={<Pill type="connected">{WORKFLOW_STAGES.length} stages</Pill>}
+						/>
+						<div className="p-5">
+							<WorkflowPipeline status={selectedTask?.status || "draft"} />
+							{selectedTask && (
+								<div className="mt-4 grid grid-cols-2 gap-3 text-xs">
+									<div className="rounded-lg border border-[#1e2535] bg-[#0a0e1a] p-2">
+										<span className="text-slate-500">Agent</span>
+										<p className="font-semibold text-slate-100 capitalize">
+											{selectedTask.agentType}
+										</p>
+									</div>
+									<div className="rounded-lg border border-[#1e2535] bg-[#0a0e1a] p-2">
+										<span className="text-slate-500">Project</span>
+										<p className="font-semibold text-slate-100 truncate">
+											{selectedTask.projectPath}
+										</p>
+									</div>
+									{selectedTask.savepointHash && (
+										<div className="rounded-lg border border-[#1e2535] bg-[#0a0e1a] p-2">
+											<span className="text-slate-500">Savepoint</span>
+											<p className="font-mono font-semibold text-violet-300">
+												{selectedTask.savepointHash.slice(0, 8)}
+											</p>
+										</div>
+									)}
+									{selectedTask.environment && (
+										<div className="rounded-lg border border-[#1e2535] bg-[#0a0e1a] p-2">
+											<span className="text-slate-500">Environment</span>
+											<p className="font-semibold text-teal-300 capitalize">
+												{selectedTask.environment}
+											</p>
+										</div>
+									)}
+								</div>
+							)}
 						</div>
 					</Card>
 
@@ -396,8 +646,12 @@ export function TelegramView() {
 							right={
 								<Pill type="neutral">
 									{
-										MOCK_TASKS.filter((t) => t.status !== "completed" && t.status !== "rejected")
-											.length
+										MOCK_TASKS.filter(
+											(t) =>
+												t.status !== "completed" &&
+												t.status !== "rejected" &&
+												t.status !== "closed",
+										).length
 									}{" "}
 									active
 								</Pill>
@@ -453,13 +707,51 @@ export function TelegramView() {
 														<p className="font-semibold text-slate-100">{task.createdAt}</p>
 													</div>
 												</div>
-												{task.status === "waiting_approval" && (
+												{task.changedFileList && task.changedFileList.length > 0 && (
+													<div className="mt-3">
+														<p className="mb-1.5 text-[10px] font-medium text-slate-500 uppercase tracking-wider">
+															Changed Files
+														</p>
+														<div className="flex flex-wrap gap-1.5">
+															{task.changedFileList.map((f) => (
+																<span
+																	key={f}
+																	className="rounded-md bg-[#0a0e1a] border border-[#1e2535] px-2 py-0.5 font-mono text-[10px] text-cyan-300/70">
+																	{f.split("/").pop()}
+																</span>
+															))}
+														</div>
+													</div>
+												)}
+												{(task.status === "waiting_approval" || task.status === "review") && (
 													<div className="mt-3 grid grid-cols-2 gap-3">
 														<button className="rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-emerald-400">
 															Approve
 														</button>
 														<button className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-2.5 text-sm font-semibold text-red-300 hover:bg-red-500/20">
 															Reject
+														</button>
+													</div>
+												)}
+												{task.status === "review_approved" && (
+													<div className="mt-3 grid grid-cols-2 gap-3">
+														<button className="rounded-xl bg-teal-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-teal-400">
+															Deploy to Staging
+														</button>
+														<button className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-2.5 text-sm font-semibold text-rose-300 hover:bg-rose-500/20">
+															Deploy Production
+														</button>
+													</div>
+												)}
+												{task.savepointHash && (
+													<div className="mt-3">
+														<button className="w-full rounded-xl border border-violet-500/30 bg-violet-500/10 px-4 py-2.5 text-sm font-semibold text-violet-300 hover:bg-violet-500/20">
+															<Undo2
+																size={14}
+																className="
+inline mr-1"
+															/>
+															Rollback to Savepoint
 														</button>
 													</div>
 												)}
@@ -487,6 +779,9 @@ export function TelegramView() {
 									play: Play,
 									check: Check,
 									x: X,
+									flag: Flag,
+									layers: Layers,
+									rocket: Rocket,
 								}
 								const Icon = iconMap[item.icon] || Activity
 								return (
@@ -512,6 +807,37 @@ export function TelegramView() {
 
 				{/* Right Column */}
 				<div className="space-y-6">
+					{/* Savepoints */}
+					<Card className="border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a]">
+						<CardHeader
+							icon={Flag}
+							title="Savepoints"
+							subtitle="Git-based rollback points created before autonomous coding."
+							right={<Pill type="connected">{MOCK_SAVEPOINTS.length} saved</Pill>}
+						/>
+						<div className="space-y-3 p-5">
+							{MOCK_SAVEPOINTS.map((sp) => (
+								<div key={sp.id} className="rounded-2xl border border-[#1e2535] bg-[#0f1117]/60 p-4">
+									<div className="flex items-center justify-between">
+										<div>
+											<p className="text-sm font-medium text-slate-100">{sp.taskId}</p>
+											<p className="mt-0.5 text-xs text-slate-500">{sp.description}</p>
+										</div>
+										<button className="rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-1.5 text-[10px] font-medium text-violet-300 hover:bg-violet-500/20">
+											<Undo2 size={12} className="inline mr-1" />
+											Rollback
+										</button>
+									</div>
+									<div className="mt-2 flex items-center gap-3 text-[10px] text-slate-600">
+										<span className="font-mono">{sp.hash.slice(0, 8)}</span>
+										<span>{sp.branch}</span>
+										<span>{sp.createdAt}</span>
+									</div>
+								</div>
+							))}
+						</div>
+					</Card>
+
 					{/* OTP Security */}
 					<Card className="border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a]">
 						<CardHeader
@@ -596,6 +922,8 @@ export function TelegramView() {
 									check: Check,
 									clock: Clock,
 									shield: ShieldCheck,
+									flag: Flag,
+									undo: Undo2,
 								}
 								const Icon = iconMap[rule.icon] || Bell
 								return (
