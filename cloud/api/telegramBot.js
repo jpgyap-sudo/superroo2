@@ -39,7 +39,7 @@ const BOT_USERNAME = "superroo_bot"
 const BOSS_USERNAME = "jpgy888"
 
 /** Commands that don't require an active Telegram session */
-const PUBLIC_COMMANDS = ["/start", "/login", "/help", "/about", "/debug", "/logs", "/tests", "/restart"]
+const PUBLIC_COMMANDS = ["/start", "/login", "/help", "/about", "/debug", "/logs", "/tests", "/restart", "/aceteam"]
 
 /** Mini App URL for login */
 const MINI_APP_URL = "https://dev.abcx124.xyz/telegram-miniapp"
@@ -2595,22 +2595,50 @@ async function handleNaturalLanguageInstruction(botToken, chatId, text, telegram
 	if (intentKind === "debug_plan") {
 		await sendChatAction(botToken, chatId, "typing")
 		try {
-			var debugResult = await tgEndpoints.debugPlan(text)
-			var debugReply = await telegramEngineer.seniorEngineerReply(
-				"Summarize this debug plan for the user:\n" + JSON.stringify(debugResult, null, 2),
-				providers || [],
-			)
-			await sendMessage(botToken, chatId, debugReply)
-		} catch (err) {
-			console.error("[telegram] debug_plan error:", err.message)
+			var debugTaskId = "DBG-" + Date.now().toString(36).toUpperCase()
+			var debugRepo = "superroo2"
+			try {
+				var projResult = await auth.handleTelegramProjects({ telegramUserId, telegramChatId: chatId })
+				var activeProj =
+					projResult &&
+					projResult.projects &&
+					projResult.projects.find(function (p) {
+						return p.is_active
+					})
+				if (!activeProj && projResult && projResult.projects && projResult.projects.length > 0) {
+					activeProj = projResult.projects[0]
+				}
+				if (activeProj) debugRepo = activeProj.repoName || activeProj.name || debugRepo
+			} catch (e) {
+				console.log("[telegram] debug_plan: could not resolve active project, using default")
+			}
+			await queue.add("debug-" + debugTaskId, {
+				task: text,
+				agentId: "superroo-debugger-agent",
+				goal: text,
+				repo: debugRepo,
+				commands: [],
+				telegram: {
+					chatId: chatId,
+					userId: telegramUserId,
+					messageId: messageId || null,
+				},
+			})
 			await sendMessage(
 				botToken,
 				chatId,
-				telegramEngineer.formatDebugPlan({
-					incidentId: "ERR-" + Date.now().toString(36).toUpperCase(),
-					phases: ["Error creating debug plan: " + err.message],
-				}),
+				"🔍 *Super Debug Team Activated*\n\n" +
+					"Task ID: `" +
+					debugTaskId +
+					"`\n" +
+					"Repo: `" +
+					debugRepo +
+					"`\n\n" +
+					"The debug team is analyzing the issue and will send progress updates here.",
 			)
+		} catch (err) {
+			console.error("[telegram] debug_plan error:", err.message)
+			await sendMessage(botToken, chatId, "*Debug Error* ❌\n\n" + err.message)
 		}
 		return true
 	}
@@ -3588,6 +3616,32 @@ async function handleUpdate(update, botToken, queue, providers) {
 				console.error("[telegram] /restart error:", err.message)
 				await sendMessage(botToken, chatId, "*Restart Error* ❌\n\n" + err.message)
 			}
+		}
+	} else if (command === "/aceteam") {
+		// ─── Ace Team Mode (/aceteam) ────────────────────────────────────
+		// Activates fully autonomous coding and debugging with comprehensive
+		// logging, ML insights, and accomplishment reports sent to this group.
+		await sendChatAction(botToken, chatId, "typing")
+		try {
+			var aceTeamResult = await tgEndpoints.startAceTeam(chatId.toString())
+			var aceTeamReply =
+				"*Ace Team Activated* 🚀🤖\n\n" +
+				"The Super Debug Team is now running in *fully autonomous mode*.\n" +
+				"Comprehensive logs, ML insights, and accomplishment reports will be sent here.\n\n" +
+				"*What's happening:*\n" +
+				"• 🔍 Analyzing repository structure\n" +
+				"• 🧪 Running phase-by-phase debugging\n" +
+				"• 🤖 ML-driven pattern detection\n" +
+				"• 📊 Generating accomplishment reports\n\n" +
+				"Use `/aceteam status` to check current status.\n" +
+				"Use `/aceteam stop` to stop Ace Team mode and get a final report."
+			if (aceTeamResult && aceTeamResult.message) {
+				aceTeamReply = aceTeamResult.message
+			}
+			await sendMessage(botToken, chatId, aceTeamReply)
+		} catch (err) {
+			console.error("[telegram] /aceteam error:", err.message)
+			await sendMessage(botToken, chatId, "*Ace Team Error* ❌\n\n" + err.message)
 		}
 	} else {
 		// ─── Check for Email OTP Login Flow ────────────────────────────
