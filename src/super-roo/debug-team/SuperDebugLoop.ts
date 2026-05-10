@@ -396,7 +396,14 @@ export class SuperDebugLoop {
 
 		// Initialize ML loop if enabled
 		if (this.config.enableML) {
-			this.mlLoop = new InfiniteImprovementLoop(orchestrator, {})
+			this.mlLoop = new InfiniteImprovementLoop(orchestrator, {
+				minSamples: 3,
+				maxIterations: 100,
+				idleSleepMs: 60_000,
+				trainEpochs: 10,
+				confidenceThreshold: 0.7,
+				maxActionsPerIteration: 5,
+			})
 		}
 	}
 
