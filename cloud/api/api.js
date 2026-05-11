@@ -4,6 +4,9 @@
  * Minimal HTTP API that enqueues jobs into the BullMQ queue.
  * The worker picks them up and runs them inside the Docker sandbox.
  * Adds agent runtime routes and Telegram bot webhook handler.
+ *
+ * Integrated with the Cloud Orchestrator for SQLite-backed task lifecycle,
+ * event logging, safety management, self-healing, and ML-driven improvement.
  */
 
 const http = require("http")
@@ -15,6 +18,11 @@ const { promisify } = require("util")
 const fs = require("fs").promises
 const fsSync = require("fs")
 const path = require("path")
+
+// ── Cloud Orchestrator ────────────────────────────────────────────────────────
+
+const { CloudOrchestrator, SafetyMode } = require("../orchestrator")
+const TelegramOrchestratorBridge = require("../orchestrator/TelegramOrchestratorBridge")
 
 // ── Auth & Telegram Bot ───────────────────────────────────────────────────────
 
@@ -282,12 +290,48 @@ const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379"
 const QUEUE_NAME = process.env.SUPERROO_QUEUE_NAME || "superroo-jobs"
 const LOGS_DIR = process.env.LOGS_DIR || "/opt/superroo2/cloud/logs"
 const SETTINGS_DIR = process.env.SETTINGS_DIR || "/opt/superroo2/cloud/data/settings"
+const ORCHESTRATOR_DB_PATH =
+	process.env.ORCHESTRATOR_DB_PATH || path.join(__dirname, "..", "orchestrator", "data", "orchestrator.db")
 
 const connection = new IORedis(REDIS_URL, {
 	maxRetriesPerRequest: null,
 })
 
 const queue = new Queue(QUEUE_NAME, { connection })
+
+// ── Cloud Orchestrator Initialization ──────────────────────────────────────────
+
+/** @type {CloudOrchestrator|null} */
+let orchestrator = null
+/** @type {TelegramOrchestratorBridge|null} */
+let tgOrchestratorBridge = null
+
+async function initOrchestrator() {
+	try {
+		orchestrator = new CloudOrchestrator({
+			dbPath: ORCHESTRATOR_DB_PATH,
+			bullQueue: queue,
+			mode: process.env.ORCHESTRATOR_MODE || SafetyMode.SAFE,
+			selfImproveEnabled: process.env.ORCHESTRATOR_SELF_IMPROVE === "true",
+			loopIntervalMs: parseInt(process.env.ORCHESTRATOR_LOOP_INTERVAL || "5000", 10),
+		})
+
+		await orchestrator.start()
+		tgOrchestratorBridge = new TelegramOrchestratorBridge(orchestrator)
+
+		console.log(
+			`[orchestrator] Cloud Orchestrator initialized | mode=${orchestrator.mode} | db=${ORCHESTRATOR_DB_PATH}`,
+		)
+		writeApiLog("info", "cloud-orchestrator", "Cloud Orchestrator initialized", {
+			mode: orchestrator.mode,
+			dbPath: ORCHESTRATOR_DB_PATH,
+		})
+	} catch (err) {
+		console.error("[orchestrator] Failed to initialize Cloud Orchestrator:", err.message)
+		writeApiLog("error", "cloud-orchestrator", `Failed to initialize: ${err.message}`, { error: err.message })
+		// Non-fatal — API continues without orchestrator
+	}
+}
 
 function parseBody(req) {
 	return new Promise((resolve, reject) => {
@@ -960,7 +1004,20 @@ const server = http.createServer(async (req, res) => {
 	try {
 		// Health
 		if (method === "GET" && (url === "/health" || normalizedUrl === "/health")) {
-			sendJson(res, 200, { status: "online", redis: true, worker: true })
+			const healthPayload = { status: "online", redis: true, worker: true }
+			if (orchestrator) {
+				const status = orchestrator.getStatus()
+				healthPayload.orchestrator = {
+					running: status.running,
+					mode: status.mode,
+					uptime: status.uptime,
+					modules: Object.entries(status.modules)
+						.filter(([, loaded]) => loaded)
+						.map(([name]) => name),
+					taskStats: status.taskStats,
+				}
+			}
+			sendJson(res, 200, healthPayload)
 			return
 		}
 
@@ -3283,6 +3340,886 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// ── Cloud Orchestrator API Routes ──────────────────────────────────────────
+
+		// GET /orchestrator/status — get orchestrator status
+		if (method === "GET" && (url === "/orchestrator/status" || normalizedUrl === "/orchestrator/status")) {
+			if (!orchestrator) {
+				sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
+				return
+			}
+			sendJson(res, 200, { success: true, data: orchestrator.getStatus() })
+			return
+		}
+
+		// POST /orchestrator/submit — submit a task to the orchestrator
+		if (method === "POST" && (url === "/orchestrator/submit" || normalizedUrl === "/orchestrator/submit")) {
+			if (!orchestrator) {
+				sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
+				return
+			}
+			const data = await parseBody(req)
+			if (!data.type || !data.input) {
+				sendJson(res, 400, { success: false, error: "Missing required fields: type, input" })
+				return
+			}
+			const task = orchestrator.submit(data)
+			sendJson(res, 200, { success: true, task })
+			return
+		}
+
+		// GET /orchestrator/tasks — list tasks
+		if (method === "GET" && (url === "/orchestrator/tasks" || normalizedUrl === "/orchestrator/tasks")) {
+			if (!orchestrator) {
+				sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
+				return
+			}
+			const urlObj = new URL(url, `http://localhost:${PORT}`)
+			const status = urlObj.searchParams.get("status") || undefined
+			const type = urlObj.searchParams.get("type") || undefined
+			const limit = parseInt(urlObj.searchParams.get("limit") || "50", 10)
+			const tasks = orchestrator.taskQueue.list({ status, type, limit })
+			sendJson(res, 200, { success: true, tasks, count: tasks.length })
+			return
+		}
+
+		// GET /orchestrator/tasks/:id — get a specific task
+		if (method === "GET" && url.match(/^\/orchestrator\/tasks\/([^/]+)$/)) {
+			if (!orchestrator) {
+				sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
+				return
+			}
+			const taskId = url.match(/^\/orchestrator\/tasks\/([^/]+)$/)[1]
+			const task = orchestrator.taskQueue.get(taskId)
+			if (!task) {
+				sendJson(res, 404, { success: false, error: "Task not found" })
+				return
+			}
+			sendJson(res, 200, { success: true, task })
+			return
+		}
+
+		// POST /orchestrator/tasks/:id/complete — mark a task as completed
+		if (method === "POST" && url.match(/^\/orchestrator\/tasks\/([^/]+)\/complete$/)) {
+			if (!orchestrator) {
+				sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
+				return
+			}
+			const taskId = url.match(/^\/orchestrator\/tasks\/([^/]+)\/complete$/)[1]
+			const data = await parseBody(req)
+			orchestrator.completeTask(taskId, data.output)
+			sendJson(res, 200, { success: true, taskId })
+			return
+		}
+
+		// POST /orchestrator/tasks/:id/fail — mark a task as failed
+		if (method === "POST" && url.match(/^\/orchestrator\/tasks\/([^/]+)\/fail$/)) {
+			if (!orchestrator) {
+				sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
+				return
+			}
+			const taskId = url.match(/^\/orchestrator\/tasks\/([^/]+)\/fail$/)[1]
+			const data = await parseBody(req)
+			orchestrator.failTask(taskId, data.error || "Unknown error")
+			sendJson(res, 200, { success: true, taskId })
+			return
+		}
+
+		// GET /orchestrator/events — list events
+		if (method === "GET" && (url === "/orchestrator/events" || normalizedUrl === "/orchestrator/events")) {
+			if (!orchestrator) {
+				sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
+				return
+			}
+			const urlObj = new URL(url, `http://localhost:${PORT}`)
+			const type = urlObj.searchParams.get("type") || undefined
+			const source = urlObj.searchParams.get("source") || undefined
+			const severity = urlObj.searchParams.get("severity") || undefined
+			const limit = parseInt(urlObj.searchParams.get("limit") || "50", 10)
+			const events = orchestrator.eventLog.list({ type, source, severity, limit })
+			sendJson(res, 200, { success: true, events, count: events.length })
+			return
+		}
+
+		// POST /orchestrator/mode — set safety mode
+		if (method === "POST" && (url === "/orchestrator/mode" || normalizedUrl === "/orchestrator/mode")) {
+			if (!orchestrator) {
+				sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
+				return
+			}
+			const data = await parseBody(req)
+			if (!data.mode) {
+				sendJson(res, 400, { success: false, error: "Missing required field: mode" })
+				return
+			}
+			try {
+				orchestrator.setMode(data.mode)
+				sendJson(res, 200, { success: true, mode: orchestrator.mode })
+			} catch (err) {
+				sendJson(res, 400, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /orchestrator/tg-bridge/stats — get Telegram bridge stats
+		if (
+			method === "GET" &&
+			(url === "/orchestrator/tg-bridge/stats" || normalizedUrl === "/orchestrator/tg-bridge/stats")
+		) {
+			if (!tgOrchestratorBridge) {
+				sendJson(res, 503, { success: false, error: "Telegram bridge not initialized" })
+				return
+			}
+			sendJson(res, 200, { success: true, data: tgOrchestratorBridge.getStats() })
+			return
+		}
+
+		// ── Orchestrator Module API Routes (Phase 2-6) ────────────────────────────
+
+		// ── Safety Manager ──────────────────────────────────────────────────────
+
+		// GET /orchestrator/safety/mode — get current safety mode
+		if (
+			method === "GET" &&
+			(url === "/orchestrator/safety/mode" || normalizedUrl === "/orchestrator/safety/mode")
+		) {
+			if (!orchestrator || !orchestrator.safetyManager) {
+				sendJson(res, 503, { success: false, error: "SafetyManager not initialized" })
+				return
+			}
+			sendJson(res, 200, { success: true, mode: orchestrator.mode })
+			return
+		}
+
+		// POST /orchestrator/safety/check — check a command/capability against safety rules
+		if (
+			method === "POST" &&
+			(url === "/orchestrator/safety/check" || normalizedUrl === "/orchestrator/safety/check")
+		) {
+			if (!orchestrator || !orchestrator.safetyManager) {
+				sendJson(res, 503, { success: false, error: "SafetyManager not initialized" })
+				return
+			}
+			const data = await parseBody(req)
+			const results = {}
+			if (data.command) results.command = orchestrator.safetyManager.checkCommand(data.command)
+			if (data.capability) results.capability = orchestrator.safetyManager.checkCapability(data.capability)
+			if (data.capabilities)
+				results.capabilities = orchestrator.safetyManager.checkCapabilities(data.capabilities)
+			if (data.sql) results.sql = orchestrator.safetyManager.checkSql(data.sql)
+			if (data.path) results.path = orchestrator.safetyManager.checkPath(data.path)
+			sendJson(res, 200, { success: true, results })
+			return
+		}
+
+		// ── Agent Registry ─────────────────────────────────────────────────────
+
+		// GET /orchestrator/agents — list registered agents
+		if (method === "GET" && (url === "/orchestrator/agents" || normalizedUrl === "/orchestrator/agents")) {
+			if (!orchestrator || !orchestrator.agentRegistry) {
+				sendJson(res, 503, { success: false, error: "AgentRegistry not initialized" })
+				return
+			}
+			const agents = orchestrator.agentRegistry.listAgents()
+			sendJson(res, 200, { success: true, agents })
+			return
+		}
+
+		// GET /orchestrator/agents/:id — get a specific agent
+		if (method === "GET" && url.match(/^\/orchestrator\/agents\/([^/]+)$/)) {
+			if (!orchestrator || !orchestrator.agentRegistry) {
+				sendJson(res, 503, { success: false, error: "AgentRegistry not initialized" })
+				return
+			}
+			const agentId = url.match(/^\/orchestrator\/agents\/([^/]+)$/)[1]
+			const agent = orchestrator.agentRegistry.getAgent(agentId)
+			if (!agent) {
+				sendJson(res, 404, { success: false, error: "Agent not found" })
+				return
+			}
+			sendJson(res, 200, { success: true, agent })
+			return
+		}
+
+		// POST /orchestrator/agents/:id/toggle — enable/disable an agent
+		if (method === "POST" && url.match(/^\/orchestrator\/agents\/([^/]+)\/toggle$/)) {
+			if (!orchestrator || !orchestrator.agentRegistry) {
+				sendJson(res, 503, { success: false, error: "AgentRegistry not initialized" })
+				return
+			}
+			const agentId = url.match(/^\/orchestrator\/agents\/([^/]+)\/toggle$/)[1]
+			const data = await parseBody(req)
+			const result =
+				typeof data.enabled === "boolean"
+					? orchestrator.agentRegistry.setAgentEnabled(agentId, data.enabled)
+					: orchestrator.agentRegistry.toggleAgent(agentId)
+			sendJson(res, 200, { success: true, agent: result })
+			return
+		}
+
+		// ── Feature Registry ───────────────────────────────────────────────────
+
+		// GET /orchestrator/features — list features
+		if (method === "GET" && (url === "/orchestrator/features" || normalizedUrl === "/orchestrator/features")) {
+			if (!orchestrator || !orchestrator.featureRegistry) {
+				sendJson(res, 503, { success: false, error: "FeatureRegistry not initialized" })
+				return
+			}
+			const urlObj = new URL(url, `http://localhost:${PORT}`)
+			const status = urlObj.searchParams.get("status") || undefined
+			const health = urlObj.searchParams.get("health") || undefined
+			const features = orchestrator.featureRegistry.list({ status, health })
+			sendJson(res, 200, { success: true, features, count: features.length })
+			return
+		}
+
+		// POST /orchestrator/features — create a new feature
+		if (method === "POST" && (url === "/orchestrator/features" || normalizedUrl === "/orchestrator/features")) {
+			if (!orchestrator || !orchestrator.featureRegistry) {
+				sendJson(res, 503, { success: false, error: "FeatureRegistry not initialized" })
+				return
+			}
+			const data = await parseBody(req)
+			if (!data.name) {
+				sendJson(res, 400, { success: false, error: "Missing required field: name" })
+				return
+			}
+			const feature = orchestrator.featureRegistry.create(data)
+			sendJson(res, 200, { success: true, feature })
+			return
+		}
+
+		// GET /orchestrator/features/:id — get a specific feature
+		if (method === "GET" && url.match(/^\/orchestrator\/features\/([^/]+)$/)) {
+			if (!orchestrator || !orchestrator.featureRegistry) {
+				sendJson(res, 503, { success: false, error: "FeatureRegistry not initialized" })
+				return
+			}
+			const featureId = url.match(/^\/orchestrator\/features\/([^/]+)$/)[1]
+			const feature = orchestrator.featureRegistry.get(featureId)
+			if (!feature) {
+				sendJson(res, 404, { success: false, error: "Feature not found" })
+				return
+			}
+			sendJson(res, 200, { success: true, feature })
+			return
+		}
+
+		// PUT /orchestrator/features/:id — update a feature
+		if (method === "PUT" && url.match(/^\/orchestrator\/features\/([^/]+)$/)) {
+			if (!orchestrator || !orchestrator.featureRegistry) {
+				sendJson(res, 503, { success: false, error: "FeatureRegistry not initialized" })
+				return
+			}
+			const featureId = url.match(/^\/orchestrator\/features\/([^/]+)$/)[1]
+			const data = await parseBody(req)
+			const feature = orchestrator.featureRegistry.update(featureId, data)
+			sendJson(res, 200, { success: true, feature })
+			return
+		}
+
+		// DELETE /orchestrator/features/:id — delete a feature
+		if (method === "DELETE" && url.match(/^\/orchestrator\/features\/([^/]+)$/)) {
+			if (!orchestrator || !orchestrator.featureRegistry) {
+				sendJson(res, 503, { success: false, error: "FeatureRegistry not initialized" })
+				return
+			}
+			const featureId = url.match(/^\/orchestrator\/features\/([^/]+)$/)[1]
+			const deleted = orchestrator.featureRegistry.delete(featureId)
+			sendJson(res, 200, { success: deleted })
+			return
+		}
+
+		// ── Bug Registry ───────────────────────────────────────────────────────
+
+		// GET /orchestrator/bugs — list bugs
+		if (method === "GET" && (url === "/orchestrator/bugs" || normalizedUrl === "/orchestrator/bugs")) {
+			if (!orchestrator || !orchestrator.bugRegistry) {
+				sendJson(res, 503, { success: false, error: "BugRegistry not initialized" })
+				return
+			}
+			const urlObj = new URL(url, `http://localhost:${PORT}`)
+			const status = urlObj.searchParams.get("status") || undefined
+			const severity = urlObj.searchParams.get("severity") || undefined
+			const featureId = urlObj.searchParams.get("featureId") || undefined
+			const limit = parseInt(urlObj.searchParams.get("limit") || "50", 10)
+			const bugs = orchestrator.bugRegistry.list({ status, severity, featureId, limit })
+			sendJson(res, 200, { success: true, bugs, count: bugs.length })
+			return
+		}
+
+		// POST /orchestrator/bugs — report a new bug
+		if (method === "POST" && (url === "/orchestrator/bugs" || normalizedUrl === "/orchestrator/bugs")) {
+			if (!orchestrator || !orchestrator.bugRegistry) {
+				sendJson(res, 503, { success: false, error: "BugRegistry not initialized" })
+				return
+			}
+			const data = await parseBody(req)
+			if (!data.title || !data.severity) {
+				sendJson(res, 400, { success: false, error: "Missing required fields: title, severity" })
+				return
+			}
+			const bug = orchestrator.bugRegistry.create(data)
+			sendJson(res, 200, { success: true, bug })
+			return
+		}
+
+		// GET /orchestrator/bugs/:id — get a specific bug
+		if (method === "GET" && url.match(/^\/orchestrator\/bugs\/([^/]+)$/)) {
+			if (!orchestrator || !orchestrator.bugRegistry) {
+				sendJson(res, 503, { success: false, error: "BugRegistry not initialized" })
+				return
+			}
+			const bugId = url.match(/^\/orchestrator\/bugs\/([^/]+)$/)[1]
+			const bug = orchestrator.bugRegistry.get(bugId)
+			if (!bug) {
+				sendJson(res, 404, { success: false, error: "Bug not found" })
+				return
+			}
+			sendJson(res, 200, { success: true, bug })
+			return
+		}
+
+		// PUT /orchestrator/bugs/:id — update a bug
+		if (method === "PUT" && url.match(/^\/orchestrator\/bugs\/([^/]+)$/)) {
+			if (!orchestrator || !orchestrator.bugRegistry) {
+				sendJson(res, 503, { success: false, error: "BugRegistry not initialized" })
+				return
+			}
+			const bugId = url.match(/^\/orchestrator\/bugs\/([^/]+)$/)[1]
+			const data = await parseBody(req)
+			const bug = orchestrator.bugRegistry.update(bugId, data)
+			sendJson(res, 200, { success: true, bug })
+			return
+		}
+
+		// POST /orchestrator/bugs/:id/fix — record a fix for a bug
+		if (method === "POST" && url.match(/^\/orchestrator\/bugs\/([^/]+)\/fix$/)) {
+			if (!orchestrator || !orchestrator.bugRegistry) {
+				sendJson(res, 503, { success: false, error: "BugRegistry not initialized" })
+				return
+			}
+			const bugId = url.match(/^\/orchestrator\/bugs\/([^/]+)\/fix$/)[1]
+			const data = await parseBody(req)
+			if (!data.description) {
+				sendJson(res, 400, { success: false, error: "Missing required field: description" })
+				return
+			}
+			const fix = orchestrator.bugRegistry.recordFix({ bugId, ...data })
+			sendJson(res, 200, { success: true, fix })
+			return
+		}
+
+		// GET /orchestrator/bugs/:id/fixes — list fixes for a bug
+		if (method === "GET" && url.match(/^\/orchestrator\/bugs\/([^/]+)\/fixes$/)) {
+			if (!orchestrator || !orchestrator.bugRegistry) {
+				sendJson(res, 503, { success: false, error: "BugRegistry not initialized" })
+				return
+			}
+			const bugId = url.match(/^\/orchestrator\/bugs\/([^/]+)\/fixes$/)[1]
+			const fixes = orchestrator.bugRegistry.listFixes(bugId)
+			sendJson(res, 200, { success: true, fixes })
+			return
+		}
+
+		// ── Commit/Deploy Log ──────────────────────────────────────────────────
+
+		// GET /orchestrator/commits — list commits
+		if (method === "GET" && (url === "/orchestrator/commits" || normalizedUrl === "/orchestrator/commits")) {
+			if (!orchestrator || !orchestrator.commitDeployLog) {
+				sendJson(res, 503, { success: false, error: "CommitDeployLog not initialized" })
+				return
+			}
+			const urlObj = new URL(url, `http://localhost:${PORT}`)
+			const agent = urlObj.searchParams.get("agent") || undefined
+			const type = urlObj.searchParams.get("type") || undefined
+			const limit = parseInt(urlObj.searchParams.get("limit") || "50", 10)
+			const commits = await orchestrator.commitDeployLog.getCommits({ agent, type, limit })
+			sendJson(res, 200, { success: true, commits, count: commits.length })
+			return
+		}
+
+		// POST /orchestrator/commits — record a commit
+		if (method === "POST" && (url === "/orchestrator/commits" || normalizedUrl === "/orchestrator/commits")) {
+			if (!orchestrator || !orchestrator.commitDeployLog) {
+				sendJson(res, 503, { success: false, error: "CommitDeployLog not initialized" })
+				return
+			}
+			const data = await parseBody(req)
+			if (!data.commitSha || !data.agent || !data.type || !data.title) {
+				sendJson(res, 400, { success: false, error: "Missing required fields: commitSha, agent, type, title" })
+				return
+			}
+			const commit = await orchestrator.commitDeployLog.recordCommit(data)
+			sendJson(res, 200, { success: true, commit })
+			return
+		}
+
+		// GET /orchestrator/deploys — list deploys
+		if (method === "GET" && (url === "/orchestrator/deploys" || normalizedUrl === "/orchestrator/deploys")) {
+			if (!orchestrator || !orchestrator.commitDeployLog) {
+				sendJson(res, 503, { success: false, error: "CommitDeployLog not initialized" })
+				return
+			}
+			const urlObj = new URL(url, `http://localhost:${PORT}`)
+			const status = urlObj.searchParams.get("status") || undefined
+			const agent = urlObj.searchParams.get("agent") || undefined
+			const limit = parseInt(urlObj.searchParams.get("limit") || "50", 10)
+			const deploys = await orchestrator.commitDeployLog.getDeploys({ status, agent, limit })
+			sendJson(res, 200, { success: true, deploys, count: deploys.length })
+			return
+		}
+
+		// POST /orchestrator/deploys — record a deploy
+		if (method === "POST" && (url === "/orchestrator/deploys" || normalizedUrl === "/orchestrator/deploys")) {
+			if (!orchestrator || !orchestrator.commitDeployLog) {
+				sendJson(res, 503, { success: false, error: "CommitDeployLog not initialized" })
+				return
+			}
+			const data = await parseBody(req)
+			if (!data.version || !data.commitSha || !data.agent) {
+				sendJson(res, 400, { success: false, error: "Missing required fields: version, commitSha, agent" })
+				return
+			}
+			const deploy = await orchestrator.commitDeployLog.recordDeploy(data)
+			sendJson(res, 200, { success: true, deploy })
+			return
+		}
+
+		// PUT /orchestrator/deploys/:id/status — update deploy status
+		if (method === "PUT" && url.match(/^\/orchestrator\/deploys\/([^/]+)\/status$/)) {
+			if (!orchestrator || !orchestrator.commitDeployLog) {
+				sendJson(res, 503, { success: false, error: "CommitDeployLog not initialized" })
+				return
+			}
+			const deployId = url.match(/^\/orchestrator\/deploys\/([^/]+)\/status$/)[1]
+			const data = await parseBody(req)
+			if (!data.status) {
+				sendJson(res, 400, { success: false, error: "Missing required field: status" })
+				return
+			}
+			const deploy = await orchestrator.commitDeployLog.updateDeployStatus(deployId, data.status)
+			sendJson(res, 200, { success: true, deploy })
+			return
+		}
+
+		// GET /orchestrator/commit-deploy/stats — get combined stats
+		if (
+			method === "GET" &&
+			(url === "/orchestrator/commit-deploy/stats" || normalizedUrl === "/orchestrator/commit-deploy/stats")
+		) {
+			if (!orchestrator || !orchestrator.commitDeployLog) {
+				sendJson(res, 503, { success: false, error: "CommitDeployLog not initialized" })
+				return
+			}
+			const stats = await orchestrator.commitDeployLog.getStats()
+			sendJson(res, 200, { success: true, stats })
+			return
+		}
+
+		// ── Healing System ─────────────────────────────────────────────────────
+
+		// GET /orchestrator/healing/incidents — list healing incidents
+		if (
+			method === "GET" &&
+			(url === "/orchestrator/healing/incidents" || normalizedUrl === "/orchestrator/healing/incidents")
+		) {
+			if (!orchestrator || !orchestrator.healingBus) {
+				sendJson(res, 503, { success: false, error: "HealingBus not initialized" })
+				return
+			}
+			const urlObj = new URL(url, `http://localhost:${PORT}`)
+			const status = urlObj.searchParams.get("status") || undefined
+			const severity = urlObj.searchParams.get("severity") || undefined
+			const source = urlObj.searchParams.get("source") || undefined
+			const limit = parseInt(urlObj.searchParams.get("limit") || "50", 10)
+			const incidents = orchestrator.healingBus.list({ status, severity, source, limit })
+			sendJson(res, 200, { success: true, incidents, count: incidents.length })
+			return
+		}
+
+		// POST /orchestrator/healing/incidents — report a new incident
+		if (
+			method === "POST" &&
+			(url === "/orchestrator/healing/incidents" || normalizedUrl === "/orchestrator/healing/incidents")
+		) {
+			if (!orchestrator || !orchestrator.healingBus) {
+				sendJson(res, 503, { success: false, error: "HealingBus not initialized" })
+				return
+			}
+			const data = await parseBody(req)
+			if (!data.title || !data.severity || !data.source) {
+				sendJson(res, 400, { success: false, error: "Missing required fields: title, severity, source" })
+				return
+			}
+			const incident = await orchestrator.healingBus.reportIncident(data)
+			sendJson(res, 200, { success: true, incident })
+			return
+		}
+
+		// GET /orchestrator/healing/incidents/:id — get a specific incident
+		if (method === "GET" && url.match(/^\/orchestrator\/healing\/incidents\/([^/]+)$/)) {
+			if (!orchestrator || !orchestrator.healingBus) {
+				sendJson(res, 503, { success: false, error: "HealingBus not initialized" })
+				return
+			}
+			const incidentId = url.match(/^\/orchestrator\/healing\/incidents\/([^/]+)$/)[1]
+			const incident = orchestrator.healingBus.get(incidentId)
+			if (!incident) {
+				sendJson(res, 404, { success: false, error: "Incident not found" })
+				return
+			}
+			sendJson(res, 200, { success: true, incident })
+			return
+		}
+
+		// PUT /orchestrator/healing/incidents/:id — update an incident
+		if (method === "PUT" && url.match(/^\/orchestrator\/healing\/incidents\/([^/]+)$/)) {
+			if (!orchestrator || !orchestrator.healingBus) {
+				sendJson(res, 503, { success: false, error: "HealingBus not initialized" })
+				return
+			}
+			const incidentId = url.match(/^\/orchestrator\/healing\/incidents\/([^/]+)$/)[1]
+			const data = await parseBody(req)
+			const incident = orchestrator.healingBus.updateIncident(incidentId, data)
+			sendJson(res, 200, { success: true, incident })
+			return
+		}
+
+		// GET /orchestrator/healing/incidents/:id/actions — get healing actions for an incident
+		if (method === "GET" && url.match(/^\/orchestrator\/healing\/incidents\/([^/]+)\/actions$/)) {
+			if (!orchestrator || !orchestrator.healingBus) {
+				sendJson(res, 503, { success: false, error: "HealingBus not initialized" })
+				return
+			}
+			const incidentId = url.match(/^\/orchestrator\/healing\/incidents\/([^/]+)\/actions$/)[1]
+			const actions = orchestrator.healingBus.getHealingActions(incidentId)
+			sendJson(res, 200, { success: true, actions })
+			return
+		}
+
+		// GET /orchestrator/healing/metrics — get healing metrics
+		if (
+			method === "GET" &&
+			(url === "/orchestrator/healing/metrics" || normalizedUrl === "/orchestrator/healing/metrics")
+		) {
+			if (!orchestrator || !orchestrator.healingBus) {
+				sendJson(res, 503, { success: false, error: "HealingBus not initialized" })
+				return
+			}
+			const metrics = orchestrator.healingBus.getHealingMetrics()
+			sendJson(res, 200, { success: true, metrics })
+			return
+		}
+
+		// GET /orchestrator/healing/stats — get self-healing loop stats
+		if (
+			method === "GET" &&
+			(url === "/orchestrator/healing/stats" || normalizedUrl === "/orchestrator/healing/stats")
+		) {
+			if (!orchestrator || !orchestrator.selfHealingLoop) {
+				sendJson(res, 503, { success: false, error: "SelfHealingLoop not initialized" })
+				return
+			}
+			sendJson(res, 200, { success: true, stats: orchestrator.selfHealingLoop.stats })
+			return
+		}
+
+		// POST /orchestrator/healing/cycle — manually trigger a healing cycle
+		if (
+			method === "POST" &&
+			(url === "/orchestrator/healing/cycle" || normalizedUrl === "/orchestrator/healing/cycle")
+		) {
+			if (!orchestrator || !orchestrator.selfHealingLoop) {
+				sendJson(res, 503, { success: false, error: "SelfHealingLoop not initialized" })
+				return
+			}
+			const result = await orchestrator.selfHealingLoop.runHealingCycle()
+			sendJson(res, 200, { success: true, result })
+			return
+		}
+
+		// ── Crawler Agent ──────────────────────────────────────────────────────
+
+		// GET /orchestrator/crawler/sources — list crawl sources
+		if (
+			method === "GET" &&
+			(url === "/orchestrator/crawler/sources" || normalizedUrl === "/orchestrator/crawler/sources")
+		) {
+			if (!orchestrator || !orchestrator.crawlerAgent) {
+				sendJson(res, 503, { success: false, error: "CrawlerAgent not initialized" })
+				return
+			}
+			sendJson(res, 200, { success: true, sources: orchestrator.crawlerAgent.sources })
+			return
+		}
+
+		// POST /orchestrator/crawler/sources — add a crawl source
+		if (
+			method === "POST" &&
+			(url === "/orchestrator/crawler/sources" || normalizedUrl === "/orchestrator/crawler/sources")
+		) {
+			if (!orchestrator || !orchestrator.crawlerAgent) {
+				sendJson(res, 503, { success: false, error: "CrawlerAgent not initialized" })
+				return
+			}
+			const data = await parseBody(req)
+			if (!data.url || !data.type) {
+				sendJson(res, 400, { success: false, error: "Missing required fields: url, type" })
+				return
+			}
+			orchestrator.crawlerAgent.addSource(data)
+			sendJson(res, 200, { success: true })
+			return
+		}
+
+		// DELETE /orchestrator/crawler/sources/:id — remove a crawl source
+		if (method === "DELETE" && url.match(/^\/orchestrator\/crawler\/sources\/([^/]+)$/)) {
+			if (!orchestrator || !orchestrator.crawlerAgent) {
+				sendJson(res, 503, { success: false, error: "CrawlerAgent not initialized" })
+				return
+			}
+			const sourceId = url.match(/^\/orchestrator\/crawler\/sources\/([^/]+)$/)[1]
+			orchestrator.crawlerAgent.removeSource(sourceId)
+			sendJson(res, 200, { success: true })
+			return
+		}
+
+		// POST /orchestrator/crawler/crawl/:sourceId — manually trigger a crawl
+		if (method === "POST" && url.match(/^\/orchestrator\/crawler\/crawl\/([^/]+)$/)) {
+			if (!orchestrator || !orchestrator.crawlerAgent) {
+				sendJson(res, 503, { success: false, error: "CrawlerAgent not initialized" })
+				return
+			}
+			const sourceId = url.match(/^\/orchestrator\/crawler\/crawl\/([^/]+)$/)[1]
+			const documents = await orchestrator.crawlerAgent.crawl(sourceId)
+			sendJson(res, 200, { success: true, documents, count: documents.length })
+			return
+		}
+
+		// GET /orchestrator/crawler/signals — get crawl signals
+		if (
+			method === "GET" &&
+			(url === "/orchestrator/crawler/signals" || normalizedUrl === "/orchestrator/crawler/signals")
+		) {
+			if (!orchestrator || !orchestrator.crawlerAgent) {
+				sendJson(res, 503, { success: false, error: "CrawlerAgent not initialized" })
+				return
+			}
+			const signals = orchestrator.crawlerAgent.getSignals()
+			sendJson(res, 200, { success: true, signals })
+			return
+		}
+
+		// GET /orchestrator/crawler/stats — get crawler stats
+		if (
+			method === "GET" &&
+			(url === "/orchestrator/crawler/stats" || normalizedUrl === "/orchestrator/crawler/stats")
+		) {
+			if (!orchestrator || !orchestrator.crawlerAgent) {
+				sendJson(res, 503, { success: false, error: "CrawlerAgent not initialized" })
+				return
+			}
+			const stats = orchestrator.crawlerAgent.getStats()
+			sendJson(res, 200, { success: true, stats })
+			return
+		}
+
+		// ── Deploy Orchestrator ────────────────────────────────────────────────
+
+		// GET /orchestrator/deploy-orchestrator/status — get deploy status
+		if (
+			method === "GET" &&
+			(url === "/orchestrator/deploy-orchestrator/status" ||
+				normalizedUrl === "/orchestrator/deploy-orchestrator/status")
+		) {
+			if (!orchestrator || !orchestrator.deployOrchestrator) {
+				sendJson(res, 503, { success: false, error: "DeployOrchestrator not initialized" })
+				return
+			}
+			const current = orchestrator.deployOrchestrator.getCurrent()
+			sendJson(res, 200, { success: true, current })
+			return
+		}
+
+		// POST /orchestrator/deploy-orchestrator/deploy — trigger a deploy
+		if (
+			method === "POST" &&
+			(url === "/orchestrator/deploy-orchestrator/deploy" ||
+				normalizedUrl === "/orchestrator/deploy-orchestrator/deploy")
+		) {
+			if (!orchestrator || !orchestrator.deployOrchestrator) {
+				sendJson(res, 503, { success: false, error: "DeployOrchestrator not initialized" })
+				return
+			}
+			const data = await parseBody(req)
+			if (!data.version || !data.commitSha) {
+				sendJson(res, 400, { success: false, error: "Missing required fields: version, commitSha" })
+				return
+			}
+			const result = await orchestrator.deployOrchestrator.deploy(data.version, data.commitSha)
+			sendJson(res, 200, { success: true, deploy: result })
+			return
+		}
+
+		// POST /orchestrator/deploy-orchestrator/rollback — rollback the last deploy
+		if (
+			method === "POST" &&
+			(url === "/orchestrator/deploy-orchestrator/rollback" ||
+				normalizedUrl === "/orchestrator/deploy-orchestrator/rollback")
+		) {
+			if (!orchestrator || !orchestrator.deployOrchestrator) {
+				sendJson(res, 503, { success: false, error: "DeployOrchestrator not initialized" })
+				return
+			}
+			const result = await orchestrator.deployOrchestrator.rollback()
+			sendJson(res, 200, { success: true, rollback: result })
+			return
+		}
+
+		// GET /orchestrator/deploy-orchestrator/history — get deploy history
+		if (
+			method === "GET" &&
+			(url === "/orchestrator/deploy-orchestrator/history" ||
+				normalizedUrl === "/orchestrator/deploy-orchestrator/history")
+		) {
+			if (!orchestrator || !orchestrator.deployOrchestrator) {
+				sendJson(res, 503, { success: false, error: "DeployOrchestrator not initialized" })
+				return
+			}
+			const history = orchestrator.deployOrchestrator.getHistory()
+			sendJson(res, 200, { success: true, history })
+			return
+		}
+
+		// GET /orchestrator/deploy-orchestrator/stats — get deploy stats
+		if (
+			method === "GET" &&
+			(url === "/orchestrator/deploy-orchestrator/stats" ||
+				normalizedUrl === "/orchestrator/deploy-orchestrator/stats")
+		) {
+			if (!orchestrator || !orchestrator.deployOrchestrator) {
+				sendJson(res, 503, { success: false, error: "DeployOrchestrator not initialized" })
+				return
+			}
+			const stats = orchestrator.deployOrchestrator.getStats()
+			sendJson(res, 200, { success: true, stats })
+			return
+		}
+
+		// ── File Importer ──────────────────────────────────────────────────────
+
+		// POST /orchestrator/file-importer/import — import files by path
+		if (
+			method === "POST" &&
+			(url === "/orchestrator/file-importer/import" || normalizedUrl === "/orchestrator/file-importer/import")
+		) {
+			if (!orchestrator || !orchestrator.fileImporter) {
+				sendJson(res, 503, { success: false, error: "FileImporter not initialized" })
+				return
+			}
+			const data = await parseBody(req)
+			if (!data.paths || !Array.isArray(data.paths)) {
+				sendJson(res, 400, { success: false, error: "Missing required field: paths (array)" })
+				return
+			}
+			const result = await orchestrator.fileImporter.importPaths(data.paths)
+			sendJson(res, 200, { success: true, result })
+			return
+		}
+
+		// GET /orchestrator/file-importer/stats — get file importer stats
+		if (
+			method === "GET" &&
+			(url === "/orchestrator/file-importer/stats" || normalizedUrl === "/orchestrator/file-importer/stats")
+		) {
+			if (!orchestrator || !orchestrator.fileImporter) {
+				sendJson(res, 503, { success: false, error: "FileImporter not initialized" })
+				return
+			}
+			const stats = orchestrator.fileImporter.getStats()
+			sendJson(res, 200, { success: true, stats })
+			return
+		}
+
+		// ── CPU Guard ──────────────────────────────────────────────────────────
+
+		// GET /orchestrator/cpu-guard/stats — get CPU/RAM usage stats
+		if (
+			method === "GET" &&
+			(url === "/orchestrator/cpu-guard/stats" || normalizedUrl === "/orchestrator/cpu-guard/stats")
+		) {
+			if (!orchestrator || !orchestrator.cpuGuard) {
+				sendJson(res, 503, { success: false, error: "CPUGuard not initialized" })
+				return
+			}
+			const cpu = orchestrator.cpuGuard.getCpuUsagePercent ? orchestrator.cpuGuard.getCpuUsagePercent() : null
+			const ram = orchestrator.cpuGuard.getRamUsagePercent ? orchestrator.cpuGuard.getRamUsagePercent() : null
+			sendJson(res, 200, { success: true, cpu, ram })
+			return
+		}
+
+		// ── Parallel Executor ──────────────────────────────────────────────────
+
+		// GET /orchestrator/parallel/stats — get parallel executor stats
+		if (
+			method === "GET" &&
+			(url === "/orchestrator/parallel/stats" || normalizedUrl === "/orchestrator/parallel/stats")
+		) {
+			if (!orchestrator || !orchestrator.parallelExecutor) {
+				sendJson(res, 503, { success: false, error: "ParallelExecutor not initialized" })
+				return
+			}
+			const stats = orchestrator.parallelExecutor.getStats()
+			sendJson(res, 200, { success: true, stats })
+			return
+		}
+
+		// ── Agent Bus ──────────────────────────────────────────────────────────
+
+		// GET /orchestrator/agent-bus/stats — get agent bus stats
+		if (
+			method === "GET" &&
+			(url === "/orchestrator/agent-bus/stats" || normalizedUrl === "/orchestrator/agent-bus/stats")
+		) {
+			if (!orchestrator || !orchestrator.agentBus) {
+				sendJson(res, 503, { success: false, error: "AgentBus not initialized" })
+				return
+			}
+			const stats = orchestrator.agentBus.getStats()
+			sendJson(res, 200, { success: true, stats })
+			return
+		}
+
+		// ── Improvement Loop ───────────────────────────────────────────────────
+
+		// GET /orchestrator/improvement/stats — get improvement loop stats
+		if (
+			method === "GET" &&
+			(url === "/orchestrator/improvement/stats" || normalizedUrl === "/orchestrator/improvement/stats")
+		) {
+			if (!orchestrator || !orchestrator.improvementLoop) {
+				sendJson(res, 503, { success: false, error: "ImprovementLoop not initialized" })
+				return
+			}
+			sendJson(res, 200, { success: true, stats: orchestrator.improvementLoop.stats })
+			return
+		}
+
+		// POST /orchestrator/improvement/cycle — manually trigger an improvement cycle
+		if (
+			method === "POST" &&
+			(url === "/orchestrator/improvement/cycle" || normalizedUrl === "/orchestrator/improvement/cycle")
+		) {
+			if (!orchestrator || !orchestrator.improvementLoop) {
+				sendJson(res, 503, { success: false, error: "ImprovementLoop not initialized" })
+				return
+			}
+			orchestrator.improvementLoop.triggerCycle()
+			sendJson(res, 200, { success: true })
+			return
+		}
+
 		// ── Telegram Mini App API Routes ─────────────────────────────────────────
 
 		// GET /telegram/tasks — list all tasks for Mini App dashboard
@@ -3668,7 +4605,11 @@ const server = http.createServer(async (req, res) => {
 				}
 			}
 			// Process asynchronously — respond 200 immediately to Telegram
-			telegramBot.handleUpdate(update, TELEGRAM_BOT_TOKEN, queue, availableProviders).catch((err) => {
+			// Pass the orchestrator bridge for SQLite-backed task management
+			const handleUpdatePromise = tgOrchestratorBridge
+				? telegramBot.handleUpdate(update, TELEGRAM_BOT_TOKEN, queue, availableProviders, tgOrchestratorBridge)
+				: telegramBot.handleUpdate(update, TELEGRAM_BOT_TOKEN, queue, availableProviders)
+			handleUpdatePromise.catch((err) => {
 				console.error("[api] Telegram update handler error:", err.message)
 			})
 			sendJson(res, 200, { ok: true })
@@ -3993,8 +4934,18 @@ function writeApiLog(level, source, message, metadata) {
 }
 
 // Load persisted encrypted secrets and auth store before accepting requests
-Promise.all([loadEncryptedSecrets(), auth.loadStore()]).then(() => {
+Promise.all([loadEncryptedSecrets(), auth.loadStore()]).then(async () => {
 	loadEnvironmentSecrets()
+
+	// Initialize the Cloud Orchestrator (non-blocking — API starts regardless)
+	initOrchestrator()
+		.then(() => {
+			console.log("[api] Cloud Orchestrator initialization complete")
+		})
+		.catch((err) => {
+			console.error("[api] Cloud Orchestrator initialization failed (non-fatal):", err.message)
+		})
+
 	server.listen(PORT, () => {
 		console.log(`[api] Listening on port ${PORT} | queue=${QUEUE_NAME} | redis=${REDIS_URL}`)
 		// Log API startup to the aggregated log

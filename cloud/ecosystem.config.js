@@ -43,6 +43,11 @@ module.exports = {
 				SMTP_USER: "marketing.homeu1@gmail.com",
 				SMTP_PASS: "ouhx sjib hyoj aayv",
 				SMTP_FROM: "marketing.homeu1@gmail.com",
+				// Cloud Orchestrator
+				ORCHESTRATOR_DB_PATH: "/opt/superroo2/cloud/orchestrator/data/orchestrator.db",
+				ORCHESTRATOR_MODE: "safe",
+				ORCHESTRATOR_SELF_IMPROVE: "false",
+				ORCHESTRATOR_LOOP_INTERVAL: "5000",
 			},
 			log_file: "/opt/superroo2/cloud/logs/api-combined.log",
 			out_file: "/opt/superroo2/cloud/logs/api-out.log",

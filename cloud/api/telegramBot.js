@@ -1416,7 +1416,7 @@ async function handleConsultant(botToken, chatId, question, providers, options) 
 /**
  * Handles /code <instruction> - creates a coding task.
  */
-async function handleCode(botToken, chatId, args, queue) {
+async function handleCode(botToken, chatId, args, queue, orchestratorBridge) {
 	var instruction = args.join(" ")
 	if (!instruction) {
 		await sendMessage(
@@ -1458,6 +1458,22 @@ async function handleCode(botToken, chatId, args, queue) {
 		createdAt: new Date().toISOString(),
 		jobId: job.id,
 	})
+
+	// Also record in Cloud Orchestrator if bridge is available
+	if (orchestratorBridge) {
+		orchestratorBridge
+			.createTask({
+				tgTaskId: taskId,
+				chatId: chatId,
+				instruction: instruction,
+				agentType: "superroo-debugger-agent",
+				branchName: branchName,
+				source: "/code",
+			})
+			.catch(function (err) {
+				console.error("[telegram] Failed to record /code task in orchestrator:", err.message)
+			})
+	}
 
 	// Send rich notification with action buttons
 	await telegramNotifier.sendTaskStarted(botToken, chatId, taskId, instruction, "superroo-debugger-agent")
@@ -1747,7 +1763,7 @@ async function handleTest(botToken, chatId, args, queue) {
  * Handles /deploy [taskId] - deploys an approved task.
  * Requires OTP verification.
  */
-async function handleDeploy(botToken, chatId, args, queue) {
+async function handleDeploy(botToken, chatId, args, queue, orchestratorBridge) {
 	var taskId = args[0]
 	if (!taskId) {
 		await sendMessage(
@@ -1794,6 +1810,22 @@ async function handleDeploy(botToken, chatId, args, queue) {
 	})
 
 	task.status = "deploying"
+
+	// Also record in Cloud Orchestrator if bridge is available
+	if (orchestratorBridge) {
+		orchestratorBridge
+			.createTask({
+				tgTaskId: taskId,
+				chatId: chatId,
+				instruction: "Deploy: " + (task.instruction || ""),
+				agentType: "superroo-deployer-agent",
+				branchName: task.branchName || "main",
+				source: "/deploy",
+			})
+			.catch(function (err) {
+				console.error("[telegram] Failed to record /deploy task in orchestrator:", err.message)
+			})
+	}
 
 	await sendMessage(
 		botToken,
@@ -3688,7 +3720,15 @@ function detectIntent(text) {
  * @param {number} telegramUserId
  * @param {object} queue - BullMQ queue
  */
-async function handleNaturalLanguageInstruction(botToken, chatId, text, telegramUserId, queue, providers) {
+async function handleNaturalLanguageInstruction(
+	botToken,
+	chatId,
+	text,
+	telegramUserId,
+	queue,
+	providers,
+	orchestratorBridge,
+) {
 	try {
 		var authSession = await checkAuthSession(telegramUserId, chatId)
 		if (!authSession) {
@@ -3987,6 +4027,22 @@ async function handleNaturalLanguageInstruction(botToken, chatId, text, telegram
 				createdAt: new Date().toISOString(),
 				jobId: job.id,
 			})
+
+			// Also record in Cloud Orchestrator if bridge is available
+			if (orchestratorBridge) {
+				orchestratorBridge
+					.createTask({
+						tgTaskId: taskId,
+						chatId: chatId,
+						instruction: text,
+						agentType: legacyIntent,
+						branchName: branchName,
+						source: "nlp",
+					})
+					.catch(function (err) {
+						console.error("[telegram] Failed to record NLP task in orchestrator:", err.message)
+					})
+			}
 
 			var intentLabels = {
 				coder: "Coding",
@@ -4444,7 +4500,7 @@ async function handleRollbackCallback(botToken, chatId, messageId, savepointId) 
  * @param {object} queue - BullMQ queue instance
  * @param {Array} [providers] - AI provider configs for /ask and @mention support
  */
-async function handleUpdate(update, botToken, queue, providers) {
+async function handleUpdate(update, botToken, queue, providers, orchestratorBridge) {
 	// ─── Handle my_chat_member updates (bot added to/removed from groups) ──
 	// Only @jpgy888 can add the bot to groups. If someone else adds it, leave immediately.
 	if (update && update.my_chat_member) {
@@ -5053,7 +5109,7 @@ async function handleUpdate(update, botToken, queue, providers) {
 			await handleBrain(botToken, chatId, cmdArgs, providers || [])
 		} else if (command === "/code") {
 			logTelegramUsage("/code", chatId, telegramUserId, { args: cmdArgs.join(" ") })
-			await handleCode(botToken, chatId, cmdArgs, queue)
+			await handleCode(botToken, chatId, cmdArgs, queue, orchestratorBridge)
 		} else if (command === "/diff") {
 			logTelegramUsage("/diff", chatId, telegramUserId, { args: cmdArgs.join(" ") })
 			await handleDiff(botToken, chatId, cmdArgs)
@@ -5062,7 +5118,7 @@ async function handleUpdate(update, botToken, queue, providers) {
 			await handleApprove(botToken, chatId, cmdArgs)
 		} else if (command === "/deploy") {
 			logTelegramUsage("/deploy", chatId, telegramUserId, { args: cmdArgs.join(" ") })
-			await handleDeploy(botToken, chatId, cmdArgs, queue)
+			await handleDeploy(botToken, chatId, cmdArgs, queue, orchestratorBridge)
 		} else if (command === "/status") {
 			logTelegramUsage("/status", chatId, telegramUserId, { args: cmdArgs.join(" ") })
 			await handleStatus(botToken, chatId, cmdArgs, queue)
@@ -5220,6 +5276,7 @@ async function handleUpdate(update, botToken, queue, providers) {
 				telegramUserId,
 				queue,
 				providers || [],
+				orchestratorBridge,
 			)
 			if (!handled) {
 				// If not routed as a coding instruction, treat as AI assistant conversation
