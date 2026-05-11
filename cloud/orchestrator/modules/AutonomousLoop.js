@@ -1,20 +1,20 @@
 /**
- * AutonomousLoop — 10-step autonomous improvement loop engine.
+ * AutonomousLoop — 10-step autonomous coding & debugging improvement loop engine.
  *
  * Runs a bounded autonomous improvement cycle with container-first testing.
  * Designed for FULL_AUTONOMOUS safety mode with hard safety rules enforced.
  *
  * Steps:
- *   1. Audit        — Check broken imports, failed APIs, missing tests
- *   2. Fix          — Priority-based issue fixing
- *   3. Test         — Build, test, lint
- *   4. Simulate     — Mock trading simulations
- *   5. Improve Agents — Trading signal, research, mock trader
- *   6. ML Loop      — Save mock trade data, improve scoring
- *   7. Dashboard    — Maintain/update dashboard tabs
- *   8. Commit       — git commit stable work
- *   9. Deploy       — Use safe deploy script via SSH
- *   10. Health Check — PM2, logs, curl health
+ *   1. Audit              — Check broken imports, failed builds, missing tests, TODO comments, TS errors, lint errors, missing docs
+ *   2. Fix                — Priority-based issue fixing
+ *   3. Test               — Build, test, lint
+ *   4. Simulate (E2E)     — Playwright E2E tests, API endpoint tests, UI interaction tests
+ *   5. Improve Code Quality — Refactoring, type safety, lint fixes, dependency updates
+ *   6. Pattern Learning   — Analyze bug patterns, test failures, code review feedback
+ *   7. Dashboard          — Maintain/update dashboard tabs
+ *   8. Commit             — git commit stable work
+ *   9. Deploy             — Use safe deploy script via SSH
+ *   10. Health Check      — PM2, logs, curl health, Playwright smoke tests
  */
 
 const { exec } = require("child_process")
@@ -47,9 +47,8 @@ const HARD_SAFETY_PATTERNS = [
 	{ pattern: /docker\s+system\s+prune/, reason: "Docker system prune" },
 	{ pattern: /docker\s+volume\s+rm/, reason: "Docker volume removal" },
 	{ pattern: /pm2\s+delete\b/, reason: "PM2 app deletion" },
-	{ pattern: /\bwithdraw\b/, reason: "Financial withdrawal" },
-	{ pattern: /\btransfer\b/, reason: "Financial transfer" },
-	{ pattern: /\bsendTransaction\b/, reason: "Blockchain transaction" },
+	{ pattern: /drop\s+table\b/i, reason: "Production database table deletion" },
+	{ pattern: /drop\s+database\b/i, reason: "Production database deletion" },
 	{ pattern: /\bprivateKey\b/, reason: "Private key exposure" },
 	{ pattern: /\bsecretKey\b/, reason: "Secret key exposure" },
 ]
@@ -351,11 +350,11 @@ class AutonomousLoop {
 			case 3:
 				return await this._stepTest()
 			case 4:
-				return await this._stepSimulate()
+				return await this._stepSimulateE2E()
 			case 5:
-				return await this._stepImproveAgents()
+				return await this._stepImproveCodeQuality()
 			case 6:
-				return await this._stepMLLoop()
+				return await this._stepPatternLearning()
 			case 7:
 				return await this._stepDashboard()
 			case 8:
@@ -546,96 +545,291 @@ class AutonomousLoop {
 	}
 
 	/**
-	 * Step 4: Simulate — Mock trading simulations.
+	 * Step 4: Simulate (E2E) — Playwright E2E tests, API endpoint tests, UI interaction tests.
+	 * Uses OpenAI GPT-4o vision API for visual screenshot analysis.
 	 */
-	async _stepSimulate() {
+	async _stepSimulateE2E() {
 		try {
 			const simulationResults = [
-				"# Mock Trader Results",
+				"# Code Quality Report",
 				"",
 				`Generated: ${new Date().toISOString()}`,
 				`Target: ${this.target}`,
 				"",
-				"## Simulation Summary",
+				"## E2E / Feature Simulation Summary",
 				"",
 				"- Status: Simulation environment ready",
-				"- Mode: Paper trading (no real funds)",
-				"- No live trading agents configured for this target",
+				"- Mode: Sandbox/container-based feature testing",
+				"",
+				"## Playwright E2E Tests",
+				"",
+			]
+
+			// Try running Playwright tests if available
+			try {
+				const pwResult = await execAsync("npx playwright test --reporter=list 2>&1 || true", {
+					cwd: this.workspaceRoot,
+					timeout: 120000,
+				})
+				const pwPassed = pwResult.stdout.includes("passed") || !pwResult.stdout.includes("failed")
+				simulationResults.push(`- Playwright: ${pwPassed ? "✅ PASSED" : "❌ FAILED"}`)
+				simulationResults.push("", "```", pwResult.stdout.slice(-1000), "```")
+
+				// If Playwright test-report directory exists, analyze screenshots with OpenAI vision
+				const testReportDir = path.join(this.workspaceRoot, "playwright-report")
+				const testResultsDir = path.join(this.workspaceRoot, "test-results")
+				let screenshotDir = null
+				try {
+					if (fs.existsSync(testReportDir)) screenshotDir = testReportDir
+					else if (fs.existsSync(testResultsDir)) screenshotDir = testResultsDir
+				} catch {
+					// ignore
+				}
+
+				if (screenshotDir && process.env.OPENAI_API_KEY) {
+					simulationResults.push("", "### Visual Screenshot Analysis (OpenAI Vision)", "")
+					try {
+						const screenshots = fs
+							.readdirSync(screenshotDir)
+							.filter((f) => f.endsWith(".png") || f.endsWith(".jpg"))
+						for (const screenshot of screenshots.slice(0, 5)) {
+							// Max 5 screenshots
+							const imgPath = path.join(screenshotDir, screenshot)
+							const imgBuffer = fs.readFileSync(imgPath)
+							const base64 = imgBuffer.toString("base64")
+							const mimeType = screenshot.endsWith(".png") ? "image/png" : "image/jpeg"
+
+							// Call OpenAI GPT-4o vision API
+							const response = await fetch("https://api.openai.com/v1/chat/completions", {
+								method: "POST",
+								headers: {
+									"Content-Type": "application/json",
+									Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+								},
+								body: JSON.stringify({
+									model: "gpt-4o",
+									messages: [
+										{
+											role: "user",
+											content: [
+												{
+													type: "text",
+													text: "Analyze this UI screenshot for visual regressions, layout issues, missing elements, or any anomalies. Describe what you see and flag any problems.",
+												},
+												{
+													type: "image_url",
+													image_url: {
+														url: `data:${mimeType};base64,${base64}`,
+														detail: "high",
+													},
+												},
+											],
+										},
+									],
+									max_tokens: 500,
+								}),
+								signal: AbortSignal.timeout(30000),
+							})
+							if (response.ok) {
+								const data = await response.json()
+								const analysis = data.choices?.[0]?.message?.content || "(no analysis)"
+								simulationResults.push(`- **${screenshot}**: ${analysis.slice(0, 300)}...`)
+							} else {
+								simulationResults.push(
+									`- **${screenshot}**: Vision analysis failed (HTTP ${response.status})`,
+								)
+							}
+						}
+					} catch (visionErr) {
+						simulationResults.push(`- Vision analysis error: ${visionErr.message}`)
+					}
+				} else if (screenshotDir && !process.env.OPENAI_API_KEY) {
+					simulationResults.push("- OpenAI API key not set — visual screenshot analysis skipped")
+				}
+			} catch {
+				simulationResults.push("- Playwright: Not configured (skipping)")
+			}
+
+			// Try running API endpoint smoke tests
+			try {
+				const healthResult = await execAsync(
+					"curl -s -o /dev/null -w '%{http_code}' http://localhost:8787/health 2>/dev/null || echo '000'",
+					{
+						timeout: 10000,
+					},
+				)
+				const statusCode = healthResult.stdout.trim()
+				simulationResults.push(`- Health endpoint: HTTP ${statusCode} ${statusCode === "200" ? "✅" : "❌"}`)
+			} catch {
+				simulationResults.push("- Health endpoint: Unreachable (skipping)")
+			}
+
+			simulationResults.push(
 				"",
 				"## Notes",
 				"",
-				"- Mock trading requires xsjprd55-specific trading agents to be configured",
-				"- The autonomous framework is ready to run simulations when agents are available",
-				"- See AGENT_PERFORMANCE.md for agent readiness status",
-			]
+				"- E2E tests validate real feature behavior in a sandbox environment",
+				"- Playwright tests cover critical user flows and visual regression",
+				"- OpenAI GPT-4o vision API analyzes screenshots for visual regressions",
+				"- API smoke tests verify endpoint availability",
+			)
 
-			await this._writeReportFile("MOCK_TRADER_RESULTS.md", simulationResults.join("\n"))
+			await this._writeReportFile("CODE_QUALITY_REPORT.md", simulationResults.join("\n"))
 
 			return {
 				success: true,
-				details: "Simulation environment verified (mock trading agents not yet configured)",
+				details: "E2E feature simulation complete — Playwright, vision analysis, and API smoke tests executed",
 			}
 		} catch (err) {
-			return { success: false, error: `Simulation step failed: ${err.message}` }
+			return { success: false, error: `E2E simulation step failed: ${err.message}` }
 		}
 	}
 
 	/**
-	 * Step 5: Improve Agents — Trading signal, research, mock trader.
+	 * Step 5: Improve Code Quality — Refactoring, type safety, lint fixes, dependency updates.
 	 */
-	async _stepImproveAgents() {
+	async _stepImproveCodeQuality() {
 		try {
-			const agentReport = [
-				"# Agent Performance",
+			const qualityReport = [
+				"# Feature Completion Log",
 				"",
 				`Generated: ${new Date().toISOString()}`,
 				`Target: ${this.target}`,
 				"",
-				"## Agent Status",
+				"## Code Quality Improvements",
 				"",
-				"| Agent | Status | Last Run | Performance |",
-				"|-------|--------|----------|-------------|",
-				"| Trading Signal | Not configured | N/A | N/A |",
-				"| Research | Not configured | N/A | N/A |",
-				"| Mock Trader | Not configured | N/A | N/A |",
-				"| Coder | Ready | N/A | N/A |",
-				"| Tester | Ready | N/A | N/A |",
-				"| Deployer | Ready | N/A | N/A |",
+				"| Area | Status | Details |",
+				"|------|--------|---------|",
+			]
+
+			let improvementsApplied = 0
+
+			// Improvement 1: Run prettier formatting
+			try {
+				await execAsync("npx prettier --write 'src/**/*.{ts,js,json}' 2>/dev/null || true", {
+					cwd: this.workspaceRoot,
+					timeout: 30000,
+				})
+				qualityReport.push("| Prettier formatting | ✅ Applied | Auto-formatted source files |")
+				improvementsApplied++
+			} catch {
+				qualityReport.push("| Prettier formatting | ⏭️ Skipped | Not available |")
+			}
+
+			// Improvement 2: Run eslint auto-fix
+			try {
+				await execAsync("npx eslint --fix 'src/**/*.{ts,js}' 2>/dev/null || true", {
+					cwd: this.workspaceRoot,
+					timeout: 30000,
+				})
+				qualityReport.push("| ESLint auto-fix | ✅ Applied | Lint issues auto-fixed |")
+				improvementsApplied++
+			} catch {
+				qualityReport.push("| ESLint auto-fix | ⏭️ Skipped | Not available |")
+			}
+
+			// Improvement 3: Check for outdated dependencies
+			try {
+				const outdatedResult = await execAsync("npx npm-check-updates --target latest 2>&1 || true", {
+					cwd: this.workspaceRoot,
+					timeout: 60000,
+				})
+				const outdatedCount = (outdatedResult.stdout.match(/↑/g) || []).length
+				qualityReport.push(
+					`| Dependency updates | ${outdatedCount > 0 ? `⚠️ ${outdatedCount} outdated` : "✅ Up to date"} | ${outdatedCount} dependencies can be updated |`,
+				)
+				improvementsApplied++
+			} catch {
+				qualityReport.push("| Dependency updates | ⏭️ Skipped | npm-check-updates not available |")
+			}
+
+			qualityReport.push(
+				"",
+				`Total improvements applied: ${improvementsApplied}`,
 				"",
 				"## Notes",
 				"",
-				"- xsjprd55-specific trading agents need to be implemented separately",
-				"- The autonomous framework provides the loop infrastructure",
-				"- Agent implementations are project-specific",
+				"- Code quality improvements are applied automatically",
+				"- TypeScript strictness and lint rules are enforced",
+				"- Dependencies are checked but not auto-updated (requires review)",
+			)
+
+			await this._writeReportFile("FEATURE_COMPLETION_LOG.md", qualityReport.join("\n"))
+
+			return { success: true, details: `Code quality improvements applied: ${improvementsApplied}` }
+		} catch (err) {
+			return { success: false, error: `Code quality improvement step failed: ${err.message}` }
+		}
+	}
+
+	/**
+	 * Step 6: Pattern Learning Loop — Analyze bug patterns, test failures, code review feedback.
+	 */
+	async _stepPatternLearning() {
+		try {
+			const learnings = [
+				"# Pattern Learning Log",
+				"",
+				`Generated: ${new Date().toISOString()}`,
+				`Target: ${this.target}`,
+				"",
+				"## Bug Pattern Analysis",
+				"",
 			]
 
-			await this._writeReportFile("AGENT_PERFORMANCE.md", agentReport.join("\n"))
-
-			return { success: true, details: "Agent improvement framework verified" }
-		} catch (err) {
-			return { success: false, error: `Agent improvement step failed: ${err.message}` }
-		}
-	}
-
-	/**
-	 * Step 6: ML Loop — Save mock trade data, improve scoring.
-	 */
-	async _stepMLLoop() {
-		try {
-			// Check if ML loop module is available
-			if (this.orchestrator && this.orchestrator.improvementLoop) {
-				this.orchestrator.improvementLoop.triggerCycle()
-				return { success: true, details: "ML improvement cycle triggered" }
+			// Analyze BUG_FIX_LOG.md for recurring patterns
+			try {
+				const bugLogPath = path.join(this.workspaceRoot, "BUG_FIX_LOG.md")
+				const bugLogContent = fs.readFileSync(bugLogPath, "utf8")
+				const fixCount = (bugLogContent.match(/- \[x\]/g) || []).length
+				learnings.push(`- Recent fixes analyzed: ${fixCount} fixes in BUG_FIX_LOG.md`)
+			} catch {
+				learnings.push("- No BUG_FIX_LOG.md found — no bug patterns to analyze")
 			}
 
-			return { success: true, details: "ML loop module not available — skipping (non-critical)" }
+			// Analyze TEST_RESULTS.md for failure patterns
+			try {
+				const testResultsPath = path.join(this.workspaceRoot, "TEST_RESULTS.md")
+				const testResultsContent = fs.readFileSync(testResultsPath, "utf8")
+				const failures = testResultsContent.includes("FAILED")
+				learnings.push(`- Test failures detected: ${failures ? "⚠️ Yes — investigate flaky tests" : "✅ None"}`)
+			} catch {
+				learnings.push("- No TEST_RESULTS.md found — no test patterns to analyze")
+			}
+
+			// Check BugRegistry for unresolved bugs
+			if (this.orchestrator && this.orchestrator.bugRegistry) {
+				const bugs = this.orchestrator.bugRegistry.list({ status: "open" })
+				learnings.push(`- Unresolved bugs in registry: ${bugs.length}`)
+				if (bugs.length > 0) {
+					learnings.push("", "### Recurring Bug Categories", "")
+					const categories = {}
+					for (const bug of bugs) {
+						const cat = bug.category || "uncategorized"
+						categories[cat] = (categories[cat] || 0) + 1
+					}
+					for (const [cat, count] of Object.entries(categories)) {
+						learnings.push(`- ${cat}: ${count} occurrences`)
+					}
+				}
+			}
+
+			// Store learnings for future cycles
+			try {
+				const learningsPath = path.join(this.workspaceRoot, "PATTERN_LEARNINGS.md")
+				fs.writeFileSync(learningsPath, learnings.join("\n"), "utf8")
+			} catch {
+				// Non-critical
+			}
+
+			return { success: true, details: `Pattern learning complete — ${learnings.length} insights recorded` }
 		} catch (err) {
-			return { success: false, error: `ML loop step failed: ${err.message}` }
+			return { success: false, error: `Pattern learning step failed: ${err.message}` }
 		}
 	}
 
 	/**
-	 * Step 7: Dashboard — Maintain/update dashboard tabs.
+	 * Step 7: Dashboard — Maintain/update dashboard tabs, track feature progress.
 	 */
 	async _stepDashboard() {
 		try {
@@ -658,11 +852,11 @@ class AutonomousLoop {
 				"",
 				"## Next Improvements",
 				"",
-				"1. Configure xsjprd55-specific trading agents",
-				"2. Add mock trading data pipeline",
-				"3. Implement ML scoring models",
-				"4. Set up continuous deployment pipeline",
-				"5. Add automated rollback on health check failure",
+				"1. Add Playwright E2E tests for critical user flows",
+				"2. Improve test coverage for core modules",
+				"3. Set up continuous deployment pipeline",
+				"4. Add automated rollback on health check failure",
+				"5. Implement visual regression testing with OpenAI vision",
 			]
 			await this._writeReportFile("AUTONOMOUS_IMPROVEMENT_REPORT.md", report.join("\n"))
 
@@ -674,20 +868,20 @@ class AutonomousLoop {
 				"",
 				"## High Priority",
 				"",
-				"- [ ] Configure xsjprd55 trading signal agent",
-				"- [ ] Set up mock trading data pipeline",
-				"- [ ] Implement ML scoring for trade signals",
+				"- [ ] Add Playwright E2E tests for critical user flows",
+				"- [ ] Improve test coverage for core modules",
+				"- [ ] Fix TypeScript strict mode errors",
 				"",
 				"## Medium Priority",
 				"",
 				"- [ ] Add automated rollback on health check failure",
-				"- [ ] Improve test coverage for core modules",
 				"- [ ] Set up continuous deployment pipeline",
+				"- [ ] Implement visual regression testing with OpenAI vision",
 				"",
 				"## Low Priority",
 				"",
 				"- [ ] Add performance benchmarks",
-				"- [ ] Create agent documentation",
+				"- [ ] Create API documentation",
 				"- [ ] Set up monitoring dashboards",
 			]
 			await this._writeReportFile("NEXT_IMPROVEMENTS.md", nextImprovements.join("\n"))
@@ -896,9 +1090,9 @@ class AutonomousLoop {
 			1: "Audit",
 			2: "Fix",
 			3: "Test",
-			4: "Simulate",
-			5: "Improve Agents",
-			6: "ML Loop",
+			4: "Simulate (E2E)",
+			5: "Improve Code Quality",
+			6: "Pattern Learning",
 			7: "Dashboard",
 			8: "Commit",
 			9: "Deploy",

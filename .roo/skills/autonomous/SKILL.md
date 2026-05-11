@@ -1,20 +1,33 @@
 ---
 name: autonomous
-description: 🤖 Autonomous Mode — Self-directed scanning, reporting, auto-approval, auto-deployment, and 10-step autonomous improvement loop using Tailscale SSH
+description: 🤖 Autonomous Mode — Self-directed coding, debugging, testing, committing, deploying, and 10-step autonomous improvement loop using Tailscale SSH
 ---
 
-# Autonomous Skill (v3 — Full Autonomous Command)
+# Autonomous Skill (v4 — Full Autonomous Coding & Debugging)
 
 ## Purpose
 
-Enable the assistant to run as a **fully autonomous agent** that:
+Enable the assistant to run as a **fully autonomous coding and debugging agent** that:
 
-1. Self-directs scans and generates comprehensive status reports
+1. Self-directs feature development and generates comprehensive status reports
 2. **Auto-approves ALL code changes** — no human gates needed
 3. **Auto-deploys ALL changes** — using Tailscale SSH (`100.64.175.88`)
 4. Runs the **10-step autonomous improvement loop** for up to 5 hours
 5. Uses **container-first testing** — all changes tested in Docker sandbox first
 6. Runs continuously in the background while the user sleeps
+
+## Mission
+
+Autonomously code new features, debug, test, commit, deploy, and repeat.
+
+## Targets
+
+- New features
+- Bug fixes
+- Test coverage
+- Code quality
+- Documentation
+- Deployment
 
 ## Trigger Commands
 
@@ -63,8 +76,8 @@ When Autonomous Mode is **ACTIVE** (FULL_AUTONOMOUS):
 - Staging deploy via approved scripts
 - PM2 status checks (`pm2 status`, `pm2 list`)
 - Docker compose operations (`docker-compose up -d`, `docker-compose ps`)
+- Playwright E2E tests (`npx playwright test`)
 - Health checks (`curl` endpoints)
-- Mock trading and backtesting
 - Non-destructive database reads (SELECT queries)
 - Report generation and file writing
 
@@ -78,7 +91,6 @@ When Autonomous Mode is **ACTIVE** (FULL_AUTONOMOUS):
 - Editing files in `~/.ssh`, `/root/.ssh`
 - `docker rm`, `docker system prune`, `docker volume rm`
 - `pm2 delete` (without approval)
-- `withdraw`, `transfer`, `sendTransaction`
 - Any command containing `privateKey`, `secretKey`
 
 ## SSH Rules
@@ -99,8 +111,8 @@ When the `autonomous` command is triggered, the system runs this loop:
 
 ### Step 1: Audit
 
-- Check for broken imports, missing dependencies, failed API endpoints
-- Scan for missing tests, lint errors, TypeScript errors
+- Check for broken imports, failed builds, missing tests, TODO comments
+- Scan for TypeScript errors, lint errors, missing documentation
 - Review recent git history for regressions
 - Check BugRegistry for unresolved bugs
 - Check FeatureRegistry for incomplete features
@@ -118,29 +130,37 @@ When the `autonomous` command is triggered, the system runs this loop:
 - Run TypeScript check: `npx tsc --noEmit`
 - Record results in `TEST_RESULTS.md`
 
-### Step 4: Simulate
+### Step 4: Simulate (E2E Feature Testing with Playwright)
 
-- Run mock trading simulations (if trading agents are configured)
-- Record results in `MOCK_TRADER_RESULTS.md`
+- Run **Playwright E2E tests** for real visual and functional testing of features
+- Test user flows end-to-end: login, navigation, CRUD operations, form submissions
+- Test API endpoints with real HTTP requests and response validation
+- Run sandbox/container-based integration tests
+- Take screenshots and record videos of failing tests for visual regression analysis
+- Record results in `CODE_QUALITY_REPORT.md`
 - Analyze simulation output for regressions
 
-### Step 5: Improve Agents
+### Step 5: Improve Code Quality
 
-- Update trading signal agent parameters based on simulation results
-- Improve research agent prompts and data sources
-- Enhance mock trader agent strategies
+- Refactor code for better maintainability
+- Improve type safety (strict TypeScript, better interfaces)
+- Update dependencies to latest compatible versions
+- Optimize performance (reduce bundle size, improve query efficiency)
+- Add missing comments and documentation
 
-### Step 6: ML Loop
+### Step 6: Pattern Learning Loop
 
-- Save mock trade data to the ML training pipeline
-- Improve scoring models based on recent results
-- Update agent performance metrics
+- Analyze bug patterns from recent fixes
+- Analyze test failure patterns for flaky tests
+- Analyze code review feedback for recurring issues
+- Store learnings for future improvement cycles
 
 ### Step 7: Dashboard
 
 - Maintain and update dashboard tabs with latest data
 - Update `AUTONOMOUS_IMPROVEMENT_REPORT.md`
-- Update `AGENT_PERFORMANCE.md`
+- Update `NEXT_IMPROVEMENTS.md`
+- Track feature completion progress
 
 ### Step 8: Commit
 
@@ -158,22 +178,23 @@ When the `autonomous` command is triggered, the system runs this loop:
 - Check PM2 status: `pm2 status`
 - Check application logs for errors
 - Curl health endpoint
+- Run Playwright smoke tests against deployed endpoints
 - Record health status in `DEPLOYMENT_LOG.md`
 
 ## Required Report Files
 
 The autonomous loop generates and maintains these files:
 
-| File                               | Purpose                               |
-| ---------------------------------- | ------------------------------------- |
-| `AUTONOMOUS_IMPROVEMENT_REPORT.md` | Summary of all improvements made      |
-| `BUG_FIX_LOG.md`                   | Log of bugs found and fixed           |
-| `TEST_RESULTS.md`                  | Test run results                      |
-| `DEPLOYMENT_LOG.md`                | Deployment history and health status  |
-| `NEXT_IMPROVEMENTS.md`             | Prioritized list of next improvements |
-| `NEEDS_USER_APPROVAL.md`           | Items requiring human intervention    |
-| `MOCK_TRADER_RESULTS.md`           | Mock trading simulation results       |
-| `AGENT_PERFORMANCE.md`             | Agent performance metrics             |
+| File                               | Purpose                                          |
+| ---------------------------------- | ------------------------------------------------ |
+| `AUTONOMOUS_IMPROVEMENT_REPORT.md` | Summary of all improvements made                 |
+| `BUG_FIX_LOG.md`                   | Log of bugs found and fixed                      |
+| `TEST_RESULTS.md`                  | Test run results                                 |
+| `DEPLOYMENT_LOG.md`                | Deployment history and health status             |
+| `NEXT_IMPROVEMENTS.md`             | Prioritized list of next improvements            |
+| `NEEDS_USER_APPROVAL.md`           | Items requiring human intervention               |
+| `CODE_QUALITY_REPORT.md`           | Code quality analysis and refactoring results    |
+| `FEATURE_COMPLETION_LOG.md`        | Feature completion and agent performance metrics |
 
 ## Tailscale Deployment (Mandatory)
 
@@ -212,8 +233,8 @@ SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=15 -o ServerAliveInterva
 1. **Project State** — git status, last commit, uncommitted changes
 2. **System Health** — key API endpoints, Supabase connection, Telegram webhook
 3. **Worker Status** — which workers are defined vs running (if VPS info available)
-4. **Recent Signals** — signal generation activity from Supabase (if accessible)
-5. **Open Issues** — bugs/errors detected in logs or `agent_ideas` table
+4. **Feature Progress** — feature development activity from FeatureRegistry (if accessible)
+5. **Open Issues** — bugs/errors detected in logs or BugRegistry
 6. **Action Items** — prioritized next steps based on findings
 
 ## Report Output
@@ -341,7 +362,7 @@ Duration:       142s total
 Changes:
   ✅ Fixed login timeout bug (commit abc123)
   ✅ Deployed v2.4.1 — healthy
-  ✅ Updated nginx config — reloaded
+  ✅ Refactored API routes for better type safety
 Pending:
   ⏳ Database migration (waiting for next cycle)
 ```

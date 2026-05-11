@@ -2289,7 +2289,10 @@ const server = http.createServer(async (req, res) => {
 			"/agents": { agent: "system", description: "List all available agents and their status" },
 			"/skills": { agent: "system", description: "List all available skills" },
 			"/deploy": { agent: "deployer", description: "Deploy the current project" },
-			"/autonomous": { agent: "autonomous", description: "Run autonomous system scan and report" },
+			"/autonomous": {
+				agent: "autonomous",
+				description: "Run autonomous coding, debugging, testing, and deployment loop",
+			},
 			"/debug": { agent: "debugger", description: "Start a debug session" },
 			"/test": { agent: "tester", description: "Run tests" },
 			"/crawl": { agent: "crawler", description: "Run crawler agent" },
@@ -2312,7 +2315,7 @@ const server = http.createServer(async (req, res) => {
 		// Skill commands (loaded from .roo/skills/)
 		const SKILL_COMMANDS = {
 			"auto-deployer": { description: "Self-retrying SSH deploy agent" },
-			autonomous: { description: "Self-directed scanning, reporting & improvement loop" },
+			autonomous: { description: "Self-directed coding, debugging, testing & deployment loop" },
 			"debug-team": { description: "Autonomous multi-agent debugging system" },
 			"digitalocean-vps": { description: "Deploy and manage DigitalOcean Droplets" },
 			"e2e-test": { description: "Run comprehensive end-to-end tests" },
@@ -4896,7 +4899,7 @@ const server = http.createServer(async (req, res) => {
 
 		// ── Autonomous Loop Endpoints ──────────────────────────────────────────
 
-		// POST /autonomous/start — Start the autonomous improvement loop
+		// POST /autonomous/start — Start the autonomous coding & debugging improvement loop
 		if (method === "POST" && (url === "/autonomous/start" || normalizedUrl === "/autonomous/start")) {
 			try {
 				const body = await parseBody(req)
@@ -4928,7 +4931,7 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
-		// GET /autonomous/status/:jobId — Get loop status
+		// GET /autonomous/status/:jobId — Get autonomous loop status
 		if (
 			method === "GET" &&
 			(url.startsWith("/autonomous/status/") || normalizedUrl.startsWith("/autonomous/status/"))
