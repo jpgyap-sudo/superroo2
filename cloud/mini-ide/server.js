@@ -20,6 +20,16 @@ const path = require("path")
 const os = require("os")
 const multer = require("multer")
 
+// ── Terminal Brain integration ─────────────────────────────────────────────────
+
+let terminalBrainRouter
+try {
+	terminalBrainRouter = require("../api/routes/terminal-brain")
+} catch {
+	// Terminal Brain not available — Mini IDE runs standalone
+	terminalBrainRouter = null
+}
+
 // ── Config ─────────────────────────────────────────────────────────────────────
 
 const PORT = process.env.MINI_IDE_PORT || 8081
@@ -250,6 +260,19 @@ app.use("/api", (req, res, next) => {
 	next()
 })
 
+// ── Terminal Brain routes (mounted under /api/terminal-brain) ──────────────────
+
+if (terminalBrainRouter) {
+	app.use("/api/terminal-brain", (req, res, next) => {
+		// Forward Telegram user info as session headers
+		if (req.telegramUser) {
+			req.headers["x-session-id"] = `tg-${req.telegramUser.id || "anon"}-${Date.now()}`
+		}
+		req.headers["x-workspace-root"] = WORKSPACE_ROOT || process.cwd()
+		next()
+	}, terminalBrainRouter)
+}
+
 // ── API Routes ─────────────────────────────────────────────────────────────────
 
 // Health check
@@ -383,13 +406,18 @@ app.post("/api/workspaces/:id/command", async (req, res) => {
 		if (!prompt) return res.status(400).json({ error: "Missing prompt" })
 
 		// If SuperRoo API is configured, forward the command
-		if (SUPERROO_API_URL && SUPERROO_API_KEY && !SUPERROO_API_URL.includes("localhost")) {
+		// Allow forwarding even when SUPERROO_API_URL is localhost (same-server setup)
+		if (SUPERROO_API_URL) {
+			const headers = {
+				"Content-Type": "application/json",
+			}
+			// Only add auth header if API key is set (not required for local API)
+			if (SUPERROO_API_KEY) {
+				headers["Authorization"] = `Bearer ${SUPERROO_API_KEY}`
+			}
 			const response = await fetch(`${SUPERROO_API_URL}/api/workspaces/${req.params.id}/commands`, {
 				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: `Bearer ${SUPERROO_API_KEY}`,
-				},
+				headers,
 				body: JSON.stringify({
 					prompt,
 					attachments: attachments || [],

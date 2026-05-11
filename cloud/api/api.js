@@ -19,6 +19,7 @@ const path = require("path")
 
 const auth = require("./auth")
 const telegramBot = require("./telegramBot")
+const telegramClassifier = require("./telegramClassifier")
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || ""
 
 const execAsync = promisify(exec)
@@ -56,6 +57,89 @@ async function callChatCompletion(apiBaseUrl, apiKey, model, messages) {
 	}
 	const data = await res.json()
 	return data.choices?.[0]?.message?.content || "(no response)"
+}
+
+/**
+	* Vision Fallback — Uses OpenAI GPT-4o (vision-capable) to analyze images/PDFs
+	* when the primary model doesn't support vision.
+	*
+	* Accepts a base64-encoded image or PDF and returns a text description.
+	* Falls back gracefully if OpenAI key is not configured.
+	*/
+async function visionFallback(imageBase64, mimeType, prompt) {
+	try {
+		// Try OpenAI first (GPT-4o has vision)
+		const openaiKey = readProviderApiKey("openai")
+		if (openaiKey) {
+			const messages = [
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: prompt || "Please describe what you see in this image in detail." },
+						{
+							type: "image_url",
+							image_url: {
+								url: `data:${mimeType};base64,${imageBase64}`,
+								detail: "high",
+							},
+						},
+					],
+				},
+			]
+			return await callChatCompletion("https://api.openai.com/v1", openaiKey, "gpt-4o", messages)
+		}
+
+		// Fallback to Anthropic (Claude Sonnet 4 has vision)
+		const anthropicKey = readProviderApiKey("anthropic")
+		if (anthropicKey) {
+			const messages = [
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: prompt || "Please describe what you see in this image in detail." },
+						{
+							type: "image_url",
+							image_url: {
+								url: `data:${mimeType};base64,${imageBase64}`,
+								detail: "high",
+							},
+						},
+					],
+				},
+			]
+			return await callChatCompletion("https://api.anthropic.com/v1", anthropicKey, "claude-sonnet-4-20250514", messages)
+		}
+
+		// Fallback to any available vision-capable provider
+		for (const provider of PROVIDERS) {
+			if (provider.capabilities?.includes("vision") && provider.id !== "openai" && provider.id !== "anthropic") {
+				const key = readProviderApiKey(provider.id)
+				if (key) {
+					const messages = [
+						{
+							role: "user",
+							content: [
+								{ type: "text", text: prompt || "Please describe what you see in this image in detail." },
+								{
+									type: "image_url",
+									image_url: {
+										url: `data:${mimeType};base64,${imageBase64}`,
+										detail: "high",
+									},
+								},
+							],
+						},
+					]
+					return await callChatCompletion(provider.apiBaseUrl, key, provider.defaultModel || "gpt-4o", messages)
+				}
+			}
+		}
+
+		return null // No vision-capable provider available
+	} catch (err) {
+		console.error("[api] Vision fallback error:", err.message)
+		return null
+	}
 }
 
 /**
@@ -389,6 +473,19 @@ const DEFAULT_AGENT_ROUTES = [
 		],
 	},
 ]
+
+// Maps dashboard task types to default agent route names so saves/loads stay consistent.
+const TASK_TYPE_TO_AGENT = {
+	planning: "planner",
+	coding: "coder",
+	debugging: "debugger",
+	crawling: "crawler",
+	research: "tester",
+	testing: "tester",
+	deployment: "deployChecker",
+	architecture: "coder",
+	fast_fix: "debugger",
+}
 
 // ── In-memory encrypted secrets store ───────────────────────────────────────────
 
@@ -746,9 +843,11 @@ async function getDockerStats() {
 }
 
 // Get logs from files
-async function getLogs(limit = 50) {
+async function getLogs(limit = 50, target = "") {
 	try {
-		const logFiles = ["api-combined.log", "worker-combined.log", "dashboard-combined.log"]
+		const logFiles = target
+			? [`${target}-combined.log`, `${target}-out.log`, `${target}-error.log`]
+			: ["api-combined.log", "worker-combined.log", "dashboard-combined.log"]
 		const allLogs = []
 
 		for (const file of logFiles) {
@@ -843,8 +942,30 @@ const server = http.createServer(async (req, res) => {
 			const targetUrl = url.startsWith("/logs") ? url : normalizedUrl
 			const urlObj = new URL(targetUrl, `http://localhost:${PORT}`)
 			const limit = parseInt(urlObj.searchParams.get("limit") || "50")
-			const logs = await getLogs(limit)
+			const target = urlObj.searchParams.get("target") || ""
+			const logs = await getLogs(limit, target)
 			sendJson(res, 200, { success: true, logs })
+			return
+		}
+
+		// Vision Analyze — Fallback for image/PDF analysis when primary model lacks vision
+		// POST /api/vision/analyze
+		// Body: { image: "<base64>", mimeType: "image/png", prompt: "optional prompt" }
+		if ((method === "POST" && (url === "/vision/analyze" || normalizedUrl === "/vision/analyze"))) {
+			const data = await parseBody(req)
+			if (!data.image || !data.mimeType) {
+				sendJson(res, 400, { success: false, error: "Missing required fields: image (base64), mimeType" })
+				return
+			}
+			const result = await visionFallback(data.image, data.mimeType, data.prompt)
+			if (result) {
+				sendJson(res, 200, { success: true, analysis: result })
+			} else {
+				sendJson(res, 503, {
+					success: false,
+					error: "No vision-capable provider available. Please configure an API key for OpenAI (GPT-4o), Anthropic (Claude), or another vision-capable provider.",
+				})
+			}
 			return
 		}
 
@@ -1205,7 +1326,12 @@ const server = http.createServer(async (req, res) => {
 					lastTestedAt: meta.lastTestedAt,
 					latencyMs: meta.latencyMs,
 					models: p.models.map((m) => m.id),
+					modelLabels: Object.fromEntries(p.models.map((m) => [m.id, m.name])),
 					capabilities: p.capabilities,
+					defaultModel: meta.defaultModel || p.defaultModel,
+					apiBaseUrl: meta.apiBaseUrl || p.apiBaseUrl,
+					website: p.website,
+					docsUrl: p.docsUrl,
 				}
 			})
 			sendJson(res, 200, { success: true, providers: entries })
@@ -1299,14 +1425,17 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
-		// PATCH /settings/providers/:id — update provider metadata (e.g., default model)
+		// PATCH /settings/providers/:id — update provider metadata (e.g., default model, api base url)
 		if (method === "PATCH" && normalizedUrl.match(/^\/settings\/providers\/[^/]+$/)) {
 			const providerId = normalizedUrl.split("/")[3]
 			const data = await parseBody(req)
 			const meta = providerMeta.get(providerId) || { hasKey: false, status: "not_tested" }
-			if (data.defaultModel) meta.defaultModel = data.defaultModel
+			if (data.defaultModel !== undefined) meta.defaultModel = data.defaultModel
+			if (data.apiBaseUrl !== undefined) meta.apiBaseUrl = data.apiBaseUrl
 			meta.updatedAt = Date.now()
 			providerMeta.set(providerId, meta)
+			// Persist overrides to disk so they survive restarts
+			await saveEncryptedSecrets()
 			sendJson(res, 200, { success: true, providerId, meta })
 			return
 		}
@@ -1664,8 +1793,14 @@ const server = http.createServer(async (req, res) => {
 				"architecture",
 				"fast_fix",
 			]
-			const routes = taskTypes.map((taskType, i) => {
-				const agentRoute = agentRoutes[i % agentRoutes.length]
+			const routes = taskTypes.map((taskType) => {
+				let agentRoute = agentRoutes.find((r) => r.agent === taskType)
+				if (!agentRoute) {
+					const mappedAgent = TASK_TYPE_TO_AGENT[taskType]
+					if (mappedAgent) {
+						agentRoute = agentRoutes.find((r) => r.agent === mappedAgent)
+					}
+				}
 				return {
 					id: `route-${taskType}`,
 					taskType,
@@ -1699,7 +1834,17 @@ const server = http.createServer(async (req, res) => {
 			const agentRoutes = settings.routing.routes || DEFAULT_AGENT_ROUTES
 			// Map routeId (e.g. "route-coding") to agent type (e.g. "coding")
 			const taskType = routeId.replace("route-", "")
-			const existing = agentRoutes.find((r) => r.agent === taskType)
+			let existing = agentRoutes.find((r) => r.agent === taskType)
+			if (!existing) {
+				const mappedAgent = TASK_TYPE_TO_AGENT[taskType]
+				if (mappedAgent) {
+					const mappedRoute = agentRoutes.find((r) => r.agent === mappedAgent)
+					if (mappedRoute) {
+						existing = { ...mappedRoute, agent: taskType }
+						agentRoutes.push(existing)
+					}
+				}
+			}
 			if (existing) {
 				existing.primary = { provider: data.primaryProvider, model: data.primaryModel }
 				existing.fallbacks = []
@@ -1878,15 +2023,23 @@ const server = http.createServer(async (req, res) => {
 
 		// ── IDE Workspace routes ──────────────────────────────────────────────
 
-		// GET /ide-workspace/workspace — get or create workspace session
-		if (method === "GET" && normalizedUrl.startsWith("/ide-workspace/workspace")) {
-			sendJson(res, 200, {
-				workspaceId: null,
-				repoName: null,
+		// In-memory IDE workspace state
+		if (!global.__ideWorkspace) {
+			global.__ideWorkspace = {
+				repoName: "superroo2",
 				branch: "main",
-				files: [],
-				openFiles: [],
-				activeFile: null,
+				workspaceDir: process.env.WORKSPACE_ROOT || "/opt/superroo2",
+				terminalSessions: [
+					{
+						id: "term-1",
+						name: "bash",
+						cwd: process.env.WORKSPACE_ROOT || "/opt/superroo2",
+						createdAt: new Date().toISOString(),
+						output: ["Welcome to SuperRoo IDE Terminal", "Type a command to get started..."],
+					},
+				],
+				activeTerminal: "term-1",
+				chatMessages: [],
 				pipeline: [
 					{ id: "plan", label: "Plan", status: "pending" },
 					{ id: "crawl", label: "Crawl", status: "pending" },
@@ -1895,17 +2048,580 @@ const server = http.createServer(async (req, res) => {
 					{ id: "tests", label: "Tests", status: "pending" },
 					{ id: "deploy", label: "Deploy", status: "pending" },
 				],
-				terminalSessions: [
-					{
-						id: "term-1",
-						name: "bash",
-						cwd: "/workspace",
-						createdAt: new Date().toISOString(),
-						output: ["Welcome to SuperRoo IDE Terminal", "Type a command to get started..."],
-					},
-				],
-				activeTerminal: "term-1",
-				chatMessages: [],
+			}
+		}
+		const ws = global.__ideWorkspace
+
+		// Helper: walk directory recursively to build file tree
+		async function walkDir(dirPath, basePath) {
+			const entries = []
+			try {
+				const items = await fs.readdir(dirPath, { withFileTypes: true })
+				for (const item of items) {
+					// Skip hidden files and node_modules
+					if (item.name.startsWith(".") || item.name === "node_modules") continue
+					const fullPath = path.join(dirPath, item.name)
+					const relPath = path.join(basePath, item.name)
+					if (item.isDirectory()) {
+						const children = await walkDir(fullPath, relPath)
+						entries.push({ path: "/" + relPath.replace(/\\/g, "/"), name: item.name, kind: "folder", children })
+					} else {
+						entries.push({ path: "/" + relPath.replace(/\\/g, "/"), name: item.name, kind: "file" })
+					}
+				}
+			} catch (e) {
+				// Directory might not exist
+			}
+			return entries
+		}
+
+		// ── Agent/Skill command handler for terminal ──────────────────────
+		// Maps terminal commands (prefixed with / or @) to agent actions
+		const AGENT_COMMANDS = {
+			"/help": { agent: "system", description: "Show available agent and skill commands" },
+			"/agents": { agent: "system", description: "List all available agents and their status" },
+			"/skills": { agent: "system", description: "List all available skills" },
+			"/deploy": { agent: "deployer", description: "Deploy the current project" },
+			"/autonomous": { agent: "autonomous", description: "Run autonomous system scan and report" },
+			"/debug": { agent: "debugger", description: "Start a debug session" },
+			"/test": { agent: "tester", description: "Run tests" },
+			"/crawl": { agent: "crawler", description: "Run crawler agent" },
+			"/plan": { agent: "planner", description: "Create a plan for a task" },
+			"/code": { agent: "coder", description: "Execute a coding task" },
+			"/heal": { agent: "self-healing", description: "Run self-healing cycle" },
+			"/orchestrate": { agent: "orchestrator", description: "Break down and coordinate multi-step tasks across agents" },
+			"/auto-deploy": { agent: "auto-deployer", description: "Trigger or check status of the cloud auto-deployer" },
+			"/status": { agent: "system", description: "Show system status" },
+			"/memory": { agent: "system", description: "Show memory/context status" },
+			"/pipeline": { agent: "system", description: "Show current pipeline status" },
+		}
+
+		// Skill commands (loaded from .roo/skills/)
+		const SKILL_COMMANDS = {
+			"auto-deployer": { description: "Self-retrying SSH deploy agent" },
+			"autonomous": { description: "Self-directed scanning, reporting & improvement loop" },
+			"debug-team": { description: "Autonomous multi-agent debugging system" },
+			"digitalocean-vps": { description: "Deploy and manage DigitalOcean Droplets" },
+			"e2e-test": { description: "Run comprehensive end-to-end tests" },
+			"google-cloud-api": { description: "Integrate Google Cloud services" },
+			"n8n": { description: "Integrate n8n workflow automation" },
+			"phase-breakdown": { description: "Break down complex problems into phases" },
+			"supabase": { description: "Integrate Supabase services" },
+			"telegram-integration": { description: "Manage Telegram bot integration" },
+			"vercel": { description: "Deploy and integrate Vercel" },
+		}
+
+		/**
+			* Handles agent/skill commands from the IDE terminal.
+			* Routes /prefixed commands through the agent system instead of raw shell.
+			*/
+		async function handleAgentTerminalCommand(cmd, ws, term) {
+			const parts = cmd.trim().split(/\s+/)
+			const command = parts[0].toLowerCase()
+			const args = parts.slice(1).join(" ")
+
+			// ── Skill commands (/skill <name> or /skills <name>) ──────────
+			if (command === "/skill" || command === "/skills") {
+				const skillName = parts[1]?.toLowerCase()
+				if (!skillName) {
+					const skillList = Object.entries(SKILL_COMMANDS)
+						.map(([name, info]) => `  /skill ${name} — ${info.description}`)
+						.join("\n")
+					return {
+						agent: "system",
+						skill: true,
+						output: [
+							"Available skills:",
+							skillList,
+							"",
+							"Usage: /skill <name> [args]",
+						],
+					}
+				}
+
+				const skillInfo = SKILL_COMMANDS[skillName]
+				if (!skillInfo) {
+					return {
+						agent: "system",
+						skill: true,
+						output: [`Unknown skill: ${skillName}. Use /skills to list available skills.`],
+					}
+				}
+
+				// Route skill execution through AI provider
+				const provider = resolveProviderForTask("coder")
+				if (!provider) {
+					return {
+						agent: "system",
+						skill: true,
+						output: ["No AI provider configured. Please add API keys first."],
+					}
+				}
+
+				const skillArgs = parts.slice(2).join(" ")
+				const systemPrompt = [
+					`You are SuperRoo executing the "${skillName}" skill.`,
+					`Skill description: ${skillInfo.description}`,
+					`Workspace: ${ws.repoName} on branch ${ws.branch}`,
+					`Directory: ${ws.workspaceDir}`,
+					`User request: ${skillArgs || "Execute the skill"}`,
+					"",
+					"Provide a clear, actionable response. If this skill requires specific setup,",
+					"guide the user through the steps. Execute any necessary commands or analysis.",
+				].join("\n")
+
+				try {
+					const reply = await callChatCompletion(provider.apiBaseUrl, provider.apiKey, provider.model, [
+						{ role: "system", content: systemPrompt },
+						{ role: "user", content: skillArgs || `Execute the ${skillName} skill and report results.` },
+					])
+					return {
+						agent: skillName,
+						skill: true,
+						output: reply.split("\n"),
+					}
+				} catch (err) {
+					return {
+						agent: "system",
+						skill: true,
+						output: [`Skill execution error: ${err.message}`],
+					}
+				}
+			}
+
+			// ── @mention agent delegation ─────────────────────────────────
+			if (command.startsWith("@")) {
+				const mentionAgent = command.slice(1).toLowerCase()
+				const mentionTask = args
+
+				// Map @mentions to agent types
+				const mentionToAgent = {
+					"coder": { agent: "coder", taskType: "coder", description: "Coding agent" },
+					"debugger": { agent: "debugger", taskType: "debug", description: "Debugging agent" },
+					"tester": { agent: "tester", taskType: "test", description: "Testing agent" },
+					"planner": { agent: "planner", taskType: "plan", description: "Planning agent" },
+					"deployer": { agent: "deployer", taskType: "deploy", description: "Deployment agent" },
+					"crawler": { agent: "crawler", taskType: "crawl", description: "Crawler agent" },
+					"healer": { agent: "self-healing", taskType: "coder", description: "Self-healing agent" },
+					"pm": { agent: "pm", taskType: "coder", description: "Product manager agent" },
+					"orchestrator": { agent: "orchestrator", taskType: "coder", description: "Orchestrator agent — breaks down and coordinates multi-step tasks" },
+				}
+
+				const mentionTarget = mentionToAgent[mentionAgent]
+				if (!mentionTarget) {
+					return {
+						agent: "system",
+						output: [
+							`Unknown agent: @${mentionAgent}`,
+							"Available agents: @coder, @debugger, @tester, @planner, @deployer, @crawler, @healer, @orchestrator, @pm",
+						],
+					}
+				}
+
+				if (!mentionTask) {
+					return {
+						agent: mentionTarget.agent,
+						output: [`@${mentionAgent} — ${mentionTarget.description}`, "", "Usage: @<agent> <task description>", "", "Example: @coder fix the login validation bug"],
+					}
+				}
+
+				// Route to AI provider
+				const provider = resolveProviderForTask(mentionTarget.taskType)
+				if (!provider) {
+					return {
+						agent: mentionTarget.agent,
+						output: [`No AI provider available for ${mentionTarget.agent}. Please configure API keys.`],
+					}
+				}
+
+				// Update pipeline
+				const pipelineStep = ws.pipeline.find(s =>
+					s.label.toLowerCase() === mentionTarget.agent ||
+					s.id === mentionTarget.agent
+				)
+				if (pipelineStep) {
+					pipelineStep.status = "running"
+					pipelineStep.agent = mentionTarget.agent
+				}
+
+				const systemPrompt = [
+					`You are SuperRoo acting as the "${mentionTarget.agent}" agent (${mentionTarget.description}).`,
+					`The user has delegated this task to you via @${mentionAgent} mention.`,
+					`Task: ${mentionTask}`,
+					`Workspace: ${ws.repoName} on branch ${ws.branch}`,
+					`Directory: ${ws.workspaceDir}`,
+					"",
+					"Execute the task thoroughly. If you need to run shell commands, describe them.",
+					"Be concise, actionable, and provide clear output.",
+				].join("\n")
+
+				try {
+					const reply = await callChatCompletion(provider.apiBaseUrl, provider.apiKey, provider.model, [
+						{ role: "system", content: systemPrompt },
+						{ role: "user", content: mentionTask },
+					])
+
+					if (pipelineStep) pipelineStep.status = "done"
+
+					return {
+						agent: mentionTarget.agent,
+						output: reply.split("\n"),
+					}
+				} catch (err) {
+					if (pipelineStep) pipelineStep.status = "failed"
+					return {
+						agent: mentionTarget.agent,
+						output: [`Agent @${mentionAgent} error: ${err.message}`],
+					}
+				}
+			}
+
+			// ── Built-in agent commands ───────────────────────────────────
+			const agentCmd = AGENT_COMMANDS[command]
+			if (!agentCmd) {
+				return {
+					agent: "system",
+					output: [
+						`Unknown agent command: ${command}`,
+						"Type /help to see available agent commands.",
+						"Type /skills to see available skills.",
+					],
+				}
+			}
+
+			// ── System commands (no AI needed) ────────────────────────────
+			if (agentCmd.agent === "system") {
+				switch (command) {
+					case "/help":
+						const agentList = Object.entries(AGENT_COMMANDS)
+							.map(([cmd, info]) => `  ${cmd} — ${info.description}`)
+							.join("\n")
+						const skillList = Object.entries(SKILL_COMMANDS)
+							.map(([name, info]) => `  /skill ${name} — ${info.description}`)
+							.join("\n")
+						return {
+							agent: "system",
+							output: [
+								"╔══════════════════════════════════════════════╗",
+								"║     SuperRoo IDE Terminal — Agent Mode      ║",
+								"╚══════════════════════════════════════════════╝",
+								"",
+								"Agent commands (prefix with /):",
+								agentList,
+								"",
+								"Skill commands:",
+								skillList,
+								"",
+								"Agent mentions (prefix with @):",
+								"  @coder <task> — Delegate to Coder agent",
+								"  @debugger <task> — Delegate to Debugger agent",
+								"  @tester <task> — Delegate to Tester agent",
+								"  @planner <task> — Delegate to Planner agent",
+								"  @orchestrator <task> — Delegate to Orchestrator agent",
+								"",
+								"Examples:",
+								"  /deploy — Deploy the project",
+								"  /orchestrate — Break down a complex task into phases",
+								"  /skill supabase setup — Set up Supabase",
+								"  @coder fix the login bug — Delegate coding task",
+								"  /autonomous — Run autonomous scan",
+							],
+						}
+
+					case "/agents":
+						const agentEntries = Object.entries(AGENT_COMMANDS)
+							.filter(([_, info]) => info.agent !== "system")
+							.map(([cmd, info]) => `  ${cmd} → ${info.agent} agent — ${info.description}`)
+						return {
+							agent: "system",
+							output: [
+								"Available agents:",
+								...agentEntries,
+								"",
+								"Use @agent_name <task> to delegate directly.",
+							],
+						}
+
+					case "/skills":
+						const allSkills = Object.entries(SKILL_COMMANDS)
+							.map(([name, info]) => `  /skill ${name} — ${info.description}`)
+							.join("\n")
+						return {
+							agent: "system",
+							output: [
+								"Available skills:",
+								allSkills,
+								"",
+								"Usage: /skill <name> [args]",
+							],
+						}
+
+					case "/status":
+						return {
+							agent: "system",
+							output: [
+								`Workspace: ${ws.repoName}`,
+								`Branch: ${ws.branch}`,
+								`Directory: ${ws.workspaceDir}`,
+								`Terminal sessions: ${ws.terminalSessions.length}`,
+								`Chat messages: ${ws.chatMessages.length}`,
+								`Pipeline steps: ${ws.pipeline.filter(s => s.status !== "pending").length}/${ws.pipeline.length} active`,
+								`Connected: true`,
+							],
+						}
+
+					case "/memory":
+						return {
+							agent: "system",
+							output: [
+								`Chat history: ${ws.chatMessages.length} messages`,
+								`Pipeline: ${ws.pipeline.length} steps`,
+								`Terminal sessions: ${ws.terminalSessions.length}`,
+								`Recent commands: ${ws.terminalSessions[0]?.output?.slice(-5).join("\n") || "none"}`,
+							],
+						}
+
+					case "/pipeline":
+						const pipelineStatus = ws.pipeline.map(s =>
+							`  [${s.status === "done" ? "✓" : s.status === "running" ? "●" : s.status === "approval" ? "Ⅱ" : s.status === "failed" ? "✗" : "○"}] ${s.label} — ${s.status}${s.agent ? ` (${s.agent})` : ""}`
+						).join("\n")
+						return {
+							agent: "system",
+							output: [
+								`Pipeline for task ${ws.repoName}:`,
+								pipelineStatus,
+							],
+						}
+
+					default:
+						return {
+							agent: "system",
+							output: [`Unknown system command: ${command}`],
+						}
+				}
+			}
+
+			// ── Auto-Deployer agent (proxy to cloud auto-deployer worker) ──
+			if (agentCmd.agent === "auto-deployer") {
+				try {
+					const statusRes = await fetch("http://127.0.0.1:8790/api/auto-deploy/status")
+					const statusData = await statusRes.json()
+
+					// If args contain "trigger" or "deploy", trigger a deploy
+					if (args && (args.includes("trigger") || args.includes("deploy"))) {
+						const triggerRes = await fetch("http://127.0.0.1:8790/api/auto-deploy/trigger", { method: "POST" })
+						const triggerData = await triggerRes.json()
+						return {
+							agent: "auto-deployer",
+							output: [
+								"╔══════════════════════════════════════════════╗",
+								"║     Auto-Deployer — Deploy Triggered        ║",
+								"╚══════════════════════════════════════════════╝",
+								`State: ${triggerData.state}`,
+								`Attempt: ${triggerData.currentAttempt}/${triggerData.maxRetries}`,
+								`Message: ${triggerData.message || "Deploy started"}`,
+								"",
+								"Check status with: /auto-deploy",
+								"View dashboard: Auto Deploy tab in sidebar",
+							],
+						}
+					}
+
+					// Default: show status
+					const lastAttempt = statusData.attempts?.[statusData.attempts.length - 1]
+					return {
+						agent: "auto-deployer",
+						output: [
+							"╔══════════════════════════════════════════════╗",
+							"║     Auto-Deployer Status                     ║",
+							"╚══════════════════════════════════════════════╝",
+							`State: ${statusData.state}`,
+							`Total attempts: ${statusData.attempts?.length || 0}`,
+							`Current attempt: ${statusData.currentAttempt || 0}`,
+							`Max retries: ${statusData.maxRetries || 5}`,
+							`Last error: ${statusData.lastError || "none"}`,
+							`Triggered by: ${statusData.triggeredBy || "none"}`,
+							lastAttempt ? `Last attempt: ${lastAttempt.status} (${lastAttempt.timestamp})` : "",
+							"",
+							"Commands:",
+							"  /auto-deploy — Show this status",
+							"  /auto-deploy trigger — Trigger a deploy",
+							"  /auto-deploy deploy — Trigger a deploy",
+							"",
+							"View full dashboard: Auto Deploy tab in sidebar",
+						].filter(Boolean),
+					}
+				} catch (err) {
+					return {
+						agent: "auto-deployer",
+						output: [
+							"Auto-Deployer is not available.",
+							`Error: ${err.message}`,
+							"",
+							"The auto-deployer worker may not be running.",
+							"Ensure the VPS is online and PM2 service 'superroo-auto-deployer' is started.",
+						],
+					}
+				}
+			}
+
+			// ── Orchestrator agent (multi-step task breakdown) ────────────
+			if (agentCmd.agent === "orchestrator") {
+				const provider = resolveProviderForTask("coder")
+				if (!provider) {
+					return {
+						agent: "orchestrator",
+						output: ["No AI provider available. Please configure API keys first."],
+					}
+				}
+
+				// Update pipeline — orchestrator activates all steps
+				ws.pipeline = ws.pipeline.map((s) => ({ ...s, status: "pending" }))
+				if (ws.pipeline[0]) ws.pipeline[0].status = "running"
+
+				const orchestratorPrompt = [
+					`You are SuperRoo acting as the Orchestrator agent.`,
+					`Your role is to break down complex tasks into clear phases and coordinate multiple agents.`,
+					`User request: ${args || "No specific task provided"}`,
+					`Workspace: ${ws.repoName} on branch ${ws.branch}`,
+					`Directory: ${ws.workspaceDir}`,
+					``,
+					`Available agents you can delegate to:`,
+					`  @planner — Create detailed plans and architecture`,
+					`  @coder — Write and modify code`,
+					`  @debugger — Debug and investigate issues`,
+					`  @tester — Run and write tests`,
+					`  @deployer — Deploy the project`,
+					`  @crawler — Crawl and analyze codebase`,
+					`  @healer — Run self-healing cycles`,
+					``,
+					`Available skills:`,
+					`  /skill supabase — Integrate Supabase`,
+					`  /skill n8n — Workflow automation`,
+					`  /skill vercel — Vercel deployment`,
+					`  /skill digitalocean-vps — VPS management`,
+					`  /skill e2e-test — End-to-end testing`,
+					`  /skill phase-breakdown — Break down complex problems`,
+					``,
+					`For each phase of the task:`,
+					`1. Describe what needs to be done`,
+					`2. Specify which agent should handle it (using @mentions)`,
+					`3. Provide the exact command or instructions for that agent`,
+					`4. Define success criteria for each phase`,
+					``,
+					`Output a structured plan with phases, then execute them sequentially.`,
+					`Be thorough and provide actionable commands the user can run.`,
+				].join("\n")
+
+				try {
+					const reply = await callChatCompletion(provider.apiBaseUrl, provider.apiKey, provider.model, [
+						{ role: "system", content: orchestratorPrompt },
+						{ role: "user", content: args || "Help me plan and execute a task." },
+					])
+
+					// Mark pipeline as done after orchestration
+					ws.pipeline = ws.pipeline.map((s) => ({ ...s, status: "done" }))
+
+					return {
+						agent: "orchestrator",
+						output: reply.split("\n"),
+					}
+				} catch (err) {
+					ws.pipeline = ws.pipeline.map((s) => ({
+						...s,
+						status: s.status === "running" ? "failed" : s.status,
+					}))
+					return {
+						agent: "orchestrator",
+						output: [`Orchestrator error: ${err.message}`],
+					}
+				}
+			}
+
+			// ── Agent commands (route through AI provider) ────────────────
+			const provider = resolveProviderForTask(
+				agentCmd.agent === "debugger" ? "debug" :
+				agentCmd.agent === "tester" ? "test" :
+				agentCmd.agent === "deployer" ? "deploy" :
+				agentCmd.agent === "crawler" ? "crawl" :
+				agentCmd.agent === "planner" ? "plan" :
+				agentCmd.agent === "orchestrator" ? "coder" :
+				"coder"
+			)
+
+			if (!provider) {
+				return {
+					agent: agentCmd.agent,
+					output: [`No AI provider available for ${agentCmd.agent} agent. Please configure API keys.`],
+				}
+			}
+
+			// Update pipeline to show this agent is active
+			const pipelineStep = ws.pipeline.find(s =>
+				s.label.toLowerCase() === agentCmd.agent ||
+				s.id === agentCmd.agent
+			)
+			if (pipelineStep) {
+				pipelineStep.status = "running"
+				pipelineStep.agent = agentCmd.agent
+			}
+
+			const systemPrompt = [
+				`You are SuperRoo acting as the "${agentCmd.agent}" agent.`,
+				`Task: ${agentCmd.description}`,
+				`User request: ${args || "Execute your function"}`,
+				`Workspace: ${ws.repoName} on branch ${ws.branch}`,
+				`Directory: ${ws.workspaceDir}`,
+				"",
+				"Execute the task and provide clear output. If shell commands are needed,",
+				"describe what you would run. Be concise and actionable.",
+			].join("\n")
+
+			try {
+				const reply = await callChatCompletion(provider.apiBaseUrl, provider.apiKey, provider.model, [
+					{ role: "system", content: systemPrompt },
+					{ role: "user", content: args || `Execute as ${agentCmd.agent} agent.` },
+				])
+
+				// Mark pipeline step as done
+				if (pipelineStep) {
+					pipelineStep.status = "done"
+				}
+
+				return {
+					agent: agentCmd.agent,
+					output: reply.split("\n"),
+				}
+			} catch (err) {
+				if (pipelineStep) {
+					pipelineStep.status = "failed"
+				}
+				return {
+					agent: agentCmd.agent,
+					output: [`Agent execution error: ${err.message}`],
+				}
+			}
+		}
+
+		// GET /ide-workspace/workspace — get or create workspace session
+		if (method === "GET" && normalizedUrl.startsWith("/ide-workspace/workspace")) {
+			let files = []
+			try {
+				files = await walkDir(ws.workspaceDir, "")
+			} catch (e) {
+				// Ignore walk errors
+			}
+			sendJson(res, 200, {
+				workspaceId: ws.workspaceDir,
+				repoName: ws.repoName,
+				branch: ws.branch,
+				files,
+				openFiles: [],
+				activeFile: null,
+				pipeline: ws.pipeline,
+				terminalSessions: ws.terminalSessions,
+				activeTerminal: ws.activeTerminal,
+				chatMessages: ws.chatMessages,
 				status: { connected: true, docker: false, redis: false, cpu: "0%", ram: "0MB" },
 			})
 			return
@@ -1913,6 +2629,24 @@ const server = http.createServer(async (req, res) => {
 
 		// POST /ide-workspace/workspace/reset — reset workspace
 		if (method === "POST" && normalizedUrl.startsWith("/ide-workspace/workspace/reset")) {
+			ws.pipeline = [
+				{ id: "plan", label: "Plan", status: "pending" },
+				{ id: "crawl", label: "Crawl", status: "pending" },
+				{ id: "patch", label: "Patch", status: "pending" },
+				{ id: "approval", label: "Approval", status: "pending" },
+				{ id: "tests", label: "Tests", status: "pending" },
+				{ id: "deploy", label: "Deploy", status: "pending" },
+			]
+			ws.chatMessages = []
+			ws.terminalSessions = [
+				{
+					id: "term-1",
+					name: "bash",
+					cwd: ws.workspaceDir,
+					createdAt: new Date().toISOString(),
+					output: ["Welcome to SuperRoo IDE Terminal", "Type a command to get started..."],
+				},
+			]
 			sendJson(res, 200, { ok: true, message: "Workspace reset" })
 			return
 		}
@@ -1920,21 +2654,98 @@ const server = http.createServer(async (req, res) => {
 		// POST /ide-workspace/terminal/execute — execute command
 		if (method === "POST" && normalizedUrl.startsWith("/ide-workspace/terminal/execute")) {
 			const data = await parseBody(req)
-			sendJson(res, 200, {
-				ok: true,
-				message: "Command executed (simulated)",
-				output: [
-					`$ ${data?.command || "unknown"}`,
-					"stdout: Command completed successfully (simulated)",
-					"stderr: (empty)",
-				],
-			})
+			const cmd = data?.command || ""
+			const terminalId = data?.terminalId || "term-1"
+
+			if (!cmd) {
+				sendJson(res, 400, { ok: false, error: "Missing command" })
+				return
+			}
+
+			// Find the terminal session
+			let term = ws.terminalSessions.find((t) => t.id === terminalId)
+			if (!term) {
+				term = ws.terminalSessions[0]
+			}
+
+			// ── Agent/Skill-aware command detection ────────────────────────
+			// Detect if this is an agent/skill command (prefixed with / or @)
+			const isAgentCommand = cmd.startsWith("/") || cmd.startsWith("@")
+
+			if (isAgentCommand) {
+				// Route through agent system instead of raw shell
+				try {
+					const agentResult = await handleAgentTerminalCommand(cmd, ws, term)
+					const outputLines = agentResult.output || ["Command processed by agent system"]
+					// Log to terminal session
+					term.output.push(`$ ${cmd}`)
+					term.output.push(...outputLines)
+					sendJson(res, 200, {
+						ok: true,
+						output: outputLines,
+						agent: agentResult.agent,
+						skill: agentResult.skill,
+					})
+				} catch (err) {
+					const errorLines = [`$ ${cmd}`, `Error: ${err.message}`]
+					term.output.push(...errorLines)
+					sendJson(res, 200, {
+						ok: true,
+						output: errorLines,
+					})
+				}
+				return
+			}
+
+			// ── Raw shell execution (for non-agent commands) ──────────────
+			term.output.push(`$ ${cmd}`)
+
+			try {
+				const result = await execAsync(cmd, {
+					cwd: term.cwd || ws.workspaceDir,
+					timeout: 30000,
+					maxBuffer: 1024 * 1024, // 1MB
+				})
+
+				if (result.stdout) {
+					const lines = result.stdout.trim().split("\n")
+					term.output.push(...lines)
+				}
+				if (result.stderr) {
+					const lines = result.stderr.trim().split("\n")
+					term.output.push(...lines.map((l) => `stderr: ${l}`))
+				}
+
+				sendJson(res, 200, {
+					ok: true,
+					message: "Command executed",
+					output: [`$ ${cmd}`, ...(result.stdout ? result.stdout.trim().split("\n") : []), ...(result.stderr ? result.stderr.trim().split("\n").map((l) => `stderr: ${l}`) : [])],
+				})
+			} catch (err) {
+				const errorMsg = err.stderr || err.message || "Command failed"
+				term.output.push(`Error: ${errorMsg}`)
+				sendJson(res, 200, {
+					ok: true,
+					message: "Command completed with errors",
+					output: [`$ ${cmd}`, `Error: ${errorMsg}`],
+				})
+			}
 			return
 		}
 
 		// POST /ide-workspace/terminal/create — create terminal
 		if (method === "POST" && normalizedUrl.startsWith("/ide-workspace/terminal/create")) {
-			sendJson(res, 200, { ok: true, message: "Terminal created (simulated)" })
+			const data = await parseBody(req)
+			const newTerm = {
+				id: `term-${ws.terminalSessions.length + 1}`,
+				name: data?.name || "bash",
+				cwd: data?.cwd || ws.workspaceDir,
+				createdAt: new Date().toISOString(),
+				output: ["Terminal created"],
+			}
+			ws.terminalSessions.push(newTerm)
+			ws.activeTerminal = newTerm.id
+			sendJson(res, 200, { ok: true, message: "Terminal created", terminal: newTerm })
 			return
 		}
 
@@ -1961,51 +2772,152 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
-		// POST /ide-workspace/chat — send chat message
+		// POST /ide-workspace/chat — send chat message (OpenClaw-powered)
 		if (method === "POST" && normalizedUrl.startsWith("/ide-workspace/chat")) {
 			const data = await parseBody(req)
 			const msg = data?.message || ""
 			const requestedProvider = data?.provider || null
 			const requestedModel = data?.model || null
 
-			// If user specified a provider, try to use it directly
+			// Store user message
+			ws.chatMessages.push({
+				id: `msg-${Date.now()}`,
+				role: "user",
+				author: "You",
+				time: new Date().toLocaleTimeString(),
+				content: msg,
+			})
+
+			// ── OpenClaw intent classification ──────────────────────────────
+			// Build providers array for the classifier (same format askAI uses)
+			const classifierProviders = PROVIDERS.map((p) => {
+				const meta = providerMeta.get(p.id) || {}
+				const apiKey = readProviderApiKey(p.id)
+				if (!apiKey) return null
+				return {
+					providerId: p.id,
+					apiKey,
+					apiBaseUrl: meta.apiBaseUrl || p.apiBaseUrl,
+					model: meta.defaultModel || p.defaultModel,
+				}
+			}).filter(Boolean)
+
+			let intent = null
+			try {
+				intent = await telegramClassifier.classifyIntent(msg, classifierProviders)
+			} catch (e) {
+				console.error("[ide-chat] Classifier error:", e.message)
+			}
+
+			const intentKind = intent?.kind || "chat"
+			const intentConfidence = intent?.confidence || 0
+
+			// ── Route based on intent ──────────────────────────────────────
+			// Map OpenClaw kinds to agent types and pipeline steps
+			const intentToAgent = {
+				chat: { agent: "chat", pipelineStep: null },
+				debug_plan: { agent: "debugger", pipelineStep: "plan" },
+				read_logs: { agent: "debugger", pipelineStep: "crawl" },
+				run_tests: { agent: "tester", pipelineStep: "tests" },
+				create_branch: { agent: "coder", pipelineStep: "plan" },
+				create_pr: { agent: "coder", pipelineStep: "deploy" },
+				restart_worker: { agent: "deployer", pipelineStep: "deploy" },
+				deploy: { agent: "deployer", pipelineStep: "deploy" },
+				shell: { agent: "coder", pipelineStep: "patch" },
+			}
+
+			const routing = intentToAgent[intentKind] || { agent: "chat", pipelineStep: null }
+
+			// Update pipeline to show the active step
+			if (routing.pipelineStep) {
+				ws.pipeline = ws.pipeline.map((s) => ({
+					...s,
+					status: s.id === routing.pipelineStep ? "running" : "pending",
+				}))
+			}
+
+			// ── Resolve AI provider ────────────────────────────────────────
 			let provider = null
 			if (requestedProvider) {
 				provider = resolveProviderById(requestedProvider, requestedModel)
 			}
-
-			// Fall back to automatic routing if no specific provider requested or it's unavailable
 			if (!provider) {
-				provider = resolveProviderForTask("coder")
+				provider = resolveProviderForTask(routing.agent === "debugger" ? "debug" : routing.agent === "tester" ? "test" : "coder")
 			}
 
 			if (!provider) {
+				const noProviderMsg = "No AI provider is configured and connected. Please go to the API Keys page to add and test a provider API key (e.g., DeepSeek, OpenAI, or Anthropic). After saving the key, click 'Test' to verify the connection."
+				ws.chatMessages.push({
+					id: `msg-${Date.now() + 1}`,
+					role: "agent",
+					author: "System",
+					time: new Date().toLocaleTimeString(),
+					content: noProviderMsg,
+				})
 				sendJson(res, 200, {
 					ok: true,
 					message: "No AI provider available",
-					reply: "No AI provider is configured and connected. Please go to the API Keys page to add and test a provider API key (e.g., DeepSeek, OpenAI, or Anthropic). After saving the key, click 'Test' to verify the connection.",
+					reply: noProviderMsg,
 				})
 				return
 			}
 
+			// ── Build context-aware system prompt ──────────────────────────
+			const contextParts = [`You are SuperRoo, an expert AI coding assistant running in the Cloud Dashboard IDE Terminal.`]
+			contextParts.push(`The current workspace is "${ws.repoName}" on branch "${ws.branch}".`)
+			contextParts.push(`The workspace directory is: ${ws.workspaceDir}`)
+			if (ws.chatMessages.length > 2) {
+				const recent = ws.chatMessages.slice(-4, -1).map((m) => `${m.author}: ${m.content.slice(0, 200)}`).join("\n")
+				contextParts.push(`Recent conversation:\n${recent}`)
+			}
+			if (intentKind !== "chat" && intentConfidence >= 0.3) {
+				contextParts.push(`The user's intent was classified as "${intentKind}" (confidence: ${(intentConfidence * 100).toFixed(0)}%). Route your response accordingly.`)
+			}
+
+			const systemPrompt = contextParts.join("\n")
+
 			try {
 				const reply = await callChatCompletion(provider.apiBaseUrl, provider.apiKey, provider.model, [
-					{
-						role: "system",
-						content:
-							"You are SuperRoo, an expert AI coding assistant. You help users write, debug, and improve code. Be concise, technical, and provide actionable answers.",
-					},
+					{ role: "system", content: systemPrompt },
 					{ role: "user", content: msg },
 				])
+
+				ws.chatMessages.push({
+					id: `msg-${Date.now() + 1}`,
+					role: "agent",
+					author: provider.providerId,
+					meta: `${provider.model} · ${routing.agent}`,
+					time: new Date().toLocaleTimeString(),
+					content: reply,
+				})
+
+				// Mark pipeline step as done after successful response
+				if (routing.pipelineStep) {
+					ws.pipeline = ws.pipeline.map((s) => ({
+						...s,
+						status: s.id === routing.pipelineStep ? "done" : s.status,
+					}))
+				}
+
 				sendJson(res, 200, {
 					ok: true,
 					message: "OK",
 					reply,
 					provider: provider.providerId,
 					model: provider.model,
+					intent: intentKind,
+					intentConfidence,
+					agent: routing.agent,
 				})
 			} catch (err) {
 				console.error(`[api] Chat error with ${provider.providerId}:`, err.message)
+				ws.chatMessages.push({
+					id: `msg-${Date.now() + 1}`,
+					role: "assistant",
+					author: "System",
+					time: new Date().toLocaleTimeString(),
+					content: `AI request failed: ${err.message}`,
+				})
 				sendJson(res, 200, {
 					ok: true,
 					message: "AI call failed",
@@ -2013,6 +2925,7 @@ const server = http.createServer(async (req, res) => {
 					provider: provider.providerId,
 					model: provider.model,
 					error: err.message,
+					intent: intentKind,
 				})
 			}
 			return
@@ -2023,10 +2936,106 @@ const server = http.createServer(async (req, res) => {
 			const data = await parseBody(req)
 			const stepId = data?.stepId || "unknown"
 			const action = data?.action || "unknown"
+
+			// Update pipeline step status
+			const step = ws.pipeline.find((s) => s.id === stepId)
+			if (step) {
+				if (action === "approve") {
+					step.status = "running"
+				} else if (action === "complete") {
+					step.status = "done"
+				} else if (action === "fail") {
+					step.status = "failed"
+				} else if (action === "block") {
+					step.status = "blocked"
+				} else {
+					step.status = "running"
+				}
+			}
+
 			sendJson(res, 200, {
 				ok: true,
-				message: `Pipeline step "${stepId}" updated with action "${action}" (simulated)`,
+				message: `Pipeline step "${stepId}" updated with action "${action}"`,
+				pipeline: ws.pipeline,
 			})
+			return
+		}
+
+		// GET /ide-workspace/file/read — read file content
+		if (method === "GET" && normalizedUrl.startsWith("/ide-workspace/file/read")) {
+			const urlObj = new URL(req.url, "http://localhost")
+			const filePath = urlObj.searchParams.get("path") || ""
+
+			if (!filePath) {
+				sendJson(res, 400, { ok: false, error: "Missing path parameter" })
+				return
+			}
+
+			// Resolve the absolute path (prevent directory traversal)
+			const resolvedPath = path.resolve(ws.workspaceDir, "." + filePath)
+			if (!resolvedPath.startsWith(path.resolve(ws.workspaceDir))) {
+				sendJson(res, 403, { ok: false, error: "Access denied: path outside workspace" })
+				return
+			}
+
+			try {
+				const stat = await fs.stat(resolvedPath)
+				if (!stat.isFile()) {
+					sendJson(res, 400, { ok: false, error: "Not a file" })
+					return
+				}
+				const content = await fs.readFile(resolvedPath, "utf-8")
+				const ext = path.extname(resolvedPath).slice(1)
+				sendJson(res, 200, {
+					ok: true,
+					path: filePath,
+					content,
+					language: ext,
+					size: stat.size,
+					modified: stat.mtimeMs,
+				})
+			} catch (err) {
+				if (err.code === "ENOENT") {
+					sendJson(res, 404, { ok: false, error: "File not found" })
+				} else {
+					sendJson(res, 500, { ok: false, error: `Failed to read file: ${err.message}` })
+				}
+			}
+			return
+		}
+
+		// POST /ide-workspace/file/save — save file content
+		if (method === "POST" && normalizedUrl.startsWith("/ide-workspace/file/save")) {
+			const data = await parseBody(req)
+			const filePath = data?.path || ""
+			const content = data?.content || ""
+
+			if (!filePath) {
+				sendJson(res, 400, { ok: false, error: "Missing path" })
+				return
+			}
+
+			// Resolve the absolute path (prevent directory traversal)
+			const resolvedPath = path.resolve(ws.workspaceDir, "." + filePath)
+			if (!resolvedPath.startsWith(path.resolve(ws.workspaceDir))) {
+				sendJson(res, 403, { ok: false, error: "Access denied: path outside workspace" })
+				return
+			}
+
+			try {
+				// Ensure parent directory exists
+				await fs.mkdir(path.dirname(resolvedPath), { recursive: true })
+				await fs.writeFile(resolvedPath, content, "utf-8")
+				const stat = await fs.stat(resolvedPath)
+				sendJson(res, 200, {
+					ok: true,
+					path: filePath,
+					size: stat.size,
+					modified: stat.mtimeMs,
+				})
+			} catch (err) {
+				sendJson(res, 500, { ok: false, error: `Failed to save file: ${err.message}` })
+			}
 			return
 		}
 
@@ -2035,25 +3044,52 @@ const server = http.createServer(async (req, res) => {
 			const data = await parseBody(req)
 			const repoUrl = data?.repoUrl || ""
 			const branch = data?.branch || "main"
-			sendJson(res, 200, {
-				ok: true,
-				message: `Repository ${repoUrl} (branch: ${branch}) imported (simulated)`,
-				repoName: repoUrl.split("/").pop()?.replace(".git", "") || "imported-repo",
-				branch,
-				files: [
-					{
-						path: "/src",
-						name: "src",
-						kind: "folder",
-						children: [
-							{ path: "/src/index.ts", name: "index.ts", kind: "file" },
-							{ path: "/src/app.ts", name: "app.ts", kind: "file", modified: true },
-						],
-					},
-					{ path: "/package.json", name: "package.json", kind: "file" },
-					{ path: "/tsconfig.json", name: "tsconfig.json", kind: "file" },
-				],
-			})
+
+			if (!repoUrl) {
+				sendJson(res, 400, { ok: false, error: "Missing repoUrl" })
+				return
+			}
+
+			// Extract repo name from URL
+			const repoName = repoUrl.split("/").pop()?.replace(".git", "") || "imported-repo"
+			const importDir = path.join(ws.workspaceDir, "imports", repoName)
+
+			try {
+				// Create import directory
+				await fs.mkdir(importDir, { recursive: true })
+
+				// Try to clone the repo
+				try {
+					await execAsync(`git clone --depth 1 --branch ${branch} ${repoUrl} ${importDir}`, {
+						timeout: 60000,
+					})
+				} catch (cloneErr) {
+					// If clone fails (e.g., no git, no network), create a placeholder
+					await fs.writeFile(path.join(importDir, "README.md"), `# ${repoName}\n\nImported from ${repoUrl}\n`)
+				}
+
+				// Update workspace to point to imported repo
+				ws.workspaceDir = importDir
+				ws.repoName = repoName
+				ws.branch = branch
+
+				// Build file tree
+				const files = await walkDir(importDir, "")
+
+				sendJson(res, 200, {
+					ok: true,
+					message: `Repository ${repoUrl} (branch: ${branch}) imported successfully`,
+					repoName,
+					branch,
+					files,
+				})
+			} catch (err) {
+				console.error("[api] Import failed:", err.message)
+				sendJson(res, 500, {
+					ok: false,
+					error: `Import failed: ${err.message}`,
+				})
+			}
 			return
 		}
 
@@ -2605,6 +3641,33 @@ const server = http.createServer(async (req, res) => {
 				sendJson(res, 200, { success: true, data: result })
 			} catch (err) {
 				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// ── Auto-Deployer API ───────────────────────────────────────────────────────
+		// Proxies to the auto-deployer worker running on port 8790
+
+		// GET /api/auto-deploy/status — Get auto-deployer status
+		if (method === "GET" && (url === "/api/auto-deploy/status" || normalizedUrl === "/auto-deploy/status")) {
+			try {
+				const proxyRes = await fetch("http://127.0.0.1:8790/api/auto-deploy/status")
+				const data = await proxyRes.json()
+				sendJson(res, 200, data)
+			} catch (err) {
+				sendJson(res, 503, { success: false, error: "Auto-deployer not available", detail: err.message })
+			}
+			return
+		}
+
+		// POST /api/auto-deploy/trigger — Trigger a deploy
+		if (method === "POST" && (url === "/api/auto-deploy/trigger" || normalizedUrl === "/auto-deploy/trigger")) {
+			try {
+				const proxyRes = await fetch("http://127.0.0.1:8790/api/auto-deploy/trigger", { method: "POST" })
+				const data = await proxyRes.json()
+				sendJson(res, proxyRes.status, data)
+			} catch (err) {
+				sendJson(res, 503, { success: false, error: "Auto-deployer not available", detail: err.message })
 			}
 			return
 		}

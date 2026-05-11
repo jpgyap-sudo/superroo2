@@ -155,7 +155,7 @@ while [ $attempt -le $MAX_RETRIES ]; do
     kill_stuck_ssh
 
     if run_deploy; then
-        local end_time=$(date +%s)
+        end_time=$(date +%s)
         echo ""
         echo -e "${GREEN}============================================${NC}"
         echo -e "${GREEN}  ✅ DEPLOY SUCCESSFUL on attempt ${attempt}${NC}"
@@ -164,7 +164,7 @@ while [ $attempt -le $MAX_RETRIES ]; do
         exit 0
     fi
 
-    local delay=$((RETRY_DELAY * (2 ** (attempt - 1))))
+    delay=$((RETRY_DELAY * (2 ** (attempt - 1))))
     echo ""
     echo -e "${RED}❌ Attempt ${attempt} failed. Waiting ${delay}s before retry...${NC}"
     echo -e "${YELLOW}   (You can move on to other things — the bot will keep trying)${NC}"

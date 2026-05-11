@@ -28,6 +28,19 @@ const telegramPolicy = require("./telegramPolicy")
 const telegramEngineer = require("./telegramEngineer")
 const tgEndpoints = require("./tgEndpoints")
 
+// Terminal Brain integration — loaded lazily to avoid crash if packages aren't built
+let _terminalBrainAvailable = false
+try {
+	// Verify the Terminal Brain packages are accessible
+	const { TerminalBrain } = require("../../../packages/terminal-core/src/brain")
+	if (typeof TerminalBrain === "function") {
+		_terminalBrainAvailable = true
+		console.log("[telegram] Terminal Brain packages loaded successfully")
+	}
+} catch (err) {
+	console.log("[telegram] Terminal Brain packages not available (non-fatal):", err.message)
+}
+
 // ─── Configuration ─────────────────────────────────────────────────────────
 
 const TELEGRAM_API_BASE = "https://api.telegram.org/bot"
@@ -46,6 +59,66 @@ const MINI_APP_URL = "https://dev.abcx124.xyz/telegram-miniapp"
 
 /** Telegram message length limit (Telegram API hard limit) */
 const TELEGRAM_MAX_MESSAGE_LENGTH = 4096
+
+// ─── Structured Error Logging for Ace Team ─────────────────────────────────
+
+/**
+ * Log a structured error event that the Ace Team monitoring system can parse.
+ * Each error is logged as a JSON line prefixed with [ace-error] for easy grep.
+ *
+ * Fields:
+ *   - command: The slash command or intent that failed
+ *   - chatId: The Telegram chat ID
+ *   - userId: The Telegram user ID
+ *   - error: The error message
+ *   - stack: Truncated stack trace (first 3 lines)
+ *   - timestamp: ISO timestamp
+ *   - context: Additional context (e.g., args, project name)
+ */
+function logTelegramError(command, chatId, userId, err, context) {
+	var errorEntry = {
+		type: "telegram_error",
+		command: command,
+		chatId: chatId,
+		userId: userId || null,
+		error: (err && err.message) || String(err),
+		stack: (err && err.stack) ? err.stack.split("\n").slice(0, 3).join(" | ") : null,
+		timestamp: new Date().toISOString(),
+		context: context || null,
+	}
+	console.error("[ace-error] " + JSON.stringify(errorEntry))
+}
+
+/**
+ * Log a structured warning event for non-fatal issues that may need attention.
+ */
+function logTelegramWarning(command, chatId, userId, message, context) {
+	var warnEntry = {
+		type: "telegram_warning",
+		command: command,
+		chatId: chatId,
+		userId: userId || null,
+		message: message,
+		timestamp: new Date().toISOString(),
+		context: context || null,
+	}
+	console.warn("[ace-warn] " + JSON.stringify(warnEntry))
+}
+
+/**
+ * Log a structured success/usage event for monitoring feature adoption.
+ */
+function logTelegramUsage(command, chatId, userId, details) {
+	var usageEntry = {
+		type: "telegram_usage",
+		command: command,
+		chatId: chatId,
+		userId: userId || null,
+		details: details || null,
+		timestamp: new Date().toISOString(),
+	}
+	console.log("[ace-usage] " + JSON.stringify(usageEntry))
+}
 
 // ─── In-memory state ───────────────────────────────────────────────────────
 
@@ -290,29 +363,45 @@ async function sendMessage(botToken, chatId, text, opts) {
 
 	for (var ci = 0; ci < chunks.length; ci++) {
 		var chunk = chunks[ci]
-		const body = {
-			chat_id: chatId,
-			text: chunk,
-			parse_mode: opts.parseMode || "Markdown",
-			disable_web_page_preview: true,
-		}
-		if (opts.reply_to_message_id) body.reply_to_message_id = opts.reply_to_message_id
-		if (opts.disable_notification) body.disable_notification = opts.disable_notification
-		if (opts.reply_markup) body.reply_markup = opts.reply_markup
-		try {
-			const res = await fetch(url, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify(body),
-			})
-			if (!res.ok) {
-				const err = await res.text().catch(function () {
-					return ""
-				})
-				console.error("[telegram] sendMessage error: " + res.status + " " + err.slice(0, 200))
+		// Try with markdown first, fall back to plain text if markdown parsing fails
+		var parseMode = opts.parseMode || "Markdown"
+		var attempts = 0
+		var maxAttempts = 2
+
+		while (attempts < maxAttempts) {
+			attempts++
+			const body = {
+				chat_id: chatId,
+				text: chunk,
+				parse_mode: parseMode,
+				disable_web_page_preview: true,
 			}
-		} catch (err) {
-			console.error("[telegram] sendMessage network error:", err.message)
+			if (opts.reply_to_message_id) body.reply_to_message_id = opts.reply_to_message_id
+			if (opts.disable_notification) body.disable_notification = opts.disable_notification
+			if (opts.reply_markup) body.reply_markup = opts.reply_markup
+			try {
+				const res = await fetch(url, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify(body),
+				})
+				if (!res.ok) {
+					const err = await res.text().catch(function () {
+						return ""
+					})
+					// If markdown parsing failed, fall back to plain text
+					if (parseMode === "Markdown" && err.includes("can't parse entities")) {
+						console.log("[telegram] Markdown parse failed, falling back to plain text for chunk " + ci)
+						parseMode = ""
+						continue
+					}
+					console.error("[telegram] sendMessage error: " + res.status + " " + err.slice(0, 200))
+				}
+				break // Success
+			} catch (err) {
+				console.error("[telegram] sendMessage network error:", err.message)
+				break
+			}
 		}
 		// Small delay between chunks to avoid rate limiting
 		if (ci < chunks.length - 1) {
@@ -1024,7 +1113,7 @@ async function askAI(message, providers, chatId) {
 					max_tokens: 4096,
 					temperature: 0.7,
 				}),
-				signal: AbortSignal.timeout(60_000),
+				signal: AbortSignal.timeout(120_000),
 			})
 			if (!res.ok) {
 				var errBody = ""
@@ -1074,11 +1163,13 @@ async function askAI(message, providers, chatId) {
 
 			return reply
 		} catch (err) {
-			console.error("[telegram] askAI network error with " + provider.providerId + ":", err.message)
+			var errorDetail = err.name === "TimeoutError" || err.name === "AbortError" ? "timeout after 120s" : err.message
+			console.error("[telegram] askAI network error with " + provider.providerId + ":", errorDetail)
 			continue
 		}
 	}
-	return "Sorry, I couldn't reach any AI provider right now. Please check that an API key is configured and working in the dashboard (API Keys page)."
+	var triedProviders = providers.filter(function (p) { return p.apiKey }).map(function (p) { return p.providerId || p.name }).join(", ")
+	return "Sorry, I couldn't reach any AI provider (" + (triedProviders || "none configured") + "). Please check that API keys are configured and working in the dashboard (API Keys tab). If using DeepSeek, it may be experiencing high traffic — try again later or switch to OpenAI."
 }
 
 // ─── Command Handlers ──────────────────────────────────────────────────────
@@ -1323,7 +1414,7 @@ async function handleCode(botToken, chatId, args, queue) {
 
 	var job = await queue.add("telegram-" + taskId, {
 		task: instruction,
-		agentId: "coder",
+		agentId: "superroo-debugger-agent",
 		commands: [],
 		network: "none",
 		telegram: {
@@ -1347,7 +1438,7 @@ async function handleCode(botToken, chatId, args, queue) {
 	})
 
 	// Send rich notification with action buttons
-	await telegramNotifier.sendTaskStarted(botToken, chatId, taskId, instruction, "coder")
+	await telegramNotifier.sendTaskStarted(botToken, chatId, taskId, instruction, "superroo-debugger-agent")
 }
 
 /**
@@ -1618,7 +1709,7 @@ async function handleTest(botToken, chatId, args, queue) {
 
 	var job = await queue.add("test-" + taskId + "-" + Date.now(), {
 		task: "Run tests: " + taskId,
-		agentId: "tester",
+		agentId: "superroo-tester-agent",
 		commands: [],
 		network: "none",
 	})
@@ -1675,7 +1766,7 @@ async function handleDeploy(botToken, chatId, args, queue) {
 
 	var job = await queue.add("deploy-" + taskId + "-" + Date.now(), {
 		task: "Deploy: " + task.instruction,
-		agentId: "deployChecker",
+		agentId: "superroo-deployer-agent",
 		commands: [],
 		network: "none",
 	})
@@ -2164,6 +2255,217 @@ async function handleMiniIde(botToken, chatId, telegramUserId) {
 	}
 }
 
+/**
+ * Handles /brain — Terminal Brain commands for intelligent command execution.
+ * Subcommands:
+ *   /brain plan <query>       — Plan commands from natural language
+ *   /brain exec <command>     — Execute a command with safety checks
+ *   /brain analyze <output>   — Analyze output for errors
+ *   /brain fix <output>       — Suggest fixes for errors
+ *   /brain memory             — Show terminal memory stats
+ *   /brain context            — Show project context
+ *   /brain pipeline <query>   — Full plan→execute→analyze→fix pipeline
+ *   /brain help               — Show brain command help
+ */
+async function handleBrain(botToken, chatId, args, providers) {
+	if (!_terminalBrainAvailable) {
+		await sendMessage(
+			botToken,
+			chatId,
+			"*🧠 Terminal Brain — Not Available*\n\n" +
+				"The Terminal Brain packages are not loaded on this server. " +
+				"This feature requires the Terminal Brain Layer to be installed.\n\n" +
+				"Available commands: `/debug`, `/logs`, `/tests`, `/restart`, `/ask`",
+		)
+		return
+	}
+
+	var subcommand = (args[0] || "").toLowerCase()
+	var query = args.slice(1).join(" ")
+
+	if (!subcommand || subcommand === "help") {
+		await sendMessage(
+			botToken,
+			chatId,
+			"*🧠 Terminal Brain — Commands*\n\n" +
+				"The Terminal Brain is an intelligent command execution layer with " +
+				"project context, error analysis, and memory.\n\n" +
+				"*Subcommands:*\n" +
+				"• `/brain plan <query>` — Plan commands from natural language\n" +
+				"  Example: `/brain plan fix the build`\n\n" +
+				"• `/brain exec <command>` — Execute a command safely\n" +
+				"  Example: `/brain exec pnpm run build`\n\n" +
+				"• `/brain analyze <output>` — Analyze output for errors\n" +
+				"  Example: `/brain analyze TS2345: Type 'X' is not assignable...`\n\n" +
+				"• `/brain fix <output>` — Suggest fixes for errors\n" +
+				"  Example: `/brain fix Module not found: Can't resolve './foo'`\n\n" +
+				"• `/brain memory` — Show terminal memory stats\n" +
+				"• `/brain context` — Show project context\n" +
+				"• `/brain pipeline <query>` — Full plan→execute→analyze→fix\n" +
+				"  Example: `/brain pipeline run tests and fix failures`\n\n" +
+				"*Tip:* The `/ask` and `/debug` commands also use the Terminal Brain " +
+				"when available for enhanced error analysis.",
+		)
+		return
+	}
+
+	await sendChatAction(botToken, chatId, "typing")
+
+	try {
+		if (subcommand === "plan") {
+			if (!query) {
+				await sendMessage(botToken, chatId, "*Usage:* `/brain plan <natural language query>`\n\nExample: `/brain plan fix the build`")
+				return
+			}
+			var planResult = await tgEndpoints.brainPlan(query, chatId)
+			if (!planResult.ok) {
+				await sendMessage(botToken, chatId, "*Brain Plan Error* ❌\n\n" + (planResult.error || "Unknown error"))
+				return
+			}
+			var planReply = telegramEngineer.formatBrainPlan(planResult)
+			await sendMessage(botToken, chatId, planReply)
+
+		} else if (subcommand === "exec" || subcommand === "execute") {
+			if (!query) {
+				await sendMessage(botToken, chatId, "*Usage:* `/brain exec <shell command>`\n\nExample: `/brain exec pnpm run build`")
+				return
+			}
+			var execResult = await tgEndpoints.brainExecute(query, chatId)
+			if (!execResult.ok) {
+				await sendMessage(botToken, chatId, "*Brain Execute Error* ❌\n\n" + (execResult.error || "Unknown error"))
+				return
+			}
+			var execReply = telegramEngineer.formatBrainFeedback(execResult.feedback)
+			await sendMessage(botToken, chatId, execReply)
+
+		} else if (subcommand === "analyze") {
+			if (!query) {
+				await sendMessage(botToken, chatId, "*Usage:* `/brain analyze <command output>`\n\nExample: `/brain analyze TS2345: Type 'X' is not assignable to type 'Y'`")
+				return
+			}
+			var analyzeResult = await tgEndpoints.brainAnalyze(query, chatId)
+			if (!analyzeResult.ok) {
+				await sendMessage(botToken, chatId, "*Brain Analyze Error* ❌\n\n" + (analyzeResult.error || "Unknown error"))
+				return
+			}
+			var analyzeReply = telegramEngineer.formatBrainErrors(analyzeResult.errors)
+			await sendMessage(botToken, chatId, analyzeReply)
+
+		} else if (subcommand === "fix") {
+			if (!query) {
+				await sendMessage(botToken, chatId, "*Usage:* `/brain fix <error output>`\n\nExample: `/brain fix Module not found: Can't resolve './foo'`")
+				return
+			}
+			var fixResult = await tgEndpoints.brainFix(query, chatId)
+			if (!fixResult.ok) {
+				await sendMessage(botToken, chatId, "*Brain Fix Error* ❌\n\n" + (fixResult.error || "Unknown error"))
+				return
+			}
+			if (!fixResult.fixes || fixResult.fixes.length === 0) {
+				await sendMessage(botToken, chatId, "*🧠 Terminal Brain — No fixes suggested*\n\nNo automatic fixes could be determined for the given output.")
+				return
+			}
+			var fixLines = ["*🧠 Terminal Brain — Suggested Fixes*"]
+			for (var fi = 0; fi < fixResult.fixes.length; fi++) {
+				fixLines.push("• " + (fi + 1) + ". " + fixResult.fixes[fi])
+			}
+			await sendMessage(botToken, chatId, fixLines.join("\n"))
+
+		} else if (subcommand === "memory") {
+			var memResult = await tgEndpoints.brainMemory(chatId)
+			if (!memResult.ok) {
+				await sendMessage(botToken, chatId, "*Brain Memory Error* ❌\n\n" + (memResult.error || "Unknown error"))
+				return
+			}
+			var memReply = telegramEngineer.formatBrainMemory(memResult.stats)
+			await sendMessage(botToken, chatId, memReply)
+
+		} else if (subcommand === "context") {
+			var ctxResult = await tgEndpoints.brainContext(chatId)
+			if (!ctxResult.ok) {
+				await sendMessage(botToken, chatId, "*Brain Context Error* ❌\n\n" + (ctxResult.error || "Unknown error"))
+				return
+			}
+			var ctxReply = telegramEngineer.formatBrainContext(ctxResult.context)
+			await sendMessage(botToken, chatId, ctxReply)
+
+		} else if (subcommand === "pipeline") {
+			if (!query) {
+				await sendMessage(botToken, chatId, "*Usage:* `/brain pipeline <natural language query>`\n\nExample: `/brain pipeline run tests and fix failures`\n\nThis runs the full Plan → Execute → Analyze → Fix pipeline.")
+				return
+			}
+			var pipeResult = await tgEndpoints.brainPipeline(query, chatId)
+			if (!pipeResult.ok) {
+				await sendMessage(botToken, chatId, "*Brain Pipeline Error* ❌\n\n" + (pipeResult.error || "Unknown error"))
+				return
+			}
+
+			// Build a comprehensive pipeline result message
+			var pipeLines = ["*🧠 Terminal Brain — Pipeline Result*"]
+
+			// Plan
+			if (pipeResult.plan) {
+				pipeLines.push("\n*📋 Plan:*")
+				var planCmds = pipeResult.plan.commands || []
+				for (var pi = 0; pi < planCmds.length; pi++) {
+					var pc = typeof planCmds[pi] === "string" ? planCmds[pi] : (planCmds[pi].command || "")
+					pipeLines.push("  `" + (pi + 1) + ".` `" + pc + "`")
+				}
+			}
+
+			// Feedback
+			if (pipeResult.feedback) {
+				var fbArray = Array.isArray(pipeResult.feedback) ? pipeResult.feedback : [pipeResult.feedback]
+				for (var fbi = 0; fbi < fbArray.length; fbi++) {
+					var fb = fbArray[fbi]
+					var fbIcon = fb.exitCode === 0 ? "✅" : "❌"
+					pipeLines.push("\n*" + fbIcon + " Step " + (fbi + 1) + ":* Exit `" + fb.exitCode + "`")
+				}
+			}
+
+			// Errors
+			if (pipeResult.errors && pipeResult.errors.length > 0) {
+				pipeLines.push("\n*🔍 Errors Found:* " + pipeResult.errors.length)
+				for (var ei = 0; ei < Math.min(pipeResult.errors.length, 3); ei++) {
+					var pe = pipeResult.errors[ei]
+					pipeLines.push("  • `" + pe.type + "`" + (pe.message ? ": " + pe.message.slice(0, 100) : ""))
+				}
+				if (pipeResult.errors.length > 3) {
+					pipeLines.push("  *+ " + (pipeResult.errors.length - 3) + " more*")
+				}
+			}
+
+			// Fixes
+			if (pipeResult.fixes && pipeResult.fixes.length > 0) {
+				pipeLines.push("\n*🔧 Fixes Suggested:* " + pipeResult.fixes.length)
+				for (var fxi = 0; fxi < Math.min(pipeResult.fixes.length, 3); fxi++) {
+					pipeLines.push("  • " + pipeResult.fixes[fxi].slice(0, 150))
+				}
+				if (pipeResult.fixes.length > 3) {
+					pipeLines.push("  *+ " + (pipeResult.fixes.length - 3) + " more*")
+				}
+			}
+
+			if (!pipeResult.errors || pipeResult.errors.length === 0) {
+				pipeLines.push("\n✅ *All steps completed successfully!*")
+			}
+
+			await sendMessage(botToken, chatId, pipeLines.join("\n"))
+
+		} else {
+			await sendMessage(
+				botToken,
+				chatId,
+				"*Unknown brain subcommand:* `" + subcommand + "`\n\n" +
+					"Use `/brain help` to see available subcommands.",
+			)
+		}
+	} catch (err) {
+		logTelegramError("/brain:" + subcommand, chatId, null, err, { query: query })
+		await sendMessage(botToken, chatId, "*Brain Error* ❌\n\n" + err.message)
+	}
+}
+
 async function handleAbout(botToken, chatId) {
 	await sendMessage(
 		botToken,
@@ -2500,13 +2802,15 @@ function detectIntent(text) {
 		return "deployer"
 	}
 
-	// Testing intent
+	// Testing intent — require explicit action phrases, not bare "test" (too broad)
 	if (
-		lower.includes("test") ||
 		lower.includes("run test") ||
+		lower.includes("run the test") ||
+		lower.includes("run tests") ||
+		lower.includes("run e2e") ||
 		lower.includes("check test") ||
 		lower.includes("unit test") ||
-		lower.includes("e2e")
+		lower.includes("vitest")
 	) {
 		return "tester"
 	}
@@ -2547,249 +2851,273 @@ function detectIntent(text) {
  * @param {object} queue - BullMQ queue
  */
 async function handleNaturalLanguageInstruction(botToken, chatId, text, telegramUserId, queue, providers) {
-	var authSession = await checkAuthSession(telegramUserId, chatId)
-	if (!authSession) {
-		// If not authenticated, treat as /ask
-		return false
-	}
-
-	// ─── OpenClaw: LLM-Powered Intent Classification ────────────────────
-	// Use the classifier to detect intent with LLM, fallback to keyword matching.
-	var classified = await telegramClassifier.classifyIntent(text, providers || [])
-	var intentKind = classified.kind
-	var confidence = classified.confidence
-
-	console.log(
-		"[telegram] OpenClaw classified '" +
-			text.slice(0, 60) +
-			"' as " +
-			intentKind +
-			" (confidence: " +
-			confidence.toFixed(2) +
-			")",
-	)
-
-	// ─── Chat Intent ────────────────────────────────────────────────────
-	// Handle questions directly with the enhanced AI
-	if (intentKind === "chat") {
-		await sendChatAction(botToken, chatId, "typing")
-		console.log("[telegram] AI query from " + chatId + ": " + text.slice(0, 100))
-		var reply = await askAI(text, providers || [], chatId)
-		await sendMessage(botToken, chatId, reply)
-		return true
-	}
-
-	// ─── OpenClaw: Policy Check ─────────────────────────────────────────
-	// Check if the action can run without approval.
-	// Blocked actions (deploy, delete_data, shell) require dashboard approval.
-	if (!telegramPolicy.canRunWithoutApproval(intentKind)) {
-		var blockedMsg = telegramPolicy.getBlockedReason(intentKind)
-		await sendMessage(botToken, chatId, blockedMsg)
-		return true
-	}
-
-	// ─── OpenClaw: Direct Endpoint Actions ──────────────────────────────
-	// For debug_plan, read_logs, run_tests, restart_worker — execute directly
-	// without going through the BullMQ queue. These are fast, read-only operations.
-
-	if (intentKind === "debug_plan") {
-		await sendChatAction(botToken, chatId, "typing")
-		try {
-			var debugTaskId = "DBG-" + Date.now().toString(36).toUpperCase()
-			var debugRepo = "superroo2"
-			try {
-				var projResult = await auth.handleTelegramProjects({ telegramUserId, telegramChatId: chatId })
-				var activeProj =
-					projResult &&
-					projResult.projects &&
-					projResult.projects.find(function (p) {
-						return p.is_active
-					})
-				if (!activeProj && projResult && projResult.projects && projResult.projects.length > 0) {
-					activeProj = projResult.projects[0]
-				}
-				if (activeProj) debugRepo = activeProj.repoName || activeProj.name || debugRepo
-			} catch (e) {
-				console.log("[telegram] debug_plan: could not resolve active project, using default")
-			}
-			await queue.add("debug-" + debugTaskId, {
-				task: text,
-				agentId: "superroo-debugger-agent",
-				goal: text,
-				repo: debugRepo,
-				commands: [],
-				telegram: {
-					chatId: chatId,
-					userId: telegramUserId,
-					messageId: messageId || null,
-				},
-			})
-			await sendMessage(
-				botToken,
-				chatId,
-				"🔍 *Super Debug Team Activated*\n\n" +
-					"Task ID: `" +
-					debugTaskId +
-					"`\n" +
-					"Repo: `" +
-					debugRepo +
-					"`\n\n" +
-					"The debug team is analyzing the issue and will send progress updates here.",
-			)
-		} catch (err) {
-			console.error("[telegram] debug_plan error:", err.message)
-			await sendMessage(botToken, chatId, "*Debug Error* ❌\n\n" + err.message)
-		}
-		return true
-	}
-
-	if (intentKind === "read_logs") {
-		await sendChatAction(botToken, chatId, "typing")
-		try {
-			var target = classified.target || "all"
-			var logsResult = await tgEndpoints.readLogs(target)
-			var logsReply = telegramEngineer.formatLogsResult(logsResult)
-			await sendMessage(botToken, chatId, logsReply)
-		} catch (err) {
-			console.error("[telegram] read_logs error:", err.message)
-			await sendMessage(botToken, chatId, "*Logs Error* ❌\n\n" + err.message)
-		}
-		return true
-	}
-
-	if (intentKind === "run_tests") {
-		await sendChatAction(botToken, chatId, "typing")
-		try {
-			var testProject = classified.project || ""
-			var testResult = await tgEndpoints.runTests(testProject)
-			var testReply = telegramEngineer.formatTestResult(testResult)
-			await sendMessage(botToken, chatId, testReply)
-		} catch (err) {
-			console.error("[telegram] run_tests error:", err.message)
-			await sendMessage(botToken, chatId, "*Test Error* ❌\n\n" + err.message)
-		}
-		return true
-	}
-
-	if (intentKind === "restart_worker") {
-		await sendChatAction(botToken, chatId, "typing")
-		try {
-			var workerName = classified.target || "superroo-api"
-			var restartResult = await tgEndpoints.restartWorker(workerName)
-			var restartReply = telegramEngineer.formatRestartResult(restartResult)
-			await sendMessage(botToken, chatId, restartReply)
-		} catch (err) {
-			console.error("[telegram] restart_worker error:", err.message)
-			await sendMessage(botToken, chatId, "*Restart Error* ❌\n\n" + err.message)
-		}
-		return true
-	}
-
-	// ─── Legacy: Agent Routing via BullMQ ───────────────────────────────
-	// For create_branch, create_pr, and other complex actions that need
-	// the full agent pipeline, fall through to the existing BullMQ routing.
-
-	// Map OpenClaw kinds to legacy agent IDs
-	var openclawToLegacy = {
-		create_branch: "coder",
-		create_pr: "coder",
-		deploy: "deployer",
-		delete_data: "deployer",
-		shell: "coder",
-	}
-	var legacyIntent = openclawToLegacy[intentKind] || "coder"
-
-	// Check if user has an active project selected
 	try {
-		var result = await auth.handleTelegramProjects({
-			telegramUserId: telegramUserId,
-			telegramChatId: chatId,
-		})
-
-		var activeProject = null
-		if (result && result.projects) {
-			activeProject = result.projects.find(function (p) {
-				return p.is_active
-			})
+		var authSession = await checkAuthSession(telegramUserId, chatId)
+		if (!authSession) {
+			// If not authenticated, treat as /ask
+			return false
 		}
 
-		// ─── Group Workspace Binding ────────────────────────────────────
-		if (!activeProject && chatId < 0) {
-			var boundWorkspace = groupWorkspaces.get(String(chatId))
-			if (boundWorkspace && result && result.projects) {
-				var lowerBound = boundWorkspace.toLowerCase()
-				for (var pi = 0; pi < result.projects.length; pi++) {
-					var pj = result.projects[pi]
-					var pjName = (pj.name || pj.repoName || "").toLowerCase()
-					if (pjName === lowerBound || pjName.includes(lowerBound) || lowerBound.includes(pjName)) {
-						try {
-							await auth.handleTelegramProjectSelect(pj.id, {
-								telegramUserId: telegramUserId,
-								telegramChatId: chatId,
-							})
-							activeProject = pj
-							console.log(
-								"[telegram] Auto-selected bound workspace '" + boundWorkspace + "' for group " + chatId,
-							)
-						} catch (selErr) {
-							console.error("[telegram] Failed to auto-select bound workspace:", selErr.message)
-						}
-						break
-					}
-				}
+		// ─── OpenClaw: LLM-Powered Intent Classification ────────────────────
+		// Use the classifier to detect intent with LLM, fallback to keyword matching.
+		var classified = await telegramClassifier.classifyIntent(text, providers || [])
+		var intentKind = classified.kind
+		var confidence = classified.confidence
+
+		// If classified as run_tests but message contains strong bug/error signals,
+		// the user is likely reporting a bug and mentioning tests as context — prefer debug_plan.
+		if (intentKind === "run_tests") {
+			var lowerCheck = text.toLowerCase()
+			var hasBugSignal =
+				lowerCheck.includes("bug") ||
+				lowerCheck.includes("error") ||
+				lowerCheck.includes("not working") ||
+				lowerCheck.includes("broken") ||
+				lowerCheck.includes("issue") ||
+				lowerCheck.includes("report")
+			if (hasBugSignal) {
+				intentKind = "debug_plan"
+				classified.kind = "debug_plan"
+				console.log("[telegram] Overrode run_tests → debug_plan due to bug/error signals in message")
 			}
 		}
 
-		if (!activeProject) {
-			await sendMessage(
-				botToken,
-				chatId,
-				"*No Active Project* 📁\n\nPlease select a project first so I know which workspace to work on.\n\nUse `/projects` to view and select your projects.\n\n*Already selected?* Use `/session` to check your current session.",
-			)
+		logTelegramUsage("nlp:intent", chatId, telegramUserId, { intent: intentKind, confidence: confidence.toFixed(2), text: text.slice(0, 60) })
+
+		// ─── Chat Intent ────────────────────────────────────────────────────
+		// Handle questions directly with the enhanced AI
+		if (intentKind === "chat") {
+			await sendChatAction(botToken, chatId, "typing")
+			console.log("[telegram] AI query from " + chatId + ": " + text.slice(0, 100))
+			var reply = await askAI(text, providers || [], chatId)
+			await sendMessage(botToken, chatId, reply)
 			return true
 		}
 
-		await sendChatAction(botToken, chatId, "typing")
-
-		// Log the instruction via auth module
-		try {
-			await auth.handleOrchestratorInstruction({
-				userId: authSession.userId,
-				projectId: activeProject.id,
-				instruction: text,
-				mode: legacyIntent,
-				source: "telegram",
-			})
-		} catch (logErr) {
-			console.error("[telegram] Failed to log orchestrator instruction:", logErr.message)
+		// ─── OpenClaw: Policy Check ─────────────────────────────────────────
+		// Check if the action can run without approval.
+		// Blocked actions (deploy, delete_data, shell) require dashboard approval.
+		if (!telegramPolicy.canRunWithoutApproval(intentKind)) {
+			var blockedMsg = telegramPolicy.getBlockedReason(intentKind)
+			logTelegramWarning("nlp:blocked", chatId, telegramUserId, "Policy blocked " + intentKind, { text: text.slice(0, 100) })
+			await sendMessage(botToken, chatId, blockedMsg)
+			return true
 		}
 
-		// Create a task with the appropriate agent
-		var taskId =
-			"TG-" + Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).slice(2, 6).toUpperCase()
-		var branchName = "tg/" + taskId.toLowerCase()
+		// ─── OpenClaw: Direct Endpoint Actions ──────────────────────────────
+		// For debug_plan, read_logs, run_tests, restart_worker — execute directly
+		// without going through the BullMQ queue. These are fast, read-only operations.
 
-		var conversationSummary = buildConversationSummary(chatId)
+		if (intentKind === "debug_plan") {
+			await sendChatAction(botToken, chatId, "typing")
+			try {
+				var debugTaskId = "DBG-" + Date.now().toString(36).toUpperCase()
+				var debugRepo = "superroo2"
+				try {
+					var projResult = await auth.handleTelegramProjects({ telegramUserId, telegramChatId: chatId })
+					var activeProj =
+						projResult &&
+						projResult.projects &&
+						projResult.projects.find(function (p) {
+							return p.is_active
+						})
+					if (!activeProj && projResult && projResult.projects && projResult.projects.length > 0) {
+						activeProj = projResult.projects[0]
+					}
+					if (activeProj) debugRepo = activeProj.repoName || activeProj.name || debugRepo
+				} catch (e) {
+					console.log("[telegram] debug_plan: could not resolve active project, using default")
+				}
+				await queue.add("debug-" + debugTaskId, {
+					task: text,
+					agentId: "superroo-debugger-agent",
+					goal: text,
+					repo: debugRepo,
+					commands: [],
+					telegram: {
+						chatId: chatId,
+						userId: telegramUserId,
+					},
+				})
+				await sendMessage(
+					botToken,
+					chatId,
+					"🔍 *Super Debug Team Activated*\n\n" +
+						"Task ID: `" +
+						debugTaskId +
+						"`\n" +
+						"Repo: `" +
+						debugRepo +
+						"`\n\n" +
+						"The debug team is analyzing the issue and will send progress updates here.",
+				)
 
-		var job = await queue.add("telegram-" + taskId, {
-			task: text,
-			agentId: legacyIntent,
-			commands: [],
-			network: "none",
-			telegram: {
-				chatId: chatId,
-				taskId: taskId,
+				// If Terminal Brain is available, also run error analysis on the debug text
+				if (_terminalBrainAvailable) {
+					try {
+						var brainAnalyzeResult = await tgEndpoints.brainAnalyze(text, chatId)
+						if (brainAnalyzeResult.ok && brainAnalyzeResult.errors && brainAnalyzeResult.errors.length > 0) {
+							var brainDebugReply = telegramEngineer.formatBrainErrors(brainAnalyzeResult.errors)
+							await sendMessage(botToken, chatId, brainDebugReply)
+						}
+					} catch (brainErr) {
+						console.log("[telegram] Brain analysis bonus for debug_plan failed:", brainErr.message)
+					}
+				}
+			} catch (err) {
+				logTelegramError("nlp:debug_plan", chatId, telegramUserId, err, { text: text.slice(0, 100) })
+				await sendMessage(botToken, chatId, "*Debug Error* ❌\n\n" + err.message)
+			}
+			return true
+		}
+
+		if (intentKind === "read_logs") {
+			await sendChatAction(botToken, chatId, "typing")
+			try {
+				var target = classified.target || "all"
+				var logsResult = await tgEndpoints.readLogs(target)
+				var logsReply = telegramEngineer.formatLogsResult(logsResult)
+				await sendMessage(botToken, chatId, logsReply)
+			} catch (err) {
+				logTelegramError("nlp:read_logs", chatId, telegramUserId, err, { target: classified.target })
+				await sendMessage(botToken, chatId, "*Logs Error* ❌\n\n" + err.message)
+			}
+			return true
+		}
+
+		if (intentKind === "run_tests") {
+			await sendChatAction(botToken, chatId, "typing")
+			try {
+				var testProject = classified.project || ""
+				var testResult = await tgEndpoints.runTests(testProject)
+				var testReply = telegramEngineer.formatTestResult(testResult)
+				await sendMessage(botToken, chatId, testReply)
+			} catch (err) {
+				logTelegramError("nlp:run_tests", chatId, telegramUserId, err, { project: classified.project })
+				await sendMessage(botToken, chatId, "*Test Error* ❌\n\n" + err.message)
+			}
+			return true
+		}
+
+		if (intentKind === "restart_worker") {
+			await sendChatAction(botToken, chatId, "typing")
+			try {
+				var workerName = classified.target || "superroo-api"
+				var restartResult = await tgEndpoints.restartWorker(workerName)
+				var restartReply = telegramEngineer.formatRestartResult(restartResult)
+				await sendMessage(botToken, chatId, restartReply)
+			} catch (err) {
+				logTelegramError("nlp:restart_worker", chatId, telegramUserId, err, { target: classified.target })
+				await sendMessage(botToken, chatId, "*Restart Error* ❌\n\n" + err.message)
+			}
+			return true
+		}
+
+		// ─── Legacy: Agent Routing via BullMQ ───────────────────────────────
+		// For create_branch, create_pr, and other complex actions that need
+		// the full agent pipeline, fall through to the existing BullMQ routing.
+
+		// Map OpenClaw kinds to agent IDs
+		var openclawToLegacy = {
+			create_branch: "superroo-debugger-agent",
+			create_pr: "superroo-debugger-agent",
+			deploy: "superroo-deployer-agent",
+			delete_data: "superroo-deployer-agent",
+			shell: "superroo-debugger-agent",
+		}
+		var legacyIntent = openclawToLegacy[intentKind] || "superroo-debugger-agent"
+
+		// Check if user has an active project selected
+		try {
+			var result = await auth.handleTelegramProjects({
+				telegramUserId: telegramUserId,
+				telegramChatId: chatId,
+			})
+
+			var activeProject = null
+			if (result && result.projects) {
+				activeProject = result.projects.find(function (p) {
+					return p.is_active
+				})
+			}
+
+			// ─── Group Workspace Binding ────────────────────────────────────
+			if (!activeProject && chatId < 0) {
+				var boundWorkspace = groupWorkspaces.get(String(chatId))
+				if (boundWorkspace && result && result.projects) {
+					var lowerBound = boundWorkspace.toLowerCase()
+					for (var pi = 0; pi < result.projects.length; pi++) {
+						var pj = result.projects[pi]
+						var pjName = (pj.name || pj.repoName || "").toLowerCase()
+						if (pjName === lowerBound || pjName.includes(lowerBound) || lowerBound.includes(pjName)) {
+							try {
+								await auth.handleTelegramProjectSelect(pj.id, {
+									telegramUserId: telegramUserId,
+									telegramChatId: chatId,
+								})
+								activeProject = pj
+								console.log(
+									"[telegram] Auto-selected bound workspace '" + boundWorkspace + "' for group " + chatId,
+								)
+							} catch (selErr) {
+								logTelegramError("nlp:auto_select_workspace", chatId, telegramUserId, selErr, { boundWorkspace: boundWorkspace })
+							}
+							break
+						}
+					}
+				}
+			}
+
+			if (!activeProject) {
+				await sendMessage(
+					botToken,
+					chatId,
+					"*No Active Project* 📁\n\nPlease select a project first so I know which workspace to work on.\n\nUse `/projects` to view and select your projects.\n\n*Already selected?* Use `/session` to check your current session.",
+				)
+				return true
+			}
+
+			await sendChatAction(botToken, chatId, "typing")
+
+			// Log the instruction via auth module
+			try {
+				await auth.handleOrchestratorInstruction({
+					userId: authSession.userId,
+					projectId: activeProject.id,
+					instruction: text,
+					mode: legacyIntent,
+					source: "telegram",
+				})
+			} catch (logErr) {
+				logTelegramError("nlp:log_instruction", chatId, telegramUserId, logErr, { projectId: activeProject.id })
+			}
+
+			// Create a task with the appropriate agent
+			var taskId =
+				"TG-" + Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).slice(2, 6).toUpperCase()
+			var branchName = "tg/" + taskId.toLowerCase()
+
+			var conversationSummary = buildConversationSummary(chatId)
+
+			var job = await queue.add("telegram-" + taskId, {
+				task: text,
+				agentId: legacyIntent,
+				commands: [],
+				network: "none",
+				telegram: {
+					chatId: chatId,
+					taskId: taskId,
+					branchName: branchName,
+					conversationSummary: conversationSummary,
+				},
+			})
+
+			if (!userTasks.has(chatId)) userTasks.set(chatId, [])
+			userTasks.get(chatId).push({
+				id: taskId,
+				instruction: text,
+				status: "queued",
 				branchName: branchName,
-				conversationSummary: conversationSummary,
-			},
-		})
-
-		if (!userTasks.has(chatId)) userTasks.set(chatId, [])
-		userTasks.get(chatId).push({
-			id: taskId,
-			instruction: text,
-			status: "queued",
-			branchName: branchName,
 			changedFiles: 0,
 			linesAdded: 0,
 			createdAt: new Date().toISOString(),
@@ -2814,10 +3142,14 @@ async function handleNaturalLanguageInstruction(botToken, chatId, text, telegram
 		await telegramNotifier.sendTaskStarted(botToken, chatId, taskId, text, legacyIntent)
 		return true
 	} catch (err) {
-		console.error("[telegram] handleNaturalLanguageInstruction error:", err.message)
+		logTelegramError("nlp:routing", chatId, telegramUserId, err, { intent: intentKind, text: text.slice(0, 100) })
 	}
 
 	return false
+	} catch (err) {
+		logTelegramError("nlp:fatal", chatId, telegramUserId, err, { text: text.slice(0, 100) })
+		return false
+	}
 }
 
 /**
@@ -3317,63 +3649,93 @@ async function handleUpdate(update, botToken, queue, providers) {
 		// Answer the callback query to remove loading state
 		await answerCallbackQuery(botToken, cq.id)
 
-		// Handle project selection
-		if (cqData.startsWith("project:")) {
-			var projectId = cqData.slice(8)
-			await handleProjectSelect(botToken, cqChatId, cqMessageId, projectId, cqUserId)
-			return
+		try {
+			// Handle project selection
+			if (cqData.startsWith("project:")) {
+				var projectId = cqData.slice(8)
+				logTelegramUsage("callback:project", cqChatId, cqUserId, { projectId: projectId })
+				await handleProjectSelect(botToken, cqChatId, cqMessageId, projectId, cqUserId)
+				return
+			}
+
+			// Handle notification button presses (approve/reject/diff/status/logs/retry)
+			if (cqData.startsWith("notify:")) {
+				logTelegramUsage("callback:notify", cqChatId, cqUserId, { data: cqData })
+				await telegramNotifier.handleNotificationCallback(botToken, cq)
+				return
+			}
+
+			// ─── Mini App Workflow Callbacks ────────────────────────────────────
+
+			// preview_plan:<taskId> — Show plan preview for a task
+			if (cqData.startsWith("preview_plan:")) {
+				var pptaskId = cqData.slice(13)
+				logTelegramUsage("callback:preview_plan", cqChatId, cqUserId, { taskId: pptaskId })
+				await handlePreviewPlan(botToken, cqChatId, cqMessageId, pptaskId)
+				return
+			}
+
+			// approve_plan:<taskId> — Approve a plan (moves task to plan_approved state)
+			if (cqData.startsWith("approve_plan:")) {
+				var aptaskId = cqData.slice(13)
+				logTelegramUsage("callback:approve_plan", cqChatId, cqUserId, { taskId: aptaskId })
+				await handleApprovePlan(botToken, cqChatId, cqMessageId, aptaskId)
+				return
+			}
+
+			// view_diff:<taskId> — Show diff for a task
+			if (cqData.startsWith("view_diff:")) {
+				var vdtaskId = cqData.slice(10)
+				logTelegramUsage("callback:view_diff", cqChatId, cqUserId, { taskId: vdtaskId })
+				await handleViewDiff(botToken, cqChatId, cqMessageId, vdtaskId)
+				return
+			}
+
+			// deploy_staging:<taskId> — Deploy to staging environment
+			if (cqData.startsWith("deploy_staging:")) {
+				var dstaskId = cqData.slice(15)
+				logTelegramUsage("callback:deploy_staging", cqChatId, cqUserId, { taskId: dstaskId })
+				await handleDeployStaging(botToken, cqChatId, cqMessageId, dstaskId)
+				return
+			}
+
+			// deploy_production:<taskId> — Deploy to production (requires OTP)
+			if (cqData.startsWith("deploy_production:")) {
+				var dptaskId = cqData.slice(18)
+				logTelegramUsage("callback:deploy_production", cqChatId, cqUserId, { taskId: dptaskId })
+				await handleDeployProduction(botToken, cqChatId, cqMessageId, dptaskId)
+				return
+			}
+
+			// rollback:<savepointId> — Rollback to a savepoint
+			if (cqData.startsWith("rollback:")) {
+				var rbsavepointId = cqData.slice(9)
+				logTelegramUsage("callback:rollback", cqChatId, cqUserId, { savepointId: rbsavepointId })
+				await handleRollbackCallback(botToken, cqChatId, cqMessageId, rbsavepointId)
+				return
+			}
+
+			// ─── Mini IDE Callbacks ───────────────────────────────────────────
+			// "projects" — Show project list from Mini IDE
+			if (cqData === "projects") {
+				logTelegramUsage("callback:miniide_projects", cqChatId, cqUserId)
+				await handleProjects(botToken, cqChatId, cqUserId)
+				return
+			}
+
+			// "help" — Show help from Mini IDE
+			if (cqData === "help") {
+				logTelegramUsage("callback:miniide_help", cqChatId, cqUserId)
+				await handleHelp(botToken, cqChatId)
+				return
+			}
+
+			// Unhandled callback data — log warning for Ace Team monitoring
+			logTelegramWarning("callback:unknown", cqChatId, cqUserId, "Unhandled callback data", { data: cqData })
+		} catch (err) {
+			logTelegramError("callback:" + (cqData.split(":")[0] || "unknown"), cqChatId, cqUserId, err, { data: cqData })
+			console.error("[telegram] Callback query error:", err.message)
 		}
-
-		// Handle notification button presses (approve/reject/diff/status/logs/retry)
-		if (cqData.startsWith("notify:")) {
-			await telegramNotifier.handleNotificationCallback(botToken, cq)
-			return
-		}
-
-		// ─── Mini App Workflow Callbacks ────────────────────────────────────
-
-		// preview_plan:<taskId> — Show plan preview for a task
-		if (cqData.startsWith("preview_plan:")) {
-			var pptaskId = cqData.slice(13)
-			await handlePreviewPlan(botToken, cqChatId, cqMessageId, pptaskId)
-			return
-		}
-
-		// approve_plan:<taskId> — Approve a plan (moves task to plan_approved state)
-		if (cqData.startsWith("approve_plan:")) {
-			var aptaskId = cqData.slice(13)
-			await handleApprovePlan(botToken, cqChatId, cqMessageId, aptaskId)
-			return
-		}
-
-		// view_diff:<taskId> — Show diff for a task
-		if (cqData.startsWith("view_diff:")) {
-			var vdtaskId = cqData.slice(10)
-			await handleViewDiff(botToken, cqChatId, cqMessageId, vdtaskId)
-			return
-		}
-
-		// deploy_staging:<taskId> — Deploy to staging environment
-		if (cqData.startsWith("deploy_staging:")) {
-			var dstaskId = cqData.slice(15)
-			await handleDeployStaging(botToken, cqChatId, cqMessageId, dstaskId)
-			return
-		}
-
-		// deploy_production:<taskId> — Deploy to production (requires OTP)
-		if (cqData.startsWith("deploy_production:")) {
-			var dptaskId = cqData.slice(18)
-			await handleDeployProduction(botToken, cqChatId, cqMessageId, dptaskId)
-			return
-		}
-
-		// rollback:<savepointId> — Rollback to a savepoint
-		if (cqData.startsWith("rollback:")) {
-			var rbsavepointId = cqData.slice(9)
-			await handleRollbackCallback(botToken, cqChatId, cqMessageId, rbsavepointId)
-			return
-		}
-
 		return
 	}
 
@@ -3509,178 +3871,239 @@ async function handleUpdate(update, botToken, queue, providers) {
 	// Slash commands are kept for power users; natural language is the primary interface.
 
 	// Handle slash commands explicitly
-	if (command === "/start") {
-		await sendMessage(
-			botToken,
-			chatId,
-			"*OpenClaw* 🤖\n\nWelcome to SuperRoo Cloud! I'm OpenClaw, your AI assistant.\n\n" +
-				"*Get Started:*\n" +
-				"1. Use `/login` to authenticate with your SuperRoo Cloud account\n" +
-				"2. Use `/projects` to view and select a project\n" +
-				"3. Just type naturally — I'll understand what you need!\n\n" +
-				"*Examples:*\n" +
-				"• *\"What's the status of my project?\"* — I'll check your workspace\n" +
-				'• *"Fix the login bug"* — I\'ll create a coding task\n' +
-				'• *"Deploy the latest changes"* — I\'ll handle deployment\n' +
-				'• *"Should I use PostgreSQL or MongoDB?"* — Consultant research & analysis\n' +
-				'• *"Show me my projects"* — I\'ll list your projects\n\n' +
-				"Just talk to me like a smart assistant! 🚀",
-		)
-	} else if (command === "/login") {
-		await handleLogin(botToken, chatId, telegramUserId, isGroup)
-	} else if (command === "/help") {
-		await handleHelp(botToken, chatId)
-	} else if (command === "/about") {
-		await handleAbout(botToken, chatId)
-	} else if (command === "/otp") {
-		await handleOTP(botToken, chatId, cmdArgs)
-	} else if (command === "/specify") {
-		await handleSpecify(botToken, chatId, cmdArgs, telegramUserId)
-	} else if (command === "/cancel") {
-		// Cancel any pending login flow
-		if (pendingEmailOtps.has(chatId)) {
-			pendingEmailOtps.delete(chatId)
-			await sendMessage(botToken, chatId, "*Login cancelled.*")
-		} else {
-			await sendMessage(botToken, chatId, "Nothing to cancel.")
-		}
-	} else if (command === "/debug") {
-		// ─── OpenClaw: Debug Plan ──────────────────────────────────────
-		// Creates a structured debug plan for an issue description.
-		await sendChatAction(botToken, chatId, "typing")
-		var debugText = cmdArgs.join(" ") || text
-		try {
-			var debugResult = await tgEndpoints.debugPlan(debugText)
-			var debugReply = telegramEngineer.formatDebugPlan(debugResult)
-			await sendMessage(botToken, chatId, debugReply)
-		} catch (err) {
-			console.error("[telegram] /debug error:", err.message)
-			await sendMessage(botToken, chatId, "*Debug Plan Error* ❌\n\n" + err.message)
-		}
-	} else if (command === "/logs") {
-		// ─── OpenClaw: Read Logs ──────────────────────────────────────
-		// Reads PM2/Docker logs. Optional: /logs <target> [lines]
-		await sendChatAction(botToken, chatId, "typing")
-		var logTarget = cmdArgs[0] || "all"
-		var logLines = parseInt(cmdArgs[1], 10) || 30
-		try {
-			var logsResult = await tgEndpoints.readLogs(logTarget, logLines)
-			var logsReply = telegramEngineer.formatLogsResult(logsResult)
-			await sendMessage(botToken, chatId, logsReply)
-		} catch (err) {
-			console.error("[telegram] /logs error:", err.message)
-			await sendMessage(botToken, chatId, "*Logs Error* ❌\n\n" + err.message)
-		}
-	} else if (command === "/tests") {
-		// ─── OpenClaw: Run Tests ──────────────────────────────────────
-		// Runs tests for a project. Optional: /tests <project>
-		await sendChatAction(botToken, chatId, "typing")
-		var testProject = cmdArgs[0] || ""
-		try {
-			var testResult = await tgEndpoints.runTests(testProject)
-			var testReply = telegramEngineer.formatTestResult(testResult)
-			await sendMessage(botToken, chatId, testReply)
-		} catch (err) {
-			console.error("[telegram] /tests error:", err.message)
-			await sendMessage(botToken, chatId, "*Test Error* ❌\n\n" + err.message)
-		}
-	} else if (command === "/restart") {
-		// ─── OpenClaw: Restart Worker ──────────────────────────────────
-		// Restarts a whitelisted PM2 worker. Usage: /restart <worker-name>
-		await sendChatAction(botToken, chatId, "typing")
-		var restartTarget = cmdArgs[0]
-		if (!restartTarget) {
+	try {
+		if (command === "/start") {
+			logTelegramUsage("/start", chatId, telegramUserId)
 			await sendMessage(
 				botToken,
 				chatId,
-				"*Restart Worker* 🔄\n\nPlease specify a worker name.\n\nUsage: `/restart <worker-name>`\n\nAllowed workers:\n" +
-					[
-						"superroo-api",
-						"superroo-worker",
-						"superroo-worker-2",
-						"superroo-worker-3",
-						"superroo-worker-4",
-						"superroo-worker-5",
-					]
-						.map(function (w) {
-							return "• `" + w + "`"
-						})
-						.join("\n"),
+				"*OpenClaw* 🤖\n\nWelcome to SuperRoo Cloud! I'm OpenClaw, your AI assistant.\n\n" +
+					"*Get Started:*\n" +
+					"1. Use `/login` to authenticate with your SuperRoo Cloud account\n" +
+					"2. Use `/projects` to view and select a project\n" +
+					"3. Just type naturally — I'll understand what you need!\n\n" +
+					"*Examples:*\n" +
+					"• *\"What's the status of my project?\"* — I'll check your workspace\n" +
+					'• *"Fix the login bug"* — I\'ll create a coding task\n' +
+					'• *"Deploy the latest changes"* — I\'ll handle deployment\n' +
+					'• *"Should I use PostgreSQL or MongoDB?"* — Consultant research & analysis\n' +
+					'• *"Show me my projects"* — I\'ll list your projects\n\n' +
+					"Just talk to me like a smart assistant! 🚀",
 			)
-		} else {
+		} else if (command === "/login") {
+			logTelegramUsage("/login", chatId, telegramUserId)
+			await handleLogin(botToken, chatId, telegramUserId, isGroup)
+		} else if (command === "/help") {
+			logTelegramUsage("/help", chatId, telegramUserId)
+			await handleHelp(botToken, chatId)
+		} else if (command === "/about") {
+			logTelegramUsage("/about", chatId, telegramUserId)
+			await handleAbout(botToken, chatId)
+		} else if (command === "/otp") {
+			logTelegramUsage("/otp", chatId, telegramUserId)
+			await handleOTP(botToken, chatId, cmdArgs)
+		} else if (command === "/specify") {
+			logTelegramUsage("/specify", chatId, telegramUserId, { args: cmdArgs.join(" ") })
+			await handleSpecify(botToken, chatId, cmdArgs, telegramUserId)
+		} else if (command === "/projects") {
+			logTelegramUsage("/projects", chatId, telegramUserId)
+			await handleProjects(botToken, chatId, telegramUserId)
+		} else if (command === "/miniide") {
+			logTelegramUsage("/miniide", chatId, telegramUserId)
+			await handleMiniIde(botToken, chatId, telegramUserId)
+		} else if (command === "/workspace") {
+			logTelegramUsage("/workspace", chatId, telegramUserId)
+			await handleWorkspace(botToken, chatId, telegramUserId)
+		} else if (command === "/session") {
+			logTelegramUsage("/session", chatId, telegramUserId)
+			await handleSession(botToken, chatId)
+		} else if (command === "/settings") {
+			logTelegramUsage("/settings", chatId, telegramUserId)
+			await handleSettings(botToken, chatId)
+		} else if (command === "/agents") {
+			logTelegramUsage("/agents", chatId, telegramUserId)
+			await handleAgents(botToken, chatId)
+		} else if (command === "/brain") {
+			logTelegramUsage("/brain", chatId, telegramUserId, { args: cmdArgs.join(" ") })
+			await handleBrain(botToken, chatId, cmdArgs, providers || [])
+		} else if (command === "/code") {
+			logTelegramUsage("/code", chatId, telegramUserId, { args: cmdArgs.join(" ") })
+			await handleCode(botToken, chatId, cmdArgs, queue)
+		} else if (command === "/diff") {
+			logTelegramUsage("/diff", chatId, telegramUserId, { args: cmdArgs.join(" ") })
+			await handleDiff(botToken, chatId, cmdArgs)
+		} else if (command === "/approve") {
+			logTelegramUsage("/approve", chatId, telegramUserId, { args: cmdArgs.join(" ") })
+			await handleApprove(botToken, chatId, cmdArgs)
+		} else if (command === "/deploy") {
+			logTelegramUsage("/deploy", chatId, telegramUserId, { args: cmdArgs.join(" ") })
+			await handleDeploy(botToken, chatId, cmdArgs, queue)
+		} else if (command === "/status") {
+			logTelegramUsage("/status", chatId, telegramUserId, { args: cmdArgs.join(" ") })
+			await handleStatus(botToken, chatId, cmdArgs, queue)
+		} else if (command === "/cancel") {
+			logTelegramUsage("/cancel", chatId, telegramUserId)
+			// Cancel any pending login flow
+			if (pendingEmailOtps.has(chatId)) {
+				pendingEmailOtps.delete(chatId)
+				await sendMessage(botToken, chatId, "*Login cancelled.*")
+			} else {
+				await sendMessage(botToken, chatId, "Nothing to cancel.")
+			}
+		} else if (command === "/debug") {
+			logTelegramUsage("/debug", chatId, telegramUserId, { args: cmdArgs.join(" ") })
+			await sendChatAction(botToken, chatId, "typing")
+			var debugText = cmdArgs.join(" ") || text
 			try {
-				var restartResult = await tgEndpoints.restartWorker(restartTarget)
-				var restartReply = telegramEngineer.formatRestartResult(restartResult)
-				await sendMessage(botToken, chatId, restartReply)
+				var debugResult = await tgEndpoints.debugPlan(debugText)
+				var debugReply = telegramEngineer.formatDebugPlan(debugResult)
+
+				// If Terminal Brain is available, also run error analysis on the debug text
+				if (_terminalBrainAvailable) {
+					try {
+						var brainAnalyzeResult = await tgEndpoints.brainAnalyze(debugText, chatId)
+						if (brainAnalyzeResult.ok && brainAnalyzeResult.errors && brainAnalyzeResult.errors.length > 0) {
+							debugReply += "\n\n" + telegramEngineer.formatBrainErrors(brainAnalyzeResult.errors)
+						}
+					} catch (brainErr) {
+						// Non-fatal — brain analysis is a bonus
+						console.log("[telegram] Brain analysis bonus failed:", brainErr.message)
+					}
+				}
+
+				await sendMessage(botToken, chatId, debugReply)
 			} catch (err) {
-				console.error("[telegram] /restart error:", err.message)
-				await sendMessage(botToken, chatId, "*Restart Error* ❌\n\n" + err.message)
+				logTelegramError("/debug", chatId, telegramUserId, err, { debugText: debugText })
+				await sendMessage(botToken, chatId, "*Debug Plan Error* ❌\n\n" + err.message)
+			}
+		} else if (command === "/logs") {
+			logTelegramUsage("/logs", chatId, telegramUserId, { target: cmdArgs[0] || "all", lines: cmdArgs[1] || 30 })
+			await sendChatAction(botToken, chatId, "typing")
+			var logTarget = cmdArgs[0] || "all"
+			var logLines = parseInt(cmdArgs[1], 10) || 30
+			try {
+				var logsResult = await tgEndpoints.readLogs(logTarget, logLines)
+				var logsReply = telegramEngineer.formatLogsResult(logsResult)
+				await sendMessage(botToken, chatId, logsReply)
+			} catch (err) {
+				logTelegramError("/logs", chatId, telegramUserId, err, { target: logTarget, lines: logLines })
+				await sendMessage(botToken, chatId, "*Logs Error* ❌\n\n" + err.message)
+			}
+		} else if (command === "/tests") {
+			logTelegramUsage("/tests", chatId, telegramUserId, { project: cmdArgs[0] || "" })
+			await sendChatAction(botToken, chatId, "typing")
+			var testProject = cmdArgs[0] || ""
+			try {
+				var testResult = await tgEndpoints.runTests(testProject)
+				var testReply = telegramEngineer.formatTestResult(testResult)
+				await sendMessage(botToken, chatId, testReply)
+			} catch (err) {
+				logTelegramError("/tests", chatId, telegramUserId, err, { project: testProject })
+				await sendMessage(botToken, chatId, "*Test Error* ❌\n\n" + err.message)
+			}
+		} else if (command === "/restart") {
+			logTelegramUsage("/restart", chatId, telegramUserId, { target: cmdArgs[0] || "" })
+			await sendChatAction(botToken, chatId, "typing")
+			var restartTarget = cmdArgs[0]
+			if (!restartTarget) {
+				await sendMessage(
+					botToken,
+					chatId,
+					"*Restart Worker* 🔄\n\nPlease specify a worker name.\n\nUsage: `/restart <worker-name>`\n\nAllowed workers:\n" +
+						[
+							"superroo-api",
+							"superroo-worker",
+							"superroo-worker-2",
+							"superroo-worker-3",
+							"superroo-worker-4",
+							"superroo-worker-5",
+						]
+							.map(function (w) {
+								return "• `" + w + "`"
+							})
+							.join("\n"),
+				)
+			} else {
+				try {
+					var restartResult = await tgEndpoints.restartWorker(restartTarget)
+					var restartReply = telegramEngineer.formatRestartResult(restartResult)
+					await sendMessage(botToken, chatId, restartReply)
+				} catch (err) {
+					logTelegramError("/restart", chatId, telegramUserId, err, { target: restartTarget })
+					await sendMessage(botToken, chatId, "*Restart Error* ❌\n\n" + err.message)
+				}
+			}
+		} else if (command === "/aceteam") {
+			logTelegramUsage("/aceteam", chatId, telegramUserId)
+			await sendChatAction(botToken, chatId, "typing")
+			try {
+				var aceTeamResult = await tgEndpoints.startAceTeam(chatId.toString())
+				var aceTeamReply =
+					"*Ace Team Activated* 🚀🤖\n\n" +
+					"The Super Debug Team is now running in *fully autonomous mode*.\n" +
+					"Comprehensive logs, ML insights, and accomplishment reports will be sent here.\n\n" +
+					"*What's happening:*\n" +
+					"• 🔍 Analyzing repository structure\n" +
+					"• 🧪 Running phase-by-phase debugging\n" +
+					"• 🤖 ML-driven pattern detection\n" +
+					"• 📊 Generating accomplishment reports\n\n" +
+					"Use `/aceteam status` to check current status.\n" +
+					"Use `/aceteam stop` to stop Ace Team mode and get a final report."
+				if (aceTeamResult && aceTeamResult.message) {
+					aceTeamReply = aceTeamResult.message
+				}
+				await sendMessage(botToken, chatId, aceTeamReply)
+			} catch (err) {
+				logTelegramError("/aceteam", chatId, telegramUserId, err)
+				await sendMessage(botToken, chatId, "*Ace Team Error* ❌\n\n" + err.message)
+			}
+		} else {
+			// ─── Check for Email OTP Login Flow ────────────────────────────
+			// If the user is in the middle of an email OTP login, intercept
+			// non-command messages and route them to the OTP handlers.
+			var emailOtpState = pendingEmailOtps.get(chatId)
+			if (emailOtpState) {
+				if (emailOtpState.step === "awaiting_email") {
+					// Treat non-command text as email input
+					await handleEmailOtpLogin(botToken, chatId, text, telegramUserId)
+					return
+				} else if (emailOtpState.step === "awaiting_otp") {
+					// Treat non-command text as OTP code input
+					await handleVerifyEmailOtp(botToken, chatId, text, telegramUserId)
+					return
+				}
+			}
+
+			// ─── Natural Language Processing (Primary Interface) ────────────
+			// Every message is processed through the AI assistant which:
+			// 1. Understands natural language intent (questions, coding, deploy, etc.)
+			// 2. Routes to appropriate agents when coding/deploying is needed
+			// 3. Answers questions about the system
+			// 4. Manages projects, tasks, and workspace
+
+			await sendChatAction(botToken, chatId, "typing")
+
+			// Try natural language instruction routing first (coding tasks, agent commands)
+			var handled = await handleNaturalLanguageInstruction(
+				botToken,
+				chatId,
+				text,
+				telegramUserId,
+				queue,
+				providers || [],
+			)
+			if (!handled) {
+				// If not routed as a coding instruction, treat as AI assistant conversation
+				await handleAsk(botToken, chatId, text.split(/\s+/), providers || [])
 			}
 		}
-	} else if (command === "/aceteam") {
-		// ─── Ace Team Mode (/aceteam) ────────────────────────────────────
-		// Activates fully autonomous coding and debugging with comprehensive
-		// logging, ML insights, and accomplishment reports sent to this group.
-		await sendChatAction(botToken, chatId, "typing")
+	} catch (err) {
+		logTelegramError(command || "unknown", chatId, telegramUserId, err, { text: text.slice(0, 100) })
+		console.error("[telegram] Unhandled error in command routing:", err.message)
 		try {
-			var aceTeamResult = await tgEndpoints.startAceTeam(chatId.toString())
-			var aceTeamReply =
-				"*Ace Team Activated* 🚀🤖\n\n" +
-				"The Super Debug Team is now running in *fully autonomous mode*.\n" +
-				"Comprehensive logs, ML insights, and accomplishment reports will be sent here.\n\n" +
-				"*What's happening:*\n" +
-				"• 🔍 Analyzing repository structure\n" +
-				"• 🧪 Running phase-by-phase debugging\n" +
-				"• 🤖 ML-driven pattern detection\n" +
-				"• 📊 Generating accomplishment reports\n\n" +
-				"Use `/aceteam status` to check current status.\n" +
-				"Use `/aceteam stop` to stop Ace Team mode and get a final report."
-			if (aceTeamResult && aceTeamResult.message) {
-				aceTeamReply = aceTeamResult.message
-			}
-			await sendMessage(botToken, chatId, aceTeamReply)
-		} catch (err) {
-			console.error("[telegram] /aceteam error:", err.message)
-			await sendMessage(botToken, chatId, "*Ace Team Error* ❌\n\n" + err.message)
-		}
-	} else {
-		// ─── Check for Email OTP Login Flow ────────────────────────────
-		// If the user is in the middle of an email OTP login, intercept
-		// non-command messages and route them to the OTP handlers.
-		var emailOtpState = pendingEmailOtps.get(chatId)
-		if (emailOtpState) {
-			if (emailOtpState.step === "awaiting_email") {
-				// Treat non-command text as email input
-				await handleEmailOtpLogin(botToken, chatId, text, telegramUserId)
-				return
-			} else if (emailOtpState.step === "awaiting_otp") {
-				// Treat non-command text as OTP code input
-				await handleVerifyEmailOtp(botToken, chatId, text, telegramUserId)
-				return
-			}
-		}
-
-		// ─── Natural Language Processing (Primary Interface) ────────────
-		// Every message is processed through the AI assistant which:
-		// 1. Understands natural language intent (questions, coding, deploy, etc.)
-		// 2. Routes to appropriate agents when coding/deploying is needed
-		// 3. Answers questions about the system
-		// 4. Manages projects, tasks, and workspace
-
-		await sendChatAction(botToken, chatId, "typing")
-
-		// Try natural language instruction routing first (coding tasks, agent commands)
-		var handled = await handleNaturalLanguageInstruction(
-			botToken,
-			chatId,
-			text,
-			telegramUserId,
-			queue,
-			providers || [],
-		)
-		if (!handled) {
-			// If not routed as a coding instruction, treat as AI assistant conversation
-			await handleAsk(botToken, chatId, text.split(/\s+/), providers || [])
+			await sendMessage(botToken, chatId, "*Error* ❌\n\nAn unexpected error occurred. The Ace Team has been notified.\n\nError: " + err.message)
+		} catch (sendErr) {
+			console.error("[telegram] Failed to send error message:", sendErr.message)
 		}
 	}
 }
@@ -3725,4 +4148,6 @@ module.exports = {
 	telegramPolicy,
 	telegramEngineer,
 	tgEndpoints,
+	// Terminal Brain
+	handleBrain,
 }

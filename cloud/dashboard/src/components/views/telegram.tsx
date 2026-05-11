@@ -32,6 +32,7 @@ import {
 	GitPullRequest,
 	GitMerge,
 	RefreshCw,
+	Bug,
 } from "lucide-react"
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -493,6 +494,122 @@ export function TelegramView() {
 							value={`${MOCK_TASKS.filter((t) => t.status === "waiting_approval" || t.status === "review").length} pending`}
 							color="text-amber-300"
 						/>
+					</div>
+				</div>
+			</div>
+
+			{/* Product Features Description */}
+			<div className="overflow-hidden rounded-3xl border border-[#1e2535] bg-gradient-to-br from-[#0f1117] via-[#0f1117] to-indigo-950/30 p-6 shadow-2xl shadow-black/30">
+				<div className="mb-6 flex items-center justify-between">
+					<div className="inline-flex items-center gap-2 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-3 py-1 text-xs text-indigo-200">
+						<Layers size={14} /> Product Features
+					</div>
+					<span className="text-xs text-slate-500">8 features</span>
+				</div>
+				<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+					<div className="group rounded-2xl border border-[#1e2535] bg-[#0f1117]/40 p-4 transition-all duration-200 hover:border-cyan-500/30 hover:bg-[#0f1117]/80 hover:shadow-lg hover:shadow-cyan-500/5">
+						<div className="mb-2 flex items-center gap-2 text-sm font-semibold text-cyan-200">
+							<div className="flex h-7 w-7 items-center justify-center rounded-lg bg-cyan-500/10">
+								<Bot size={14} />
+							</div>
+							AI Assistant
+						</div>
+						<p className="text-xs leading-relaxed text-slate-400">
+							Natural language chat with OpenClaw AI. Ask questions, get advice, analyze code, or research
+							architecture. No need for slash commands — just type naturally.
+						</p>
+					</div>
+					<div className="group rounded-2xl border border-[#1e2535] bg-[#0f1117]/40 p-4 transition-all duration-200 hover:border-emerald-500/30 hover:bg-[#0f1117]/80 hover:shadow-lg hover:shadow-emerald-500/5">
+						<div className="mb-2 flex items-center gap-2 text-sm font-semibold text-emerald-200">
+							<div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/10">
+								<Code size={14} />
+							</div>
+							Coding Tasks
+						</div>
+						<p className="text-xs leading-relaxed text-slate-400">
+							Create coding tasks with <code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/code</code>. Review diffs with{" "}
+							<code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/diff</code>, approve with{" "}
+							<code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/approve</code>, and deploy with{" "}
+							<code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/deploy</code> — all from your phone.
+						</p>
+					</div>
+					<div className="group rounded-2xl border border-[#1e2535] bg-[#0f1117]/40 p-4 transition-all duration-200 hover:border-amber-500/30 hover:bg-[#0f1117]/80 hover:shadow-lg hover:shadow-amber-500/5">
+						<div className="mb-2 flex items-center gap-2 text-sm font-semibold text-amber-200">
+							<div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500/10">
+								<ShieldCheck size={14} />
+							</div>
+							Auth & Security
+						</div>
+						<p className="text-xs leading-relaxed text-slate-400">
+							Login via email OTP with <code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/login</code>. Set up Google
+							Authenticator with <code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/otp</code>. OTP-protected deploy gate
+							for production. Session auto-expiry after 30 min.
+						</p>
+					</div>
+					<div className="group rounded-2xl border border-[#1e2535] bg-[#0f1117]/40 p-4 transition-all duration-200 hover:border-purple-500/30 hover:bg-[#0f1117]/80 hover:shadow-lg hover:shadow-purple-500/5">
+						<div className="mb-2 flex items-center gap-2 text-sm font-semibold text-purple-200">
+							<div className="flex h-7 w-7 items-center justify-center rounded-lg bg-purple-500/10">
+								<Send size={14} />
+							</div>
+							Group Chat Integration
+						</div>
+						<p className="text-xs leading-relaxed text-slate-400">
+							Bind a workspace to any group with <code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/specify</code>. List
+							projects with <code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/projects</code>. Every message is
+							auto-processed — no need to tag the bot.
+						</p>
+					</div>
+					<div className="group rounded-2xl border border-[#1e2535] bg-[#0f1117]/40 p-4 transition-all duration-200 hover:border-rose-500/30 hover:bg-[#0f1117]/80 hover:shadow-lg hover:shadow-rose-500/5">
+						<div className="mb-2 flex items-center gap-2 text-sm font-semibold text-rose-200">
+							<div className="flex h-7 w-7 items-center justify-center rounded-lg bg-rose-500/10">
+								<Bug size={14} />
+							</div>
+							Debug & Diagnostics
+						</div>
+						<p className="text-xs leading-relaxed text-slate-400">
+							Create structured debug plans with <code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/debug</code>. Read PM2
+							and Docker logs with <code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/logs</code>. Run tests with{" "}
+							<code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/tests</code> and restart workers with{" "}
+							<code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/restart</code>.
+						</p>
+					</div>
+					<div className="group rounded-2xl border border-[#1e2535] bg-[#0f1117]/40 p-4 transition-all duration-200 hover:border-sky-500/30 hover:bg-[#0f1117]/80 hover:shadow-lg hover:shadow-sky-500/5">
+						<div className="mb-2 flex items-center gap-2 text-sm font-semibold text-sky-200">
+							<div className="flex h-7 w-7 items-center justify-center rounded-lg bg-sky-500/10">
+								<Smartphone size={14} />
+							</div>
+							Mini IDE
+						</div>
+						<p className="text-xs leading-relaxed text-slate-400">
+							Open a full code editor inside Telegram with{" "}
+							<code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/miniide</code>. Browse files, edit code, upload
+							attachments, and use the AI assistant — all from your mobile.
+						</p>
+					</div>
+					<div className="group rounded-2xl border border-[#1e2535] bg-[#0f1117]/40 p-4 transition-all duration-200 hover:border-orange-500/30 hover:bg-[#0f1117]/80 hover:shadow-lg hover:shadow-orange-500/5">
+						<div className="mb-2 flex items-center gap-2 text-sm font-semibold text-orange-200">
+							<div className="flex h-7 w-7 items-center justify-center rounded-lg bg-orange-500/10">
+								<Bell size={14} />
+							</div>
+							Alerts & Notifications
+						</div>
+						<p className="text-xs leading-relaxed text-slate-400">
+							Receive real-time production alerts, deploy status updates, test results, and task
+							notifications pushed directly to your Telegram group.
+						</p>
+					</div>
+					<div className="group rounded-2xl border border-[#1e2535] bg-[#0f1117]/40 p-4 transition-all duration-200 hover:border-teal-500/30 hover:bg-[#0f1117]/80 hover:shadow-lg hover:shadow-teal-500/5">
+						<div className="mb-2 flex items-center gap-2 text-sm font-semibold text-teal-200">
+							<div className="flex h-7 w-7 items-center justify-center rounded-lg bg-teal-500/10">
+								<GitBranch size={14} />
+							</div>
+							Full CI/CD Pipeline
+						</div>
+						<p className="text-xs leading-relaxed text-slate-400">
+							End-to-end workflow: plan → code → test → approve → deploy staging → OTP-verify → deploy
+							production. Rollback to savepoints with{" "}
+							<code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/rollback</code>.
+						</p>
 					</div>
 				</div>
 			</div>

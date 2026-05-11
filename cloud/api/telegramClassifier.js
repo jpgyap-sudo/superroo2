@@ -28,7 +28,7 @@
 // ─── Configuration ──────────────────────────────────────────────────────────
 
 /** Timeout for LLM classification call (ms) */
-const CLASSIFIER_TIMEOUT_MS = 30_000
+const CLASSIFIER_TIMEOUT_MS = 120_000
 
 /** Minimum confidence to accept LLM classification */
 const MIN_CONFIDENCE = 0.3
@@ -88,12 +88,15 @@ function keywordFallback(text) {
 		return "read_logs"
 	}
 
-	// Testing
+	// Testing — require explicit action phrases, not bare "test" (too broad for casual chat)
 	if (
-		lower.includes("test") ||
 		lower.includes("run test") ||
+		lower.includes("run the test") ||
+		lower.includes("run tests") ||
+		lower.includes("run e2e") ||
+		lower.includes("run suite") ||
+		lower.includes("execute test") ||
 		lower.includes("unit test") ||
-		lower.includes("e2e") ||
 		lower.includes("vitest")
 	) {
 		return "run_tests"

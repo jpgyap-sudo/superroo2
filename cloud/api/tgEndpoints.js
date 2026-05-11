@@ -513,6 +513,210 @@ async function startAceTeam(chatId) {
 	}
 }
 
+// ─── Terminal Brain Endpoints ──────────────────────────────────────────────
+
+/**
+ * In-memory Terminal Brain instances (one per chat session).
+ * Map<chatId, brainInstance>
+ */
+const brainInstances = new Map()
+
+/**
+ * Gets or creates a Terminal Brain instance for a given chat.
+ * @param {number|string} chatId
+ * @returns {Object} TerminalBrain instance
+ */
+function getOrCreateBrain(chatId) {
+	if (!brainInstances.has(String(chatId))) {
+		try {
+			const { TerminalBrain } = require("../../../packages/terminal-core/src/brain")
+			const brain = new TerminalBrain({
+				workspaceRoot: PROJECTS_BASE,
+				sessionId: "tg-" + String(chatId),
+			})
+			brainInstances.set(String(chatId), brain)
+		} catch (err) {
+			console.error("[tgEndpoints] Failed to create TerminalBrain:", err.message)
+			return null
+		}
+	}
+	return brainInstances.get(String(chatId))
+}
+
+/**
+ * Plans commands from a natural language query using the Terminal Brain.
+ * @param {string} query - Natural language query (e.g., "fix the build", "run tests")
+ * @param {number|string} chatId - Chat ID for session tracking
+ * @returns {Promise<Object>} { ok, intent, commands, plan, error? }
+ */
+async function brainPlan(query, chatId) {
+	try {
+		const brain = getOrCreateBrain(chatId)
+		if (!brain) {
+			return { ok: false, error: "Terminal Brain not available" }
+		}
+		const result = await brain.process({ action: "plan", nlQuery: query })
+		return { ok: true, ...result }
+	} catch (err) {
+		return { ok: false, error: err.message }
+	}
+}
+
+/**
+ * Executes a command through the Terminal Brain with safety checks.
+ * @param {string} command - Shell command to execute
+ * @param {number|string} chatId - Chat ID for session tracking
+ * @returns {Promise<Object>} { ok, feedback, error? }
+ */
+async function brainExecute(command, chatId) {
+	try {
+		const brain = getOrCreateBrain(chatId)
+		if (!brain) {
+			return { ok: false, error: "Terminal Brain not available" }
+		}
+		const result = await brain.process({ action: "execute", command })
+		return { ok: true, feedback: result.feedback || result }
+	} catch (err) {
+		return { ok: false, error: err.message }
+	}
+}
+
+/**
+ * Analyzes command output for errors using the Terminal Brain.
+ * @param {string} output - Command output to analyze
+ * @param {number|string} chatId - Chat ID for session tracking
+ * @returns {Promise<Object>} { ok, errors, error? }
+ */
+async function brainAnalyze(output, chatId) {
+	try {
+		const brain = getOrCreateBrain(chatId)
+		if (!brain) {
+			return { ok: false, error: "Terminal Brain not available" }
+		}
+		const result = await brain.process({ action: "analyze", command: output })
+		return { ok: true, errors: result.errors || [] }
+	} catch (err) {
+		return { ok: false, error: err.message }
+	}
+}
+
+/**
+ * Suggests fixes for errors using the Terminal Brain.
+ * @param {string} output - Error output to fix
+ * @param {number|string} chatId - Chat ID for session tracking
+ * @returns {Promise<Object>} { ok, fixes, error? }
+ */
+async function brainFix(output, chatId) {
+	try {
+		const brain = getOrCreateBrain(chatId)
+		if (!brain) {
+			return { ok: false, error: "Terminal Brain not available" }
+		}
+		const result = await brain.process({ action: "fix", command: output })
+		return { ok: true, fixes: result.fixes || [] }
+	} catch (err) {
+		return { ok: false, error: err.message }
+	}
+}
+
+/**
+ * Gets Terminal Brain memory stats for a chat session.
+ * @param {number|string} chatId - Chat ID for session tracking
+ * @returns {Promise<Object>} { ok, stats, error? }
+ */
+async function brainMemory(chatId) {
+	try {
+		const brain = getOrCreateBrain(chatId)
+		if (!brain) {
+			return { ok: false, error: "Terminal Brain not available" }
+		}
+		const stats = brain.getStats()
+		return { ok: true, stats }
+	} catch (err) {
+		return { ok: false, error: err.message }
+	}
+}
+
+/**
+ * Gets project context via the Terminal Brain.
+ * @param {number|string} chatId - Chat ID for session tracking
+ * @returns {Promise<Object>} { ok, context, error? }
+ */
+async function brainContext(chatId) {
+	try {
+		const brain = getOrCreateBrain(chatId)
+		if (!brain) {
+			return { ok: false, error: "Terminal Brain not available" }
+		}
+		const result = await brain.process({ action: "context" })
+		return { ok: true, context: result.context || result }
+	} catch (err) {
+		return { ok: false, error: err.message }
+	}
+}
+
+/**
+ * Runs a full Terminal Brain pipeline: plan → execute → analyze → fix.
+ * @param {string} query - Natural language query
+ * @param {number|string} chatId - Chat ID for session tracking
+ * @returns {Promise<Object>} { ok, plan, feedback, errors, fixes, error? }
+ */
+async function brainPipeline(query, chatId) {
+	try {
+		const brain = getOrCreateBrain(chatId)
+		if (!brain) {
+			return { ok: false, error: "Terminal Brain not available" }
+		}
+
+		// Phase 1: Plan
+		const planResult = await brain.process({ action: "plan", nlQuery: query })
+		const commands = planResult.commands || []
+
+		if (commands.length === 0) {
+			return { ok: true, plan: planResult, feedback: null, errors: [], fixes: [], note: "No commands to execute" }
+		}
+
+		// Phase 2-4: Execute each command, analyze, fix
+		var allFeedback = []
+		var allErrors = []
+		var allFixes = []
+
+		for (var i = 0; i < commands.length; i++) {
+			var cmd = typeof commands[i] === "string" ? commands[i] : commands[i].command
+			if (!cmd) continue
+
+			// Execute
+			const execResult = await brain.process({ action: "execute", command: cmd })
+			var feedback = execResult.feedback || execResult
+			allFeedback.push(feedback)
+
+			// Analyze output for errors
+			if (feedback.output) {
+				const analyzeResult = await brain.process({ action: "analyze", command: feedback.output })
+				if (analyzeResult.errors && analyzeResult.errors.length > 0) {
+					allErrors = allErrors.concat(analyzeResult.errors)
+
+					// Get fix suggestions
+					const fixResult = await brain.process({ action: "fix", command: feedback.output })
+					if (fixResult.fixes) {
+						allFixes = allFixes.concat(fixResult.fixes)
+					}
+				}
+			}
+		}
+
+		return {
+			ok: true,
+			plan: planResult,
+			feedback: allFeedback,
+			errors: allErrors,
+			fixes: allFixes,
+		}
+	} catch (err) {
+		return { ok: false, error: err.message }
+	}
+}
+
 // ─── Exports ────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -523,4 +727,12 @@ module.exports = {
 	createPr,
 	restartWorker,
 	startAceTeam,
+	// Terminal Brain endpoints
+	brainPlan,
+	brainExecute,
+	brainAnalyze,
+	brainFix,
+	brainMemory,
+	brainContext,
+	brainPipeline,
 }

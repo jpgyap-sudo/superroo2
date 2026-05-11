@@ -23,9 +23,13 @@ type Provider = {
 	maskedKey?: string
 	defaultModel: string
 	models: string[]
+	modelLabels: Record<string, string>
 	capabilities: string[]
 	lastTestedAt: number | null
 	latencyMs: number | null
+	apiBaseUrl: string
+	website: string
+	docsUrl: string
 }
 
 function statusClass(status: ProviderStatus) {
@@ -49,6 +53,10 @@ function ProviderCard({ provider, onSaved }: { provider: Provider; onSaved: () =
 	const [testing, setTesting] = useState(false)
 	const [deleting, setDeleting] = useState(false)
 	const [error, setError] = useState<string | null>(null)
+	const [showConfig, setShowConfig] = useState(false)
+	const [configModel, setConfigModel] = useState(provider.defaultModel || "")
+	const [configBaseUrl, setConfigBaseUrl] = useState(provider.apiBaseUrl || "")
+	const [configSaving, setConfigSaving] = useState(false)
 
 	async function saveKey() {
 		if (!apiKey.trim()) return
@@ -111,6 +119,35 @@ function ProviderCard({ provider, onSaved }: { provider: Provider; onSaved: () =
 		}
 	}
 
+	async function saveConfig() {
+		setConfigSaving(true)
+		setError(null)
+		try {
+			const body: Record<string, string> = {}
+			if (configModel !== provider.defaultModel) body.defaultModel = configModel
+			if (configBaseUrl !== provider.apiBaseUrl) body.apiBaseUrl = configBaseUrl
+			if (Object.keys(body).length === 0) {
+				setShowConfig(false)
+				return
+			}
+			const res = await fetch(`/api/settings/providers/${provider.id}`, {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(body),
+			})
+			if (!res.ok) {
+				const err = await res.json()
+				throw new Error(err.error || `HTTP ${res.status}`)
+			}
+			setShowConfig(false)
+			onSaved()
+		} catch (err) {
+			setError(err instanceof Error ? err.message : "Failed to save configuration")
+		} finally {
+			setConfigSaving(false)
+		}
+	}
+
 	return (
 		<div className="rounded-2xl border border-[#1e2535] bg-[#0e1322] p-5 shadow-xl shadow-black/20">
 			<div className="mb-4 flex items-start justify-between gap-3">
@@ -135,6 +172,16 @@ function ProviderCard({ provider, onSaved }: { provider: Provider; onSaved: () =
 					/>
 				</label>
 
+				{/* Current config summary */}
+				<div className="flex flex-wrap items-center gap-2 text-xs text-gray-400">
+					<span className="rounded-md border border-[#1e2535] bg-[#0a0e1a] px-2 py-1">
+						Model: <span className="text-sky-300">{provider.defaultModel}</span>
+					</span>
+					<span className="rounded-md border border-[#1e2535] bg-[#0a0e1a] px-2 py-1 max-w-[300px] truncate">
+						API: <span className="text-sky-300">{provider.apiBaseUrl}</span>
+					</span>
+				</div>
+
 				{provider.capabilities.length > 0 && (
 					<div className="flex flex-wrap gap-2">
 						{provider.capabilities.map((cap) => (
@@ -158,7 +205,53 @@ function ProviderCard({ provider, onSaved }: { provider: Provider; onSaved: () =
 					</div>
 				)}
 
-				<div className="grid grid-cols-3 gap-2 pt-1">
+				{/* Configure panel (collapsible) */}
+				{showConfig && (
+					<div className="rounded-xl border border-[#1e2535] bg-[#0a0e1a] p-4 space-y-3">
+						<p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Configuration</p>
+
+						<label className="block">
+							<span className="mb-1 block text-xs text-gray-500">API Base URL</span>
+							<input
+								type="url"
+								value={configBaseUrl}
+								onChange={(e) => setConfigBaseUrl(e.target.value)}
+								placeholder="https://api.openai.com/v1"
+								className="w-full rounded-lg border border-[#1e2535] bg-[#0e1322] px-3 py-2 text-sm text-[#e2e8f0] outline-none focus:border-sky-500 font-mono"
+							/>
+						</label>
+
+						<label className="block">
+							<span className="mb-1 block text-xs text-gray-500">Default Model</span>
+							<select
+								value={configModel}
+								onChange={(e) => setConfigModel(e.target.value)}
+								className="w-full rounded-lg border border-[#1e2535] bg-[#0e1322] px-3 py-2 text-sm text-[#e2e8f0] outline-none focus:border-sky-500 appearance-none">
+								{provider.models.map((m) => (
+									<option key={m} value={m}>
+										{provider.modelLabels?.[m] || m}
+									</option>
+								))}
+							</select>
+						</label>
+
+						<div className="flex gap-2 pt-1">
+							<button
+								onClick={saveConfig}
+								disabled={configSaving}
+								className="flex-1 rounded-lg bg-sky-500 px-3 py-2 text-xs font-bold text-white hover:bg-sky-400 disabled:opacity-40">
+								{configSaving ? "Saving..." : "Save Config"}
+							</button>
+							<button
+								onClick={() => setShowConfig(false)}
+								className="rounded-lg border border-[#1e2535] px-3 py-2 text-xs text-[#e2e8f0] hover:bg-[#1e2535]">
+								Cancel
+							</button>
+						</div>
+					</div>
+				)}
+
+				<div className="grid grid-cols-4 gap-2 pt-1">
 					<button
 						onClick={saveKey}
 						disabled={saving || !apiKey}
@@ -176,6 +269,19 @@ function ProviderCard({ provider, onSaved }: { provider: Provider; onSaved: () =
 						disabled={deleting || !provider.hasKey}
 						className="rounded-xl border border-red-500/30 px-3 py-2 text-xs text-red-300 hover:bg-red-500/10 disabled:opacity-40">
 						{deleting ? "Removing..." : "Remove"}
+					</button>
+					<button
+						onClick={() => {
+							setConfigModel(provider.defaultModel || "")
+							setConfigBaseUrl(provider.apiBaseUrl || "")
+							setShowConfig(!showConfig)
+						}}
+						className={`rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
+							showConfig
+								? "border-sky-500/40 bg-sky-500/10 text-sky-300"
+								: "border-violet-500/30 text-violet-300 hover:bg-violet-500/10"
+						}`}>
+						{showConfig ? "Close" : "Config"}
 					</button>
 				</div>
 			</div>

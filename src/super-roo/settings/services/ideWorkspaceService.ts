@@ -2,13 +2,23 @@
  * IDE Workspace Service
  *
  * Manages workspace file trees, terminal sessions, pipeline state,
- * and AI assistant chat for the IDE Terminal tab.
+ * AI assistant chat, and the Terminal Brain Layer for the IDE Terminal tab.
  *
- * This service mirrors the concepts from the SuperRoo IDE Workspace Package
- * reference and integrates them into the existing SuperRoo backend.
+ * Integrates the Terminal Brain (repo scanner, command planner, safe executor,
+ * log parser, safety guard, terminal memory) into the cloud dashboard.
  */
 
-import type { IdeWorkspaceState, WorkspaceFile, TerminalSession, ChatMessage, PipelineStep } from "./ideWorkspaceTypes"
+import type {
+	IdeWorkspaceState,
+	WorkspaceFile,
+	TerminalSession,
+	ChatMessage,
+	PipelineStep,
+	ProjectContext,
+	TerminalFeedback,
+	TerminalMemoryData,
+	TerminalTab,
+} from "./ideWorkspaceTypes"
 
 // ─── In-memory state (per-session) ──────────────────────────────────────
 
@@ -36,7 +46,18 @@ function createInitialState(): IdeWorkspaceState {
 				name: "bash",
 				cwd: "/workspace",
 				createdAt: new Date().toISOString(),
-				output: ["Welcome to SuperRoo IDE Terminal", "Type a command to get started..."],
+				output: [
+					"Welcome to SuperRoo IDE Terminal",
+					"╔══════════════════════════════════════════════╗",
+					"║  Terminal Brain Layer active                 ║",
+					"║  • Smart command bar: /plan, /fix, /deploy  ║",
+					"║  • Auto error detection & classification    ║",
+					"║  • Project context awareness                ║",
+					"║  • Terminal memory with session tracking    ║",
+					"║  • Safety guard with approval gates         ║",
+					"╚══════════════════════════════════════════════╝",
+					"",
+				],
 			},
 		],
 		activeTerminal: "term-1",
@@ -48,6 +69,11 @@ function createInitialState(): IdeWorkspaceState {
 			cpu: "0%",
 			ram: "0MB",
 		},
+		// Terminal Brain Layer additions
+		projectContext: null,
+		terminalFeedback: null,
+		memory: null,
+		activeTab: "terminal",
 	}
 }
 

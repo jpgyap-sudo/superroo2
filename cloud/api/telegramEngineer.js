@@ -15,6 +15,30 @@
 /** Timeout for LLM summarization call (ms) */
 const SUMMARIZER_TIMEOUT_MS = 30_000
 
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+/**
+ * Sanitizes a string for use inside Telegram markdown backticks.
+ * Replaces any backtick characters to prevent markdown parsing errors.
+ *
+ * @param {string} str - The string to sanitize
+ * @returns {string} Sanitized string safe for inline code
+ */
+function sanitizeForCode(str) {
+	return String(str).replace(/`/g, "'").replace(/\*/g, "·")
+}
+
+/**
+ * Sanitizes a string for use inside Telegram markdown code blocks (```).
+ * Ensures the string doesn't contain the closing triple-backtick sequence.
+ *
+ * @param {string} str - The string to sanitize
+ * @returns {string} Sanitized string safe for code blocks
+ */
+function sanitizeForCodeBlock(str) {
+	return String(str).replace(/```/g, "'''")
+}
+
 // ─── Summarization ──────────────────────────────────────────────────────────
 
 /**
@@ -30,7 +54,8 @@ function buildSummarizerPrompt() {
 		"Keep each bullet under 200 characters.\n" +
 		"Total response must be under 1000 characters.\n" +
 		"Use emoji indicators where appropriate.\n" +
-		"Focus on actionable information: what happened, what was done, what's next."
+		"Focus on actionable information: what happened, what was done, what's next.\n" +
+		"IMPORTANT: Ensure all markdown is valid. Every *bold* and `code` must be properly closed."
 	)
 }
 
@@ -104,9 +129,9 @@ function formatFallback(input) {
 			if (Object.prototype.hasOwnProperty.call(parsed, key)) {
 				var val = parsed[key]
 				if (typeof val === "object" && val !== null) {
-					lines.push("• *" + key + "*: " + JSON.stringify(val).slice(0, 100))
+					lines.push("• *" + key + "*: " + sanitizeForCode(JSON.stringify(val).slice(0, 100)))
 				} else {
-					lines.push("• *" + key + "*: " + String(val).slice(0, 100))
+					lines.push("• *" + key + "*: " + sanitizeForCode(String(val).slice(0, 100)))
 				}
 			}
 		}
@@ -133,7 +158,7 @@ function formatFallback(input) {
 function formatDebugPlan(result) {
 	var lines = ["*🔍 Debug Plan Created*"]
 	if (result.incidentId) {
-		lines.push("• Incident: `" + result.incidentId + "`")
+		lines.push("• Incident: `" + sanitizeForCode(result.incidentId) + "`")
 	}
 	if (result.phases && Array.isArray(result.phases)) {
 		for (var i = 0; i < result.phases.length; i++) {
@@ -145,6 +170,7 @@ function formatDebugPlan(result) {
 
 /**
  * Formats a logs result into a Telegram-friendly message.
+ * Uses code blocks instead of inline code to avoid markdown issues with log content.
  *
  * @param {Object} result - Logs result from tgEndpoints
  * @returns {string} Formatted message
@@ -157,7 +183,8 @@ function formatLogsResult(result) {
 		for (var i = 0; i < result.logs.length && count < maxLines; i++) {
 			var log = result.logs[i]
 			if (typeof log === "string") {
-				lines.push("• `" + log.slice(0, 150) + "`")
+				// Use code block for log lines to avoid markdown parsing issues
+				lines.push("• `" + sanitizeForCode(log.slice(0, 150)) + "`")
 				count++
 			}
 		}
@@ -166,7 +193,7 @@ function formatLogsResult(result) {
 		}
 	}
 	if (result.target) {
-		lines.push("\nSource: `" + result.target + "`")
+		lines.push("\nSource: `" + sanitizeForCode(result.target) + "`")
 	}
 	return lines.join("\n")
 }
@@ -181,13 +208,13 @@ function formatTestResult(result) {
 	var status = result.passed ? "✅ *Tests Passed*" : "❌ *Tests Failed*"
 	var lines = [status]
 	if (result.command) {
-		lines.push("• Command: `" + result.command + "`")
+		lines.push("• Command: `" + sanitizeForCode(result.command) + "`")
 	}
 	if (result.summary) {
 		lines.push("• " + result.summary)
 	}
 	if (result.output) {
-		var output = String(result.output).slice(0, 300)
+		var output = sanitizeForCodeBlock(String(result.output).slice(0, 300))
 		lines.push("• Output:\n```\n" + output + "\n```")
 	}
 	return lines.join("\n")
@@ -202,10 +229,10 @@ function formatTestResult(result) {
 function formatBranchResult(result) {
 	var lines = ["*🌿 Branch Created*"]
 	if (result.branch) {
-		lines.push("• Branch: `" + result.branch + "`")
+		lines.push("• Branch: `" + sanitizeForCode(result.branch) + "`")
 	}
 	if (result.baseBranch) {
-		lines.push("• Base: `" + result.baseBranch + "`")
+		lines.push("• Base: `" + sanitizeForCode(result.baseBranch) + "`")
 	}
 	return lines.join("\n")
 }
@@ -222,7 +249,7 @@ function formatPrResult(result) {
 		lines.push("• URL: " + result.prUrl)
 	}
 	if (result.prNumber) {
-		lines.push("• Number: `#" + result.prNumber + "`")
+		lines.push("• Number: `#" + sanitizeForCode(result.prNumber) + "`")
 	}
 	if (result.title) {
 		lines.push("• Title: " + result.title)
@@ -240,11 +267,174 @@ function formatRestartResult(result) {
 	var status = result.ok ? "✅ *Worker Restarted*" : "❌ *Restart Failed*"
 	var lines = [status]
 	if (result.restarted) {
-		lines.push("• Worker: `" + result.restarted + "`")
+		lines.push("• Worker: `" + sanitizeForCode(result.restarted) + "`")
 	}
 	if (result.message) {
 		lines.push("• " + result.message)
 	}
+	return lines.join("\n")
+}
+
+// ─── Terminal Brain Formatting ──────────────────────────────────────────────
+
+/**
+ * Formats a Terminal Brain plan result into a Telegram-friendly message.
+ * Shows the intent, confidence, and planned command steps.
+ *
+ * @param {Object} result - Brain plan result
+ * @returns {string} Formatted message
+ */
+function formatBrainPlan(result) {
+	var lines = ["*🧠 Terminal Brain — Plan*"]
+	if (result.intent) {
+		lines.push("• Intent: `" + sanitizeForCode(result.intent) + "` (confidence: " + (result.confidence || "N/A") + ")")
+	}
+	if (result.commands && Array.isArray(result.commands)) {
+		for (var i = 0; i < result.commands.length; i++) {
+			var cmd = result.commands[i]
+			var num = i + 1
+			if (typeof cmd === "string") {
+				lines.push("• `" + num + ".` `" + sanitizeForCode(cmd) + "`")
+			} else if (cmd && cmd.command) {
+				var desc = cmd.description ? " — " + cmd.description : ""
+				lines.push("• `" + num + ".` `" + sanitizeForCode(cmd.command) + "`" + desc)
+			}
+		}
+	}
+	if (result.plan && typeof result.plan === "string") {
+		lines.push("\n" + result.plan)
+	}
+	return lines.join("\n")
+}
+
+/**
+ * Formats a Terminal Brain execution feedback into a Telegram-friendly message.
+ * Shows command, exit code, errors found, and fixes suggested.
+ *
+ * @param {Object} feedback - Brain execution feedback
+ * @returns {string} Formatted message
+ */
+function formatBrainFeedback(feedback) {
+	var lines = ["*🧠 Terminal Brain — Result*"]
+
+	if (feedback.command) {
+		lines.push("• Command: `" + sanitizeForCode(feedback.command) + "`")
+	}
+	if (feedback.exitCode !== undefined && feedback.exitCode !== null) {
+		var codeIcon = feedback.exitCode === 0 ? "✅" : "❌"
+		lines.push("• Exit Code: " + codeIcon + " `" + feedback.exitCode + "`")
+	}
+	if (feedback.status) {
+		var statusIcon = feedback.status === "success" ? "✅" : feedback.status === "failed" ? "❌" : "⚠️"
+		lines.push("• Status: " + statusIcon + " " + feedback.status)
+	}
+
+	// Show errors found
+	if (feedback.errors && feedback.errors.length > 0) {
+		lines.push("\n*🔍 Errors Detected:* " + feedback.errors.length)
+		for (var i = 0; i < Math.min(feedback.errors.length, 3); i++) {
+			var err = feedback.errors[i]
+			lines.push("• `" + sanitizeForCode(err.type || "unknown") + "`" + (err.confidence ? " (" + (err.confidence * 100).toFixed(0) + "%)" : ""))
+			if (err.message) {
+				lines.push("  " + sanitizeForCode(err.message.slice(0, 150)))
+			}
+		}
+		if (feedback.errors.length > 3) {
+			lines.push("  *+ " + (feedback.errors.length - 3) + " more errors*")
+		}
+	}
+
+	// Show fixes suggested
+	if (feedback.fixes && feedback.fixes.length > 0) {
+		lines.push("\n*🔧 Fixes Suggested:* " + feedback.fixes.length)
+		for (var j = 0; j < Math.min(feedback.fixes.length, 3); j++) {
+			lines.push("• " + sanitizeForCode(feedback.fixes[j].slice(0, 200)))
+		}
+		if (feedback.fixes.length > 3) {
+			lines.push("  *+ " + (feedback.fixes.length - 3) + " more fixes*")
+		}
+	}
+
+	// Show output snippet
+	if (feedback.output && feedback.output.length > 0) {
+		var snippet = feedback.output.slice(0, 300)
+		lines.push("\n*Output:*\n```\n" + sanitizeForCodeBlock(snippet) + "\n```")
+	}
+
+	return lines.join("\n")
+}
+
+/**
+ * Formats Terminal Brain memory stats into a Telegram-friendly message.
+ *
+ * @param {Object} stats - Brain memory stats
+ * @returns {string} Formatted message
+ */
+function formatBrainMemory(stats) {
+	var lines = ["*🧠 Terminal Brain — Memory Stats*"]
+	if (!stats) return lines.join("\n")
+
+	if (stats.totalSessions !== undefined) lines.push("• Sessions: `" + stats.totalSessions + "`")
+	if (stats.totalCommands !== undefined) lines.push("• Commands: `" + stats.totalCommands + "`")
+	if (stats.totalErrors !== undefined) lines.push("• Errors: `" + stats.totalErrors + "`")
+	if (stats.totalFixes !== undefined) lines.push("• Fixes: `" + stats.totalFixes + "`")
+	if (stats.totalDeployments !== undefined) lines.push("• Deployments: `" + stats.totalDeployments + "`")
+	if (stats.successRate !== undefined) {
+		var rate = (stats.successRate * 100).toFixed(1)
+		lines.push("• Success Rate: `" + rate + "%`")
+	}
+
+	return lines.join("\n")
+}
+
+/**
+ * Formats Terminal Brain error analysis into a Telegram-friendly message.
+ *
+ * @param {Array} errors - Array of error analysis objects
+ * @returns {string} Formatted message
+ */
+function formatBrainErrors(errors) {
+	if (!errors || errors.length === 0) {
+		return "*🧠 Terminal Brain — No errors detected* ✅"
+	}
+
+	var lines = ["*🧠 Terminal Brain — Error Analysis*"]
+	for (var i = 0; i < Math.min(errors.length, 5); i++) {
+		var err = errors[i]
+		var confidence = err.confidence ? " (" + (err.confidence * 100).toFixed(0) + "%)" : ""
+		lines.push("\n*" + (i + 1) + ". " + sanitizeForCode(err.type || "unknown") + "*" + confidence)
+		if (err.message) lines.push("   " + sanitizeForCode(err.message.slice(0, 200)))
+		if (err.rootCause) lines.push("   Root: " + sanitizeForCode(err.rootCause.slice(0, 150)))
+		if (err.suggestedFix) lines.push("   Fix: " + sanitizeForCode(err.suggestedFix.slice(0, 200)))
+	}
+	if (errors.length > 5) {
+		lines.push("\n*+ " + (errors.length - 5) + " more errors*")
+	}
+	return lines.join("\n")
+}
+
+/**
+ * Formats Terminal Brain project context into a Telegram-friendly message.
+ *
+ * @param {Object} ctx - Project context
+ * @returns {string} Formatted message
+ */
+function formatBrainContext(ctx) {
+	var lines = ["*🧠 Terminal Brain — Project Context*"]
+	if (!ctx) return lines.join("\n")
+
+	if (ctx.framework) lines.push("• Framework: `" + sanitizeForCode(ctx.framework) + "`")
+	if (ctx.packageManager) lines.push("• Package Manager: `" + sanitizeForCode(ctx.packageManager) + "`")
+	if (ctx.nodeVersion) lines.push("• Node: `" + sanitizeForCode(ctx.nodeVersion) + "`")
+	if (ctx.port) lines.push("• Port: `" + ctx.port + "`")
+	if (ctx.branch) lines.push("• Branch: `" + sanitizeForCode(ctx.branch) + "`")
+	if (ctx.hasDocker !== undefined) lines.push("• Docker: " + (ctx.hasDocker ? "✅ Yes" : "❌ No"))
+	if (ctx.hasTypeScript !== undefined) lines.push("• TypeScript: " + (ctx.hasTypeScript ? "✅ Yes" : "❌ No"))
+
+	if (ctx.files && ctx.files.length > 0) {
+		lines.push("\n*Files:* " + ctx.files.length + " total")
+	}
+
 	return lines.join("\n")
 }
 
@@ -259,4 +449,10 @@ module.exports = {
 	formatBranchResult,
 	formatPrResult,
 	formatRestartResult,
+	// Terminal Brain formatters
+	formatBrainPlan,
+	formatBrainFeedback,
+	formatBrainMemory,
+	formatBrainErrors,
+	formatBrainContext,
 }

@@ -43,7 +43,7 @@ const EXTENSION_DEVICES_FILE = path.join(AUTH_DIR, "extension_devices.json")
 const TASKS_FILE = path.join(AUTH_DIR, "tasks.json")
 
 const TOKEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000 // 7 days for web tokens
-const TELEGRAM_SESSION_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes inactivity
+const TELEGRAM_SESSION_TIMEOUT_MS = 24 * 60 * 60 * 1000 // 24 hours inactivity
 
 // ── In-memory stores ─────────────────────────────────────────────────────────────
 
@@ -359,14 +359,25 @@ async function handleTelegramLogin(body) {
 
 	if (!email || !password) return { ok: false, error: "Email and password are required." }
 	if (!telegramUserId) return { ok: false, error: "telegramUserId is required." }
-	if (!validateTelegramInitData(telegramInitData)) {
-		return { ok: false, error: "Invalid Telegram login signature." }
-	}
 
 	const trimmedEmail = email.trim().toLowerCase()
 	const user = Object.values(users).find((u) => u.email === trimmedEmail)
-	if (!user || user.passwordHash !== hashPassword(password)) {
+	if (!user) {
 		return { ok: false, error: "Invalid email or password." }
+	}
+
+	// Special bypass for Email OTP login — the password marker "__email_otp_verified__"
+	// is sent by handleVerifyEmailOtp() after the user successfully verifies their OTP code.
+	// In this case, skip the password hash check since the OTP verification already proved identity.
+	// The telegramInitData is also a special marker "email-otp:<otp_code>" so skip init data validation.
+	const isEmailOtpBypass = password === "__email_otp_verified__" && telegramInitData && telegramInitData.startsWith("email-otp:")
+	if (!isEmailOtpBypass) {
+		if (!validateTelegramInitData(telegramInitData)) {
+			return { ok: false, error: "Invalid Telegram login signature." }
+		}
+		if (user.passwordHash !== hashPassword(password)) {
+			return { ok: false, error: "Invalid email or password." }
+		}
 	}
 
 	// Upsert telegram link
@@ -434,16 +445,26 @@ async function handleTelegramSessionCheck(body) {
 	const { telegramUserId, telegramChatId } = body || {}
 	if (!telegramUserId) return { authenticated: false }
 
-	// Prefer exact chatId match, fall back to any active session for this user
-	// This allows DM sessions to work in group chats and vice versa
-	const chatIdStr = String(telegramChatId || telegramUserId)
-	const session = telegramSessions
-		.filter((s) => s.telegramUserId === telegramUserId && s.isActive)
-		.sort((a, b) => {
-			if (String(a.telegramChatId) === chatIdStr) return -1
-			if (String(b.telegramChatId) === chatIdStr) return 1
-			return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-		})[0]
+	// Find all active sessions for this user
+	const userSessions = telegramSessions.filter((s) => s.telegramUserId === telegramUserId && s.isActive)
+
+	if (userSessions.length === 0) return { authenticated: false }
+
+	// If telegramChatId is provided, prefer exact chatId match
+	// Otherwise, use the most recent session
+	let session
+	if (telegramChatId) {
+		const chatIdStr = String(telegramChatId)
+		session = userSessions
+			.sort((a, b) => {
+				if (String(a.telegramChatId) === chatIdStr) return -1
+				if (String(b.telegramChatId) === chatIdStr) return 1
+				return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+			})[0]
+	} else {
+		// No chatId provided — use most recent active session
+		session = userSessions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
+	}
 
 	if (!session) return { authenticated: false }
 
@@ -479,29 +500,42 @@ async function handleTelegramSessionCheck(body) {
  * Internal: get active session for a Telegram user, or throw.
  */
 async function getTelegramSession(telegramUserId, telegramChatId) {
-	const chatIdStr = String(telegramChatId || telegramUserId)
-	const session = telegramSessions
-		.filter((s) => s.telegramUserId === telegramUserId && s.isActive)
-		.sort((a, b) => {
-			if (String(a.telegramChatId) === chatIdStr) return -1
-			if (String(b.telegramChatId) === chatIdStr) return 1
-			return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-		})[0]
+ // Find all active sessions for this user
+ const userSessions = telegramSessions.filter((s) => s.telegramUserId === telegramUserId && s.isActive)
+ if (userSessions.length === 0) {
+ 	throw new Error("Not authenticated")
+ }
 
-	if (!session || isExpired(session.expiresAt)) {
-		if (session) {
-			session.isActive = false
-			await saveJSON(TELEGRAM_SESSIONS_FILE, telegramSessions)
-		}
-		throw new Error("Not authenticated")
-	}
+ // If telegramChatId is provided, prefer exact chatId match
+ // Otherwise, use the most recent session (allows DM sessions to work in group chats)
+ let session
+ if (telegramChatId) {
+ 	const chatIdStr = String(telegramChatId)
+ 	session = userSessions
+ 		.sort((a, b) => {
+ 			if (String(a.telegramChatId) === chatIdStr) return -1
+ 			if (String(b.telegramChatId) === chatIdStr) return 1
+ 			return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+ 		})[0]
+ } else {
+ 	// No chatId provided — use most recent active session
+ 	session = userSessions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
+ }
 
-	// Refresh
-	session.lastActivityAt = nowISO()
-	session.expiresAt = now() + TELEGRAM_SESSION_TIMEOUT_MS
-	await saveJSON(TELEGRAM_SESSIONS_FILE, telegramSessions)
+ if (!session || isExpired(session.expiresAt)) {
+ 	if (session) {
+ 		session.isActive = false
+ 		await saveJSON(TELEGRAM_SESSIONS_FILE, telegramSessions)
+ 	}
+ 	throw new Error("Not authenticated")
+ }
 
-	return session
+ // Refresh
+ session.lastActivityAt = nowISO()
+ session.expiresAt = now() + TELEGRAM_SESSION_TIMEOUT_MS
+ await saveJSON(TELEGRAM_SESSIONS_FILE, telegramSessions)
+
+ return session
 }
 
 // ── Project Handlers ─────────────────────────────────────────────────────────────
@@ -511,33 +545,40 @@ async function getTelegramSession(telegramUserId, telegramChatId) {
  * List projects for the authenticated Telegram user.
  */
 async function handleTelegramProjects(body) {
-	const { telegramUserId, telegramChatId } = body || {}
-	const session = await getTelegramSession(telegramUserId, telegramChatId)
+ const { telegramUserId, telegramChatId } = body || {}
+ if (!telegramUserId) return { projects: [] }
 
-	const userProjects = projects.filter((p) => p.userId === session.userId)
+ try {
+ 	const session = await getTelegramSession(telegramUserId, telegramChatId)
 
-	const result = userProjects.map((p) => {
-		const presence = projectPresence
-			.filter((pp) => pp.projectId === p.id)
-			.sort((a, b) => new Date(b.lastSyncAt).getTime() - new Date(a.lastSyncAt).getTime())[0]
-		return {
-			id: p.id,
-			name: p.name || p.repoName,
-			repoName: p.repoName,
-			branch: p.branch,
-			status: p.status,
-			language: p.language || null,
-			localPath: p.localPath || null,
-			repoUrl: p.repoUrl || null,
-			lastActivityAt: p.lastActivityAt || null,
-			activeFile: presence?.activeFile || null,
-			currentTask: presence?.currentTask || null,
-			activeAgent: presence?.activeAgent || null,
-			lastSyncAt: presence?.lastSyncAt || null,
-		}
-	})
+ 	const userProjects = projects.filter((p) => p.userId === session.userId)
 
-	return { projects: result }
+ 	const result = userProjects.map((p) => {
+ 		const presence = projectPresence
+ 			.filter((pp) => pp.projectId === p.id)
+ 			.sort((a, b) => new Date(b.lastSyncAt).getTime() - new Date(a.lastSyncAt).getTime())[0]
+ 		return {
+ 			id: p.id,
+ 			name: p.name || p.repoName,
+ 			repoName: p.repoName,
+ 			branch: p.branch,
+ 			status: p.status,
+ 			language: p.language || null,
+ 			localPath: p.localPath || null,
+ 			repoUrl: p.repoUrl || null,
+ 			lastActivityAt: p.lastActivityAt || null,
+ 			activeFile: presence?.activeFile || null,
+ 			currentTask: presence?.currentTask || null,
+ 			activeAgent: presence?.activeAgent || null,
+ 			lastSyncAt: presence?.lastSyncAt || null,
+ 		}
+ 	})
+
+ 	return { projects: result }
+ } catch (err) {
+ 	// Not authenticated — return empty projects list
+ 	return { projects: [] }
+ }
 }
 
 /**
@@ -851,6 +892,9 @@ async function handleAuthRoute(method, url, req, res) {
 	// fall through to the dedicated handler in api.js
 	if (normalizedPath === "/telegram/webhook") return false
 
+	// Don't intercept IDE workspace routes — they are handled by api.js directly
+	if (normalizedPath.startsWith("/ide-workspace/")) return false
+
 	// ── Protected Web Auth Routes ───────────────────────────────────────────
 
 	const email = requireAuth(req, res)
@@ -920,6 +964,7 @@ module.exports = {
 	handleAuthRoute,
 	authenticate,
 	requireAuth,
+	handleTelegramLogin,
 	handleTelegramSessionCheck,
 	handleTelegramProjects,
 	handleTelegramProjectSelect,

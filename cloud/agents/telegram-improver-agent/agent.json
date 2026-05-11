@@ -1,0 +1,45 @@
+{
+	"id": "telegram-improver-agent",
+	"name": "Telegram Bot Improver Agent",
+	"category": "meta-agent",
+	"description": "Monitors daily Telegram chat logs, analyzes conversation patterns, identifies bot weaknesses, and autonomously improves the Telegram bot by creating/updating skill files, agent configs, and requesting code upgrades from the coder agent.",
+	"version": "1.0.0",
+	"enabled": true,
+	"modelPolicy": {
+		"preferred": "gpt-5.5",
+		"fallbacks": ["claude-sonnet", "kimi"],
+		"maxTokens": 8000
+	},
+	"skills": [
+		"skills/chat-log-analysis.md",
+		"skills/skill-gap-detection.md",
+		"skills/code-upgrade-request.md"
+	],
+	"workflows": [
+		"workflows/daily-chat-log-review.md",
+		"workflows/skill-improvement-loop.md",
+		"workflows/code-upgrade-trigger.md"
+	],
+	"resources": [
+		"resources/telegram-bot-architecture.md",
+		"resources/improvement-prioritization.md"
+	],
+	"memory": {
+		"enabled": true,
+		"scope": "global"
+	},
+	"outputs": "outputs/",
+	"safety": {
+		"requiresApproval": true,
+		"canEditFiles": true,
+		"canPublish": false,
+		"canDeploy": false,
+		"blockedCommands": ["rm -rf /", ".env", "overwrite agent.json", "auto merge", "reboot", "shutdown"],
+		"approvalTriggers": ["overwrite", "delete", "publish", "enable autonomous", "modify live agent", "deploy", "scp"]
+	},
+	"runtime": {
+		"sandbox": true,
+		"timeoutSeconds": 600,
+		"maxRetries": 2
+	}
+}

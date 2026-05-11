@@ -29,6 +29,10 @@ import {
 	Loader2,
 	AlertTriangle,
 	Trash2,
+	Wand2,
+	Sparkles,
+	Brain,
+	Zap,
 } from "lucide-react"
 
 // ─── Types ────────────────────────────────────────────────────────────────
@@ -118,13 +122,14 @@ function PipelineIcon({ status }: { status: string }) {
 
 // ─── FileTree component ───────────────────────────────────────────────────
 
-function FileTree({ items, depth = 0 }: { items: WorkspaceFile[]; depth?: number }) {
+function FileTree({ items, depth = 0, onFileClick }: { items: WorkspaceFile[]; depth?: number; onFileClick?: (path: string, name: string) => void }) {
 	return (
 		<>
 			{items.map((item) => (
 				<div key={item.path}>
 					<div
-						className={`flex items-center gap-1.5 px-2 py-1 text-xs rounded transition-colors hover:bg-[#1e2535] ${item.modified ? "text-violet-300" : "text-gray-400"}`}
+						onClick={() => item.kind === "file" && onFileClick?.(item.path, item.name)}
+						className={`flex items-center gap-1.5 px-2 py-1 text-xs rounded transition-colors ${item.kind === "file" ? "cursor-pointer hover:bg-[#1e2535]" : ""} ${item.modified ? "text-violet-300" : "text-gray-400"}`}
 						style={{ paddingLeft: `${10 + depth * 14}px` }}>
 						{item.kind === "folder" ? (
 							<Folder size={14} className="text-yellow-500" />
@@ -134,7 +139,7 @@ function FileTree({ items, depth = 0 }: { items: WorkspaceFile[]; depth?: number
 						<span>{item.name}</span>
 						{item.modified && <span className="ml-auto text-[10px] font-bold text-orange-400">M</span>}
 					</div>
-					{item.children && <FileTree items={item.children} depth={depth + 1} />}
+					{item.children && <FileTree items={item.children} depth={depth + 1} onFileClick={onFileClick} />}
 				</div>
 			))}
 		</>
@@ -150,9 +155,21 @@ export default function IdeTerminalView() {
 	const [terminalOutput, setTerminalOutput] = useState<string[]>([
 		"Welcome to SuperRoo IDE Terminal",
 		"Type a command to get started...",
+		"",
+		"╔══════════════════════════════════════════════╗",
+		"║  Agent Mode: Prefix commands with / or @    ║",
+		"║  /help — Show all agent commands            ║",
+		"║  /skills — List available skills            ║",
+		"║  /deploy — Deploy the project               ║",
+		"║  /orchestrate — Break down complex tasks    ║",
+		"║  @coder <task> — Delegate to Coder agent    ║",
+		"╚══════════════════════════════════════════════╝",
+		"",
 	])
 	const [pipeline, setPipeline] = useState<PipelineStep[]>([])
 	const [files, setFiles] = useState<WorkspaceFile[]>([])
+	const [openFiles, setOpenFiles] = useState<{ path: string; name: string; content: string; language: string; modified?: boolean }[]>([])
+	const [activeFilePath, setActiveFilePath] = useState<string | null>(null)
 	const [status, setStatus] = useState<WorkspaceStatus>({
 		connected: true,
 		docker: false,
@@ -170,10 +187,61 @@ export default function IdeTerminalView() {
 	const [branch, setBranch] = useState("auto-improvement")
 	const [importUrl, setImportUrl] = useState("")
 	const [showImport, setShowImport] = useState(false)
+	// ── Agent/Skill awareness state ──────────────────────────────────────
+	const [terminalMode, setTerminalMode] = useState<"shell" | "agent" | "skill">("shell")
+	const [activeAgent, setActiveAgent] = useState<string | null>(null)
+	const [agentRunning, setAgentRunning] = useState(false)
+	const [agentSuggestions, setAgentSuggestions] = useState<string[]>([])
+	const [showAgentSuggestions, setShowAgentSuggestions] = useState(false)
 	const fileInputRef = useRef<HTMLInputElement>(null)
 	const imageInputRef = useRef<HTMLInputElement>(null)
 	const messagesEndRef = useRef<HTMLDivElement>(null)
 	const terminalRef = useRef<HTMLPreElement>(null)
+	const terminalInputRef = useRef<HTMLInputElement>(null)
+
+	// ── Agent command definitions (mirrors backend) ──────────────────────
+	const agentCommands = {
+		"/help": { agent: "system", description: "Show all agent and skill commands", icon: "Bot" },
+		"/agents": { agent: "system", description: "List all available agents", icon: "Brain" },
+		"/skills": { agent: "system", description: "List all available skills", icon: "Sparkles" },
+		"/deploy": { agent: "deployer", description: "Deploy the current project", icon: "Zap" },
+		"/autonomous": { agent: "autonomous", description: "Run autonomous system scan", icon: "Bot" },
+		"/debug": { agent: "debugger", description: "Start a debug session", icon: "Search" },
+		"/test": { agent: "tester", description: "Run tests", icon: "CheckCircle2" },
+		"/crawl": { agent: "crawler", description: "Run crawler agent", icon: "Bot" },
+		"/plan": { agent: "planner", description: "Create a plan for a task", icon: "FileText" },
+		"/code": { agent: "coder", description: "Execute a coding task", icon: "Code2" },
+		"/heal": { agent: "self-healing", description: "Run self-healing cycle", icon: "AlertTriangle" },
+		"/orchestrate": { agent: "orchestrator", description: "Break down and coordinate multi-step tasks", icon: "GitMerge" },
+		"/auto-deploy": { agent: "auto-deployer", description: "Trigger or check auto-deployer status", icon: "Rocket" },
+		"/status": { agent: "system", description: "Show system status", icon: "Cpu" },
+		"/memory": { agent: "system", description: "Show memory/context status", icon: "Database" },
+		"/pipeline": { agent: "system", description: "Show current pipeline status", icon: "GitBranch" },
+	}
+
+	// ── Detect if input is an agent command ──────────────────────────────
+	const isAgentCommand = (cmd: string) => cmd.startsWith("/") || cmd.startsWith("@")
+	const isSkillCommand = (cmd: string) => cmd.startsWith("/skill ") || cmd.startsWith("/skills ")
+	const isAgentMention = (cmd: string) => cmd.startsWith("@")
+
+	// ── Get matching suggestions for autocomplete ────────────────────────
+	const getAgentSuggestions = (input: string): string[] => {
+		if (!input) return []
+		const lower = input.toLowerCase()
+		if (lower.startsWith("/")) {
+			return Object.keys(agentCommands)
+				.filter(cmd => cmd.startsWith(lower))
+				.slice(0, 5)
+		}
+		if (lower.startsWith("@")) {
+			const mention = lower.slice(1)
+			return Object.values(agentCommands)
+				.filter(cmd => cmd.agent !== "system" && cmd.agent.includes(mention))
+				.map(cmd => `@${cmd.agent}`)
+				.slice(0, 5)
+		}
+		return []
+	}
 
 	// ── Load workspace data on mount ──────────────────────────────────────
 	useEffect(() => {
@@ -219,6 +287,41 @@ export default function IdeTerminalView() {
 		}
 	}, [terminalOutput])
 
+	// ── Ctrl+V paste handler for files/images ────────────────────────────
+	useEffect(() => {
+		function handlePaste(e: ClipboardEvent) {
+			const items = e.clipboardData?.items
+			if (!items) return
+
+			const newAttachments: ChatAttachment[] = []
+			for (let i = 0; i < items.length; i++) {
+				const item = items[i]
+				if (item.kind === "file") {
+					const file = item.getAsFile()
+					if (!file) continue
+					const ext = file.name.split(".").pop()?.toUpperCase() || "FILE"
+					const type = file.type.startsWith("image/") ? "IMAGE" : ext
+					newAttachments.push({
+						id: `att-${Date.now()}-${i}`,
+						filename: file.name || `pasted-${Date.now()}.${ext.toLowerCase()}`,
+						type,
+						size: `${(file.size / 1024).toFixed(1)} KB`,
+					})
+				}
+			}
+			if (newAttachments.length > 0) {
+				e.preventDefault()
+				setAttachments((prev) => [...prev, ...newAttachments])
+			}
+		}
+
+		const textarea = document.querySelector("textarea")
+		if (textarea) {
+			textarea.addEventListener("paste", handlePaste)
+			return () => textarea.removeEventListener("paste", handlePaste)
+		}
+	}, [])
+
 	// ── Send chat message ─────────────────────────────────────────────────
 	const handleSend = useCallback(async () => {
 		const text = input.trim()
@@ -254,17 +357,27 @@ export default function IdeTerminalView() {
 				reply?: string
 				provider?: string
 				model?: string
+				intent?: string
+				intentConfidence?: number
+				agent?: string
 			}>("/chat", {
 				method: "POST",
 				body: JSON.stringify(body),
 			})
 
 			const replyText = result.reply || result.message || "Message received. Processing your request..."
+			const intentLabel = result.intent || "chat"
+			const confidence = result.intentConfidence ? `${(result.intentConfidence * 100).toFixed(0)}%` : ""
+			const agentName = result.agent || "chat"
+			const providerName = result.provider || "AI"
+			const metaParts = [agentName]
+			if (confidence) metaParts.push(`conf ${confidence}`)
+			if (result.model) metaParts.push(result.model)
 			const assistantMsg: ChatMessage = {
 				id: `msg-${Date.now() + 1}`,
 				role: "agent",
-				author: "Kimi",
-				meta: "coder · conf 92%",
+				author: providerName,
+				meta: metaParts.join(" · "),
 				time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
 				content: replyText,
 			}
@@ -345,21 +458,114 @@ export default function IdeTerminalView() {
 		e.target.value = ""
 	}, [])
 
-	// ── Terminal command execution ────────────────────────────────────────
+	// ── File click handler — open file from tree ──────────────────────────
+	const handleFileClick = useCallback(async (filePath: string, fileName: string) => {
+		// Check if already open
+		if (openFiles.some((f) => f.path === filePath)) {
+			setActiveFilePath(filePath)
+			return
+		}
+
+		try {
+			const result = await api<{
+				ok: boolean
+				content?: string
+				language?: string
+				error?: string
+			}>(`/file/read?path=${encodeURIComponent(filePath)}`)
+
+			if (result.ok && result.content !== undefined) {
+				const newFile = {
+					path: filePath,
+					name: fileName,
+					content: result.content,
+					language: result.language || "text",
+				}
+				setOpenFiles((prev) => [...prev, newFile])
+				setActiveFilePath(filePath)
+			}
+		} catch (err) {
+			console.error("Failed to open file:", err)
+		}
+	}, [openFiles])
+
+	// ── Save file handler ─────────────────────────────────────────────────
+	const handleSaveFile = useCallback(async () => {
+		if (!activeFilePath) return
+		const file = openFiles.find((f) => f.path === activeFilePath)
+		if (!file) return
+
+		try {
+			const result = await api<{ ok: boolean; error?: string }>("/file/save", {
+				method: "POST",
+				body: JSON.stringify({ path: file.path, content: file.content }),
+			})
+			if (result.ok) {
+				// Mark file as saved (remove modified indicator)
+				setOpenFiles((prev) =>
+					prev.map((f) => (f.path === activeFilePath ? { ...f, modified: false } : f)),
+				)
+			}
+		} catch (err) {
+			console.error("Failed to save file:", err)
+		}
+	}, [activeFilePath, openFiles])
+
+	// ── Track content changes for modified indicator ──────────────────────
+	const handleEditorContentChange = useCallback((filePath: string, newContent: string) => {
+		setOpenFiles((prev) =>
+			prev.map((f) => (f.path === filePath ? { ...f, content: newContent, modified: true } : f)),
+		)
+	}, [])
+
+	// ── Terminal command execution (agent-aware) ──────────────────────────
 	const handleTerminalCommand = useCallback(async () => {
 		const cmd = terminalInput.trim()
 		if (!cmd) return
 
-		setTerminalOutput((prev) => [...prev, `$ ${cmd}`])
+		// Detect command type
+		const isAgent = isAgentCommand(cmd)
+		const isSkill = isSkillCommand(cmd)
+		const isMention = isAgentMention(cmd)
+
+		// Show command in terminal
+		const modePrefix = isAgent ? "🤖" : isSkill ? "✨" : "$"
+		setTerminalOutput((prev) => [...prev, `${modePrefix} ${cmd}`])
 		setTerminalInput("")
+		setShowAgentSuggestions(false)
+
+		if (isAgent || isSkill) {
+			setTerminalMode(isSkill ? "skill" : "agent")
+			setAgentRunning(true)
+			const agentName = isMention ? cmd.split(" ")[0].slice(1) : cmd.split(" ")[0].slice(1)
+			setActiveAgent(agentName || "agent")
+		}
 
 		try {
-			const result = await api<{ ok: boolean; output?: string[]; message?: string }>("/terminal/execute", {
+			const result = await api<{
+				ok: boolean
+				output?: string[]
+				message?: string
+				agent?: string
+				skill?: boolean
+			}>("/terminal/execute", {
 				method: "POST",
 				body: JSON.stringify({ command: cmd, terminalId: "term-1" }),
 			})
+
 			if (result.output?.length) {
-				setTerminalOutput((prev) => [...prev, ...result.output!])
+				// If agent/skill response, wrap in visual separator
+				if (isAgent || isSkill) {
+					const agentLabel = result.agent || "agent"
+					setTerminalOutput((prev) => [
+						...prev,
+						`┌─ [${result.skill ? "✨ Skill" : "🤖 Agent"}: ${agentLabel}] ─────────────────────`,
+						...result.output!,
+						`└──────────────────────────────────────────────────`,
+					])
+				} else {
+					setTerminalOutput((prev) => [...prev, ...result.output!])
+				}
 			} else if (result.message) {
 				setTerminalOutput((prev) => [...prev, result.message!])
 			} else {
@@ -367,6 +573,10 @@ export default function IdeTerminalView() {
 			}
 		} catch (err) {
 			setTerminalOutput((prev) => [...prev, `Error: ${err instanceof Error ? err.message : "Command failed"}`])
+		} finally {
+			setAgentRunning(false)
+			setActiveAgent(null)
+			setTerminalMode("shell")
 		}
 	}, [terminalInput])
 
@@ -376,9 +586,37 @@ export default function IdeTerminalView() {
 				e.preventDefault()
 				handleTerminalCommand()
 			}
+			// Tab for autocomplete
+			if (e.key === "Tab") {
+				e.preventDefault()
+				const suggestions = getAgentSuggestions(terminalInput)
+				if (suggestions.length === 1) {
+					setTerminalInput(suggestions[0] + " ")
+					setShowAgentSuggestions(false)
+				}
+			}
+			// Escape to close suggestions
+			if (e.key === "Escape") {
+				setShowAgentSuggestions(false)
+			}
 		},
-		[handleTerminalCommand],
+		[handleTerminalCommand, terminalInput],
 	)
+
+	// ── Terminal input change handler with autocomplete ───────────────────
+	const handleTerminalInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+		const value = e.target.value
+		setTerminalInput(value)
+
+		// Show suggestions for agent commands
+		if (value.startsWith("/") || value.startsWith("@")) {
+			const suggestions = getAgentSuggestions(value)
+			setAgentSuggestions(suggestions)
+			setShowAgentSuggestions(suggestions.length > 0)
+		} else {
+			setShowAgentSuggestions(false)
+		}
+	}, [])
 
 	// ── Pipeline approval ─────────────────────────────────────────────────
 	const handlePipelineAction = useCallback(async (stepId: string) => {
@@ -530,7 +768,7 @@ export default function IdeTerminalView() {
 				<div className="px-3 py-1.5 text-xs text-gray-400 border-b border-[#1e2535]">{repoName}</div>
 				<div className="flex-1 py-1">
 					{files.length > 0 ? (
-						<FileTree items={files} />
+						<FileTree items={files} onFileClick={handleFileClick} />
 					) : (
 						<div className="px-3 py-2 text-[10px] text-gray-600 italic">
 							No files loaded. Import a GitHub repo to get started.
@@ -538,17 +776,39 @@ export default function IdeTerminalView() {
 					)}
 				</div>
 				<div className="px-3 py-1.5 text-[10px] font-semibold text-gray-500 tracking-wider border-t border-[#1e2535]">
-					OPEN EDITORS
+					OPEN EDITORS {openFiles.length > 0 && <span className="text-gray-600">({openFiles.length})</span>}
 				</div>
-				<div className="flex items-center gap-1.5 px-3 py-1 text-xs text-violet-300 bg-violet-600/10">
-					<FileText size={14} className="text-blue-400" />
-					<span>AIAssistantPanel.tsx</span>
-					<span className="ml-auto text-[10px] font-bold text-orange-400">M</span>
-				</div>
-				<div className="flex items-center gap-1.5 px-3 py-1 text-xs text-gray-400">
-					<FileText size={14} className="text-blue-400" />
-					<span>pipeline.yaml</span>
-				</div>
+				{openFiles.length > 0 ? (
+					openFiles.map((f) => (
+						<div
+							key={f.path}
+							onClick={() => setActiveFilePath(f.path)}
+							className={`flex items-center gap-1.5 px-3 py-1 text-xs cursor-pointer transition-colors ${
+								activeFilePath === f.path
+									? "text-violet-300 bg-violet-600/10"
+									: "text-gray-400 hover:bg-[#1e2535]"
+							}`}>
+							<FileText size={14} className="text-blue-400" />
+							<span className="truncate">{f.name}</span>
+							<button
+								onClick={(e) => {
+									e.stopPropagation()
+									setOpenFiles((prev) => prev.filter((x) => x.path !== f.path))
+									if (activeFilePath === f.path) {
+										const remaining = openFiles.filter((x) => x.path !== f.path)
+										setActiveFilePath(remaining.length > 0 ? remaining[remaining.length - 1].path : null)
+									}
+								}}
+								className="ml-auto text-gray-600 hover:text-red-400 shrink-0">
+								<Trash2 size={10} />
+							</button>
+						</div>
+					))
+				) : (
+					<div className="px-3 py-2 text-[10px] text-gray-600 italic">
+						Click a file in the workspace tree to open it.
+					</div>
+				)}
 
 				{/* Context Card */}
 				<div className="mx-3 my-2 p-2 rounded-lg bg-[#0f1117] border border-[#1e2535] text-[10px] space-y-1">
@@ -666,54 +926,87 @@ export default function IdeTerminalView() {
 						{/* Editor card */}
 						<div className="flex flex-col flex-1 m-2 rounded-lg border border-[#1e2535] bg-[#0a0e1a] overflow-hidden">
 							<div className="flex items-center gap-0.5 px-2 py-1 bg-[#0f1117] border-b border-[#1e2535] overflow-x-auto shrink-0">
-								<span className="flex items-center gap-1 px-2 py-0.5 text-[10px] rounded-t bg-[#0a0e1a] border-t border-x border-[#1e2535] text-[#e2e8f0]">
-									<Code2 size={12} /> AIAssistantPanel.tsx{" "}
-									<span className="text-orange-400 font-bold ml-1">M</span>
-								</span>
-								<span className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-gray-500">
-									pipeline.yaml
-								</span>
-								<span className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-gray-500">
-									worker.ts
-								</span>
-								<button className="ml-auto p-0.5 text-gray-500 hover:text-gray-300">
-									<Plus size={12} />
-								</button>
+								{openFiles.length > 0 ? (
+									openFiles.map((f) => (
+										<span
+											key={f.path}
+											onClick={() => setActiveFilePath(f.path)}
+											className={`flex items-center gap-1 px-2 py-0.5 text-[10px] rounded-t cursor-pointer transition-colors ${
+												activeFilePath === f.path
+													? "bg-[#0a0e1a] border-t border-x border-[#1e2535] text-[#e2e8f0]"
+													: "text-gray-500 hover:text-gray-300"
+											}`}>
+											<Code2 size={12} /> {f.name}
+											{f.modified && <span className="text-[9px] text-orange-400 font-bold">M</span>}
+											<button
+												onClick={(e) => {
+													e.stopPropagation()
+													setOpenFiles((prev) => prev.filter((x) => x.path !== f.path))
+													if (activeFilePath === f.path) {
+														const remaining = openFiles.filter((x) => x.path !== f.path)
+														setActiveFilePath(remaining.length > 0 ? remaining[remaining.length - 1].path : null)
+													}
+												}}
+												className="ml-1 text-gray-600 hover:text-red-400">
+												<Trash2 size={10} />
+											</button>
+										</span>
+									))
+								) : (
+									<span className="px-2 py-0.5 text-[10px] text-gray-600 italic">
+										Click a file in the workspace tree to open it
+									</span>
+								)}
+								{/* Save button */}
+								{activeFilePath && (
+									<button
+										onClick={handleSaveFile}
+										className="ml-auto px-2 py-0.5 text-[10px] rounded bg-green-600/20 text-green-400 hover:bg-green-600/30 shrink-0">
+										Save
+									</button>
+								)}
 							</div>
 							<div className="flex-1 overflow-auto">
-								<pre className="p-4 font-mono text-xs leading-relaxed text-green-400 overflow-auto h-full">{`const AIAssistantPanel = () => {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
-
-  const onSend = async () => {
-    setMessages(m => [...m, { role: 'user', content: input }]);
-    const res = await sendMessage(input);
-    setMessages(m => [...m, res]);
-  };
-
-  return (
-    <div className="assistant-panel">
-      <header className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Bot className="h-5 w-5 text-purple-400" />
-          <h2>AI Assistant</h2>
-          <span className="badge badge-success">routed</span>
-        </div>
-      </header>
-    </div>
-  );
-};`}</pre>
+								{activeFilePath ? (
+									<textarea
+										value={openFiles.find((f) => f.path === activeFilePath)?.content || ""}
+										onChange={(e) => handleEditorContentChange(activeFilePath, e.target.value)}
+										className="w-full h-full p-4 font-mono text-xs leading-relaxed text-[#e2e8f0] bg-transparent border-none outline-none resize-none"
+										spellCheck={false}
+									/>
+								) : (
+									<div className="flex items-center justify-center h-full text-[10px] text-gray-600">
+										Select a file from the workspace tree to view its contents
+									</div>
+								)}
 							</div>
 						</div>
 
 						{/* Bottom split: Terminal + Debugger */}
-						<div className="flex gap-2 m-2 mt-0 shrink-0" style={{ height: 160 }}>
+						<div className="flex gap-2 m-2 mt-0 shrink-0" style={{ height: 180 }}>
 							{/* Terminal */}
 							<div className="flex-1 rounded-lg border border-[#1e2535] bg-[#0a0e1a] overflow-hidden flex flex-col">
 								<div className="flex items-center gap-0.5 px-2 py-1 bg-[#0f1117] border-b border-[#1e2535] shrink-0">
-									<span className="px-2 py-0.5 text-[10px] rounded-t bg-[#0a0e1a] border-t border-x border-[#1e2535] text-[#e2e8f0]">
-										TERMINAL
+									<span className="px-2 py-0.5 text-[10px] rounded-t bg-[#0a0e1a] border-t border-x border-[#1e2535] text-[#e2e8f0] flex items-center gap-1">
+										<Terminal size={10} /> TERMINAL
 									</span>
+									{/* Agent mode indicator */}
+									{agentRunning && (
+										<span className="px-2 py-0.5 text-[10px] rounded bg-violet-600/20 text-violet-400 flex items-center gap-1 animate-pulse">
+											<Loader2 size={10} className="animate-spin" />
+											{activeAgent ? `${activeAgent} agent` : "agent"} running...
+										</span>
+									)}
+									{terminalMode === "agent" && !agentRunning && (
+										<span className="px-2 py-0.5 text-[10px] rounded bg-violet-600/10 text-violet-400 flex items-center gap-1">
+											<Brain size={10} /> agent mode
+										</span>
+									)}
+									{terminalMode === "skill" && !agentRunning && (
+										<span className="px-2 py-0.5 text-[10px] rounded bg-yellow-600/10 text-yellow-400 flex items-center gap-1">
+											<Sparkles size={10} /> skill mode
+										</span>
+									)}
 									<span className="px-2 py-0.5 text-[10px] text-gray-500">
 										PROBLEMS <b className="text-red-400">2</b>
 									</span>
@@ -721,18 +1014,96 @@ export default function IdeTerminalView() {
 								</div>
 								<pre
 									ref={terminalRef}
-									className="flex-1 p-2 font-mono text-[10px] leading-relaxed text-green-400 overflow-y-auto">
-									{terminalOutput.join("\n")}
+									className="flex-1 p-2 font-mono text-[10px] leading-relaxed overflow-y-auto">
+									{terminalOutput.map((line, i) => {
+										// Color-code output based on content
+										if (line.startsWith("╔") || line.startsWith("║") || line.startsWith("╚")) {
+											return <span key={i} className="text-violet-400">{line}{"\n"}</span>
+										}
+										if (line.startsWith("$ ")) {
+											return <span key={i} className="text-green-400">{line}{"\n"}</span>
+										}
+										if (line.startsWith("🤖 ") || line.startsWith("✨ ")) {
+											return <span key={i} className="text-violet-300">{line}{"\n"}</span>
+										}
+										if (line.startsWith("[SuperRoo]")) {
+											return <span key={i} className="text-blue-400">{line}{"\n"}</span>
+										}
+										if (line.startsWith("┌─") || line.startsWith("└─")) {
+											return <span key={i} className="text-gray-500">{line}{"\n"}</span>
+										}
+										if (line.startsWith("Error:")) {
+											return <span key={i} className="text-red-400">{line}{"\n"}</span>
+										}
+										if (line.startsWith("stderr:")) {
+											return <span key={i} className="text-yellow-400">{line}{"\n"}</span>
+										}
+										return <span key={i} className="text-green-400">{line}{"\n"}</span>
+									})}
 								</pre>
-								<div className="flex items-center gap-1 px-2 py-1 bg-[#0f1117] border-t border-[#1e2535]">
-									<span className="text-[10px] text-green-400">$</span>
-									<input
-										value={terminalInput}
-										onChange={(e) => setTerminalInput(e.target.value)}
-										onKeyDown={handleTerminalKeyDown}
-										placeholder="Type a command..."
-										className="flex-1 bg-transparent border-none outline-none text-[10px] text-[#e2e8f0] placeholder-gray-600"
-									/>
+								<div className="relative">
+									{/* Autocomplete suggestions */}
+									{showAgentSuggestions && agentSuggestions.length > 0 && (
+										<div className="absolute bottom-full left-0 right-0 bg-[#0f1117] border border-[#1e2535] rounded-t-lg max-h-24 overflow-y-auto z-10">
+											{agentSuggestions.map((suggestion) => (
+												<button
+													key={suggestion}
+													onClick={() => {
+														setTerminalInput(suggestion + " ")
+														setShowAgentSuggestions(false)
+														terminalInputRef.current?.focus()
+													}}
+													className="w-full text-left px-3 py-1 text-[10px] text-violet-400 hover:bg-violet-600/10 transition-colors">
+													{suggestion}
+												</button>
+											))}
+										</div>
+									)}
+									<div className="flex items-center gap-1 px-2 py-1 bg-[#0f1117] border-t border-[#1e2535]">
+										{terminalInput.startsWith("/") ? (
+											<Brain size={10} className="text-violet-400 shrink-0" />
+										) : terminalInput.startsWith("@") ? (
+											<Bot size={10} className="text-orange-400 shrink-0" />
+										) : (
+											<span className="text-[10px] text-green-400 shrink-0">$</span>
+										)}
+										<input
+											ref={terminalInputRef}
+											value={terminalInput}
+											onChange={handleTerminalInputChange}
+											onKeyDown={handleTerminalKeyDown}
+											placeholder={
+												terminalInput.startsWith("/") ? "Type an agent command..." :
+												terminalInput.startsWith("@") ? "Mention an agent (@coder, @debugger, etc)..." :
+												"Type a command... (/ for agent, @ for mention)"
+											}
+											className="flex-1 bg-transparent border-none outline-none text-[10px] text-[#e2e8f0] placeholder-gray-600"
+											disabled={agentRunning}
+										/>
+										{/* Quick agent buttons */}
+										{!terminalInput && !agentRunning && (
+											<div className="flex items-center gap-0.5 shrink-0">
+												<button
+													onClick={() => setTerminalInput("/help ")}
+													className="px-1.5 py-0.5 text-[9px] rounded bg-violet-600/10 text-violet-400 hover:bg-violet-600/20"
+													title="Show help">
+													<Bot size={10} />
+												</button>
+												<button
+													onClick={() => setTerminalInput("/deploy ")}
+													className="px-1.5 py-0.5 text-[9px] rounded bg-blue-600/10 text-blue-400 hover:bg-blue-600/20"
+													title="Deploy">
+													<Zap size={10} />
+												</button>
+												<button
+													onClick={() => setTerminalInput("/status ")}
+													className="px-1.5 py-0.5 text-[9px] rounded bg-green-600/10 text-green-400 hover:bg-green-600/20"
+													title="Status">
+													<Cpu size={10} />
+												</button>
+											</div>
+										)}
+									</div>
 								</div>
 							</div>
 

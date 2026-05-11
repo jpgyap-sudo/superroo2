@@ -21,6 +21,7 @@ import ModelRouterView from "@/components/views/model-router"
 import IdeTerminalView from "@/components/views/ide-terminal"
 import { ProjectsView } from "@/components/views/projects"
 import { TelegramView } from "@/components/views/telegram"
+import { AutoDeployView } from "@/components/views/auto-deploy"
 import { LoginPage } from "@/components/auth/login"
 
 const PAGES: Record<string, React.FC> = {
@@ -42,6 +43,7 @@ const PAGES: Record<string, React.FC> = {
 	"ide-terminal": IdeTerminalView,
 	projects: ProjectsView,
 	telegram: TelegramView,
+	"auto-deploy": AutoDeployView,
 }
 
 function StatusDot({ online }: { online: boolean }) {
@@ -134,6 +136,7 @@ export default function Dashboard() {
 			"ide-terminal": "IDE Terminal",
 			projects: "Projects",
 			telegram: "Telegram",
+			"auto-deploy": "Auto Deploy",
 		}[page] || page
 
 	// Show login page while checking auth or if not authenticated

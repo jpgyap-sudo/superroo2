@@ -1,6 +1,22 @@
 {
 	"commits": [
 		{
+			"id": "commit_quotation_workspace_001",
+			"commitSha": "eacf5336b",
+			"agent": "Roo Code",
+			"type": "feature",
+			"title": "feat: add quotation-automation-system workspace to projects.json",
+			"description": "Created add-workspace.py script for adding workspaces to VPS projects.json. Updated create-projects-json.py to include quotation-automation-system. Deployed to VPS and restarted superroo-api.",
+			"filesChanged": [
+				"cloud/add-workspace.py",
+				"cloud/create-projects-json.py"
+			],
+			"featuresAffected": [
+				"Telegram Workspace System"
+			],
+			"timestamp": "2026-05-10T15:06:24.631Z"
+		},
+		{
 			"id": "commit_telegram_group_fix_001",
 			"commitSha": "telegram-group-fix-001",
 			"agent": "Roo Code",
@@ -12,8 +28,14 @@
 				"src/telegram/__tests__/bot.test.ts",
 				"apps/web-superroo/src/lib/constants.ts"
 			],
-			"featuresAffected": ["telegram-bot", "web-superroo"],
-			"bugsFixed": ["Telegram bot not responding in group chats", "404 error when logging in via Telegram"],
+			"featuresAffected": [
+				"telegram-bot",
+				"web-superroo"
+			],
+			"bugsFixed": [
+				"Telegram bot not responding in group chats",
+				"404 error when logging in via Telegram"
+			],
 			"timestamp": "2026-05-09T15:36:25.000Z"
 		},
 		{
@@ -23,234 +45,91 @@
 			"type": "feature",
 			"title": "feat: rewrite Docker tab with full Docker Control Center UI",
 			"description": "",
-			"filesChanged": ["cloud/dashboard/src/components/views/docker.tsx", "cloud/dashboard/src/app/page.tsx"],
-			"featuresAffected": ["docker-tab", "dashboard"],
-			"bugsFixed": [],
-			"timestamp": "2026-05-07T17:02:00.000Z"
-		},
-		{
-			"id": "commit_076d47f88",
-			"commitSha": "076d47f88",
-			"agent": "Roo Code",
-			"type": "feature",
-			"title": "feat: add Supabase, Vercel, and DigitalOcean VPS skills + update skill-generator UI",
-			"description": "",
 			"filesChanged": [
-				".roo/skills/supabase/SKILL.md",
-				".roo/skills/vercel/SKILL.md",
-				".roo/skills/digitalocean-vps/SKILL.md",
-				"cloud/dashboard/src/components/views/skill-generator.tsx"
-			],
-			"featuresAffected": ["skills", "skill-generator", "dashboard"],
-			"bugsFixed": [],
-			"timestamp": "2026-05-07T16:30:00.000Z"
-		},
-		{
-			"id": "commit_01abfc32e",
-			"commitSha": "01abfc32e",
-			"agent": "Roo Code",
-			"type": "bugfix",
-			"title": "fix: resolve BUG-001 (memory leak), BUG-006 (Redis reconnect), BUG-008 (health check timeout) + clean up bugs.tsx",
-			"description": "",
-			"filesChanged": ["src/super-roo/healing/", "cloud/dashboard/src/components/views/bugs.tsx"],
-			"featuresAffected": ["healing-system", "dashboard"],
-			"bugsFixed": ["BUG-001", "BUG-006", "BUG-008"],
-			"timestamp": "2026-05-07T16:00:00.000Z"
-		},
-		{
-			"id": "commit_bea805352",
-			"commitSha": "bea805352",
-			"agent": "Roo Code",
-			"type": "bugfix",
-			"title": "fix: wire up BugsView in page.tsx and clean up bugs.tsx code quality",
-			"description": "",
-			"filesChanged": ["cloud/dashboard/src/app/page.tsx", "cloud/dashboard/src/components/views/bugs.tsx"],
-			"featuresAffected": ["dashboard"],
-			"bugsFixed": [],
-			"timestamp": "2026-05-07T15:30:00.000Z"
-		},
-		{
-			"id": "commit_ade822c97",
-			"commitSha": "ade822c97",
-			"agent": "Roo Code",
-			"type": "bugfix",
-			"title": "fix: add onClick handlers, toast notifications, remove dead priorityColors code",
-			"description": "",
-			"filesChanged": ["cloud/dashboard/src/components/views/bugs.tsx"],
-			"featuresAffected": ["dashboard"],
-			"bugsFixed": [],
-			"timestamp": "2026-05-07T15:00:00.000Z"
-		},
-		{
-			"id": "commit_02bc132a-71a1-4082-b712-35b7cb1de488",
-			"commitSha": "1ff6829f1",
-			"agent": "Roo Code",
-			"type": "feature",
-			"title": "Upgrade GitHub tab to Repository Operations Center with live data",
-			"description": "Created shared types (packages/types/src/github.ts), backend service (src/super-roo/github/GitHubDashboardService.ts), frontend component (webview-ui/src/components/github/GitHubView.tsx), cloud dashboard view (cloud/dashboard/src/components/views/github.tsx), API endpoint (cloud/api/api.js), and comprehensive tests (12/12 passing).",
-			"filesChanged": [
-				"packages/types/src/github.ts",
-				"packages/types/src/index.ts",
-				"src/super-roo/github/index.ts",
-				"src/super-roo/github/GitHubDashboardService.ts",
-				"src/super-roo/github/__tests__/GitHubDashboardService.test.ts",
-				"webview-ui/src/components/github/GitHubView.tsx",
-				"webview-ui/src/App.tsx",
-				"cloud/dashboard/src/components/views/github.tsx",
-				"cloud/dashboard/src/app/page.tsx",
-				"cloud/api/api.js"
-			],
-			"featuresAffected": ["github-tab", "dashboard", "commit-deploy-log", "webview-ui"],
-			"bugsFixed": [],
-			"timestamp": "2026-05-06T03:52:31.979Z"
-		},
-		{
-			"id": "commit_68d54a05-1",
-			"commitSha": "68d54a051",
-			"agent": "Roo Code",
-			"type": "feature",
-			"title": "Add Working Tree tab, Working Tree Agent, and Commit & Deploy Log",
-			"description": "",
-			"filesChanged": [
-				"cloud/dashboard/src/components/views/working-tree.tsx",
-				"cloud/dashboard/src/components/sidebar.tsx",
-				"cloud/dashboard/src/app/page.tsx",
-				"src/super-roo/product-memory/agents/WorkingTreeAgent.ts",
-				"src/super-roo/product-memory/__tests__/WorkingTreeAgent.test.ts",
-				"src/super-roo/product-memory/CommitDeployLog.ts",
-				"src/super-roo/product-memory/__tests__/CommitDeployLog.test.ts",
-				"src/super-roo/product-memory/agents/index.ts",
-				"src/super-roo/product-memory/index.ts",
-				"src/super-roo/index.ts",
-				"docs/resources/working-tree.md",
-				"AGENTS.md"
-			],
-			"featuresAffected": ["working-tree", "commit-deploy-log", "dashboard", "product-memory", "agent-system"],
-			"bugsFixed": [],
-			"timestamp": "2025-05-05T22:26:25.000Z"
-		},
-		{
-			"id": "commit_161b35c-1",
-			"commitSha": "161b35cf3",
-			"agent": "Roo Code",
-			"type": "feature",
-			"title": "Initialize CommitDeployLog with deploy 68d54a051",
-			"description": "",
-			"filesChanged": ["server/src/memory/commit-deploy-log.json"],
-			"featuresAffected": ["commit-deploy-log"],
-			"bugsFixed": [],
-			"timestamp": "2025-05-05T22:18:55.000Z"
-		},
-		{
-			"id": "commit_ccbf850c-1",
-			"commitSha": "ccbf850c6",
-			"agent": "Roo Code",
-			"type": "chore",
-			"title": "Update CommitDeployLog with commit 161b35cf3",
-			"description": "",
-			"filesChanged": ["server/src/memory/commit-deploy-log.json"],
-			"featuresAffected": ["commit-deploy-log"],
-			"bugsFixed": [],
-			"timestamp": "2025-05-05T22:41:25.000Z"
-		},
-		{
-			"id": "commit_settings_upgrade_001",
-			"commitSha": "settings-upgrade-001",
-			"agent": "Roo Code",
-			"type": "feature",
-			"title": "Add Settings & API Keys system — dashboard views, secret vault, provider testers, agent routing sync",
-			"description": "",
-			"filesChanged": [
-				"cloud/dashboard/src/components/views/api-keys.tsx",
-				"cloud/dashboard/src/components/views/settings.tsx",
-				"cloud/dashboard/src/components/sidebar.tsx",
-				"cloud/dashboard/src/app/page.tsx",
-				"cloud/api/api.js",
-				"cloud/config/providers.ts",
-				"cloud/config/agent-routing.ts",
-				"docs/resources/working-tree.md"
+				"cloud/dashboard/src/components/views/docker.tsx",
+				"cloud/dashboard/src/app/page.tsx"
 			],
 			"featuresAffected": [
-				"settings-api-keys",
-				"dashboard",
-				"api-server",
-				"agent-routing",
-				"secret-vault",
-				"working-tree"
+				"dashboard"
 			],
-			"bugsFixed": [],
-			"timestamp": "2026-05-05T05:57:45.320Z"
+			"timestamp": "2026-05-08T05:26:40.000Z"
 		},
 		{
-			"id": "commit_61581624",
-			"commitSha": "615816247b217e67d2adfd0974a12d9c5e1f9f50",
+			"id": "commit_telegram_group_auth_fix_002",
+			"commitSha": "telegram-group-auth-fix-002",
 			"agent": "Roo Code",
 			"type": "bugfix",
-			"title": "fix: improve mobile responsiveness across cloud dashboard",
-			"description": "Mobile compatibility fixes: agent table→card layout on mobile, command strip scrollable, reduced grid columns, larger touch targets, PWA PNG icons, touch optimization CSS",
+			"title": "fix: Telegram group chat auth not recognizing logged-in user + /projects command missing",
+			"description": "Four bugs fixed:\n\n1. /projects command was missing from command routing in telegramBot.js — the handleProjects function existed but was never called in the if/else chain, so /projects fell through to NL processing which failed.\n\n2. handleTelegramProjects() in auth.js threw 'Not authenticated' error instead of returning gracefully when no session existed, causing /projects to crash for unauthenticated users.\n\n3. handleSpecify failed because handleTelegramProjects called getTelegramSession with group chatId, but the session was created in DM with a different chatId — getTelegramSession had no fallback to try without chatId.\n\n4. getTelegramSession() in auth.js lacked the same two-step fallback that checkAuthSession() in telegramBot.js had (try exact chatId match first, then fall back to most recent session).",
 			"filesChanged": [
-				"cloud/dashboard/public/manifest.json",
-				"cloud/dashboard/src/app/globals.css",
-				"cloud/dashboard/src/app/page.tsx",
-				"cloud/dashboard/src/components/sidebar.tsx",
-				"cloud/dashboard/src/components/views/overview.tsx",
-				"cloud/dashboard/src/components/views/settings.tsx"
+				"cloud/api/telegramBot.js",
+				"cloud/api/auth.js"
 			],
-			"featuresAffected": ["dashboard"],
-			"bugsFixed": [],
-			"timestamp": "2026-05-08T05:26:00.000Z"
+			"featuresAffected": [
+				"telegram-bot",
+				"telegram-auth"
+			],
+			"bugsFixed": [
+				"Telegram /projects command not routed in command handler",
+				"Telegram group chat auth not recognizing DM session",
+				"Telegram /specify fails in group chat due to chatId mismatch",
+				"getTelegramSession lacks chatId fallback"
+			],
+			"timestamp": "2026-05-11T01:23:00.865Z"
+		},
+		{
+			"id": "commit_telegram_e2e_fix_003",
+			"commitSha": "telegram-e2e-fix-003",
+			"agent": "Roo Code",
+			"type": "bugfix",
+			"title": "fix: 6 Telegram bugs found during E2E testing — messageId undefined, malformed markdown, missing commands, Mini IDE callbacks, engineer sanitization, notifier fallback",
+			"description": "Six bugs fixed during comprehensive E2E testing:\n\n1. Bug 5: 10 commands missing from command routing (/miniide, /workspace, /session, /settings, /agents, /code, /diff, /approve, /deploy, /status) — added all routes.\n\n2. Bug 6: messageId is not defined in handleNaturalLanguageInstruction debug_plan handler — removed reference to undefined messageId variable.\n\n3. Bug 7: Malformed markdown causing Telegram API 'can't parse entities' errors — added fallback to plain text in sendMessage() when markdown parsing fails.\n\n4. Bug 8: Mini IDE callback_data 'projects' and 'help' not handled — added handlers for both callback types.\n\n5. Bug 9: telegramEngineer.js wraps log content in backticks without sanitization — added sanitizeForCode() and sanitizeForCodeBlock() helpers.\n\n6. Bug 10: telegramNotifier.js lacks markdown fallback in sendInlineKeyboard() and editMessageText() — added retry with parse_mode: '' fallback.\n\n7. Bug 11: askAI() timeout error message unhelpful — improved to show provider names and distinguish timeout errors.\n\n8. Added structured error logging ([ace-error], [ace-warn], [ace-usage]) throughout all command handlers for Ace Team monitoring.\n\n9. Fixed syntax error in handleNaturalLanguageInstruction — broken nested try/catch structure.",
+			"filesChanged": [
+				"cloud/api/telegramBot.js",
+				"cloud/api/telegramNotifier.js",
+				"cloud/api/telegramEngineer.js"
+			],
+			"featuresAffected": [
+				"telegram-bot",
+				"telegram-auth",
+				"telegram-mini-ide",
+				"telegram-notifier"
+			],
+			"bugsFixed": [
+				"10 missing commands not routed in command handler",
+				"messageId is not defined in debug_plan handler",
+				"Malformed markdown causes Telegram API 400 errors",
+				"Mini IDE callback_data 'projects' and 'help' not handled",
+				"telegramEngineer.js lacks markdown sanitization for log content",
+				"telegramNotifier.js lacks markdown fallback in sendInlineKeyboard/editMessageText",
+				"askAI() timeout error message unhelpful",
+				"Syntax error in handleNaturalLanguageInstruction try/catch nesting"
+			],
+			"timestamp": "2026-05-11T06:25:00.000Z"
+		},
+		{
+			"id": "commit_code_everywhere_fix_004",
+			"commitSha": "code-everywhere-fix-004",
+			"agent": "Roo Code",
+			"type": "feature",
+			"title": "feat: enable coding everywhere — Mini IDE AI commands, dashboard auth, real IDE Terminal backend",
+			"description": "Three fixes to enable coding from all platforms (Telegram, Cloud Dashboard IDE Terminal, Mini IDE):\n\n1. Mini IDE AI Commands (server.js:386): Removed the SUPERROO_API_KEY requirement and localhost check so AI commands forward to the local SuperRoo API even when URL is localhost.\n\n2. Mini IDE Auth (app.js:45-69): Added dashboard token support — when no Telegram initData is available (browser access), reads localStorage.getItem('superroo_auth_token') and sends it as a Bearer token.\n\n3. IDE Terminal Backend (api.js:1879-2158): Replaced all simulated/mock IDE workspace routes with real implementations — file tree walks actual filesystem, terminal executes real commands, chat calls real AI providers, pipeline updates real state, GitHub import clones real repos.\n\n4. Auth Bypass (auth.js:891-892): Added bypass for /ide-workspace/ paths in handleAuthRoute so they fall through to api.js handlers instead of being intercepted by requireAuth.",
+			"filesChanged": [
+				"cloud/mini-ide/server.js",
+				"cloud/mini-ide/public/app.js",
+				"cloud/api/api.js",
+				"cloud/api/auth.js"
+			],
+			"featuresAffected": [
+				"mini-ide",
+				"ide-terminal",
+				"dashboard",
+				"telegram-mini-ide"
+			],
+			"timestamp": "2026-05-11T08:05:00.000Z"
 		}
 	],
 	"deploys": [
-		{
-			"id": "deploy-1746637200000",
-			"version": "1.3.0",
-			"commitSha": "b927d78c1",
-			"agent": "Roo Code (deployer)",
-			"status": "healthy",
-			"environment": "production",
-			"commitsIncluded": ["b927d78c1", "076d47f88", "01abfc32e", "bea805352", "ade822c97"],
-			"featuresDeployed": ["docker-tab", "skills", "skill-generator", "healing-system", "dashboard"],
-			"healthCheckPassed": true,
-			"healthCheckLatencyMs": 250,
-			"startedAt": "2026-05-07T17:02:00.000Z",
-			"completedAt": "2026-05-07T17:03:48.000Z"
-		},
-		{
-			"id": "deploy-1778053951979",
-			"version": "1.2.0",
-			"commitSha": "1ff6829f1",
-			"agent": "Roo Code",
-			"status": "healthy",
-			"environment": "production",
-			"commitsIncluded": ["1ff6829f1"],
-			"featuresDeployed": ["github-tab", "dashboard", "commit-deploy-log", "webview-ui"],
-			"healthCheckPassed": true,
-			"healthCheckLatencyMs": 300,
-			"startedAt": "2026-05-06T03:52:31.979Z",
-			"completedAt": "2026-05-06T03:52:36.979Z"
-		},
-		{
-			"id": "deploy-1778047445745",
-			"version": "1.1.0",
-			"commitSha": "settings-upgrade-001",
-			"agent": "Roo Code",
-			"status": "healthy",
-			"environment": "production",
-			"commitsIncluded": ["settings-upgrade-001"],
-			"featuresDeployed": [
-				"settings-api-keys",
-				"dashboard",
-				"api-server",
-				"agent-routing",
-				"secret-vault",
-				"working-tree"
-			],
-			"healthCheckPassed": true,
-			"healthCheckLatencyMs": 250,
-			"startedAt": "2026-05-05T05:57:45.745Z",
-			"completedAt": "2026-05-05T05:58:05.745Z"
-		},
 		{
 			"id": "deploy-1746469585000",
 			"version": "1.0.0",
@@ -258,8 +137,12 @@
 			"agent": "Roo Code",
 			"status": "failed",
 			"environment": "production",
-			"commitsIncluded": ["ccbf850c6"],
-			"featuresDeployed": ["commit-deploy-log"],
+			"commitsIncluded": [
+				"ccbf850c6"
+			],
+			"featuresDeployed": [
+				"commit-deploy-log"
+			],
 			"healthCheckPassed": null,
 			"healthCheckLatencyMs": null,
 			"startedAt": "2025-05-05T22:26:25.000Z",
@@ -273,12 +156,77 @@
 			"agent": "Roo Code",
 			"status": "healthy",
 			"environment": "production",
-			"commitsIncluded": ["615816247b217e67d2adfd0974a12d9c5e1f9f50"],
-			"featuresDeployed": ["dashboard"],
+			"commitsIncluded": [
+				"615816247b217e67d2adfd0974a12d9c5e1f9f50"
+			],
+			"featuresDeployed": [
+				"dashboard"
+			],
 			"healthCheckPassed": true,
 			"healthCheckLatencyMs": 250,
 			"startedAt": "2026-05-08T05:26:40.000Z",
 			"completedAt": "2026-05-08T05:31:40.000Z"
+		},
+		{
+			"id": "deploy-telegram-group-auth-fix-002",
+			"version": "1.5.0",
+			"commitSha": "telegram-group-auth-fix-002",
+			"agent": "Roo Code",
+			"status": "healthy",
+			"environment": "production",
+			"commitsIncluded": [
+				"telegram-group-auth-fix-002"
+			],
+			"featuresDeployed": [
+				"telegram-bot",
+				"telegram-auth"
+			],
+			"healthCheckPassed": true,
+			"healthCheckLatencyMs": 250,
+			"startedAt": "2026-05-11T01:36:54.000Z",
+			"completedAt": "2026-05-11T01:37:08.000Z"
+		},
+		{
+			"id": "deploy-telegram-e2e-fix-003",
+			"version": "1.6.0",
+			"commitSha": "telegram-e2e-fix-003",
+			"agent": "Roo Code",
+			"status": "healthy",
+			"environment": "production",
+			"commitsIncluded": [
+				"telegram-e2e-fix-003"
+			],
+			"featuresDeployed": [
+				"telegram-bot",
+				"telegram-auth",
+				"telegram-mini-ide",
+				"telegram-notifier"
+			],
+			"healthCheckPassed": true,
+			"healthCheckLatencyMs": 250,
+			"startedAt": "2026-05-11T06:16:36.000Z",
+			"completedAt": "2026-05-11T06:25:14.000Z"
+		},
+		{
+			"id": "deploy-code-everywhere-fix-004",
+			"version": "1.7.0",
+			"commitSha": "code-everywhere-fix-004",
+			"agent": "Roo Code",
+			"status": "healthy",
+			"environment": "production",
+			"commitsIncluded": [
+				"code-everywhere-fix-004"
+			],
+			"featuresDeployed": [
+				"mini-ide",
+				"ide-terminal",
+				"dashboard",
+				"telegram-mini-ide"
+			],
+			"healthCheckPassed": true,
+			"healthCheckLatencyMs": 250,
+			"startedAt": "2026-05-11T07:30:00.000Z",
+			"completedAt": "2026-05-11T07:35:00.000Z"
 		}
 	]
 }

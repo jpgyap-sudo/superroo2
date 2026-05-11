@@ -11,22 +11,37 @@
  * - Live logs panel
  * - Quick actions
  * - Telegram WebApp integration
+ * - Terminal Brain Layer: context, planning, safe execution, error analysis, memory
  */
 
 // ── State ──────────────────────────────────────────────────────────────────────
 
 const state = {
-	workspaces: [],
-	active: null,
-	files: [],
-	selectedFile: "",
-	code: "",
-	logs: [],
-	prompt: "",
-	attachments: [],
-	editor: null,
-	telegramUser: null,
-	tasks: [],
+ workspaces: [],
+ active: null,
+ files: [],
+ selectedFile: "",
+ code: "",
+ logs: [],
+ prompt: "",
+ attachments: [],
+ editor: null,
+ telegramUser: null,
+ tasks: [],
+ // Terminal Brain state
+ brain: {
+ 	activeTab: "command",
+ 	plan: null,
+ 	feedback: null,
+ 	errors: [],
+ 	fixes: [],
+ 	memory: null,
+ 	deployments: [],
+ 	services: [],
+ 	env: null,
+ 	approvals: [],
+ 	loading: false,
+ },
 }
 
 // ── API Client ─────────────────────────────────────────────────────────────────
@@ -50,6 +65,14 @@ async function apiRequest(path, options = {}) {
 		...(options.headers || {}),
 	}
 
+	// If no Telegram initData (browser access), try dashboard auth token
+	if (!initData) {
+		const dashboardToken = localStorage.getItem("superroo_auth_token")
+		if (dashboardToken) {
+			headers["Authorization"] = `Bearer ${dashboardToken}`
+		}
+	}
+
 	// Don't set Content-Type for FormData
 	if (options.body instanceof FormData) {
 		delete headers["Content-Type"]
@@ -66,6 +89,491 @@ async function apiRequest(path, options = {}) {
 	}
 
 	return res.json()
+}
+
+// ── Terminal Brain API ─────────────────────────────────────────────────────────
+//
+// These functions call the Terminal Brain Layer endpoints mounted at
+// /api/terminal-brain/ on the Mini IDE server. The brain provides:
+//   - Project context loading (repo-scanner)
+//   - NL command planning (planner)
+//   - Safe command execution (safety-guard + command-runner)
+//   - Error analysis (log-parser)
+//   - Terminal memory (terminal-core/memory)
+//   - Fix suggestions (error-to-agent handoff)
+
+async function brainRequest(action, payload = {}) {
+	return apiRequest(`/terminal-brain/${action}`, {
+		method: action === "context" || action === "memory" || action === "stats" ? "GET" : "POST",
+		body: action === "context" || action === "memory" || action === "stats" ? undefined : JSON.stringify(payload),
+	})
+}
+
+// ── Tab Switching ──────────────────────────────────────────────────────────────
+
+function switchBrainTab(tabId) {
+	state.brain.activeTab = tabId
+
+	// Update tab buttons
+	document.querySelectorAll(".brain-tab").forEach((btn) => {
+		btn.classList.toggle("active", btn.dataset.tab === tabId)
+	})
+
+	// Show/hide panels
+	document.querySelectorAll(".brain-panel").forEach((panel) => {
+		panel.classList.toggle("hidden", panel.id !== `panel-${tabId}`)
+	})
+
+	// Load data on tab switch
+	switch (tabId) {
+		case "memory":
+			loadBrainMemory()
+			break
+		case "errors":
+			renderBrainErrors()
+			break
+		case "fixplan":
+			renderBrainFixes()
+			break
+		case "deployments":
+			renderBrainDeployments()
+			break
+		case "services":
+			loadBrainServices()
+			break
+		case "env":
+			loadBrainEnv()
+			break
+		case "approvals":
+			renderBrainApprovals()
+			break
+	}
+}
+
+// ── Send Brain Command ─────────────────────────────────────────────────────────
+//
+// The main entry point: NL → Plan → Execute → Analyze → Fix → Verify
+
+async function sendBrainCommand() {
+	const prompt = document.getElementById("ai-prompt").value.trim()
+	if (!prompt || !state.active) {
+		showNotice("❌ Select a workspace and enter a command.", true)
+		return
+	}
+
+	state.brain.loading = true
+	showNotice("🧠 Terminal Brain is processing...")
+
+	try {
+		// Step 1: Plan — convert NL to command sequence
+		const planResult = await brainRequest("plan", { query: prompt })
+		const plan = planResult.plan || planResult.commands || []
+		state.brain.plan = plan
+		renderBrainPlan(plan)
+
+		// Step 2: Execute each planned command
+		const allOutput = []
+		const allErrors = []
+		const allFixes = []
+
+		const commands = Array.isArray(plan) ? plan : [plan]
+		for (let i = 0; i < commands.length; i++) {
+			const cmd = typeof commands[i] === "string" ? commands[i] : commands[i].command || commands[i]
+
+			const execResult = await brainRequest("execute", { command: cmd })
+			const feedback = execResult.feedback || execResult
+
+			allOutput.push(feedback.output || "")
+
+			// Collect errors
+			if (feedback.errors && feedback.errors.length > 0) {
+				allErrors.push(...feedback.errors)
+			}
+
+			// Collect fixes
+			if (feedback.fixes && feedback.fixes.length > 0) {
+				allFixes.push(...feedback.fixes)
+			}
+
+			// Add to live logs
+			state.logs.unshift({
+				type: feedback.status === "success" ? "ok" : feedback.status === "needs_approval" ? "warn" : "error",
+				text: `[Brain] ${cmd.substring(0, 60)} → ${feedback.status}`,
+				time: new Date().toLocaleTimeString(),
+			})
+			renderLogs()
+		}
+
+		// Step 3: Analyze output for errors
+		if (allOutput.length > 0) {
+			const analyzeResult = await brainRequest("analyze", { output: allOutput.join("\n") })
+			if (analyzeResult.errors) {
+				allErrors.push(...analyzeResult.errors)
+			}
+		}
+
+		// Step 4: Get fix suggestions
+		if (allErrors.length > 0) {
+			const fixResult = await brainRequest("fix", { output: allOutput.join("\n") })
+			if (fixResult.fixes) {
+				allFixes.push(...fixResult.fixes)
+			}
+		}
+
+		// Update state
+		state.brain.errors = allErrors
+		state.brain.fixes = allFixes
+
+		// Render feedback
+		const lastFeedback = {
+			plan: prompt,
+			command: commands.join(" && "),
+			exitCode: 0,
+			output: allOutput.join("\n\n"),
+			errors: allErrors,
+			fixes: allFixes,
+			verification: allErrors.length === 0 ? "All commands completed successfully." : "Errors detected — see Fix Plan tab.",
+			status: allErrors.length === 0 ? "success" : "failed",
+		}
+		state.brain.feedback = lastFeedback
+		renderBrainFeedback(lastFeedback)
+
+		// Update error count badge
+		document.getElementById("error-count").textContent = allErrors.length
+
+		// Auto-switch to errors tab if there are errors
+		if (allErrors.length > 0) {
+			switchBrainTab("errors")
+		}
+
+		showNotice(allErrors.length === 0 ? "✅ Brain execution complete." : "⚠️ Brain found errors — check Fix Plan tab.")
+	} catch (err) {
+		showNotice(`❌ Brain error: ${err.message}`, true)
+	} finally {
+		state.brain.loading = false
+	}
+}
+
+// ── Render Brain Plan ──────────────────────────────────────────────────────────
+
+function renderBrainPlan(plan) {
+	const container = document.getElementById("plan-preview")
+	const steps = document.getElementById("plan-steps")
+
+	if (!plan || (Array.isArray(plan) && plan.length === 0)) {
+		container.classList.add("hidden")
+		return
+	}
+
+	container.classList.remove("hidden")
+
+	const items = Array.isArray(plan) ? plan : [plan]
+	steps.innerHTML = items
+		.map((item, i) => {
+			const cmd = typeof item === "string" ? item : item.command || item.action || ""
+			const desc = typeof item === "string" ? "" : item.description || item.reason || ""
+			return `
+	       <div class="plan-step">
+	         <span class="step-num">${i + 1}</span>
+	         <div style="flex:1;min-width:0">
+	           <div class="step-cmd">${escapeHtml(cmd)}</div>
+	           ${desc ? `<div class="step-desc">${escapeHtml(desc)}</div>` : ""}
+	         </div>
+	       </div>
+	     `
+		})
+		.join("")
+}
+
+// ── Render Brain Feedback ──────────────────────────────────────────────────────
+
+function renderBrainFeedback(feedback) {
+	const container = document.getElementById("brain-feedback")
+	const statusEl = document.getElementById("feedback-status")
+	const outputEl = document.getElementById("feedback-output")
+
+	if (!feedback) {
+		container.classList.add("hidden")
+		return
+	}
+
+	container.classList.remove("hidden")
+
+	statusEl.textContent = feedback.status || "unknown"
+	statusEl.className = `pill ${feedback.status === "success" ? "green" : feedback.status === "failed" ? "red" : "yellow"}`
+
+	// Render output with color-coded lines
+	const lines = (feedback.output || "").split("\n")
+	outputEl.innerHTML = lines
+		.map((line) => {
+			const cls = line.toLowerCase().includes("error") || line.toLowerCase().includes("failed")
+				? "error-line"
+				: line.toLowerCase().includes("warn") || line.toLowerCase().includes("warning")
+					? "warn-line"
+					: line.toLowerCase().includes("success") || line.toLowerCase().includes("complete")
+						? "ok-line"
+						: ""
+			return `<div class="${cls}">${escapeHtml(line)}</div>`
+		})
+		.join("")
+
+	// Show verification
+	if (feedback.verification) {
+		outputEl.innerHTML += `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);color:var(--text-secondary)">${escapeHtml(feedback.verification)}</div>`
+	}
+}
+
+// ── Render Brain Errors ────────────────────────────────────────────────────────
+
+function renderBrainErrors() {
+	const container = document.getElementById("errors-container")
+	const errors = state.brain.errors
+
+	if (!errors || errors.length === 0) {
+		container.innerHTML = '<p class="muted">No errors detected. Run a command to analyze output.</p>'
+		return
+	}
+
+	container.innerHTML = errors
+		.map(
+			(err) => `
+	     <div class="error-item">
+	       <div class="error-type">${err.type || "unknown"}</div>
+	       <div class="error-msg">${escapeHtml(err.message || err.error || "")}</div>
+	       ${err.confidence ? `<div class="error-confidence">Confidence: ${Math.round(err.confidence * 100)}%</div>` : ""}
+	       ${err.fix ? `<div class="error-fix">💡 ${escapeHtml(err.fix)}</div>` : ""}
+	       ${err.rootCause ? `<div class="error-fix" style="background:var(--blue-bg);border-color:rgba(59,130,246,0.2);color:var(--blue);margin-top:2px">🔍 Root cause: ${escapeHtml(err.rootCause)}</div>` : ""}
+	     </div>
+	   `,
+		)
+		.join("")
+}
+
+// ── Render Brain Fixes ─────────────────────────────────────────────────────────
+
+function renderBrainFixes() {
+	const container = document.getElementById("fixes-container")
+	const fixes = state.brain.fixes
+
+	if (!fixes || fixes.length === 0) {
+		container.innerHTML = '<p class="muted">No fixes suggested yet.</p>'
+		return
+	}
+
+	container.innerHTML = fixes
+		.map(
+			(fix) => `
+	     <div class="fix-item">
+	       <div class="fix-title">${escapeHtml(fix.title || fix.type || "Suggested Fix")}</div>
+	       <div class="fix-desc">${escapeHtml(fix.description || fix.fix || fix.message || "")}</div>
+	     </div>
+	   `,
+		)
+		.join("")
+}
+
+// ── Load Brain Memory ──────────────────────────────────────────────────────────
+
+async function loadBrainMemory() {
+	const container = document.getElementById("memory-container")
+	const statsEl = document.getElementById("memory-stats")
+
+	try {
+		const result = await brainRequest("memory")
+		const memory = result.memory || result
+
+		state.brain.memory = memory
+		statsEl.textContent = memory.stats ? `${memory.stats.totalCommands || 0} cmds` : "0"
+
+		let html = ""
+
+		// Stats section
+		if (memory.stats) {
+			const s = memory.stats
+			html += `
+	       <div style="margin-bottom:8px">
+	         <div class="memory-stat-row"><span class="stat-label">Sessions</span><span class="stat-value">${s.totalSessions || 0}</span></div>
+	         <div class="memory-stat-row"><span class="stat-label">Commands</span><span class="stat-value">${s.totalCommands || 0}</span></div>
+	         <div class="memory-stat-row"><span class="stat-label">Errors</span><span class="stat-value">${s.totalErrors || 0}</span></div>
+	         <div class="memory-stat-row"><span class="stat-label">Fixes Applied</span><span class="stat-value">${s.totalFixes || 0}</span></div>
+	         <div class="memory-stat-row"><span class="stat-label">Deployments</span><span class="stat-value">${s.totalDeployments || 0}</span></div>
+	         <div class="memory-stat-row"><span class="stat-label">Success Rate</span><span class="stat-value">${s.successRate ? Math.round(s.successRate * 100) + "%" : "N/A"}</span></div>
+	       </div>
+	     `
+		}
+
+		// Recent commands
+		const commands = memory.commands || memory.recentCommands || []
+		if (commands.length > 0) {
+			html += '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Recent Commands:</div>'
+			html += commands
+				.slice(0, 10)
+				.map(
+					(cmd) => `
+	         <div class="memory-record">
+	           <div class="record-cmd">${escapeHtml(cmd.command || cmd)}</div>
+	           <div class="record-time">${cmd.timestamp || cmd.time || ""} · ${cmd.status || ""}</div>
+	         </div>
+	       `,
+				)
+				.join("")
+		}
+
+		container.innerHTML = html || '<p class="muted">No memory data yet.</p>'
+	} catch (err) {
+		container.innerHTML = `<p class="muted">Failed to load memory: ${escapeHtml(err.message)}</p>`
+	}
+}
+
+// ── Render Brain Deployments ───────────────────────────────────────────────────
+
+function renderBrainDeployments() {
+	const container = document.getElementById("deployments-container")
+	const deploys = state.brain.deployments
+
+	if (!deploys || deploys.length === 0) {
+		container.innerHTML = '<p class="muted">No deployments recorded.</p>'
+		return
+	}
+
+	container.innerHTML = deploys
+		.map(
+			(d) => `
+	     <div class="deploy-item">
+	       <div>
+	         <span class="deploy-version">${escapeHtml(d.version || d.id || "v1.0")}</span>
+	         <span class="deploy-status ${d.status === "healthy" ? "healthy" : "failed"}">${d.status || "unknown"}</span>
+	       </div>
+	       <div class="deploy-time">${d.timestamp || d.time || ""}${d.agent ? ` · by ${d.agent}` : ""}</div>
+	     </div>
+	   `,
+		)
+		.join("")
+}
+
+// ── Load Brain Services ────────────────────────────────────────────────────────
+
+async function loadBrainServices() {
+	const container = document.getElementById("services-container")
+
+	try {
+		// Try to get Docker/process info via the brain
+		const result = await brainRequest("execute", { command: "docker ps --format '{{.Names}}|{{.Status}}|{{.Ports}}' 2>/dev/null || echo 'Docker not available'" })
+		const output = result.feedback?.output || result.output || ""
+
+		if (output && !output.includes("Docker not available")) {
+			const lines = output.trim().split("\n")
+			container.innerHTML = lines
+				.map((line) => {
+					const parts = line.split("|")
+					const name = parts[0] || "unknown"
+					const status = parts[1] || ""
+					const ports = parts[2] || ""
+					const isRunning = status.toLowerCase().includes("up")
+					return `
+	             <div class="service-item">
+	               <span class="service-dot ${isRunning ? "running" : "stopped"}"></span>
+	               <span class="service-name">${escapeHtml(name)}</span>
+	               <span class="service-port">${escapeHtml(ports)}</span>
+	             </div>
+	           `
+				})
+				.join("")
+		} else {
+			container.innerHTML = '<p class="muted">Docker not available or no services running.</p>'
+		}
+	} catch {
+		container.innerHTML = '<p class="muted">Unable to query services.</p>'
+	}
+}
+
+// ── Load Brain Environment ─────────────────────────────────────────────────────
+
+async function loadBrainEnv() {
+	const container = document.getElementById("env-container")
+
+	try {
+		const result = await brainRequest("context")
+		const ctx = result.context || result.projectContext || result
+
+		let html = ""
+
+		if (ctx) {
+			// Project info
+			if (ctx.name) html += `<div class="env-item"><span class="env-key">Project</span><span class="env-value">${escapeHtml(ctx.name)}</span></div>`
+			if (ctx.framework) html += `<div class="env-item"><span class="env-key">Framework</span><span class="env-value">${escapeHtml(ctx.framework)}</span></div>`
+			if (ctx.packageManager) html += `<div class="env-item"><span class="env-key">Package Manager</span><span class="env-value">${escapeHtml(ctx.packageManager)}</span></div>`
+			if (ctx.nodeVersion) html += `<div class="env-item"><span class="env-key">Node</span><span class="env-value">${escapeHtml(ctx.nodeVersion)}</span></div>`
+			if (ctx.port) html += `<div class="env-item"><span class="env-key">Port</span><span class="env-value">${escapeHtml(String(ctx.port))}</span></div>`
+			if (ctx.branch) html += `<div class="env-item"><span class="env-key">Branch</span><span class="env-value">${escapeHtml(ctx.branch)}</span></div>`
+			if (ctx.hasDocker !== undefined) html += `<div class="env-item"><span class="env-key">Docker</span><span class="env-value">${ctx.hasDocker ? "✅ Available" : "❌ Not available"}</span></div>`
+			if (ctx.hasTypeScript !== undefined) html += `<div class="env-item"><span class="env-key">TypeScript</span><span class="env-value">${ctx.hasTypeScript ? "✅ Yes" : "❌ No"}</span></div>`
+		}
+
+		container.innerHTML = html || '<p class="muted">No project context available.</p>'
+	} catch {
+		container.innerHTML = '<p class="muted">Failed to load environment context.</p>'
+	}
+}
+
+// ── Render Brain Approvals ─────────────────────────────────────────────────────
+
+function renderBrainApprovals() {
+	const container = document.getElementById("approvals-container")
+	const countEl = document.getElementById("approval-count")
+	const approvals = state.brain.approvals
+
+	if (!approvals || approvals.length === 0) {
+		container.innerHTML = '<p class="muted">No pending approvals.</p>'
+		countEl.textContent = "0"
+		return
+	}
+
+	countEl.textContent = approvals.length
+
+	container.innerHTML = approvals
+		.map(
+			(a, i) => `
+	     <div class="approval-item">
+	       <div class="approval-cmd">${escapeHtml(a.command || a.action || "")}</div>
+	       <div class="approval-reason">${escapeHtml(a.reason || a.message || "Requires approval")}</div>
+	       <div class="approval-actions">
+	         <button class="btn-approve" onclick="approveAction(${i})">✅ Approve</button>
+	         <button class="btn-reject" onclick="rejectAction(${i})">❌ Reject</button>
+	       </div>
+	     </div>
+	   `,
+		)
+		.join("")
+}
+
+// ── Approve / Reject Actions ───────────────────────────────────────────────────
+
+function approveAction(index) {
+	const approval = state.brain.approvals[index]
+	if (!approval) return
+
+	state.brain.approvals.splice(index, 1)
+	renderBrainApprovals()
+	showNotice(`✅ Approved: ${(approval.command || approval.action || "").substring(0, 40)}`)
+}
+
+function rejectAction(index) {
+	const approval = state.brain.approvals[index]
+	if (!approval) return
+
+	state.brain.approvals.splice(index, 1)
+	renderBrainApprovals()
+	showNotice(`❌ Rejected: ${(approval.command || approval.action || "").substring(0, 40)}`)
+}
+
+// ── Utility: Escape HTML ───────────────────────────────────────────────────────
+
+function escapeHtml(str) {
+	if (!str) return ""
+	const div = document.createElement("div")
+	div.textContent = str
+	return div.innerHTML
 }
 
 // ── Monaco Editor Setup ────────────────────────────────────────────────────────
@@ -214,6 +722,15 @@ async function selectWorkspace(ws) {
 	await loadFiles(ws.id)
 	// Load logs
 	await loadLogs(ws.id)
+	// Load Terminal Brain context
+	try {
+		const ctxResult = await brainRequest("context")
+		state.brain.env = ctxResult.context || ctxResult.projectContext || ctxResult
+	} catch {}
+	// Load Terminal Brain memory
+	try {
+		await loadBrainMemory()
+	} catch {}
 }
 
 // ── Load Files ─────────────────────────────────────────────────────────────────
@@ -741,7 +1258,7 @@ async function init() {
 		if (state.telegramUser) {
 			const name = state.telegramUser.first_name || state.telegramUser.username || "User"
 			document.getElementById("hero-subtitle").textContent =
-				`Welcome, ${name}! Open a workspace, edit files, send coding instructions, and approve agent changes inside Telegram.`
+				`Welcome, ${name}! Use the Terminal Brain 🧠 to plan, execute, and debug commands. Edit files, approve changes, and track memory.`
 		}
 
 		// Hide loading, show main app

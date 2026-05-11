@@ -118,41 +118,152 @@
             </div>
           </main>
 
-          <!-- Right Sidebar: AI Command, Logs, Quick Actions -->
+          <!-- Right Sidebar: Terminal Brain tabs -->
           <aside class="side-column">
-            <!-- AI Command -->
-            <div class="card">
-              <div class="section-head">
-                <h2>AI Coding Command</h2>
-                <span class="pill blue">Orchestrator</span>
+            <!-- Terminal Brain Tab Bar -->
+            <div class="card brain-tab-bar">
+              <div class="brain-tabs" id="brain-tabs">
+                <button class="brain-tab active" data-tab="command" onclick="switchBrainTab('command')">🧠 AI Command</button>
+                <button class="brain-tab" data-tab="errors" onclick="switchBrainTab('errors')">❌ Errors</button>
+                <button class="brain-tab" data-tab="fixplan" onclick="switchBrainTab('fixplan')">🔧 Fix Plan</button>
+                <button class="brain-tab" data-tab="memory" onclick="switchBrainTab('memory')">💾 Memory</button>
+                <button class="brain-tab" data-tab="deployments" onclick="switchBrainTab('deployments')">🚀 Deploy</button>
+                <button class="brain-tab" data-tab="services" onclick="switchBrainTab('services')">⚡ Services</button>
+                <button class="brain-tab" data-tab="env" onclick="switchBrainTab('env')">🔐 Env</button>
+                <button class="brain-tab" data-tab="approvals" onclick="switchBrainTab('approvals')">✅ Approvals</button>
               </div>
-              <p class="muted">Ask SuperRoo to edit, test, deploy, or explain this workspace.</p>
-              <textarea id="ai-prompt" placeholder="Example: Fix the queue crash and create a PR..." rows="4"></textarea>
-              <button class="btn primary full" onclick="sendCommand()">✉ Send to agents</button>
             </div>
 
-            <!-- Live Logs -->
-            <div class="card">
+            <!-- Tab: AI Command (default) -->
+            <div class="brain-panel" id="panel-command">
+              <div class="card">
+                <div class="section-head">
+                  <h2>🧠 AI Command</h2>
+                  <span class="pill blue">Terminal Brain</span>
+                </div>
+                <p class="muted">Describe what you want to do. The Terminal Brain will plan, execute, and verify.</p>
+                <textarea id="ai-prompt" placeholder="Example: fix the build error in render-queue" rows="3"></textarea>
+                <div class="brain-actions">
+                  <button class="btn primary full" onclick="sendBrainCommand()">⚡ Execute with Brain</button>
+                </div>
+              </div>
+
+              <!-- Plan Preview -->
+              <div id="plan-preview" class="card hidden" style="margin-top:8px">
+                <div class="section-head">
+                  <h2>📋 Execution Plan</h2>
+                </div>
+                <div id="plan-steps" class="plan-steps"></div>
+              </div>
+
+              <!-- Brain Feedback -->
+              <div id="brain-feedback" class="card hidden" style="margin-top:8px">
+                <div class="section-head">
+                  <h2>📊 Result</h2>
+                  <span id="feedback-status" class="pill"></span>
+                </div>
+                <div id="feedback-output" class="feedback-output"></div>
+              </div>
+            </div>
+
+            <!-- Tab: Errors -->
+            <div class="brain-panel hidden" id="panel-errors">
+              <div class="card">
+                <div class="section-head">
+                  <h2>❌ Error Analysis</h2>
+                  <span class="pill red" id="error-count">0</span>
+                </div>
+                <div id="errors-container" class="errors-container">
+                  <p class="muted">No errors detected. Run a command to analyze output.</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tab: Fix Plan -->
+            <div class="brain-panel hidden" id="panel-fixplan">
+              <div class="card">
+                <div class="section-head">
+                  <h2>🔧 Fix Suggestions</h2>
+                </div>
+                <div id="fixes-container" class="fixes-container">
+                  <p class="muted">No fixes suggested yet.</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tab: Memory -->
+            <div class="brain-panel hidden" id="panel-memory">
+              <div class="card">
+                <div class="section-head">
+                  <h2>💾 Terminal Memory</h2>
+                  <span class="pill blue" id="memory-stats">0</span>
+                </div>
+                <div id="memory-container" class="memory-container">
+                  <p class="muted">Loading terminal memory...</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tab: Deployments -->
+            <div class="brain-panel hidden" id="panel-deployments">
+              <div class="card">
+                <div class="section-head">
+                  <h2>🚀 Deployments</h2>
+                </div>
+                <div id="deployments-container" class="deployments-container">
+                  <p class="muted">No deployments recorded.</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tab: Services -->
+            <div class="brain-panel hidden" id="panel-services">
+              <div class="card">
+                <div class="section-head">
+                  <h2>⚡ Running Services</h2>
+                </div>
+                <div id="services-container" class="services-container">
+                  <p class="muted">Select a workspace to see running services.</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tab: Environment -->
+            <div class="brain-panel hidden" id="panel-env">
+              <div class="card">
+                <div class="section-head">
+                  <h2>🔐 Environment</h2>
+                </div>
+                <div id="env-container" class="env-container">
+                  <p class="muted">Project context and environment variables.</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tab: Approvals -->
+            <div class="brain-panel hidden" id="panel-approvals">
+              <div class="card">
+                <div class="section-head">
+                  <h2>✅ Pending Approvals</h2>
+                  <span class="pill yellow" id="approval-count">0</span>
+                </div>
+                <div id="approvals-container" class="approvals-container">
+                  <p class="muted">No pending approvals.</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Live Logs (always visible) -->
+            <div class="card" style="margin-top:8px">
               <div class="section-head">
-                <h2>Live Logs</h2>
+                <h2>📋 Live Logs</h2>
                 <span class="online" id="log-status">●</span>
               </div>
               <div class="logs-container" id="logs-container"></div>
             </div>
 
-            <!-- Recent Tasks -->
-            <div class="card">
-              <div class="section-head">
-                <h2>📋 Recent Tasks</h2>
-                <span class="pill blue" id="task-count">0</span>
-              </div>
-              <div class="tasks-container" id="tasks-container">
-                <p class="muted">No recent tasks. Send a command to get started.</p>
-              </div>
-            </div>
-
             <!-- Quick Actions -->
-            <div class="card">
+            <div class="card" style="margin-top:8px">
               <h2>🧩 Quick Actions</h2>
               <div class="quick-actions">
                 <button onclick="quickAction('Build')">Build</button>

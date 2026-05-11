@@ -43,6 +43,15 @@ The SuperRoo system is organized into **18 core modules** spanning orchestration
          │     ├── Feature Tester Agent (test execution)
          │     └── Bug-Feature Mapper (traceability)
          │
+         ├──► DEBUG TEAM
+         │     ├── Super Debug Loop (autonomous multi-agent orchestrator)
+         │     ├── Phase Breakdown Engine (complex problem decomposition)
+         │     ├── Hypothesis Engine (critical thinking & assumption management)
+         │     ├── Container Sandbox (Docker-based safe 24/7 iteration)
+         │     ├── Rollback Manager (git snapshots + automatic rollback)
+         │     ├── Feature Sync Orchestrator (multi-feature coordination)
+         │     └── Skills Generator (auto-creates skills from failures)
+         │
          ├──► PARALLEL EXECUTION ENGINE
          │     ├── Agent Bus (inter-agent messaging)
          │     ├── Parallel Healing Pipeline
@@ -182,6 +191,21 @@ The SuperRoo system is organized into **18 core modules** spanning orchestration
 
     > **IMPORTANT**: This is THE single source of truth for all commits and deployments across all coding agents. Every agent MUST use `CommitDeployLog.recordCommit()` and `CommitDeployLog.recordDeploy()` to record their work. The log is append-only (no deletions, only status updates) and agent-aware (records which agent made the change).
 
+### 13. Debug Team
+
+- **Owner**: `SuperDebugLoop`
+- **Status**: `active`
+- **Connections**: Orchestrator, Agents, Healing, ML, Parallel, Deploy, Remote Shell, Bug Registry, Feature Registry
+- **Features**: Autonomous multi-agent debugging, Complex feature problem solving, Phase-by-phase breakdown, Hypothesis-driven iteration, Safe container execution (Docker), Automatic git snapshot/rollback, Multi-feature integration sync, Auto-generated skills from failures, Auto-approval mode (all approvals auto-granted, all deployments auto-run), 24/7 unlimited iteration
+- **Sub-modules**:
+    - **Super Debug Loop** ([`src/super-roo/debug-team/SuperDebugLoop.ts`](../src/super-roo/debug-team/SuperDebugLoop.ts)) - Main orchestrating loop with state machine (idle→analyzing→planning→snapshot→patching→testing→critic_review→committing/deploying→rollback_retry)
+    - **Phase Breakdown Engine** ([`src/super-roo/debug-team/engines/PhaseBreakdownEngine.ts`](../src/super-roo/debug-team/engines/PhaseBreakdownEngine.ts)) - Decomposes complex goals into sequential, dependency-aware phases with critical path analysis
+    - **Hypothesis Engine** ([`src/super-roo/debug-team/engines/HypothesisEngine.ts`](../src/super-roo/debug-team/engines/HypothesisEngine.ts)) - Scientific method loop: formulate hypothesis → identify assumptions → track evidence → refine on failure → escalate on low confidence
+    - **Container Sandbox** ([`src/super-roo/debug-team/sandbox/ContainerSandbox.ts`](../src/super-roo/debug-team/sandbox/ContainerSandbox.ts)) - Docker-based safe execution with --network none, memory/CPU limits, configurable timeout, local fallback
+    - **Rollback Manager** ([`src/super-roo/debug-team/sandbox/RollbackManager.ts`](../src/super-roo/debug-team/sandbox/RollbackManager.ts)) - Git snapshot/rollback with 4 strategies (hard, soft, stash, branch), backup branches, auto-stash
+    - **Feature Sync Orchestrator** ([`src/super-roo/debug-team/engines/FeatureSyncOrchestrator.ts`](../src/super-roo/debug-team/engines/FeatureSyncOrchestrator.ts)) - Multi-feature integration verification, dependency graph, conflict detection & resolution
+    - **Skills Generator** ([`src/super-roo/debug-team/engines/SkillsGenerator.ts`](../src/super-roo/debug-team/engines/SkillsGenerator.ts)) - Auto-creates .roo/skills/ and resource docs from failures and lessons
+
 ### 14. Parallel Execution Engine
 
 - **Owner**: `ParallelExecutor / AgentBus`
@@ -272,6 +296,12 @@ Feature Discovery → Product Feature Agent → Feature Registry → Tester Agen
 
 ```
 Task History → CodeLearner/DebugLearner/TestLearner → Neural Network Training → Infinite Improvement Loop → Better Agent Performance
+```
+
+### Debug Team Flow
+
+```
+Complex Problem → SuperDebugLoop → PhaseBreakdownEngine → HypothesisEngine → Attempt Loop [Snapshot → Patch → Sandbox Test → Critic Review → Feature Sync] → [Success: Commit/Deploy | Failure: Rollback → Refine Hypothesis → Retry] → SkillsGenerator
 ```
 
 ### Commit & Deploy Log Flow

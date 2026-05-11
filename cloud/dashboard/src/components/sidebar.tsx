@@ -26,6 +26,7 @@ import {
 	Terminal,
 	Menu,
 	X,
+	Rocket,
 } from "lucide-react"
 
 const NAV = [
@@ -47,6 +48,7 @@ const NAV = [
 	{ id: "settings", icon: SlidersHorizontal, label: "Settings" },
 	{ id: "ai", icon: Sparkles, label: "AI Assistant" },
 	{ id: "ide-terminal", icon: Terminal, label: "IDE Terminal" },
+	{ id: "auto-deploy", icon: Rocket, label: "Auto Deploy" },
 ]
 
 export function Sidebar({ page, setPage }: { page: string; setPage: (p: string) => void }) {
