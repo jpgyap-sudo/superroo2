@@ -683,7 +683,7 @@ export default function IdeTerminalView() {
 	const fileInputRef = useRef<HTMLInputElement>(null)
 	const imageInputRef = useRef<HTMLInputElement>(null)
 	const messagesEndRef = useRef<HTMLDivElement>(null)
-	const terminalRef = useRef<HTMLPreElement>(null)
+	const terminalRef = useRef<HTMLDivElement>(null)
 	const terminalInputRef = useRef<HTMLInputElement>(null)
 
 	// ── Agent command definitions (mirrors backend) ──────────────────────
