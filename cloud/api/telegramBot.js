@@ -15,6 +15,16 @@
  *
  * Integrated with the unified auth module (auth.js) for session-based
  * authentication across Telegram, Web Dashboard, and VS Code extension.
+ *
+ * === Smart Terminal Features ===
+ * - NL-First Chat Mode: Auto-detects coding intent without requiring /brain prefix
+ * - Inline Code Execution: Execute shell commands directly in Telegram chat
+ * - Smart Error Handling: Auto-analyzes errors after command execution
+ * - Conversational Context: Rich context tracking across messages
+ * - Quick Action Buttons: Context-aware inline keyboards after every response
+ * - Command Correction: "Did you mean?" suggestions for mistyped commands
+ * - Workflow Templates: Pre-built command sequences for common tasks
+ * - AI-Powered Command Prediction: Suggests next commands based on context
  */
 
 const crypto = require("crypto")
@@ -82,7 +92,7 @@ function logTelegramError(command, chatId, userId, err, context) {
 		chatId: chatId,
 		userId: userId || null,
 		error: (err && err.message) || String(err),
-		stack: (err && err.stack) ? err.stack.split("\n").slice(0, 3).join(" | ") : null,
+		stack: err && err.stack ? err.stack.split("\n").slice(0, 3).join(" | ") : null,
 		timestamp: new Date().toISOString(),
 		context: context || null,
 	}
@@ -1163,13 +1173,25 @@ async function askAI(message, providers, chatId) {
 
 			return reply
 		} catch (err) {
-			var errorDetail = err.name === "TimeoutError" || err.name === "AbortError" ? "timeout after 120s" : err.message
+			var errorDetail =
+				err.name === "TimeoutError" || err.name === "AbortError" ? "timeout after 120s" : err.message
 			console.error("[telegram] askAI network error with " + provider.providerId + ":", errorDetail)
 			continue
 		}
 	}
-	var triedProviders = providers.filter(function (p) { return p.apiKey }).map(function (p) { return p.providerId || p.name }).join(", ")
-	return "Sorry, I couldn't reach any AI provider (" + (triedProviders || "none configured") + "). Please check that API keys are configured and working in the dashboard (API Keys tab). If using DeepSeek, it may be experiencing high traffic — try again later or switch to OpenAI."
+	var triedProviders = providers
+		.filter(function (p) {
+			return p.apiKey
+		})
+		.map(function (p) {
+			return p.providerId || p.name
+		})
+		.join(", ")
+	return (
+		"Sorry, I couldn't reach any AI provider (" +
+		(triedProviders || "none configured") +
+		"). Please check that API keys are configured and working in the dashboard (API Keys tab). If using DeepSeek, it may be experiencing high traffic — try again later or switch to OpenAI."
+	)
 }
 
 // ─── Command Handlers ──────────────────────────────────────────────────────
@@ -2314,7 +2336,11 @@ async function handleBrain(botToken, chatId, args, providers) {
 	try {
 		if (subcommand === "plan") {
 			if (!query) {
-				await sendMessage(botToken, chatId, "*Usage:* `/brain plan <natural language query>`\n\nExample: `/brain plan fix the build`")
+				await sendMessage(
+					botToken,
+					chatId,
+					"*Usage:* `/brain plan <natural language query>`\n\nExample: `/brain plan fix the build`",
+				)
 				return
 			}
 			var planResult = await tgEndpoints.brainPlan(query, chatId)
@@ -2324,36 +2350,53 @@ async function handleBrain(botToken, chatId, args, providers) {
 			}
 			var planReply = telegramEngineer.formatBrainPlan(planResult)
 			await sendMessage(botToken, chatId, planReply)
-
 		} else if (subcommand === "exec" || subcommand === "execute") {
 			if (!query) {
-				await sendMessage(botToken, chatId, "*Usage:* `/brain exec <shell command>`\n\nExample: `/brain exec pnpm run build`")
+				await sendMessage(
+					botToken,
+					chatId,
+					"*Usage:* `/brain exec <shell command>`\n\nExample: `/brain exec pnpm run build`",
+				)
 				return
 			}
 			var execResult = await tgEndpoints.brainExecute(query, chatId)
 			if (!execResult.ok) {
-				await sendMessage(botToken, chatId, "*Brain Execute Error* ❌\n\n" + (execResult.error || "Unknown error"))
+				await sendMessage(
+					botToken,
+					chatId,
+					"*Brain Execute Error* ❌\n\n" + (execResult.error || "Unknown error"),
+				)
 				return
 			}
 			var execReply = telegramEngineer.formatBrainFeedback(execResult.feedback)
 			await sendMessage(botToken, chatId, execReply)
-
 		} else if (subcommand === "analyze") {
 			if (!query) {
-				await sendMessage(botToken, chatId, "*Usage:* `/brain analyze <command output>`\n\nExample: `/brain analyze TS2345: Type 'X' is not assignable to type 'Y'`")
+				await sendMessage(
+					botToken,
+					chatId,
+					"*Usage:* `/brain analyze <command output>`\n\nExample: `/brain analyze TS2345: Type 'X' is not assignable to type 'Y'`",
+				)
 				return
 			}
 			var analyzeResult = await tgEndpoints.brainAnalyze(query, chatId)
 			if (!analyzeResult.ok) {
-				await sendMessage(botToken, chatId, "*Brain Analyze Error* ❌\n\n" + (analyzeResult.error || "Unknown error"))
+				await sendMessage(
+					botToken,
+					chatId,
+					"*Brain Analyze Error* ❌\n\n" + (analyzeResult.error || "Unknown error"),
+				)
 				return
 			}
 			var analyzeReply = telegramEngineer.formatBrainErrors(analyzeResult.errors)
 			await sendMessage(botToken, chatId, analyzeReply)
-
 		} else if (subcommand === "fix") {
 			if (!query) {
-				await sendMessage(botToken, chatId, "*Usage:* `/brain fix <error output>`\n\nExample: `/brain fix Module not found: Can't resolve './foo'`")
+				await sendMessage(
+					botToken,
+					chatId,
+					"*Usage:* `/brain fix <error output>`\n\nExample: `/brain fix Module not found: Can't resolve './foo'`",
+				)
 				return
 			}
 			var fixResult = await tgEndpoints.brainFix(query, chatId)
@@ -2362,7 +2405,11 @@ async function handleBrain(botToken, chatId, args, providers) {
 				return
 			}
 			if (!fixResult.fixes || fixResult.fixes.length === 0) {
-				await sendMessage(botToken, chatId, "*🧠 Terminal Brain — No fixes suggested*\n\nNo automatic fixes could be determined for the given output.")
+				await sendMessage(
+					botToken,
+					chatId,
+					"*🧠 Terminal Brain — No fixes suggested*\n\nNo automatic fixes could be determined for the given output.",
+				)
 				return
 			}
 			var fixLines = ["*🧠 Terminal Brain — Suggested Fixes*"]
@@ -2370,33 +2417,46 @@ async function handleBrain(botToken, chatId, args, providers) {
 				fixLines.push("• " + (fi + 1) + ". " + fixResult.fixes[fi])
 			}
 			await sendMessage(botToken, chatId, fixLines.join("\n"))
-
 		} else if (subcommand === "memory") {
 			var memResult = await tgEndpoints.brainMemory(chatId)
 			if (!memResult.ok) {
-				await sendMessage(botToken, chatId, "*Brain Memory Error* ❌\n\n" + (memResult.error || "Unknown error"))
+				await sendMessage(
+					botToken,
+					chatId,
+					"*Brain Memory Error* ❌\n\n" + (memResult.error || "Unknown error"),
+				)
 				return
 			}
 			var memReply = telegramEngineer.formatBrainMemory(memResult.stats)
 			await sendMessage(botToken, chatId, memReply)
-
 		} else if (subcommand === "context") {
 			var ctxResult = await tgEndpoints.brainContext(chatId)
 			if (!ctxResult.ok) {
-				await sendMessage(botToken, chatId, "*Brain Context Error* ❌\n\n" + (ctxResult.error || "Unknown error"))
+				await sendMessage(
+					botToken,
+					chatId,
+					"*Brain Context Error* ❌\n\n" + (ctxResult.error || "Unknown error"),
+				)
 				return
 			}
 			var ctxReply = telegramEngineer.formatBrainContext(ctxResult.context)
 			await sendMessage(botToken, chatId, ctxReply)
-
 		} else if (subcommand === "pipeline") {
 			if (!query) {
-				await sendMessage(botToken, chatId, "*Usage:* `/brain pipeline <natural language query>`\n\nExample: `/brain pipeline run tests and fix failures`\n\nThis runs the full Plan → Execute → Analyze → Fix pipeline.")
+				await sendMessage(
+					botToken,
+					chatId,
+					"*Usage:* `/brain pipeline <natural language query>`\n\nExample: `/brain pipeline run tests and fix failures`\n\nThis runs the full Plan → Execute → Analyze → Fix pipeline.",
+				)
 				return
 			}
 			var pipeResult = await tgEndpoints.brainPipeline(query, chatId)
 			if (!pipeResult.ok) {
-				await sendMessage(botToken, chatId, "*Brain Pipeline Error* ❌\n\n" + (pipeResult.error || "Unknown error"))
+				await sendMessage(
+					botToken,
+					chatId,
+					"*Brain Pipeline Error* ❌\n\n" + (pipeResult.error || "Unknown error"),
+				)
 				return
 			}
 
@@ -2408,7 +2468,7 @@ async function handleBrain(botToken, chatId, args, providers) {
 				pipeLines.push("\n*📋 Plan:*")
 				var planCmds = pipeResult.plan.commands || []
 				for (var pi = 0; pi < planCmds.length; pi++) {
-					var pc = typeof planCmds[pi] === "string" ? planCmds[pi] : (planCmds[pi].command || "")
+					var pc = typeof planCmds[pi] === "string" ? planCmds[pi] : planCmds[pi].command || ""
 					pipeLines.push("  `" + (pi + 1) + ".` `" + pc + "`")
 				}
 			}
@@ -2451,12 +2511,13 @@ async function handleBrain(botToken, chatId, args, providers) {
 			}
 
 			await sendMessage(botToken, chatId, pipeLines.join("\n"))
-
 		} else {
 			await sendMessage(
 				botToken,
 				chatId,
-				"*Unknown brain subcommand:* `" + subcommand + "`\n\n" +
+				"*Unknown brain subcommand:* `" +
+					subcommand +
+					"`\n\n" +
 					"Use `/brain help` to see available subcommands.",
 			)
 		}
@@ -2464,6 +2525,783 @@ async function handleBrain(botToken, chatId, args, providers) {
 		logTelegramError("/brain:" + subcommand, chatId, null, err, { query: query })
 		await sendMessage(botToken, chatId, "*Brain Error* ❌\n\n" + err.message)
 	}
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Smart Terminal Features — NL-First Chat Mode, Inline Execution, Error Handling
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * ─── Conversational Context Enrichment ──────────────────────────────────────
+ * Tracks richer context across messages: last command, last error, last project,
+ * last intent, and message count for smarter responses.
+ */
+
+/** Map<chatId, { lastCommand, lastError, lastProject, lastIntent, messageCount, lastBrainResult }> */
+const _smartContext = new Map()
+
+/**
+ * Gets or initializes smart context for a chat.
+ * @param {number|string} chatId
+ * @returns {Object} Smart context object
+ */
+function getSmartContext(chatId) {
+	if (!_smartContext.has(chatId)) {
+		_smartContext.set(chatId, {
+			lastCommand: null,
+			lastError: null,
+			lastProject: null,
+			lastIntent: null,
+			messageCount: 0,
+			lastBrainResult: null,
+			lastCommandOutput: null,
+			lastFixApplied: null,
+			workflowHistory: [],
+		})
+	}
+	return _smartContext.get(chatId)
+}
+
+/**
+ * Updates smart context with new information.
+ * @param {number|string} chatId
+ * @param {Object} updates - Partial updates to merge into smart context
+ */
+function updateSmartContext(chatId, updates) {
+	var ctx = getSmartContext(chatId)
+	ctx.messageCount++
+	for (var key in updates) {
+		if (Object.prototype.hasOwnProperty.call(updates, key)) {
+			ctx[key] = updates[key]
+		}
+	}
+}
+
+/**
+ * Builds a context-aware system prompt for the AI that includes smart context.
+ * @param {number|string} chatId
+ * @returns {string} Context snippet to append to system prompt
+ */
+function buildSmartContextPrompt(chatId) {
+	var ctx = getSmartContext(chatId)
+	var parts = []
+	if (ctx.lastCommand) parts.push("Last command executed: `" + ctx.lastCommand + "`")
+	if (ctx.lastError) parts.push("Last error encountered: " + ctx.lastError.slice(0, 200))
+	if (ctx.lastProject) parts.push("Active project: " + ctx.lastProject)
+	if (ctx.lastIntent) parts.push("Last intent: " + ctx.lastIntent)
+	if (ctx.lastFixApplied) parts.push("Last fix applied: " + ctx.lastFixApplied.slice(0, 200))
+	if (ctx.messageCount > 1) parts.push("Message count in this session: " + ctx.messageCount)
+	if (parts.length > 0) {
+		return "\n\n*Smart Context:*\n" + parts.join("\n")
+	}
+	return ""
+}
+
+/**
+ * ─── NL-First Chat Mode ─────────────────────────────────────────────────────
+ * Auto-detects coding intent from natural language and routes directly to
+ * Terminal Brain without requiring /brain prefix.
+ *
+ * Detects patterns like:
+ *   "run npm test" → brain execute
+ *   "fix the build error" → brain plan + execute + analyze
+ *   "check my logs" → read logs
+ *   "deploy the app" → deploy pipeline
+ */
+
+/**
+ * Detects if a message has strong coding/execution intent that should bypass
+ * the normal NLP routing and go directly to Terminal Brain.
+ * @param {string} text - The user's message
+ * @returns {Object|null} { action: "plan"|"execute"|"pipeline"|"analyze"|"fix", query: string } or null
+ */
+function detectCodingIntent(text) {
+	var lower = text.toLowerCase().trim()
+
+	// Direct execution patterns — "run X", "execute X", "do X"
+	var runMatch = lower.match(/^(?:run|execute|do)\s+(.+)/)
+	if (runMatch) {
+		return { action: "execute", query: runMatch[1] }
+	}
+
+	// Fix patterns — "fix X", "debug X", "repair X"
+	var fixMatch = lower.match(/^(?:fix|debug|repair|resolve)\s+(.+)/)
+	if (fixMatch) {
+		return { action: "pipeline", query: fixMatch[1] }
+	}
+
+	// Build/test patterns
+	if (
+		lower.includes("build") ||
+		lower.includes("compile") ||
+		lower.includes("npm ") ||
+		lower.includes("pnpm ") ||
+		lower.includes("yarn ") ||
+		lower.includes("npx ")
+	) {
+		return { action: "plan", query: text }
+	}
+
+	// Check patterns — "check X", "show X", "get X"
+	var checkMatch = lower.match(/^(?:check|show|get|list|view)\s+(.+)/)
+	if (checkMatch) {
+		var checkQuery = checkMatch[1]
+		if (
+			checkQuery.includes("log") ||
+			checkQuery.includes("status") ||
+			checkQuery.includes("test") ||
+			checkQuery.includes("error") ||
+			checkQuery.includes("deploy")
+		) {
+			return { action: "plan", query: text }
+		}
+	}
+
+	return null
+}
+
+/**
+ * Handles a coding intent directly via Terminal Brain without going through
+ * the BullMQ queue. This provides instant feedback in the Telegram chat.
+ *
+ * @param {string} botToken
+ * @param {number} chatId
+ * @param {Object} codingIntent - { action, query } from detectCodingIntent()
+ * @param {Array} providers - AI provider configs
+ * @returns {Promise<boolean>} Whether the message was handled
+ */
+async function handleCodingIntentDirect(botToken, chatId, codingIntent, providers) {
+	if (!_terminalBrainAvailable) return false
+
+	try {
+		await sendChatAction(botToken, chatId, "typing")
+
+		var action = codingIntent.action
+		var query = codingIntent.query
+
+		// Log the smart context
+		updateSmartContext(chatId, { lastIntent: "coding:" + action })
+
+		if (action === "execute") {
+			// Direct execution — run the command via Terminal Brain
+			var execResult = await tgEndpoints.brainExecute(query, chatId)
+			if (!execResult.ok) {
+				await sendMessage(botToken, chatId, "*Execution Error* ❌\n\n" + (execResult.error || "Unknown error"))
+				return true
+			}
+
+			// Update smart context
+			updateSmartContext(chatId, {
+				lastCommand: query,
+				lastBrainResult: execResult,
+				lastCommandOutput: execResult.feedback ? execResult.feedback.output : null,
+			})
+
+			// Format and send result
+			var execReply = telegramEngineer.formatBrainFeedback(execResult.feedback)
+			await sendMessage(botToken, chatId, execReply)
+
+			// ─── Smart Error Handling: Auto-analyze errors ────────────────
+			if (execResult.feedback && execResult.feedback.exitCode !== 0) {
+				await sendChatAction(botToken, chatId, "typing")
+				// Small delay so user sees the result first
+				await new Promise(function (r) {
+					return setTimeout(r, 500)
+				})
+
+				try {
+					var analyzeResult = await tgEndpoints.brainAnalyze(execResult.feedback.output || query, chatId)
+					if (analyzeResult.ok && analyzeResult.errors && analyzeResult.errors.length > 0) {
+						updateSmartContext(chatId, {
+							lastError: analyzeResult.errors[0].message || analyzeResult.errors[0].type,
+						})
+						var analyzeReply = telegramEngineer.formatBrainErrors(analyzeResult.errors)
+						await sendMessage(botToken, chatId, analyzeReply)
+
+						// Auto-suggest fixes
+						var fixResult = await tgEndpoints.brainFix(execResult.feedback.output || query, chatId)
+						if (fixResult.ok && fixResult.fixes && fixResult.fixes.length > 0) {
+							updateSmartContext(chatId, { lastFixApplied: fixResult.fixes[0] })
+							var fixLines = ["*🔧 Auto-Suggested Fixes*"]
+							for (var fi = 0; fi < Math.min(fixResult.fixes.length, 3); fi++) {
+								fixLines.push("• " + fixResult.fixes[fi])
+							}
+							await sendMessage(botToken, chatId, fixLines.join("\n"))
+						}
+					}
+				} catch (brainErr) {
+					console.log("[telegram] Auto error analysis failed:", brainErr.message)
+				}
+			}
+
+			// Add quick action buttons after execution
+			await sendQuickActionButtons(botToken, chatId, query, execResult)
+
+			return true
+		}
+
+		if (action === "plan") {
+			var planResult = await tgEndpoints.brainPlan(query, chatId)
+			if (!planResult.ok) {
+				await sendMessage(botToken, chatId, "*Plan Error* ❌\n\n" + (planResult.error || "Unknown error"))
+				return true
+			}
+			var planReply = telegramEngineer.formatBrainPlan(planResult)
+			await sendMessage(botToken, chatId, planReply)
+
+			// If there are commands in the plan, offer to execute them
+			if (planResult.commands && planResult.commands.length > 0) {
+				var firstCmd =
+					typeof planResult.commands[0] === "string"
+						? planResult.commands[0]
+						: planResult.commands[0].command || ""
+				if (firstCmd) {
+					await sendInlineKeyboard(
+						botToken,
+						chatId,
+						"*Execute this plan?* 🚀\n\nTap below to run the first command or the full pipeline.",
+						[
+							[{ text: "▶️ Run: " + firstCmd.slice(0, 30), callback_data: "brain_exec:" + firstCmd }],
+							[
+								{ text: "🔄 Full Pipeline", callback_data: "brain_pipeline:" + query },
+								{ text: "❌ Cancel", callback_data: "brain_cancel" },
+							],
+						],
+					)
+				}
+			}
+
+			return true
+		}
+
+		if (action === "pipeline") {
+			var pipeResult = await tgEndpoints.brainPipeline(query, chatId)
+			if (!pipeResult.ok) {
+				await sendMessage(botToken, chatId, "*Pipeline Error* ❌\n\n" + (pipeResult.error || "Unknown error"))
+				return true
+			}
+
+			updateSmartContext(chatId, {
+				lastCommand: query,
+				lastBrainResult: pipeResult,
+			})
+
+			// Build comprehensive pipeline result
+			var pipeLines = ["*🧠 Terminal Brain — Pipeline Result*"]
+
+			if (pipeResult.plan) {
+				pipeLines.push("\n*📋 Plan:*")
+				var planCmds = pipeResult.plan.commands || []
+				for (var pi = 0; pi < planCmds.length; pi++) {
+					var pc = typeof planCmds[pi] === "string" ? planCmds[pi] : planCmds[pi].command || ""
+					pipeLines.push("  `" + (pi + 1) + ".` `" + pc + "`")
+				}
+			}
+
+			if (pipeResult.feedback) {
+				var fbArray = Array.isArray(pipeResult.feedback) ? pipeResult.feedback : [pipeResult.feedback]
+				for (var fbi = 0; fbi < fbArray.length; fbi++) {
+					var fb = fbArray[fbi]
+					var fbIcon = fb.exitCode === 0 ? "✅" : "❌"
+					pipeLines.push("\n*" + fbIcon + " Step " + (fbi + 1) + ":* Exit `" + fb.exitCode + "`")
+				}
+			}
+
+			if (pipeResult.errors && pipeResult.errors.length > 0) {
+				updateSmartContext(chatId, { lastError: pipeResult.errors[0].message || pipeResult.errors[0].type })
+				pipeLines.push("\n*🔍 Errors Found:* " + pipeResult.errors.length)
+				for (var ei = 0; ei < Math.min(pipeResult.errors.length, 3); ei++) {
+					var pe = pipeResult.errors[ei]
+					pipeLines.push("  • `" + pe.type + "`" + (pe.message ? ": " + pe.message.slice(0, 100) : ""))
+				}
+				if (pipeResult.errors.length > 3) {
+					pipeLines.push("  *+ " + (pipeResult.errors.length - 3) + " more*")
+				}
+			}
+
+			if (pipeResult.fixes && pipeResult.fixes.length > 0) {
+				updateSmartContext(chatId, { lastFixApplied: pipeResult.fixes[0] })
+				pipeLines.push("\n*🔧 Fixes Applied:* " + pipeResult.fixes.length)
+				for (var fxi = 0; fxi < Math.min(pipeResult.fixes.length, 3); fxi++) {
+					pipeLines.push("  • " + pipeResult.fixes[fxi].slice(0, 150))
+				}
+				if (pipeResult.fixes.length > 3) {
+					pipeLines.push("  *+ " + (pipeResult.fixes.length - 3) + " more*")
+				}
+			}
+
+			if (!pipeResult.errors || pipeResult.errors.length === 0) {
+				pipeLines.push("\n✅ *All steps completed successfully!*")
+			}
+
+			await sendMessage(botToken, chatId, pipeLines.join("\n"))
+
+			// Add quick action buttons after pipeline
+			await sendQuickActionButtons(botToken, chatId, query, pipeResult)
+
+			return true
+		}
+
+		return false
+	} catch (err) {
+		logTelegramError("nl:coding_direct", chatId, null, err, {
+			action: codingIntent.action,
+			query: codingIntent.query,
+		})
+		await sendMessage(botToken, chatId, "*Smart Terminal Error* ❌\n\n" + err.message)
+		return true
+	}
+}
+
+/**
+ * ─── Quick Action Buttons ──────────────────────────────────────────────────
+ * Sends context-aware inline keyboard buttons after every response so the user
+ * can take immediate next actions without typing.
+ */
+
+/**
+ * Sends quick action buttons based on the last command/result context.
+ * @param {string} botToken
+ * @param {number} chatId
+ * @param {string} lastCommand - The command that was executed
+ * @param {Object} lastResult - The result object from execution
+ */
+async function sendQuickActionButtons(botToken, chatId, lastCommand, lastResult) {
+	try {
+		var buttons = []
+
+		// Always offer: Run Again, Explain, Fix
+		if (lastCommand) {
+			buttons.push([
+				{ text: "🔄 Run Again", callback_data: "brain_exec:" + lastCommand },
+				{ text: "❓ Explain", callback_data: "brain_explain:" + lastCommand },
+			])
+		}
+
+		// If there were errors, offer fix
+		var hadErrors =
+			lastResult &&
+			((lastResult.feedback && lastResult.feedback.exitCode !== 0) ||
+				(lastResult.errors && lastResult.errors.length > 0))
+		if (hadErrors) {
+			buttons.push([
+				{ text: "🔧 Auto-Fix", callback_data: "brain_fix:" + lastCommand },
+				{ text: "📋 Show Errors", callback_data: "brain_errors:" + lastCommand },
+			])
+		}
+
+		// If successful, offer deploy
+		var wasSuccess = lastResult && lastResult.feedback && lastResult.feedback.exitCode === 0
+		if (wasSuccess) {
+			buttons.push([{ text: "🚀 Deploy", callback_data: "brain_deploy:" + lastCommand }])
+		}
+
+		// Common actions
+		buttons.push([
+			{ text: "📊 Status", callback_data: "brain_status" },
+			{ text: "🧠 Memory", callback_data: "brain_memory" },
+		])
+
+		if (buttons.length > 0) {
+			await sendInlineKeyboard(botToken, chatId, "*Quick Actions* ⚡", buttons)
+		}
+	} catch (err) {
+		// Non-fatal — quick actions are a bonus
+		console.log("[telegram] Quick action buttons failed:", err.message)
+	}
+}
+
+/**
+ * ─── Command Correction ────────────────────────────────────────────────────
+ * Suggests corrections for mistyped commands using Levenshtein distance
+ * against known commands.
+ */
+
+/** Known commands for correction suggestions */
+const KNOWN_COMMANDS = [
+	"/start",
+	"/login",
+	"/help",
+	"/about",
+	"/otp",
+	"/specify",
+	"/projects",
+	"/miniide",
+	"/workspace",
+	"/session",
+	"/settings",
+	"/agents",
+	"/brain",
+	"/code",
+	"/diff",
+	"/approve",
+	"/deploy",
+	"/status",
+	"/cancel",
+	"/debug",
+	"/logs",
+	"/tests",
+	"/restart",
+	"/aceteam",
+	"/ask",
+]
+
+/** Brain subcommands for correction */
+const BRAIN_SUBCOMMANDS = ["plan", "exec", "execute", "analyze", "fix", "memory", "context", "pipeline", "help"]
+
+/**
+ * Calculates Levenshtein distance between two strings.
+ * @param {string} a
+ * @param {string} b
+ * @returns {number}
+ */
+function levenshteinDistance(a, b) {
+	var alen = a.length
+	var blen = b.length
+	var matrix = []
+	for (var i = 0; i <= blen; i++) {
+		matrix[i] = [i]
+	}
+	for (var j = 0; j <= alen; j++) {
+		matrix[0][j] = j
+	}
+	for (var i = 1; i <= blen; i++) {
+		for (var j = 1; j <= alen; j++) {
+			if (b.charAt(i - 1) === a.charAt(j - 1)) {
+				matrix[i][j] = matrix[i - 1][j - 1]
+			} else {
+				matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, Math.min(matrix[i][j - 1] + 1, matrix[i - 1][j] + 1))
+			}
+		}
+	}
+	return matrix[blen][alen]
+}
+
+/**
+ * Finds the closest matching command for a mistyped input.
+ * @param {string} input - The mistyped command
+ * @param {Array} candidates - Array of known commands
+ * @param {number} maxDistance - Maximum Levenshtein distance (default: 3)
+ * @returns {string|null} The closest match or null
+ */
+function findClosestCommand(input, candidates, maxDistance) {
+	if (maxDistance === undefined) maxDistance = 3
+	var best = null
+	var bestDist = Infinity
+	for (var i = 0; i < candidates.length; i++) {
+		var dist = levenshteinDistance(input.toLowerCase(), candidates[i].toLowerCase())
+		if (dist < bestDist && dist <= maxDistance) {
+			bestDist = dist
+			best = candidates[i]
+		}
+	}
+	return best
+}
+
+/**
+ * Checks if a command is likely mistyped and returns a suggestion.
+ * @param {string} command - The command the user typed
+ * @returns {string|null} Suggestion message or null
+ */
+function suggestCommandCorrection(command) {
+	if (!command || !command.startsWith("/")) return null
+
+	var closest = findClosestCommand(command, KNOWN_COMMANDS)
+	if (closest) {
+		return "Did you mean `" + closest + "`? 🤔\n\n(Tap the corrected command above)"
+	}
+
+	// Check for /brain subcommand typos
+	if (command === "/brain" || command.startsWith("/brain ")) {
+		var parts = command.split(/\s+/)
+		if (parts.length > 1) {
+			var subCmd = parts[1].toLowerCase()
+			var closestSub = findClosestCommand(subCmd, BRAIN_SUBCOMMANDS, 2)
+			if (closestSub) {
+				var corrected = "/brain " + closestSub + " " + parts.slice(2).join(" ")
+				return "Did you mean `" + corrected + "`? 🤔"
+			}
+		}
+	}
+
+	return null
+}
+
+/**
+ * ─── Workflow Templates ────────────────────────────────────────────────────
+ * Pre-built command sequences for common tasks that can be triggered with
+ * a single command or natural language phrase.
+ */
+
+const WORKFLOW_TEMPLATES = {
+	deploy: {
+		name: "🚀 Deploy",
+		description: "Run tests, build, and deploy to production",
+		steps: [
+			{ command: "cd /opt/superroo2 && git pull", description: "Pull latest code" },
+			{ command: "cd /opt/superroo2 && npm install", description: "Install dependencies" },
+			{ command: "cd /opt/superroo2 && npm run build", description: "Build project" },
+			{ command: "pm2 restart superroo-api", description: "Restart API server" },
+		],
+	},
+	test: {
+		name: "🧪 Run Tests",
+		description: "Run the full test suite",
+		steps: [{ command: "cd /opt/superroo2 && npx vitest run", description: "Run all tests" }],
+	},
+	build: {
+		name: "🔨 Build",
+		description: "Build the project",
+		steps: [{ command: "cd /opt/superroo2 && npm run build", description: "Build project" }],
+	},
+	logs: {
+		name: "📋 Check Logs",
+		description: "Check recent logs for errors",
+		steps: [{ command: "pm2 logs --lines 20 --nostream", description: "Get recent logs" }],
+	},
+	status: {
+		name: "📊 System Status",
+		description: "Check all system services",
+		steps: [
+			{ command: "pm2 status", description: "PM2 process status" },
+			{ command: "df -h", description: "Disk usage" },
+			{ command: "free -m", description: "Memory usage" },
+		],
+	},
+	update: {
+		name: "🔄 Update & Restart",
+		description: "Pull latest, install, build, and restart all services",
+		steps: [
+			{ command: "cd /opt/superroo2 && git pull", description: "Pull latest code" },
+			{ command: "cd /opt/superroo2 && npm install", description: "Install dependencies" },
+			{ command: "cd /opt/superroo2 && npm run build", description: "Build project" },
+			{ command: "pm2 restart all", description: "Restart all services" },
+		],
+	},
+}
+
+/**
+ * Detects if a message matches a workflow template.
+ * @param {string} text - The user's message
+ * @returns {Object|null} { template: string, workflow: Object } or null
+ */
+function detectWorkflowIntent(text) {
+	var lower = text.toLowerCase().trim()
+
+	for (var key in WORKFLOW_TEMPLATES) {
+		if (Object.prototype.hasOwnProperty.call(WORKFLOW_TEMPLATES, key)) {
+			var tmpl = WORKFLOW_TEMPLATES[key]
+			// Check if the message matches the workflow name or description
+			if (
+				lower === key ||
+				lower === "run " + key ||
+				lower === "do " + key ||
+				lower === "start " + key ||
+				lower.includes(tmpl.name.toLowerCase()) ||
+				lower.includes(tmpl.description.toLowerCase())
+			) {
+				return { template: key, workflow: tmpl }
+			}
+		}
+	}
+	return null
+}
+
+/**
+ * Executes a workflow template and reports results.
+ * @param {string} botToken
+ * @param {number} chatId
+ * @param {Object} workflowIntent - { template, workflow } from detectWorkflowIntent()
+ * @returns {Promise<boolean>} Whether the workflow was handled
+ */
+async function handleWorkflowTemplate(botToken, chatId, workflowIntent) {
+	if (!_terminalBrainAvailable) {
+		await sendMessage(botToken, chatId, "*Workflow Error* ❌\n\nTerminal Brain is required for workflow execution.")
+		return true
+	}
+
+	try {
+		var tmpl = workflowIntent.workflow
+		await sendMessage(
+			botToken,
+			chatId,
+			"*" +
+				tmpl.name +
+				"*\n\n" +
+				tmpl.description +
+				"\n\nStarting workflow with " +
+				tmpl.steps.length +
+				" steps...",
+		)
+
+		var results = []
+		for (var si = 0; si < tmpl.steps.length; si++) {
+			var step = tmpl.steps[si]
+			await sendChatAction(botToken, chatId, "typing")
+
+			var stepResult = await tgEndpoints.brainExecute(step.command, chatId)
+			var icon = stepResult.ok && stepResult.feedback && stepResult.feedback.exitCode === 0 ? "✅" : "❌"
+			results.push({ step: step, result: stepResult })
+
+			await sendMessage(
+				botToken,
+				chatId,
+				icon +
+					" *Step " +
+					(si + 1) +
+					"/" +
+					tmpl.steps.length +
+					":* " +
+					step.description +
+					"\n`" +
+					step.command +
+					"`" +
+					(stepResult.feedback && stepResult.feedback.exitCode !== 0
+						? "\nExit: `" + stepResult.feedback.exitCode + "`"
+						: ""),
+			)
+		}
+
+		// Summary
+		var successCount = results.filter(function (r) {
+			return r.result.ok && r.result.feedback && r.result.feedback.exitCode === 0
+		}).length
+		var summaryIcon = successCount === tmpl.steps.length ? "✅" : "⚠️"
+		await sendMessage(
+			botToken,
+			chatId,
+			summaryIcon + " *Workflow Complete:* " + successCount + "/" + tmpl.steps.length + " steps succeeded",
+		)
+
+		updateSmartContext(chatId, {
+			lastCommand: "workflow:" + workflowIntent.template,
+			lastIntent: "workflow",
+		})
+
+		return true
+	} catch (err) {
+		logTelegramError("workflow:" + workflowIntent.template, chatId, null, err)
+		await sendMessage(botToken, chatId, "*Workflow Error* ❌\n\n" + err.message)
+		return true
+	}
+}
+
+/**
+ * ─── AI-Powered Command Prediction ─────────────────────────────────────────
+ * Suggests next commands based on conversation context and recent activity.
+ */
+
+/**
+ * Builds a prediction prompt for the AI to suggest next commands.
+ * @param {number|string} chatId
+ * @returns {string} The prompt for the AI
+ */
+function buildPredictionPrompt(chatId) {
+	var ctx = getSmartContext(chatId)
+	var parts = [
+		"Based on the following context, suggest 2-3 likely next commands or actions the user might want to take. Be concise and specific.",
+	]
+
+	if (ctx.lastCommand) parts.push("Last command: " + ctx.lastCommand)
+	if (ctx.lastError) parts.push("Last error: " + ctx.lastError.slice(0, 100))
+	if (ctx.lastIntent) parts.push("Last intent: " + ctx.lastIntent)
+	if (ctx.lastFixApplied) parts.push("Last fix applied: " + ctx.lastFixApplied.slice(0, 100))
+
+	parts.push("\nSuggestions should be in format:")
+	parts.push("- `/command` — description")
+	parts.push("Keep it to 3 suggestions max.")
+
+	return parts.join("\n")
+}
+
+/**
+ * Gets AI-powered command predictions for the current context.
+ * @param {number|string} chatId
+ * @param {Array} providers - AI provider configs
+ * @returns {Promise<string>} Prediction text or empty string
+ */
+async function getCommandPredictions(chatId, providers) {
+	if (!providers || providers.length === 0) return ""
+
+	var prompt = buildPredictionPrompt(chatId)
+
+	for (var i = 0; i < providers.length; i++) {
+		var provider = providers[i]
+		if (!provider.apiKey) continue
+		try {
+			var url = (provider.apiBaseUrl || "").replace(/\/+$/, "") + "/chat/completions"
+			var res = await fetch(url, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer " + provider.apiKey,
+				},
+				body: JSON.stringify({
+					model: provider.model,
+					messages: [
+						{
+							role: "system",
+							content: "You are a senior DevOps engineer suggesting next commands. Be concise.",
+						},
+						{ role: "user", content: prompt },
+					],
+					max_tokens: 256,
+					temperature: 0.3,
+				}),
+				signal: AbortSignal.timeout(10_000),
+			})
+			if (!res.ok) continue
+			var data = await res.json()
+			var reply = data.choices[0]?.message?.content || ""
+			if (reply.trim()) return reply
+		} catch (err) {
+			console.log("[telegram] Command prediction error:", err.message)
+			continue
+		}
+	}
+	return ""
+}
+
+/**
+ * ─── Enhanced NLP Router ───────────────────────────────────────────────────
+ * Integrates NL-First Chat Mode into the existing NLP routing pipeline.
+ * This is called from handleNaturalLanguageInstruction before the legacy routing.
+ */
+
+/**
+ * Enhanced version of handleNaturalLanguageInstruction that first checks for
+ * direct coding intents, workflow templates, and then falls back to the
+ * existing NLP routing.
+ *
+ * @param {string} botToken
+ * @param {number} chatId
+ * @param {string} text - The user's message
+ * @param {number} telegramUserId
+ * @param {object} queue - BullMQ queue
+ * @param {Array} providers - AI provider configs
+ * @returns {Promise<boolean>} Whether the message was handled
+ */
+async function handleSmartNLP(botToken, chatId, text, telegramUserId, queue, providers) {
+	// Step 1: Check for workflow templates (fast, no LLM needed)
+	var workflowIntent = detectWorkflowIntent(text)
+	if (workflowIntent) {
+		logTelegramUsage("nl:workflow", chatId, telegramUserId, { template: workflowIntent.template })
+		return await handleWorkflowTemplate(botToken, chatId, workflowIntent)
+	}
+
+	// Step 2: Check for direct coding intent (NL-First Chat Mode)
+	var codingIntent = detectCodingIntent(text)
+	if (codingIntent && _terminalBrainAvailable) {
+		logTelegramUsage("nl:coding_direct", chatId, telegramUserId, {
+			action: codingIntent.action,
+			query: codingIntent.query.slice(0, 60),
+		})
+		var handled = await handleCodingIntentDirect(botToken, chatId, codingIntent, providers)
+		if (handled) return true
+	}
+
+	// Step 3: Fall back to existing NLP routing
+	return false
 }
 
 async function handleAbout(botToken, chatId) {
@@ -2858,6 +3696,14 @@ async function handleNaturalLanguageInstruction(botToken, chatId, text, telegram
 			return false
 		}
 
+		// ─── Smart NLP: Check for direct coding intents first ──────────────
+		// NL-First Chat Mode: Auto-detect coding intent without requiring /brain prefix.
+		// This runs BEFORE the LLM classifier for instant response on coding tasks.
+		var smartHandled = await handleSmartNLP(botToken, chatId, text, telegramUserId, queue, providers)
+		if (smartHandled) {
+			return true
+		}
+
 		// ─── OpenClaw: LLM-Powered Intent Classification ────────────────────
 		// Use the classifier to detect intent with LLM, fallback to keyword matching.
 		var classified = await telegramClassifier.classifyIntent(text, providers || [])
@@ -2882,7 +3728,11 @@ async function handleNaturalLanguageInstruction(botToken, chatId, text, telegram
 			}
 		}
 
-		logTelegramUsage("nlp:intent", chatId, telegramUserId, { intent: intentKind, confidence: confidence.toFixed(2), text: text.slice(0, 60) })
+		logTelegramUsage("nlp:intent", chatId, telegramUserId, {
+			intent: intentKind,
+			confidence: confidence.toFixed(2),
+			text: text.slice(0, 60),
+		})
 
 		// ─── Chat Intent ────────────────────────────────────────────────────
 		// Handle questions directly with the enhanced AI
@@ -2899,7 +3749,9 @@ async function handleNaturalLanguageInstruction(botToken, chatId, text, telegram
 		// Blocked actions (deploy, delete_data, shell) require dashboard approval.
 		if (!telegramPolicy.canRunWithoutApproval(intentKind)) {
 			var blockedMsg = telegramPolicy.getBlockedReason(intentKind)
-			logTelegramWarning("nlp:blocked", chatId, telegramUserId, "Policy blocked " + intentKind, { text: text.slice(0, 100) })
+			logTelegramWarning("nlp:blocked", chatId, telegramUserId, "Policy blocked " + intentKind, {
+				text: text.slice(0, 100),
+			})
 			await sendMessage(botToken, chatId, blockedMsg)
 			return true
 		}
@@ -2956,7 +3808,11 @@ async function handleNaturalLanguageInstruction(botToken, chatId, text, telegram
 				if (_terminalBrainAvailable) {
 					try {
 						var brainAnalyzeResult = await tgEndpoints.brainAnalyze(text, chatId)
-						if (brainAnalyzeResult.ok && brainAnalyzeResult.errors && brainAnalyzeResult.errors.length > 0) {
+						if (
+							brainAnalyzeResult.ok &&
+							brainAnalyzeResult.errors &&
+							brainAnalyzeResult.errors.length > 0
+						) {
 							var brainDebugReply = telegramEngineer.formatBrainErrors(brainAnalyzeResult.errors)
 							await sendMessage(botToken, chatId, brainDebugReply)
 						}
@@ -3057,10 +3913,15 @@ async function handleNaturalLanguageInstruction(botToken, chatId, text, telegram
 								})
 								activeProject = pj
 								console.log(
-									"[telegram] Auto-selected bound workspace '" + boundWorkspace + "' for group " + chatId,
+									"[telegram] Auto-selected bound workspace '" +
+										boundWorkspace +
+										"' for group " +
+										chatId,
 								)
 							} catch (selErr) {
-								logTelegramError("nlp:auto_select_workspace", chatId, telegramUserId, selErr, { boundWorkspace: boundWorkspace })
+								logTelegramError("nlp:auto_select_workspace", chatId, telegramUserId, selErr, {
+									boundWorkspace: boundWorkspace,
+								})
 							}
 							break
 						}
@@ -3094,7 +3955,10 @@ async function handleNaturalLanguageInstruction(botToken, chatId, text, telegram
 
 			// Create a task with the appropriate agent
 			var taskId =
-				"TG-" + Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).slice(2, 6).toUpperCase()
+				"TG-" +
+				Date.now().toString(36).toUpperCase() +
+				"-" +
+				Math.random().toString(36).slice(2, 6).toUpperCase()
 			var branchName = "tg/" + taskId.toLowerCase()
 
 			var conversationSummary = buildConversationSummary(chatId)
@@ -3118,34 +3982,37 @@ async function handleNaturalLanguageInstruction(botToken, chatId, text, telegram
 				instruction: text,
 				status: "queued",
 				branchName: branchName,
-			changedFiles: 0,
-			linesAdded: 0,
-			createdAt: new Date().toISOString(),
-			jobId: job.id,
-		})
+				changedFiles: 0,
+				linesAdded: 0,
+				createdAt: new Date().toISOString(),
+				jobId: job.id,
+			})
 
-		var intentLabels = {
-			coder: "Coding",
-			debugger: "Debugging",
-			deployer: "Deployment",
-			tester: "Testing",
-			consultant: "Consultant",
+			var intentLabels = {
+				coder: "Coding",
+				debugger: "Debugging",
+				deployer: "Deployment",
+				tester: "Testing",
+				consultant: "Consultant",
+			}
+			var label = intentLabels[legacyIntent] || "Task"
+
+			logChatExchange(chatId, "user", text, { intent: intentKind, taskId: taskId }).catch(function () {})
+			logChatExchange(chatId, "system", "Task routed to " + legacyIntent + " agent", {
+				taskId: taskId,
+				agentId: legacyIntent,
+			}).catch(function () {})
+
+			await telegramNotifier.sendTaskStarted(botToken, chatId, taskId, text, legacyIntent)
+			return true
+		} catch (err) {
+			logTelegramError("nlp:routing", chatId, telegramUserId, err, {
+				intent: intentKind,
+				text: text.slice(0, 100),
+			})
 		}
-		var label = intentLabels[legacyIntent] || "Task"
 
-		logChatExchange(chatId, "user", text, { intent: intentKind, taskId: taskId }).catch(function () {})
-		logChatExchange(chatId, "system", "Task routed to " + legacyIntent + " agent", {
-			taskId: taskId,
-			agentId: legacyIntent,
-		}).catch(function () {})
-
-		await telegramNotifier.sendTaskStarted(botToken, chatId, taskId, text, legacyIntent)
-		return true
-	} catch (err) {
-		logTelegramError("nlp:routing", chatId, telegramUserId, err, { intent: intentKind, text: text.slice(0, 100) })
-	}
-
-	return false
+		return false
 	} catch (err) {
 		logTelegramError("nlp:fatal", chatId, telegramUserId, err, { text: text.slice(0, 100) })
 		return false
@@ -3730,10 +4597,268 @@ async function handleUpdate(update, botToken, queue, providers) {
 				return
 			}
 
+			// ─── Smart Terminal Callbacks ──────────────────────────────────────
+
+			// brain_exec:<command> — Execute a command via Terminal Brain
+			if (cqData.startsWith("brain_exec:")) {
+				var execCmd = cqData.slice(11)
+				logTelegramUsage("callback:brain_exec", cqChatId, cqUserId, { command: execCmd.slice(0, 60) })
+				await sendChatAction(botToken, cqChatId, "typing")
+				try {
+					var execResult = await tgEndpoints.brainExecute(execCmd, cqChatId)
+					if (execResult.ok) {
+						updateSmartContext(cqChatId, { lastCommand: execCmd, lastBrainResult: execResult })
+						var execReply = telegramEngineer.formatBrainFeedback(execResult.feedback)
+						await sendMessage(botToken, cqChatId, execReply)
+
+						// Auto-analyze errors
+						if (execResult.feedback && execResult.feedback.exitCode !== 0) {
+							await new Promise(function (r) {
+								return setTimeout(r, 300)
+							})
+							var analyzeResult = await tgEndpoints.brainAnalyze(
+								execResult.feedback.output || execCmd,
+								cqChatId,
+							)
+							if (analyzeResult.ok && analyzeResult.errors && analyzeResult.errors.length > 0) {
+								updateSmartContext(cqChatId, { lastError: analyzeResult.errors[0].message })
+								await sendMessage(
+									botToken,
+									cqChatId,
+									telegramEngineer.formatBrainErrors(analyzeResult.errors),
+								)
+							}
+						}
+
+						await sendQuickActionButtons(botToken, cqChatId, execCmd, execResult)
+					} else {
+						await sendMessage(
+							botToken,
+							cqChatId,
+							"*Execution Error* ❌\n\n" + (execResult.error || "Unknown error"),
+						)
+					}
+				} catch (err) {
+					logTelegramError("callback:brain_exec", cqChatId, cqUserId, err, { command: execCmd })
+					await sendMessage(botToken, cqChatId, "*Error* ❌\n\n" + err.message)
+				}
+				await answerCallbackQuery(botToken, cq.id)
+				return
+			}
+
+			// brain_pipeline:<query> — Run full pipeline
+			if (cqData.startsWith("brain_pipeline:")) {
+				var pipeQuery = cqData.slice(15)
+				logTelegramUsage("callback:brain_pipeline", cqChatId, cqUserId, { query: pipeQuery.slice(0, 60) })
+				await sendChatAction(botToken, cqChatId, "typing")
+				try {
+					var pipeResult = await tgEndpoints.brainPipeline(pipeQuery, cqChatId)
+					if (pipeResult.ok) {
+						updateSmartContext(cqChatId, { lastCommand: pipeQuery, lastBrainResult: pipeResult })
+						var pipeLines = ["*🧠 Terminal Brain — Pipeline Result*"]
+						if (pipeResult.plan && pipeResult.plan.commands) {
+							pipeLines.push("\n*📋 Plan:*")
+							for (var ppi = 0; ppi < pipeResult.plan.commands.length; ppi++) {
+								var ppc =
+									typeof pipeResult.plan.commands[ppi] === "string"
+										? pipeResult.plan.commands[ppi]
+										: pipeResult.plan.commands[ppi].command || ""
+								pipeLines.push("  `" + (ppi + 1) + ".` `" + ppc + "`")
+							}
+						}
+						if (pipeResult.errors && pipeResult.errors.length > 0) {
+							updateSmartContext(cqChatId, { lastError: pipeResult.errors[0].message })
+							pipeLines.push("\n*🔍 Errors:* " + pipeResult.errors.length)
+						}
+						if (pipeResult.fixes && pipeResult.fixes.length > 0) {
+							pipeLines.push("\n*🔧 Fixes:* " + pipeResult.fixes.length)
+						}
+						if (!pipeResult.errors || pipeResult.errors.length === 0) {
+							pipeLines.push("\n✅ *All steps completed!*")
+						}
+						await sendMessage(botToken, cqChatId, pipeLines.join("\n"))
+						await sendQuickActionButtons(botToken, cqChatId, pipeQuery, pipeResult)
+					} else {
+						await sendMessage(
+							botToken,
+							cqChatId,
+							"*Pipeline Error* ❌\n\n" + (pipeResult.error || "Unknown error"),
+						)
+					}
+				} catch (err) {
+					logTelegramError("callback:brain_pipeline", cqChatId, cqUserId, err, { query: pipeQuery })
+					await sendMessage(botToken, cqChatId, "*Error* ❌\n\n" + err.message)
+				}
+				await answerCallbackQuery(botToken, cq.id)
+				return
+			}
+
+			// brain_explain:<command> — Explain a command
+			if (cqData.startsWith("brain_explain:")) {
+				var explainCmd = cqData.slice(14)
+				logTelegramUsage("callback:brain_explain", cqChatId, cqUserId, { command: explainCmd.slice(0, 60) })
+				await sendChatAction(botToken, cqChatId, "typing")
+				try {
+					var explainResult = await tgEndpoints.brainPlan("explain: " + explainCmd, cqChatId)
+					if (explainResult.ok) {
+						var explainText = "*❓ Command Explanation*\n\n`" + explainCmd + "`\n\n"
+						if (explainResult.plan && typeof explainResult.plan === "string") {
+							explainText += explainResult.plan
+						} else {
+							explainText +=
+								"This command will be executed through the Terminal Brain with safety checks and error analysis."
+						}
+						await sendMessage(botToken, cqChatId, explainText)
+					} else {
+						await sendMessage(
+							botToken,
+							cqChatId,
+							"*Explain Error* ❌\n\n" + (explainResult.error || "Unknown error"),
+						)
+					}
+				} catch (err) {
+					logTelegramError("callback:brain_explain", cqChatId, cqUserId, err, { command: explainCmd })
+					await sendMessage(botToken, cqChatId, "*Error* ❌\n\n" + err.message)
+				}
+				await answerCallbackQuery(botToken, cq.id)
+				return
+			}
+
+			// brain_fix:<command> — Auto-fix errors from last command
+			if (cqData.startsWith("brain_fix:")) {
+				var fixCmd = cqData.slice(9)
+				logTelegramUsage("callback:brain_fix", cqChatId, cqUserId, { command: fixCmd.slice(0, 60) })
+				await sendChatAction(botToken, cqChatId, "typing")
+				try {
+					// Re-run the command and analyze
+					var fixExecResult = await tgEndpoints.brainExecute(fixCmd, cqChatId)
+					if (fixExecResult.ok && fixExecResult.feedback) {
+						var fixOutput = fixExecResult.feedback.output || ""
+						var fixResult = await tgEndpoints.brainFix(fixOutput, cqChatId)
+						if (fixResult.ok && fixResult.fixes && fixResult.fixes.length > 0) {
+							updateSmartContext(cqChatId, { lastFixApplied: fixResult.fixes[0] })
+							var fixLines = ["*🔧 Auto-Fix Results*"]
+							for (var fxi = 0; fxi < fixResult.fixes.length; fxi++) {
+								fixLines.push("• " + fixResult.fixes[fxi])
+							}
+							await sendMessage(botToken, cqChatId, fixLines.join("\n"))
+						} else {
+							await sendMessage(
+								botToken,
+								cqChatId,
+								"*No fixes found* — the command may have run successfully or the error is not yet recognized.",
+							)
+						}
+					} else {
+						await sendMessage(
+							botToken,
+							cqChatId,
+							"*Fix Error* ❌\n\n" + (fixExecResult.error || "Could not re-run command"),
+						)
+					}
+				} catch (err) {
+					logTelegramError("callback:brain_fix", cqChatId, cqUserId, err, { command: fixCmd })
+					await sendMessage(botToken, cqChatId, "*Error* ❌\n\n" + err.message)
+				}
+				await answerCallbackQuery(botToken, cq.id)
+				return
+			}
+
+			// brain_errors:<command> — Show errors from last command
+			if (cqData.startsWith("brain_errors:")) {
+				var errCmd = cqData.slice(13)
+				logTelegramUsage("callback:brain_errors", cqChatId, cqUserId, { command: errCmd.slice(0, 60) })
+				await sendChatAction(botToken, cqChatId, "typing")
+				try {
+					var errResult = await tgEndpoints.brainAnalyze(errCmd, cqChatId)
+					if (errResult.ok) {
+						await sendMessage(botToken, cqChatId, telegramEngineer.formatBrainErrors(errResult.errors))
+					} else {
+						await sendMessage(
+							botToken,
+							cqChatId,
+							"*Error Analysis Failed* ❌\n\n" + (errResult.error || "Unknown error"),
+						)
+					}
+				} catch (err) {
+					logTelegramError("callback:brain_errors", cqChatId, cqUserId, err, { command: errCmd })
+					await sendMessage(botToken, cqChatId, "*Error* ❌\n\n" + err.message)
+				}
+				await answerCallbackQuery(botToken, cq.id)
+				return
+			}
+
+			// brain_deploy:<command> — Deploy after successful execution
+			if (cqData.startsWith("brain_deploy:")) {
+				logTelegramUsage("callback:brain_deploy", cqChatId, cqUserId)
+				await sendMessage(
+					botToken,
+					cqChatId,
+					"*Deploy Requested* 🚀\n\nUse `/deploy` to start the deployment process.\n\nYou'll need to verify with your OTP code for production deployments.",
+				)
+				await answerCallbackQuery(botToken, cq.id)
+				return
+			}
+
+			// brain_status — Show system status
+			if (cqData === "brain_status") {
+				logTelegramUsage("callback:brain_status", cqChatId, cqUserId)
+				await sendChatAction(botToken, cqChatId, "typing")
+				try {
+					var statusResult = await tgEndpoints.readLogs("all", 5)
+					var ctx = getSmartContext(cqChatId)
+					var statusLines = ["*📊 System Status*"]
+					statusLines.push("• Messages in session: " + ctx.messageCount)
+					if (ctx.lastCommand) statusLines.push("• Last command: `" + ctx.lastCommand.slice(0, 50) + "`")
+					if (ctx.lastError) statusLines.push("• Last error: " + ctx.lastError.slice(0, 100))
+					if (ctx.lastFixApplied) statusLines.push("• Last fix: " + ctx.lastFixApplied.slice(0, 100))
+					statusLines.push(
+						"\n*Terminal Brain:* " + (_terminalBrainAvailable ? "✅ Available" : "❌ Not available"),
+					)
+					await sendMessage(botToken, cqChatId, statusLines.join("\n"))
+				} catch (err) {
+					await sendMessage(botToken, cqChatId, "*Status Error* ❌\n\n" + err.message)
+				}
+				await answerCallbackQuery(botToken, cq.id)
+				return
+			}
+
+			// brain_memory — Show Terminal Brain memory
+			if (cqData === "brain_memory") {
+				logTelegramUsage("callback:brain_memory", cqChatId, cqUserId)
+				await sendChatAction(botToken, cqChatId, "typing")
+				try {
+					var memResult = await tgEndpoints.brainMemory(cqChatId)
+					if (memResult.ok) {
+						await sendMessage(botToken, cqChatId, telegramEngineer.formatBrainMemory(memResult.stats))
+					} else {
+						await sendMessage(
+							botToken,
+							cqChatId,
+							"*Memory Error* ❌\n\n" + (memResult.error || "Unknown error"),
+						)
+					}
+				} catch (err) {
+					await sendMessage(botToken, cqChatId, "*Error* ❌\n\n" + err.message)
+				}
+				await answerCallbackQuery(botToken, cq.id)
+				return
+			}
+
+			// brain_cancel — Cancel current action
+			if (cqData === "brain_cancel") {
+				logTelegramUsage("callback:brain_cancel", cqChatId, cqUserId)
+				await sendMessage(botToken, cqChatId, "*Cancelled* ❌\n\nAction has been cancelled.")
+				await answerCallbackQuery(botToken, cq.id)
+				return
+			}
+
 			// Unhandled callback data — log warning for Ace Team monitoring
 			logTelegramWarning("callback:unknown", cqChatId, cqUserId, "Unhandled callback data", { data: cqData })
 		} catch (err) {
-			logTelegramError("callback:" + (cqData.split(":")[0] || "unknown"), cqChatId, cqUserId, err, { data: cqData })
+			logTelegramError("callback:" + (cqData.split(":")[0] || "unknown"), cqChatId, cqUserId, err, {
+				data: cqData,
+			})
 			console.error("[telegram] Callback query error:", err.message)
 		}
 		return
@@ -3962,7 +5087,11 @@ async function handleUpdate(update, botToken, queue, providers) {
 				if (_terminalBrainAvailable) {
 					try {
 						var brainAnalyzeResult = await tgEndpoints.brainAnalyze(debugText, chatId)
-						if (brainAnalyzeResult.ok && brainAnalyzeResult.errors && brainAnalyzeResult.errors.length > 0) {
+						if (
+							brainAnalyzeResult.ok &&
+							brainAnalyzeResult.errors &&
+							brainAnalyzeResult.errors.length > 0
+						) {
 							debugReply += "\n\n" + telegramEngineer.formatBrainErrors(brainAnalyzeResult.errors)
 						}
 					} catch (brainErr) {
@@ -4101,7 +5230,11 @@ async function handleUpdate(update, botToken, queue, providers) {
 		logTelegramError(command || "unknown", chatId, telegramUserId, err, { text: text.slice(0, 100) })
 		console.error("[telegram] Unhandled error in command routing:", err.message)
 		try {
-			await sendMessage(botToken, chatId, "*Error* ❌\n\nAn unexpected error occurred. The Ace Team has been notified.\n\nError: " + err.message)
+			await sendMessage(
+				botToken,
+				chatId,
+				"*Error* ❌\n\nAn unexpected error occurred. The Ace Team has been notified.\n\nError: " + err.message,
+			)
 		} catch (sendErr) {
 			console.error("[telegram] Failed to send error message:", sendErr.message)
 		}

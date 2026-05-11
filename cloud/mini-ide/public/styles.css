@@ -1631,6 +1631,221 @@ textarea#ai-prompt::placeholder {
 	margin-left: 8px;
 }
 
+/* ── Recording Indicator ────────────────────────────────────────────────────────── */
+
+.terminal-recording-indicator {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 12px;
+	background: var(--red-bg);
+	border-bottom: 1px solid var(--border);
+	font-size: 11px;
+	color: var(--red);
+	font-weight: 600;
+}
+
+.terminal-recording-indicator .rec-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--red);
+	animation: rec-pulse 1s ease-in-out infinite;
+}
+
+@keyframes rec-pulse {
+	0%,
+	100% {
+		opacity: 1;
+		transform: scale(1);
+	}
+	50% {
+		opacity: 0.5;
+		transform: scale(0.8);
+	}
+}
+
+/* ── Block-Based Terminal Output ────────────────────────────────────────────────── */
+
+.terminal-output .term-block {
+	display: flex;
+	align-items: flex-start;
+	gap: 6px;
+	padding: 2px 0;
+	transition: background 0.1s;
+	border-radius: 3px;
+}
+
+.terminal-output .term-block:hover {
+	background: rgba(255, 255, 255, 0.03);
+}
+
+.terminal-output .term-block-icon {
+	flex-shrink: 0;
+	width: 16px;
+	text-align: center;
+	font-size: 11px;
+	opacity: 0.7;
+	margin-top: 1px;
+}
+
+.terminal-output .term-block-content {
+	flex: 1;
+	min-width: 0;
+	white-space: pre-wrap;
+	word-break: break-all;
+}
+
+.terminal-output .term-block-command {
+	color: #22c55e;
+	font-weight: 600;
+}
+
+.terminal-output .term-block-error {
+	color: var(--red);
+}
+
+.terminal-output .term-block-success {
+	color: var(--green);
+}
+
+.terminal-output .term-block-agent {
+	color: #a78bfa;
+}
+
+.terminal-output .term-block-info {
+	color: var(--accent);
+}
+
+.terminal-output .term-block-divider {
+	color: var(--text-muted);
+	opacity: 0.4;
+	font-size: 10px;
+	text-align: center;
+	padding: 1px 0;
+}
+
+.terminal-output .term-block-collapsed {
+	opacity: 0.5;
+	font-size: 11px;
+	cursor: pointer;
+	color: var(--text-muted);
+	font-style: italic;
+}
+
+.terminal-output .term-block-collapsed:hover {
+	opacity: 1;
+	color: var(--text-secondary);
+}
+
+.terminal-output .term-block-toggle {
+	cursor: pointer;
+	opacity: 0.4;
+	flex-shrink: 0;
+	font-size: 10px;
+	width: 14px;
+	text-align: center;
+	user-select: none;
+}
+
+.terminal-output .term-block-toggle:hover {
+	opacity: 1;
+}
+
+.terminal-output .term-block-timestamp {
+	font-size: 9px;
+	color: var(--text-muted);
+	opacity: 0;
+	transition: opacity 0.15s;
+	margin-left: 4px;
+}
+
+.terminal-block:hover .term-block-timestamp {
+	opacity: 0.6;
+}
+
+/* ── Recordings Dropdown ─────────────────────────────────────────────────────────── */
+
+.terminal-recordings-dropdown {
+	max-height: 180px;
+	overflow-y: auto;
+	padding: 6px 12px;
+	background: var(--bg-input);
+	border-bottom: 1px solid var(--border);
+}
+
+.terminal-recordings-dropdown .recording-item {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 4px 8px;
+	font-size: 11px;
+	color: var(--text-secondary);
+	cursor: pointer;
+	border-radius: 4px;
+	transition: background 0.1s;
+}
+
+.terminal-recordings-dropdown .recording-item:hover {
+	background: var(--accent-glow);
+	color: var(--accent);
+}
+
+.terminal-recordings-dropdown .recording-item .rec-name {
+	font-weight: 600;
+}
+
+.terminal-recordings-dropdown .recording-item .rec-meta {
+	font-size: 10px;
+	color: var(--text-muted);
+}
+
+/* ── Enhanced Smart Suggestions ──────────────────────────────────────────────────── */
+
+.terminal-suggestions .suggestion-item {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 6px 12px;
+	font-size: 12px;
+	font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+	color: var(--text-secondary);
+	cursor: pointer;
+	transition: all 0.1s;
+}
+
+.terminal-suggestions .suggestion-item:hover,
+.terminal-suggestions .suggestion-item.active {
+	background: var(--accent-glow);
+	color: var(--accent);
+}
+
+.terminal-suggestions .suggestion-item .suggestion-left {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.terminal-suggestions .suggestion-item .suggestion-type-icon {
+	font-size: 10px;
+	opacity: 0.6;
+	width: 14px;
+	text-align: center;
+}
+
+.terminal-suggestions .suggestion-item .suggestion-desc {
+	font-size: 10px;
+	color: var(--text-muted);
+	font-family: inherit;
+	margin-left: 8px;
+}
+
+.terminal-suggestions .suggestion-item .suggestion-score {
+	font-size: 9px;
+	color: var(--text-muted);
+	opacity: 0.5;
+}
+
 /* ── Pipeline Bar ──────────────────────────────────────────────────────────────── */
 
 .pipeline-bar {

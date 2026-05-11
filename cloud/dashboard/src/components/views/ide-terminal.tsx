@@ -46,6 +46,13 @@ import {
 	BarChart3,
 	Shield,
 	Check,
+	History,
+	PlayCircle,
+	StopCircle,
+	Timer,
+	Bookmark,
+	Lightbulb,
+	TerminalSquare,
 } from "lucide-react"
 
 // ─── Types ────────────────────────────────────────────────────────────────
@@ -88,6 +95,36 @@ interface TerminalSession {
 	name: string
 	cwd: string
 	output: string[]
+}
+
+// ── Block-Based Output Types ──────────────────────────────────────────────
+interface OutputBlock {
+	id: string
+	type: "command" | "output" | "error" | "success" | "info" | "agent" | "divider"
+	timestamp: string
+	content: string
+	command?: string
+	exitCode?: number
+	duration?: string
+	collapsed?: boolean
+}
+
+// ── Smart Autocomplete Types ──────────────────────────────────────────────
+interface AutocompleteSuggestion {
+	text: string
+	description: string
+	type: "command" | "agent" | "file" | "recent" | "ai"
+	score: number
+}
+
+// ── Terminal Recording Types ──────────────────────────────────────────────
+interface TerminalRecording {
+	id: string
+	name: string
+	startedAt: string
+	duration: string
+	blocks: OutputBlock[]
+	commandCount: number
 }
 
 interface WorkspaceStatus {
@@ -314,6 +351,251 @@ function KeyboardShortcutsModal({ onClose }: { onClose: () => void }) {
 
 // ─── Main component ───────────────────────────────────────────────────────
 
+// ── Block-Based Output Helpers ────────────────────────────────────────────
+
+/**
+ * Parses a flat terminal output line into a structured block.
+ * Detects command prefixes ($, 🤖, ✨), error patterns, and success patterns.
+ */
+function parseOutputLine(line: string, index: number): OutputBlock {
+	const id = `block-${index}-${Date.now()}`
+	const now = new Date().toLocaleTimeString()
+
+	// Agent/Skill blocks
+	if (line.startsWith("🤖") || line.startsWith("✨")) {
+		return {
+			id,
+			type: "agent",
+			timestamp: now,
+			content: line,
+			command: line.replace(/^[🤖✨]\s*/, ""),
+		}
+	}
+
+	// Command blocks (start with $)
+	if (line.startsWith("$ ")) {
+		return {
+			id,
+			type: "command",
+			timestamp: now,
+			content: line.slice(2),
+			command: line.slice(2),
+		}
+	}
+
+	// Error blocks
+	if (line.toLowerCase().includes("error") || line.toLowerCase().includes("failed") || line.startsWith("Error:")) {
+		return {
+			id,
+			type: "error",
+			timestamp: now,
+			content: line,
+		}
+	}
+
+	// Success blocks
+	if (line.toLowerCase().includes("success") || line.toLowerCase().includes("completed") || line.startsWith("✅")) {
+		return {
+			id,
+			type: "success",
+			timestamp: now,
+			content: line,
+		}
+	}
+
+	// Divider blocks
+	if (line.startsWith("┌") || line.startsWith("└") || line.startsWith("╔") || line.startsWith("╚")) {
+		return {
+			id,
+			type: "divider",
+			timestamp: now,
+			content: line,
+		}
+	}
+
+	// Default: output block
+	return {
+		id,
+		type: "output",
+		timestamp: now,
+		content: line,
+	}
+}
+
+/**
+ * Converts flat string array to structured blocks, merging consecutive
+ * output lines after a command into a single block.
+ */
+function convertToBlocks(lines: string[]): OutputBlock[] {
+	const blocks: OutputBlock[] = []
+	let currentOutput: string[] = []
+	let currentCommand: string | undefined
+
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i]
+		const block = parseOutputLine(line, i)
+
+		if (block.type === "command" || block.type === "agent") {
+			// Flush previous output block
+			if (currentOutput.length > 0) {
+				blocks.push({
+					id: `block-output-${i}-${Date.now()}`,
+					type: "output",
+					timestamp: new Date().toLocaleTimeString(),
+					content: currentOutput.join("\n"),
+					command: currentCommand,
+				})
+				currentOutput = []
+			}
+			blocks.push(block)
+			currentCommand = block.command
+		} else if (block.type === "divider") {
+			// Flush output before divider
+			if (currentOutput.length > 0) {
+				blocks.push({
+					id: `block-output-${i}-${Date.now()}`,
+					type: "output",
+					timestamp: new Date().toLocaleTimeString(),
+					content: currentOutput.join("\n"),
+					command: currentCommand,
+				})
+				currentOutput = []
+			}
+			blocks.push(block)
+		} else {
+			currentOutput.push(line)
+		}
+	}
+
+	// Flush remaining output
+	if (currentOutput.length > 0) {
+		blocks.push({
+			id: `block-output-final-${Date.now()}`,
+			type: "output",
+			timestamp: new Date().toLocaleTimeString(),
+			content: currentOutput.join("\n"),
+			command: currentCommand,
+		})
+	}
+
+	return blocks
+}
+
+// ── Smart Autocomplete ────────────────────────────────────────────────────
+
+const COMMON_COMMANDS = [
+	{ text: "npm run dev", description: "Start dev server", type: "command" as const },
+	{ text: "npm run build", description: "Build project", type: "command" as const },
+	{ text: "npm test", description: "Run tests", type: "command" as const },
+	{ text: "git status", description: "Check git status", type: "command" as const },
+	{ text: "git pull", description: "Pull latest changes", type: "command" as const },
+	{ text: "git push", description: "Push changes", type: "command" as const },
+	{ text: "git add .", description: "Stage all changes", type: "command" as const },
+	{ text: "git commit -m", description: "Commit changes", type: "command" as const },
+	{ text: "cd ..", description: "Go up one directory", type: "command" as const },
+	{ text: "ls -la", description: "List all files", type: "command" as const },
+	{ text: "pwd", description: "Print working directory", type: "command" as const },
+	{ text: "clear", description: "Clear terminal", type: "command" as const },
+	{ text: "docker ps", description: "List Docker containers", type: "command" as const },
+	{ text: "pm2 status", description: "Check PM2 status", type: "command" as const },
+	{ text: "pm2 logs", description: "View PM2 logs", type: "command" as const },
+	{ text: "npx vitest run", description: "Run vitest tests", type: "command" as const },
+	{ text: "node -v", description: "Check Node version", type: "command" as const },
+	{ text: "npm install", description: "Install dependencies", type: "command" as const },
+]
+
+/**
+ * Gets smart autocomplete suggestions based on input and recent commands.
+ */
+function getSmartSuggestions(
+	input: string,
+	recentCommands: string[],
+	agentCommands: Record<string, { agent: string; description: string; icon: string }>,
+): AutocompleteSuggestion[] {
+	if (!input.trim()) return []
+
+	const lower = input.toLowerCase()
+	const suggestions: AutocompleteSuggestion[] = []
+
+	// Agent commands (start with / or @)
+	if (lower.startsWith("/")) {
+		for (const [cmd, info] of Object.entries(agentCommands)) {
+			if (cmd.startsWith(lower)) {
+				suggestions.push({
+					text: cmd,
+					description: info.description,
+					type: "agent",
+					score: cmd === lower ? 100 : 90 - (cmd.length - lower.length),
+				})
+			}
+		}
+	}
+
+	if (lower.startsWith("@")) {
+		const mention = lower.slice(1)
+		for (const [cmd, info] of Object.entries(agentCommands)) {
+			if (info.agent.includes(mention)) {
+				suggestions.push({
+					text: `@${info.agent}`,
+					description: info.description,
+					type: "agent",
+					score: 80,
+				})
+			}
+		}
+	}
+
+	// Common commands
+	if (!lower.startsWith("/") && !lower.startsWith("@")) {
+		for (const cmd of COMMON_COMMANDS) {
+			if (cmd.text.toLowerCase().includes(lower)) {
+				suggestions.push({
+					...cmd,
+					score: cmd.text.startsWith(lower) ? 70 : 50,
+				})
+			}
+		}
+
+		// Recent commands (from terminal history)
+		for (const recent of recentCommands) {
+			if (recent.toLowerCase().includes(lower) && !suggestions.some((s) => s.text === recent)) {
+				suggestions.push({
+					text: recent,
+					description: "Recent command",
+					type: "recent",
+					score: 60,
+				})
+			}
+		}
+	}
+
+	// Sort by score descending, limit to 8
+	return suggestions.sort((a, b) => b.score - a.score).slice(0, 8)
+}
+
+// ── Terminal Recording ────────────────────────────────────────────────────
+
+/**
+ * Creates a recording from terminal blocks.
+ */
+function createRecording(blocks: OutputBlock[], name: string): TerminalRecording {
+	const commandBlocks = blocks.filter((b) => b.type === "command" || b.type === "agent")
+	const startedAt = blocks.length > 0 ? blocks[0].timestamp : new Date().toLocaleTimeString()
+	const lastBlock = blocks.length > 0 ? blocks[blocks.length - 1] : null
+	const duration = lastBlock
+		? `${Math.round((new Date(`1970-01-01T${lastBlock.timestamp}`).getTime() - new Date(`1970-01-01T${startedAt}`).getTime()) / 1000)}s`
+		: "0s"
+
+	return {
+		id: `rec-${Date.now()}`,
+		name,
+		startedAt,
+		duration,
+		blocks: [...blocks],
+		commandCount: commandBlocks.length,
+	}
+}
+
 export default function IdeTerminalView() {
 	const [input, setInput] = useState("")
 	const [terminalInput, setTerminalInput] = useState("")
@@ -384,6 +666,19 @@ export default function IdeTerminalView() {
 	const dragCounter = useRef(0)
 	// ── Copy feedback ────────────────────────────────────────────────────
 	const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
+	// ── Block-Based Output state ─────────────────────────────────────────
+	const [outputBlocks, setOutputBlocks] = useState<OutputBlock[]>(() => convertToBlocks(terminalOutput))
+	const [collapsedBlocks, setCollapsedBlocks] = useState<Set<string>>(new Set())
+	// ── Smart Autocomplete state ─────────────────────────────────────────
+	const [smartSuggestions, setSmartSuggestions] = useState<AutocompleteSuggestion[]>([])
+	const [showSmartSuggestions, setShowSmartSuggestions] = useState(false)
+	const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1)
+	const [recentCommands, setRecentCommands] = useState<string[]>([])
+	// ── Terminal Recording state ─────────────────────────────────────────
+	const [recordings, setRecordings] = useState<TerminalRecording[]>([])
+	const [isRecording, setIsRecording] = useState(false)
+	const [showRecordings, setShowRecordings] = useState(false)
+	const [recordingBlocks, setRecordingBlocks] = useState<OutputBlock[]>([])
 
 	const fileInputRef = useRef<HTMLInputElement>(null)
 	const imageInputRef = useRef<HTMLInputElement>(null)
@@ -803,7 +1098,32 @@ export default function IdeTerminalView() {
 		)
 	}, [])
 
-	// ── Terminal command execution (agent-aware) ──────────────────────────
+	// ── Helper: add output lines as blocks ────────────────────────────────
+	const addOutputBlocks = useCallback(
+		(newLines: string[], command?: string) => {
+			const newBlocks: OutputBlock[] = []
+			const now = new Date().toLocaleTimeString()
+
+			for (let i = 0; i < newLines.length; i++) {
+				const line = newLines[i]
+				const block = parseOutputLine(line, Date.now() + i)
+				newBlocks.push(block)
+			}
+
+			setTerminalOutput((prev) => [...prev, ...newLines])
+			setOutputBlocks((prev) => {
+				const updated = [...prev, ...newBlocks]
+				// If recording, capture blocks
+				if (isRecording) {
+					setRecordingBlocks((r) => [...r, ...newBlocks])
+				}
+				return updated
+			})
+		},
+		[isRecording],
+	)
+
+	// ── Terminal command execution (agent-aware) with Block-Based Output ──
 	const handleTerminalCommand = useCallback(async () => {
 		const cmd = terminalInput.trim()
 		if (!cmd) return
@@ -813,9 +1133,20 @@ export default function IdeTerminalView() {
 		const isMention = isAgentMention(cmd)
 
 		const modePrefix = isAgent ? "🤖" : isSkill ? "✨" : "$"
-		setTerminalOutput((prev) => [...prev, `${modePrefix} ${cmd}`])
+		const cmdLine = `${modePrefix} ${cmd}`
+
+		// Add command block
+		addOutputBlocks([cmdLine], cmd)
+
+		// Track recent commands for autocomplete
+		setRecentCommands((prev) => {
+			const updated = [cmd, ...prev.filter((c) => c !== cmd)].slice(0, 20)
+			return updated
+		})
+
 		setTerminalInput("")
 		setShowAgentSuggestions(false)
+		setShowSmartSuggestions(false)
 
 		if (isAgent || isSkill) {
 			setTerminalMode(isSkill ? "skill" : "agent")
@@ -839,61 +1170,137 @@ export default function IdeTerminalView() {
 			if (result.output?.length) {
 				if (isAgent || isSkill) {
 					const agentLabel = result.agent || "agent"
-					setTerminalOutput((prev) => [
-						...prev,
-						`┌─ [${result.skill ? "✨ Skill" : "🤖 Agent"}: ${agentLabel}] ─────────────────────`,
-						...result.output!,
-						`└──────────────────────────────────────────────────`,
-					])
+					const header = `┌─ [${result.skill ? "✨ Skill" : "🤖 Agent"}: ${agentLabel}] ─────────────────────`
+					const footer = `└──────────────────────────────────────────────────`
+					addOutputBlocks([header, ...result.output, footer], cmd)
 				} else {
-					setTerminalOutput((prev) => [...prev, ...result.output!])
+					addOutputBlocks(result.output, cmd)
 				}
 			} else if (result.message) {
-				setTerminalOutput((prev) => [...prev, result.message!])
+				addOutputBlocks([result.message], cmd)
 			} else {
-				setTerminalOutput((prev) => [...prev, `Command executed: ${cmd}`])
+				addOutputBlocks([`Command executed: ${cmd}`], cmd)
 			}
 		} catch (err) {
-			setTerminalOutput((prev) => [...prev, `Error: ${err instanceof Error ? err.message : "Command failed"}`])
+			const errMsg = `Error: ${err instanceof Error ? err.message : "Command failed"}`
+			addOutputBlocks([errMsg], cmd)
 		} finally {
 			setAgentRunning(false)
 			setActiveAgent(null)
 			setTerminalMode("shell")
 		}
-	}, [terminalInput])
+	}, [terminalInput, addOutputBlocks])
 
+	// ── Smart Autocomplete + Block-Aware Terminal Key Handler ────────────
 	const handleTerminalKeyDown = useCallback(
 		(e: React.KeyboardEvent) => {
 			if (e.key === "Enter") {
 				e.preventDefault()
+				// If a smart suggestion is selected, use it
+				if (selectedSuggestionIndex >= 0 && smartSuggestions[selectedSuggestionIndex]) {
+					setTerminalInput(smartSuggestions[selectedSuggestionIndex].text + " ")
+					setShowSmartSuggestions(false)
+					setSelectedSuggestionIndex(-1)
+					return
+				}
 				handleTerminalCommand()
 			}
 			if (e.key === "Tab") {
 				e.preventDefault()
-				const suggestions = getAgentSuggestions(terminalInput)
-				if (suggestions.length === 1) {
-					setTerminalInput(suggestions[0] + " ")
-					setShowAgentSuggestions(false)
+				// Try smart suggestions first, fall back to agent suggestions
+				if (smartSuggestions.length > 0) {
+					const nextIdx =
+						selectedSuggestionIndex < 0 ? 0 : (selectedSuggestionIndex + 1) % smartSuggestions.length
+					setSelectedSuggestionIndex(nextIdx)
+					setTerminalInput(smartSuggestions[nextIdx].text + " ")
+				} else {
+					const suggestions = getAgentSuggestions(terminalInput)
+					if (suggestions.length === 1) {
+						setTerminalInput(suggestions[0] + " ")
+						setShowAgentSuggestions(false)
+					}
+				}
+			}
+			if (e.key === "ArrowDown") {
+				e.preventDefault()
+				if (smartSuggestions.length > 0) {
+					setSelectedSuggestionIndex((prev) => (prev < smartSuggestions.length - 1 ? prev + 1 : 0))
+				}
+			}
+			if (e.key === "ArrowUp") {
+				e.preventDefault()
+				if (smartSuggestions.length > 0) {
+					setSelectedSuggestionIndex((prev) => (prev > 0 ? prev - 1 : smartSuggestions.length - 1))
 				}
 			}
 			if (e.key === "Escape") {
 				setShowAgentSuggestions(false)
+				setShowSmartSuggestions(false)
+				setSelectedSuggestionIndex(-1)
 			}
 		},
-		[handleTerminalCommand, terminalInput],
+		[handleTerminalCommand, terminalInput, smartSuggestions, selectedSuggestionIndex],
 	)
 
-	const handleTerminalInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-		const value = e.target.value
-		setTerminalInput(value)
+	// ── Smart Autocomplete Input Change Handler ──────────────────────────
+	const handleTerminalInputChange = useCallback(
+		(e: React.ChangeEvent<HTMLInputElement>) => {
+			const value = e.target.value
+			setTerminalInput(value)
+			setSelectedSuggestionIndex(-1)
 
-		if (value.startsWith("/") || value.startsWith("@")) {
-			const suggestions = getAgentSuggestions(value)
-			setAgentSuggestions(suggestions)
-			setShowAgentSuggestions(suggestions.length > 0)
-		} else {
-			setShowAgentSuggestions(false)
+			// Agent suggestions for / and @ prefixes
+			if (value.startsWith("/") || value.startsWith("@")) {
+				const suggestions = getAgentSuggestions(value)
+				setAgentSuggestions(suggestions)
+				setShowAgentSuggestions(suggestions.length > 0)
+				setShowSmartSuggestions(false)
+			} else if (value.trim().length > 0) {
+				// Smart autocomplete for regular commands
+				setShowAgentSuggestions(false)
+				const suggestions = getSmartSuggestions(value, recentCommands, agentCommands)
+				setSmartSuggestions(suggestions)
+				setShowSmartSuggestions(suggestions.length > 0)
+			} else {
+				setShowAgentSuggestions(false)
+				setShowSmartSuggestions(false)
+			}
+		},
+		[recentCommands, agentCommands],
+	)
+
+	// ── Toggle block collapse ────────────────────────────────────────────
+	const toggleBlockCollapse = useCallback((blockId: string) => {
+		setCollapsedBlocks((prev) => {
+			const next = new Set(prev)
+			if (next.has(blockId)) {
+				next.delete(blockId)
+			} else {
+				next.add(blockId)
+			}
+			return next
+		})
+	}, [])
+
+	// ── Recording controls ───────────────────────────────────────────────
+	const handleStartRecording = useCallback(() => {
+		setIsRecording(true)
+		setRecordingBlocks([])
+	}, [])
+
+	const handleStopRecording = useCallback(() => {
+		setIsRecording(false)
+		if (recordingBlocks.length > 0) {
+			const rec = createRecording(recordingBlocks, `Session ${recordings.length + 1}`)
+			setRecordings((prev) => [rec, ...prev])
 		}
+		setRecordingBlocks([])
+	}, [recordingBlocks, recordings.length])
+
+	const handleReplayRecording = useCallback((recording: TerminalRecording) => {
+		// Replace current output with recording blocks
+		setOutputBlocks(recording.blocks)
+		setTerminalOutput(recording.blocks.map((b) => b.content))
 	}, [])
 
 	// ── Clear terminal ────────────────────────────────────────────────────
@@ -1226,7 +1633,7 @@ export default function IdeTerminalView() {
 						</div>
 					)}
 
-					{/* Terminal */}
+					{/* Terminal with Block-Based Output */}
 					<div
 						className="border-t border-[#1e2535] bg-[#0a0e1a] flex flex-col shrink-0"
 						style={{ height: "180px" }}>
@@ -1241,8 +1648,36 @@ export default function IdeTerminalView() {
 										<Loader2 size={10} className="animate-spin" /> Running {activeAgent}...
 									</span>
 								)}
+								{/* Recording indicator */}
+								{isRecording && (
+									<span className="flex items-center gap-1 text-[10px] text-red-400">
+										<span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+										REC
+									</span>
+								)}
 							</div>
 							<div className="flex items-center gap-1">
+								{/* Recording controls */}
+								<button
+									onClick={isRecording ? handleStopRecording : handleStartRecording}
+									className={`p-1 rounded hover:bg-[#1e2535] transition-colors ${
+										isRecording ? "text-red-400" : "text-gray-500 hover:text-gray-300"
+									}`}
+									title={isRecording ? "Stop recording" : "Start recording"}>
+									{isRecording ? <StopCircle size={11} /> : <History size={11} />}
+								</button>
+								{/* Recordings list */}
+								{recordings.length > 0 && (
+									<>
+										<button
+											onClick={() => setShowRecordings(!showRecordings)}
+											className="p-1 text-gray-500 hover:text-gray-300 rounded hover:bg-[#1e2535] transition-colors"
+											title="View recordings">
+											<PlayCircle size={11} />
+										</button>
+										<span className="text-[9px] text-gray-600">{recordings.length}</span>
+									</>
+								)}
 								<button
 									onClick={handleCopyTerminal}
 									className="p-1 text-gray-500 hover:text-gray-300 rounded hover:bg-[#1e2535] transition-colors"
@@ -1261,11 +1696,102 @@ export default function IdeTerminalView() {
 								</button>
 							</div>
 						</div>
-						<pre
-							ref={terminalRef}
-							className="flex-1 p-2 font-mono text-xs leading-relaxed text-green-400/90 overflow-auto whitespace-pre-wrap break-all">
-							{terminalOutput.join("\n")}
-						</pre>
+
+						{/* Block-Based Output */}
+						<div ref={terminalRef} className="flex-1 overflow-auto p-1 font-mono text-xs">
+							{outputBlocks.length === 0 ? (
+								<div className="p-2 text-gray-600 italic">No output yet. Type a command to start.</div>
+							) : (
+								outputBlocks.map((block) => {
+									const isCollapsed = collapsedBlocks.has(block.id)
+									const blockColors: Record<string, string> = {
+										command: "text-green-400 bg-green-900/10",
+										output: "text-gray-300",
+										error: "text-red-400 bg-red-900/10",
+										success: "text-green-300 bg-green-900/20",
+										info: "text-blue-300",
+										agent: "text-violet-400 bg-violet-900/10",
+										divider: "text-gray-600",
+									}
+									const blockColor = blockColors[block.type] || "text-gray-300"
+
+									return (
+										<div
+											key={block.id}
+											className={`group flex items-start gap-1 px-1 py-0.5 rounded hover:bg-[#1e2535]/50 transition-colors ${blockColor}`}>
+											{/* Collapse toggle for command/output blocks */}
+											{(block.type === "command" || block.type === "output") && (
+												<button
+													onClick={() => toggleBlockCollapse(block.id)}
+													className="opacity-0 group-hover:opacity-100 shrink-0 mt-0.5 text-gray-600 hover:text-gray-400 transition-all"
+													title={isCollapsed ? "Expand" : "Collapse"}>
+													{isCollapsed ? (
+														<ChevronRight size={10} />
+													) : (
+														<ChevronRight size={10} className="rotate-90" />
+													)}
+												</button>
+											)}
+											{/* Block type icon */}
+											{block.type === "command" && (
+												<span className="shrink-0 text-green-500">$</span>
+											)}
+											{block.type === "error" && <span className="shrink-0 text-red-500">✕</span>}
+											{block.type === "success" && (
+												<span className="shrink-0 text-green-400">✓</span>
+											)}
+											{block.type === "agent" && (
+												<span className="shrink-0 text-violet-400">◆</span>
+											)}
+											{block.type === "info" && (
+												<span className="shrink-0 text-blue-400">ℹ</span>
+											)}
+											{/* Block content */}
+											<span
+												className={`flex-1 whitespace-pre-wrap break-all leading-relaxed ${
+													isCollapsed ? "truncate opacity-50" : ""
+												}`}>
+												{isCollapsed && block.command
+													? block.command.slice(0, 60) + "..."
+													: block.content}
+											</span>
+											{/* Timestamp on hover */}
+											<span className="opacity-0 group-hover:opacity-40 text-[8px] text-gray-600 shrink-0 mt-0.5 transition-opacity">
+												{block.timestamp}
+											</span>
+										</div>
+									)
+								})
+							)}
+						</div>
+
+						{/* Recordings dropdown */}
+						{showRecordings && recordings.length > 0 && (
+							<div className="absolute bottom-full left-0 right-0 mb-8 mx-2 bg-[#0f1117] border border-[#1e2535] rounded shadow-lg z-20 max-h-40 overflow-y-auto">
+								<div className="px-2 py-1 text-[10px] font-semibold text-gray-500 uppercase tracking-wider border-b border-[#1e2535]">
+									Terminal Recordings
+								</div>
+								{recordings.map((rec) => (
+									<button
+										key={rec.id}
+										onClick={() => {
+											handleReplayRecording(rec)
+											setShowRecordings(false)
+										}}
+										className="flex items-center gap-2 w-full px-3 py-1.5 text-[11px] text-left hover:bg-[#1e2535] transition-colors">
+										<PlayCircle size={12} className="text-green-400 shrink-0" />
+										<div className="flex-1 min-w-0">
+											<div className="text-gray-300 truncate">{rec.name}</div>
+											<div className="text-[9px] text-gray-600">
+												{rec.commandCount} commands · {rec.duration}
+											</div>
+										</div>
+									</button>
+								))}
+							</div>
+						)}
+
+						{/* Terminal input with Smart Autocomplete */}
 						<div className="flex items-center gap-1 px-2 py-1 border-t border-[#1e2535] bg-[#0f1117] shrink-0 relative">
 							{agentRunning && <Loader2 size={10} className="text-violet-400 animate-spin shrink-0" />}
 							<span className="text-[10px] text-green-400 shrink-0">
@@ -1283,6 +1809,7 @@ export default function IdeTerminalView() {
 								className="flex-1 bg-transparent border-none outline-none text-xs text-[#e2e8f0] placeholder-gray-600 font-mono"
 								disabled={agentRunning}
 							/>
+							{/* Agent suggestions (for / and @ prefixes) */}
 							{showAgentSuggestions && (
 								<div className="absolute bottom-full left-0 right-0 mb-1 mx-2 bg-[#0f1117] border border-[#1e2535] rounded shadow-lg z-10">
 									{agentSuggestions.map((s) => {
@@ -1301,6 +1828,54 @@ export default function IdeTerminalView() {
 											</button>
 										)
 									})}
+								</div>
+							)}
+							{/* Smart autocomplete suggestions */}
+							{showSmartSuggestions && smartSuggestions.length > 0 && (
+								<div className="absolute bottom-full left-0 right-0 mb-1 mx-2 bg-[#0f1117] border border-[#1e2535] rounded shadow-lg z-10">
+									{smartSuggestions.map((s, idx) => (
+										<button
+											key={`${s.type}-${s.text}`}
+											onClick={() => {
+												setTerminalInput(s.text + " ")
+												setShowSmartSuggestions(false)
+												setSelectedSuggestionIndex(-1)
+												terminalInputRef.current?.focus()
+											}}
+											className={`flex items-center gap-2 w-full px-3 py-1.5 text-[11px] text-left transition-colors ${
+												idx === selectedSuggestionIndex
+													? "bg-[#1e2535] text-white"
+													: "hover:bg-[#1e2535]"
+											}`}>
+											<span
+												className={`text-[10px] font-semibold shrink-0 ${
+													s.type === "command"
+														? "text-green-400"
+														: s.type === "agent"
+															? "text-violet-400"
+															: s.type === "recent"
+																? "text-blue-400"
+																: s.type === "ai"
+																	? "text-yellow-400"
+																	: "text-gray-400"
+												}`}>
+												{s.type === "command"
+													? "$"
+													: s.type === "agent"
+														? "@"
+														: s.type === "recent"
+															? "↻"
+															: s.type === "ai"
+																? "✦"
+																: "•"}
+											</span>
+											<span className="flex-1 text-left">
+												<span className="text-gray-200">{s.text}</span>
+												<span className="ml-2 text-[9px] text-gray-500">{s.description}</span>
+											</span>
+											<span className="text-[8px] text-gray-600 uppercase">{s.type}</span>
+										</button>
+									))}
 								</div>
 							)}
 						</div>

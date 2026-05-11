@@ -108,12 +108,19 @@
               <div class="terminal-head">
                 <span>⌨ Terminal</span>
                 <div class="terminal-actions">
+                  <button class="btn secondary small" id="btn-record" onclick="handleStartRecording()" title="Start recording">⏺ Record</button>
+                  <button class="btn secondary small" id="btn-stop-rec" onclick="handleStopRecording()" title="Stop recording" style="display:none">⏹ Stop</button>
+                  <button class="btn secondary small" onclick="showRecordings()" title="View recordings">📼 Replays</button>
                   <button class="btn secondary small" onclick="clearTerminal()">Clear</button>
                   <button class="btn secondary small" onclick="copyTerminal()">📋 Copy</button>
                   <button class="btn secondary small" onclick="toggleTerminal()">✕</button>
                 </div>
               </div>
+              <div id="terminal-recording-indicator" class="terminal-recording-indicator hidden">
+                <span class="rec-dot"></span> Recording...
+              </div>
               <div id="terminal-output" class="terminal-output"></div>
+              <div id="terminal-recordings-dropdown" class="terminal-recordings-dropdown hidden"></div>
               <div class="terminal-input-row">
                 <span class="terminal-prompt">$</span>
                 <input type="text" id="terminal-input" placeholder="Type a command or @agent mention..." autocomplete="off" />

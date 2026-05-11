@@ -48,6 +48,19 @@ const state = {
 		output: [],
 		history: [],
 		historyIndex: -1,
+		// Block-based output
+		outputBlocks: [],
+		collapsedBlocks: new Set(),
+		// Smart autocomplete
+		smartSuggestions: [],
+		showSmartSuggestions: false,
+		selectedSuggestionIndex: -1,
+		recentCommands: [],
+		// Recording & replay
+		recordings: [],
+		isRecording: false,
+		showRecordings: false,
+		recordingBlocks: [],
 	},
 	// Pipeline state
 	pipeline: [],
@@ -170,6 +183,7 @@ function handleWsMessage(msg) {
 		case "terminal-output":
 			if (msg.workspaceId === (state.active ? state.active.id : null) || msg.workspaceId === "global") {
 				state.terminal.output.push(msg.line)
+				addOutputBlocks([msg.line])
 				renderTerminalOutput()
 			}
 			break
@@ -1451,26 +1465,440 @@ function toggleTerminal() {
 	}
 }
 
+// ── Block-Based Output Helpers ────────────────────────────────────────────────────
+
+function parseOutputLine(line, index) {
+	const trimmed = line.trim()
+	const timestamp = new Date().toLocaleTimeString()
+	const id = "block-" + Date.now() + "-" + index
+
+	// Agent/Skill blocks
+	if (trimmed.startsWith("🤖") || trimmed.startsWith("✨") || trimmed.startsWith("@")) {
+		return { id, type: "agent", timestamp, content: line, collapsed: false }
+	}
+
+	// Command blocks
+	if (trimmed.startsWith("$ ")) {
+		return { id, type: "command", timestamp, content: line, command: trimmed.slice(2), collapsed: false }
+	}
+
+	// Error blocks
+	if (
+		trimmed.startsWith("error:") ||
+		trimmed.startsWith("Error:") ||
+		trimmed.startsWith("❌") ||
+		trimmed.toLowerCase().includes("error") ||
+		trimmed.toLowerCase().includes("failed")
+	) {
+		return { id, type: "error", timestamp, content: line, collapsed: false }
+	}
+
+	// Success blocks
+	if (
+		trimmed.startsWith("✅") ||
+		trimmed.toLowerCase().includes("success") ||
+		trimmed.toLowerCase().includes("completed")
+	) {
+		return { id, type: "success", timestamp, content: line, collapsed: false }
+	}
+
+	// Divider blocks
+	if (
+		trimmed.startsWith("┌") ||
+		trimmed.startsWith("└") ||
+		trimmed.startsWith("╔") ||
+		trimmed.startsWith("╚") ||
+		trimmed.startsWith("─") ||
+		trimmed.startsWith("═")
+	) {
+		return { id, type: "divider", timestamp, content: line, collapsed: false }
+	}
+
+	// Info blocks
+	if (trimmed.startsWith("→") || trimmed.startsWith("ℹ️") || trimmed.startsWith("Running")) {
+		return { id, type: "info", timestamp, content: line, collapsed: false }
+	}
+
+	// Default: output block
+	return { id, type: "output", timestamp, content: line, collapsed: false }
+}
+
+function convertToBlocks(lines) {
+	const blocks = []
+	let currentCommand = null
+
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i]
+		const trimmed = line.trim()
+
+		if (trimmed.startsWith("$ ")) {
+			// Start a new command block
+			if (currentCommand) {
+				blocks.push(currentCommand)
+			}
+			currentCommand = parseOutputLine(line, i)
+		} else if (currentCommand && currentCommand.type === "command") {
+			// Merge consecutive output lines into the current command block
+			currentCommand.content += "\n" + line
+		} else {
+			if (currentCommand) {
+				blocks.push(currentCommand)
+				currentCommand = null
+			}
+			blocks.push(parseOutputLine(line, i))
+		}
+	}
+
+	if (currentCommand) {
+		blocks.push(currentCommand)
+	}
+
+	return blocks
+}
+
+function addOutputBlocks(lines, command) {
+	const blocks = convertToBlocks(lines)
+	state.terminal.outputBlocks.push(...blocks)
+
+	// If recording, add to recording blocks
+	if (state.terminal.isRecording) {
+		state.terminal.recordingBlocks.push(...blocks)
+	}
+
+	renderTerminalOutput()
+}
+
+function toggleBlockCollapse(blockId) {
+	if (state.terminal.collapsedBlocks.has(blockId)) {
+		state.terminal.collapsedBlocks.delete(blockId)
+	} else {
+		state.terminal.collapsedBlocks.add(blockId)
+	}
+	renderTerminalOutput()
+}
+
+// ── Block-Based Terminal Output ────────────────────────────────────────────────────
+
 function renderTerminalOutput() {
 	const container = document.getElementById("terminal-output")
 	if (!container) return
-	container.innerHTML = state.terminal.output
-		.map((line) => {
-			const cls =
-				line.startsWith("error:") || line.startsWith("Error:") || line.startsWith("❌")
-					? "term-line-error"
-					: line.startsWith("warn:") || line.startsWith("Warn:") || line.startsWith("⚠️")
-						? "term-line-warn"
-						: line.startsWith("→") || line.startsWith("ℹ️")
-							? "term-line-info"
-							: line.startsWith("#") || line.startsWith("//")
-								? "term-line-muted"
-								: ""
-			return `<div class="${cls}">${escapeHtml(line)}</div>`
-		})
-		.join("")
+
+	// Use block-based rendering
+	if (state.terminal.outputBlocks.length > 0) {
+		container.innerHTML = state.terminal.outputBlocks
+			.map((block) => {
+				const isCollapsed = state.terminal.collapsedBlocks.has(block.id)
+				const toggleIcon = isCollapsed ? "▶" : "▼"
+
+				// Block type icon
+				let typeIcon = ""
+				switch (block.type) {
+					case "command":
+						typeIcon = "$"
+						break
+					case "error":
+						typeIcon = "✕"
+						break
+					case "success":
+						typeIcon = "✓"
+						break
+					case "agent":
+						typeIcon = "◆"
+						break
+					case "info":
+						typeIcon = "ℹ"
+						break
+					case "divider":
+						typeIcon = "─"
+						break
+					default:
+						typeIcon = " "
+				}
+
+				// Block CSS class
+				const typeClass = "term-block-" + block.type
+
+				if (block.type === "divider") {
+					return `<div class="term-block term-block-divider" data-block-id="${block.id}">
+						<span class="term-block-toggle" onclick="toggleBlockCollapse('${block.id}')">${toggleIcon}</span>
+						<span class="term-block-content">${escapeHtml(block.content)}</span>
+					</div>`
+				}
+
+				if (isCollapsed) {
+					const preview = block.content.split("\n")[0].substring(0, 60)
+					return `<div class="term-block term-block-collapsed" data-block-id="${block.id}" onclick="toggleBlockCollapse('${block.id}')">
+						<span>▶</span>
+						<span class="term-block-content">${escapeHtml(preview)}... (${block.content.split("\n").length} lines)</span>
+						<span class="term-block-timestamp">${block.timestamp}</span>
+					</div>`
+				}
+
+				return `<div class="term-block ${typeClass}" data-block-id="${block.id}">
+					<span class="term-block-toggle" onclick="event.stopPropagation();toggleBlockCollapse('${block.id}')">${toggleIcon}</span>
+					<span class="term-block-icon">${typeIcon}</span>
+					<span class="term-block-content">${escapeHtml(block.content)}</span>
+					<span class="term-block-timestamp">${block.timestamp}</span>
+				</div>`
+			})
+			.join("")
+	} else {
+		// Fallback to flat output if no blocks
+		container.innerHTML = state.terminal.output
+			.map((line) => {
+				const cls =
+					line.startsWith("error:") || line.startsWith("Error:") || line.startsWith("❌")
+						? "term-line-error"
+						: line.startsWith("warn:") || line.startsWith("Warn:") || line.startsWith("⚠️")
+							? "term-line-warn"
+							: line.startsWith("→") || line.startsWith("ℹ️")
+								? "term-line-info"
+								: line.startsWith("#") || line.startsWith("//")
+									? "term-line-muted"
+									: ""
+				return `<div class="${cls}">${escapeHtml(line)}</div>`
+			})
+			.join("")
+	}
+
 	container.scrollTop = container.scrollHeight
 }
+
+// ── Smart Autocomplete ────────────────────────────────────────────────────────────
+
+const COMMON_COMMANDS = [
+	{ cmd: "npm run dev", desc: "Start dev server", type: "command" },
+	{ cmd: "npm run build", desc: "Build project", type: "command" },
+	{ cmd: "npm test", desc: "Run tests", type: "command" },
+	{ cmd: "npm install", desc: "Install dependencies", type: "command" },
+	{ cmd: "git status", desc: "Check git status", type: "command" },
+	{ cmd: "git pull", desc: "Pull latest changes", type: "command" },
+	{ cmd: "git push", desc: "Push to remote", type: "command" },
+	{ cmd: "git add .", desc: "Stage all changes", type: "command" },
+	{ cmd: "git commit -m", desc: "Commit changes", type: "command" },
+	{ cmd: "cd ..", desc: "Go up one directory", type: "command" },
+	{ cmd: "ls -la", desc: "List all files", type: "command" },
+	{ cmd: "pwd", desc: "Print working directory", type: "command" },
+	{ cmd: "clear", desc: "Clear terminal", type: "command" },
+	{ cmd: "docker ps", desc: "List Docker containers", type: "command" },
+	{ cmd: "pm2 status", desc: "Check PM2 processes", type: "command" },
+	{ cmd: "pm2 logs", desc: "View PM2 logs", type: "command" },
+	{ cmd: "npx vitest run", desc: "Run vitest tests", type: "command" },
+	{ cmd: "node -v", desc: "Check Node version", type: "command" },
+]
+
+const AGENT_COMMANDS = [
+	{ cmd: "@debugger", desc: "Delegate to debug agent", type: "agent" },
+	{ cmd: "@deployer", desc: "Delegate to deploy agent", type: "agent" },
+	{ cmd: "@tester", desc: "Delegate to test agent", type: "agent" },
+	{ cmd: "@coder", desc: "Delegate to coding agent", type: "agent" },
+	{ cmd: "@reviewer", desc: "Delegate to review agent", type: "agent" },
+	{ cmd: "@orchestrator", desc: "Delegate to orchestrator", type: "agent" },
+]
+
+function getSmartSuggestions(input) {
+	if (!input || input.length === 0) return []
+	const val = input.toLowerCase()
+
+	const suggestions = []
+
+	// Agent commands (starts with @)
+	if (val.startsWith("@")) {
+		const agentVal = val.slice(1)
+		AGENT_COMMANDS.forEach((a) => {
+			const cmdName = a.cmd.slice(1)
+			if (cmdName.startsWith(agentVal) || cmdName.includes(agentVal)) {
+				suggestions.push({ ...a, score: 100 })
+			}
+		})
+		return suggestions.sort((a, b) => b.score - a.score).slice(0, 8)
+	}
+
+	// Common commands
+	COMMON_COMMANDS.forEach((c) => {
+		if (c.cmd.startsWith(val) || c.cmd.includes(val)) {
+			let score = c.cmd.startsWith(val) ? 70 : 50
+			suggestions.push({ ...c, score })
+		}
+	})
+
+	// Recent commands
+	state.terminal.recentCommands.forEach((rc) => {
+		if (rc.startsWith(val) || rc.includes(val)) {
+			if (!suggestions.find((s) => s.cmd === rc)) {
+				suggestions.push({ cmd: rc, desc: "Recent command", type: "recent", score: 60 })
+			}
+		}
+	})
+
+	return suggestions.sort((a, b) => b.score - a.score).slice(0, 8)
+}
+
+function showTerminalSuggestions() {
+	const input = document.getElementById("terminal-input")
+	if (!input) return
+	const val = input.value
+	const container = document.getElementById("terminal-suggestions")
+	if (!container) return
+
+	const suggestions = getSmartSuggestions(val)
+
+	state.terminal.smartSuggestions = suggestions
+	state.terminal.showSmartSuggestions = suggestions.length > 0 && val.length > 0
+	state.terminal.selectedSuggestionIndex = -1
+
+	if (!state.terminal.showSmartSuggestions) {
+		container.classList.add("hidden")
+		return
+	}
+
+	container.innerHTML = suggestions
+		.map((s, idx) => {
+			const typeIcon = s.type === "agent" ? "🤖" : s.type === "recent" ? "🕐" : s.type === "command" ? "⚡" : "📋"
+			const activeClass = idx === state.terminal.selectedSuggestionIndex ? "active" : ""
+			return `<div class="suggestion-item ${activeClass}" data-index="${idx}" onclick="selectTerminalSuggestion('${s.cmd.replace(/'/g, "\\'")}')">
+					<span class="suggestion-left">
+						<span class="suggestion-type-icon">${typeIcon}</span>
+						<span>${escapeHtml(s.cmd)}</span>
+						<span class="suggestion-desc">${escapeHtml(s.desc)}</span>
+					</span>
+					<span class="suggestion-score">${s.score}</span>
+				</div>`
+		})
+		.join("")
+	container.classList.remove("hidden")
+}
+
+function hideTerminalSuggestions() {
+	state.terminal.showSmartSuggestions = false
+	state.terminal.selectedSuggestionIndex = -1
+	const container = document.getElementById("terminal-suggestions")
+	if (container) container.classList.add("hidden")
+}
+
+function selectTerminalSuggestion(cmd) {
+	const input = document.getElementById("terminal-input")
+	if (input) {
+		input.value = cmd
+		input.focus()
+	}
+	hideTerminalSuggestions()
+}
+
+// ── Terminal Recording & Replay ────────────────────────────────────────────────────
+
+function createRecording(blocks, name) {
+	const commandCount = blocks.filter((b) => b.type === "command").length
+	const startTime = blocks.length > 0 ? blocks[0].timestamp : new Date().toLocaleTimeString()
+	const endTime = blocks.length > 0 ? blocks[blocks.length - 1].timestamp : startTime
+	// Calculate approximate duration
+	const duration = commandCount > 0 ? commandCount + " commands" : "0 commands"
+
+	return {
+		id: "rec-" + Date.now(),
+		name: name || "Recording " + (state.terminal.recordings.length + 1),
+		startedAt: startTime,
+		duration: duration,
+		blocks: blocks,
+		commandCount: commandCount,
+	}
+}
+
+function handleStartRecording() {
+	if (state.terminal.isRecording) return
+	state.terminal.isRecording = true
+	state.terminal.recordingBlocks = []
+	showNotice("⏺ Recording terminal session...")
+
+	// Show recording indicator
+	const indicator = document.getElementById("terminal-recording-indicator")
+	if (indicator) indicator.classList.remove("hidden")
+
+	// Toggle buttons
+	const btnRecord = document.getElementById("btn-record")
+	const btnStop = document.getElementById("btn-stop-rec")
+	if (btnRecord) btnRecord.style.display = "none"
+	if (btnStop) btnStop.style.display = "inline-block"
+}
+
+function handleStopRecording() {
+	if (!state.terminal.isRecording) return
+	state.terminal.isRecording = false
+
+	// Hide recording indicator
+	const indicator = document.getElementById("terminal-recording-indicator")
+	if (indicator) indicator.classList.add("hidden")
+
+	// Toggle buttons
+	const btnRecord = document.getElementById("btn-record")
+	const btnStop = document.getElementById("btn-stop-rec")
+	if (btnRecord) btnRecord.style.display = "inline-block"
+	if (btnStop) btnStop.style.display = "none"
+
+	// Create recording from captured blocks
+	if (state.terminal.recordingBlocks.length > 0) {
+		const recording = createRecording(state.terminal.recordingBlocks)
+		state.terminal.recordings.push(recording)
+		showNotice("✅ Recording saved! " + recording.commandCount + " commands captured.")
+	} else {
+		showNotice("⚠️ No commands recorded.")
+	}
+
+	state.terminal.recordingBlocks = []
+}
+
+function showRecordings() {
+	state.terminal.showRecordings = !state.terminal.showRecordings
+	const dropdown = document.getElementById("terminal-recordings-dropdown")
+	if (!dropdown) return
+
+	if (!state.terminal.showRecordings || state.terminal.recordings.length === 0) {
+		dropdown.classList.add("hidden")
+		return
+	}
+
+	dropdown.innerHTML =
+		`<div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;font-weight:600">📼 Recordings</div>` +
+		state.terminal.recordings
+			.map(
+				(rec, i) => `
+			<div class="recording-item" onclick="handleReplayRecording(${i})">
+				<span class="rec-name">${escapeHtml(rec.name)}</span>
+				<span class="rec-meta">${rec.commandCount} cmds · ${rec.startedAt}</span>
+			</div>
+		`,
+			)
+			.join("")
+
+	dropdown.classList.remove("hidden")
+}
+
+function handleReplayRecording(index) {
+	const recording = state.terminal.recordings[index]
+	if (!recording) return
+
+	// Clear current output and replay blocks
+	state.terminal.outputBlocks = []
+	state.terminal.output = []
+
+	// Replay blocks one by one with delay
+	let delay = 0
+	recording.blocks.forEach((block, i) => {
+		setTimeout(() => {
+			state.terminal.outputBlocks.push({ ...block, id: "replay-" + Date.now() + "-" + i })
+			state.terminal.output.push(block.content)
+			renderTerminalOutput()
+		}, delay)
+		delay += 100 // 100ms between blocks for visual effect
+	})
+
+	showNotice("📼 Replaying: " + recording.name)
+	state.terminal.showRecordings = false
+	const dropdown = document.getElementById("terminal-recordings-dropdown")
+	if (dropdown) dropdown.classList.add("hidden")
+}
+
+// ── Terminal Command Execution ────────────────────────────────────────────────────
 
 async function executeTerminalCommand() {
 	const input = document.getElementById("terminal-input")
@@ -1478,11 +1906,26 @@ async function executeTerminalCommand() {
 	const cmd = input.value.trim()
 	if (!cmd) return
 
-	// Add to terminal output
-	state.terminal.output.push(`$ ${cmd}`)
+	// Add command as block
+	const cmdBlock = parseOutputLine("$ " + cmd, state.terminal.outputBlocks.length)
+	state.terminal.outputBlocks.push(cmdBlock)
+	state.terminal.output.push("$ " + cmd)
 	state.terminal.history.push(cmd)
 	state.terminal.historyIndex = state.terminal.history.length
+
+	// Track recent commands for autocomplete
+	state.terminal.recentCommands = state.terminal.recentCommands.filter((c) => c !== cmd)
+	state.terminal.recentCommands.unshift(cmd)
+	if (state.terminal.recentCommands.length > 10) {
+		state.terminal.recentCommands.pop()
+	}
+
 	input.value = ""
+
+	// If recording, add to recording blocks
+	if (state.terminal.isRecording) {
+		state.terminal.recordingBlocks.push(cmdBlock)
+	}
 
 	// Hide suggestions
 	hideTerminalSuggestions()
@@ -1490,23 +1933,40 @@ async function executeTerminalCommand() {
 	// Check for @agent mentions
 	if (cmd.startsWith("@")) {
 		const agentName = cmd.split(" ")[0].slice(1)
-		state.terminal.output.push(`→ Delegating to @${agentName}...`)
+		const infoBlock = parseOutputLine("→ Delegating to @" + agentName + "...", state.terminal.outputBlocks.length)
+		state.terminal.outputBlocks.push(infoBlock)
+		state.terminal.output.push("→ Delegating to @" + agentName + "...")
 		renderTerminalOutput()
 		try {
 			const result = await apiRequest(`/workspaces/${state.active.id}/command`, {
 				method: "POST",
 				body: JSON.stringify({ prompt: cmd, agent: agentName }),
 			})
-			state.terminal.output.push(result.output || result.message || `✅ @${agentName} completed.`)
+			const outputLines = (result.output || result.message || "✅ @" + agentName + " completed.").split("\n")
+			outputLines.forEach((line, i) => {
+				const block = parseOutputLine(line, state.terminal.outputBlocks.length)
+				state.terminal.outputBlocks.push(block)
+				state.terminal.output.push(line)
+				if (state.terminal.isRecording) {
+					state.terminal.recordingBlocks.push(block)
+				}
+			})
 		} catch (err) {
-			state.terminal.output.push(`❌ Agent error: ${err.message}`)
+			const errBlock = parseOutputLine("❌ Agent error: " + err.message, state.terminal.outputBlocks.length)
+			state.terminal.outputBlocks.push(errBlock)
+			state.terminal.output.push("❌ Agent error: " + err.message)
+			if (state.terminal.isRecording) {
+				state.terminal.recordingBlocks.push(errBlock)
+			}
 		}
 		renderTerminalOutput()
 		return
 	}
 
 	// Execute command via API
-	state.terminal.output.push(`→ Running...`)
+	const runningBlock = parseOutputLine("→ Running...", state.terminal.outputBlocks.length)
+	state.terminal.outputBlocks.push(runningBlock)
+	state.terminal.output.push("→ Running...")
 	renderTerminalOutput()
 
 	try {
@@ -1516,9 +1976,21 @@ async function executeTerminalCommand() {
 		})
 		const output = result.output || result.message || "✅ Command completed."
 		const lines = Array.isArray(output) ? output : output.split("\n")
-		state.terminal.output.push(...lines)
+		lines.forEach((line, i) => {
+			const block = parseOutputLine(line, state.terminal.outputBlocks.length)
+			state.terminal.outputBlocks.push(block)
+			state.terminal.output.push(line)
+			if (state.terminal.isRecording) {
+				state.terminal.recordingBlocks.push(block)
+			}
+		})
 	} catch (err) {
-		state.terminal.output.push(`❌ ${err.message}`)
+		const errBlock = parseOutputLine("❌ " + err.message, state.terminal.outputBlocks.length)
+		state.terminal.outputBlocks.push(errBlock)
+		state.terminal.output.push("❌ " + err.message)
+		if (state.terminal.isRecording) {
+			state.terminal.recordingBlocks.push(errBlock)
+		}
 	}
 
 	renderTerminalOutput()
@@ -1538,14 +2010,26 @@ function handleTerminalKeyDown(e) {
 		executeTerminalCommand()
 	} else if (e.key === "ArrowUp") {
 		e.preventDefault()
-		if (state.terminal.history.length > 0 && state.terminal.historyIndex > 0) {
+		if (state.terminal.showSmartSuggestions && state.terminal.smartSuggestions.length > 0) {
+			// Navigate suggestions up
+			if (state.terminal.selectedSuggestionIndex > 0) {
+				state.terminal.selectedSuggestionIndex--
+				highlightSuggestion()
+			}
+		} else if (state.terminal.history.length > 0 && state.terminal.historyIndex > 0) {
 			state.terminal.historyIndex--
 			const input = document.getElementById("terminal-input")
 			if (input) input.value = state.terminal.history[state.terminal.historyIndex]
 		}
 	} else if (e.key === "ArrowDown") {
 		e.preventDefault()
-		if (state.terminal.historyIndex < state.terminal.history.length - 1) {
+		if (state.terminal.showSmartSuggestions && state.terminal.smartSuggestions.length > 0) {
+			// Navigate suggestions down
+			if (state.terminal.selectedSuggestionIndex < state.terminal.smartSuggestions.length - 1) {
+				state.terminal.selectedSuggestionIndex++
+				highlightSuggestion()
+			}
+		} else if (state.terminal.historyIndex < state.terminal.history.length - 1) {
 			state.terminal.historyIndex++
 			const input = document.getElementById("terminal-input")
 			if (input) input.value = state.terminal.history[state.terminal.historyIndex]
@@ -1554,93 +2038,49 @@ function handleTerminalKeyDown(e) {
 			const input = document.getElementById("terminal-input")
 			if (input) input.value = ""
 		}
-	} else if (e.key === "Escape") {
-		hideTerminalSuggestions()
 	} else if (e.key === "Tab") {
 		e.preventDefault()
-		showTerminalSuggestions()
+		if (state.terminal.showSmartSuggestions && state.terminal.smartSuggestions.length > 0) {
+			// Cycle through suggestions
+			const nextIdx = (state.terminal.selectedSuggestionIndex + 1) % state.terminal.smartSuggestions.length
+			state.terminal.selectedSuggestionIndex = nextIdx
+			highlightSuggestion()
+		} else {
+			showTerminalSuggestions()
+		}
+	} else if (e.key === "Escape") {
+		hideTerminalSuggestions()
+	}
+}
+
+function highlightSuggestion() {
+	const container = document.getElementById("terminal-suggestions")
+	if (!container) return
+	const items = container.querySelectorAll(".suggestion-item")
+	items.forEach((item, idx) => {
+		item.classList.toggle("active", idx === state.terminal.selectedSuggestionIndex)
+	})
+	// Scroll into view
+	if (state.terminal.selectedSuggestionIndex >= 0 && items[state.terminal.selectedSuggestionIndex]) {
+		items[state.terminal.selectedSuggestionIndex].scrollIntoView({ block: "nearest" })
 	}
 }
 
 function clearTerminal() {
 	state.terminal.output = []
+	state.terminal.outputBlocks = []
+	state.terminal.collapsedBlocks = new Set()
 	renderTerminalOutput()
 }
 
 function copyTerminal() {
-	const text = state.terminal.output.join("\n")
+	const text = state.terminal.outputBlocks.map((b) => b.content).join("\n")
 	navigator.clipboard
 		.writeText(text)
 		.then(() => {
 			showNotice("📋 Terminal output copied.")
 		})
 		.catch(() => {})
-}
-
-// ── Terminal Autocomplete ───────────────────────────────────────────────────────
-
-const TERMINAL_SUGGESTIONS = [
-	{ cmd: "build", desc: "Run build process" },
-	{ cmd: "test", desc: "Run test suite" },
-	{ cmd: "deploy", desc: "Deploy to production" },
-	{ cmd: "dev", desc: "Start dev server" },
-	{ cmd: "install", desc: "Install dependencies" },
-	{ cmd: "lint", desc: "Run linter" },
-	{ cmd: "format", desc: "Format code" },
-	{ cmd: "clean", desc: "Clean build artifacts" },
-	{ cmd: "docker ps", desc: "List Docker containers" },
-	{ cmd: "docker logs", desc: "View Docker logs" },
-	{ cmd: "git status", desc: "Check git status" },
-	{ cmd: "git diff", desc: "Show git diff" },
-	{ cmd: "git log", desc: "Show git log" },
-	{ cmd: "git push", desc: "Push to remote" },
-	{ cmd: "npm run build", desc: "NPM build" },
-	{ cmd: "npm test", desc: "NPM test" },
-	{ cmd: "@debugger", desc: "Delegate to debug agent" },
-	{ cmd: "@deployer", desc: "Delegate to deploy agent" },
-	{ cmd: "@tester", desc: "Delegate to test agent" },
-	{ cmd: "@coder", desc: "Delegate to coding agent" },
-	{ cmd: "@reviewer", desc: "Delegate to review agent" },
-]
-
-function showTerminalSuggestions() {
-	const input = document.getElementById("terminal-input")
-	if (!input) return
-	const val = input.value.toLowerCase()
-	const container = document.getElementById("terminal-suggestions")
-	if (!container) return
-
-	const matches = TERMINAL_SUGGESTIONS.filter((s) => s.cmd.startsWith(val) || s.cmd.includes(val))
-
-	if (matches.length === 0 || val.length === 0) {
-		container.classList.add("hidden")
-		return
-	}
-
-	container.innerHTML = matches
-		.map(
-			(s) =>
-				`<div class="suggestion-item" onclick="selectTerminalSuggestion('${s.cmd}')">
-					${escapeHtml(s.cmd)}
-					<span class="suggestion-desc">${escapeHtml(s.desc)}</span>
-				</div>`,
-		)
-		.join("")
-	container.classList.remove("hidden")
-}
-
-function hideTerminalSuggestions() {
-	const container = document.getElementById("terminal-suggestions")
-	if (container) container.classList.add("hidden")
-}
-
-function selectTerminalSuggestion(cmd) {
-	const input = document.getElementById("terminal-input")
-	if (input) {
-		input.value = cmd
-		input.focus()
-	}
-	hideTerminalSuggestions()
 }
 
 // ── Pipeline ────────────────────────────────────────────────────────────────────
@@ -1772,6 +2212,17 @@ function initTerminalInput() {
 		input.addEventListener("input", showTerminalSuggestions)
 		input.addEventListener("blur", () => setTimeout(hideTerminalSuggestions, 200))
 	}
+	// Close recordings dropdown when clicking outside
+	document.addEventListener("click", function (e) {
+		const dropdown = document.getElementById("terminal-recordings-dropdown")
+		const btn = document.querySelector('[onclick*="showRecordings"]')
+		if (dropdown && !dropdown.classList.contains("hidden")) {
+			if (!dropdown.contains(e.target) && !btn?.contains(e.target)) {
+				dropdown.classList.add("hidden")
+				state.terminal.showRecordings = false
+			}
+		}
+	})
 }
 
 // ── Commit ──────────────────────────────────────────────────────────────────────
