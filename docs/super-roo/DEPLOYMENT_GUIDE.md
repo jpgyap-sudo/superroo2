@@ -110,6 +110,47 @@ curl -X POST http://127.0.0.1:3417/tasks \
   -d '{"source":"cli","agent":"coder","goal":"Audit deployment readiness","priority":"normal"}'
 ```
 
+## Tailscale Deployment (Mandatory)
+
+**ALL deployments — cloud, VS Code, Telegram, workers — MUST use Tailscale SSH.**
+
+### Why Tailscale
+
+- **WireGuard encryption** — all traffic encrypted by default, no separate VPN needed
+- **No open SSH port** — SSH port doesn't need to be exposed to the internet
+- **Direct connection** — peer-to-peer when possible (currently direct, not relayed)
+- **Stable IP** — Tailscale IP doesn't change even if public IP changes
+- **Access control** — Tailscale ACLs provide additional security layer
+
+### Tailscale Network
+
+| Component          | Tailscale IP     | Hostname                      |
+| ------------------ | ---------------- | ----------------------------- |
+| Local Machine      | `100.111.69.127` | `desktop-28f24pj`             |
+| VPS (DigitalOcean) | `100.64.175.88`  | `ubuntu-s-2vcpu-4gb-amd-nyc1` |
+
+### SSH Configuration
+
+```bash
+SSH_KEY="C:\\Users\\User\\.ssh\\id_superroo_vps"
+SSH_TARGET="root@100.64.175.88"  # Tailscale IP, NOT public IP
+SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -i ${SSH_KEY}"
+```
+
+### Files Using Tailscale
+
+All deploy scripts and auto-deployers have been updated to use `100.64.175.88`:
+
+- `cloud/remote-deploy-dashboard.sh`
+- `cloud/worker/autoDeployer.js`
+- `cloud/deploy-via-ssh.ps1`
+- `cloud/deploy-dashboard-windows.ps1`
+- `cloud/auto-deploy-windows.ps1`
+- `cloud/auto-deploy.sh`
+- `cloud/remote-deploy-crash-fixes.sh`
+
+> **Rule**: Never use the public IP (`104.248.225.250`) for SSH. Always use the Tailscale IP (`100.64.175.88`).
+
 ## Safety Notes
 
 - Use `SUPERROO_SAFETY_MODE=SAFE` for first VPS staging.

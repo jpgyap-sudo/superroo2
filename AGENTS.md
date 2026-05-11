@@ -31,6 +31,22 @@ The **Commit & Deploy Log** ([`src/super-roo/product-memory/CommitDeployLog.ts`]
 
 The log is append-only (no deletions, only status updates) and agent-aware (records which agent made the change). It is persisted as JSON at [`server/src/memory/commit-deploy-log.json`](server/src/memory/commit-deploy-log.json) and visualized in the dashboard Working Tree tab.
 
+## Tailscale Deployment (Mandatory)
+
+**ALL deployments — cloud, VS Code, Telegram, workers — MUST use Tailscale SSH.**
+
+The VPS Tailscale IP is **`100.64.175.88`** (hostname: `ubuntu-s-2vcpu-4gb-amd-nyc1`). Never use the public IP (`104.248.225.250`) for SSH connections.
+
+```bash
+# Correct — Tailscale IP
+SSH_TARGET="root@100.64.175.88"
+
+# Wrong — public IP (do not use)
+SSH_TARGET="root@104.248.225.250"
+```
+
+All deploy scripts and auto-deployers have been updated. See [`docs/super-roo/DEPLOYMENT_GUIDE.md`](docs/super-roo/DEPLOYMENT_GUIDE.md) for full details and the [`tailscale`](.roo/skills/tailscale/SKILL.md) skill for reference.
+
 ## Settings View Pattern
 
 When working on `SettingsView`, inputs must bind to the local `cachedState`, NOT the live `useExtensionState()`. The `cachedState` acts as a buffer for user edits, isolating them from the `ContextProxy` source-of-truth until the user explicitly clicks "Save". Wiring inputs directly to the live state causes race conditions.
