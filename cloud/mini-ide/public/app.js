@@ -17,31 +17,42 @@
 // ── State ──────────────────────────────────────────────────────────────────────
 
 const state = {
- workspaces: [],
- active: null,
- files: [],
- selectedFile: "",
- code: "",
- logs: [],
- prompt: "",
- attachments: [],
- editor: null,
- telegramUser: null,
- tasks: [],
- // Terminal Brain state
- brain: {
- 	activeTab: "command",
- 	plan: null,
- 	feedback: null,
- 	errors: [],
- 	fixes: [],
- 	memory: null,
- 	deployments: [],
- 	services: [],
- 	env: null,
- 	approvals: [],
- 	loading: false,
- },
+	workspaces: [],
+	active: null,
+	files: [],
+	selectedFile: "",
+	code: "",
+	logs: [],
+	prompt: "",
+	attachments: [],
+	editor: null,
+	telegramUser: null,
+	tasks: [],
+	// Terminal Brain state
+	brain: {
+		activeTab: "command",
+		plan: null,
+		feedback: null,
+		errors: [],
+		fixes: [],
+		memory: null,
+		deployments: [],
+		services: [],
+		env: null,
+		approvals: [],
+		loading: false,
+	},
+	// Terminal state
+	terminal: {
+		visible: false,
+		output: [],
+		history: [],
+		historyIndex: -1,
+	},
+	// Pipeline state
+	pipeline: [],
+	// Agent mode
+	agentMode: "auto",
 }
 
 // ── API Client ─────────────────────────────────────────────────────────────────
@@ -109,6 +120,251 @@ async function brainRequest(action, payload = {}) {
 	})
 }
 
+// ── WebSocket for Real-Time Terminal Output Streaming ─────────────────────────
+
+let ws = null
+let wsReconnectTimer = null
+
+function connectWebSocket() {
+	const workspaceId = state.active ? state.active.id : "global"
+	const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
+	const wsUrl = `${protocol}//${window.location.host}/ws?workspace=${workspaceId}`
+
+	if (ws) {
+		try {
+			ws.close()
+		} catch {}
+	}
+
+	ws = new WebSocket(wsUrl)
+
+	ws.onopen = () => {
+		console.log("[Mini IDE WS] Connected")
+		if (wsReconnectTimer) {
+			clearTimeout(wsReconnectTimer)
+			wsReconnectTimer = null
+		}
+	}
+
+	ws.onmessage = (event) => {
+		try {
+			const msg = JSON.parse(event.data)
+			handleWsMessage(msg)
+		} catch {
+			// Ignore non-JSON messages
+		}
+	}
+
+	ws.onclose = () => {
+		console.log("[Mini IDE WS] Disconnected — reconnecting in 5s")
+		wsReconnectTimer = setTimeout(() => connectWebSocket(), 5000)
+	}
+
+	ws.onerror = (err) => {
+		console.error("[Mini IDE WS] Error:", err.message || "Unknown")
+	}
+}
+
+function handleWsMessage(msg) {
+	switch (msg.type) {
+		case "terminal-output":
+			if (msg.workspaceId === (state.active ? state.active.id : null) || msg.workspaceId === "global") {
+				state.terminal.output.push(msg.line)
+				renderTerminalOutput()
+			}
+			break
+
+		case "pipeline-update":
+			if (msg.workspaceId === (state.active ? state.active.id : null) || msg.workspaceId === "global") {
+				state.pipeline = msg.pipeline || state.pipeline
+				renderPipeline()
+			}
+			break
+
+		case "log-entry":
+			if (msg.workspaceId === (state.active ? state.active.id : null) || msg.workspaceId === "global") {
+				state.logs.unshift(msg.log)
+				renderLogs()
+			}
+			break
+
+		case "connected":
+			console.log(`[Mini IDE WS] Server confirmed connection for ${msg.workspaceId}`)
+			break
+	}
+}
+
+function disconnectWebSocket() {
+	if (wsReconnectTimer) {
+		clearTimeout(wsReconnectTimer)
+		wsReconnectTimer = null
+	}
+	if (ws) {
+		try {
+			ws.close()
+		} catch {}
+		ws = null
+	}
+}
+
+// ── Rich Memory Visualization ──────────────────────────────────────────────────
+
+function renderRichMemory(memory) {
+	const container = document.getElementById("memory-container")
+	if (!container) return
+
+	if (!memory || !memory.stats) {
+		container.innerHTML = '<p class="muted">No terminal memory available yet.</p>'
+		return
+	}
+
+	const stats = memory.stats
+	const commands = memory.commands || []
+	const errors = memory.errors || []
+
+	// Stats summary cards
+	const statsHtml = `
+		<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">
+			<div class="memory-stat-card">
+				<span class="memory-stat-value">${stats.totalCommands || 0}</span>
+				<span class="memory-stat-label">Commands</span>
+			</div>
+			<div class="memory-stat-card">
+				<span class="memory-stat-value">${stats.totalErrors || 0}</span>
+				<span class="memory-stat-label">Errors</span>
+			</div>
+			<div class="memory-stat-card">
+				<span class="memory-stat-value">${stats.totalFixes || 0}</span>
+				<span class="memory-stat-label">Fixes</span>
+			</div>
+			<div class="memory-stat-card">
+				<span class="memory-stat-value">${stats.totalDeployments || 0}</span>
+				<span class="memory-stat-label">Deployments</span>
+			</div>
+		</div>
+	`
+
+	// Success rate bar
+	const totalOps = (stats.totalCommands || 0) + (stats.totalErrors || 0)
+	const successRate = totalOps > 0 ? Math.round(((stats.totalCommands || 0) / totalOps) * 100) : 100
+	const barColor = successRate >= 80 ? "var(--green)" : successRate >= 50 ? "var(--yellow)" : "var(--red)"
+
+	const rateHtml = `
+		<div style="margin-bottom:10px">
+			<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-bottom:4px">
+				<span>Success Rate</span>
+				<span>${successRate}%</span>
+			</div>
+			<div style="height:6px;background:var(--bg-input);border-radius:3px;overflow:hidden">
+				<div style="height:100%;width:${successRate}%;background:${barColor};border-radius:3px;transition:width 0.5s"></div>
+			</div>
+		</div>
+	`
+
+	// Recent commands timeline
+	let timelineHtml = ""
+	if (commands.length > 0) {
+		timelineHtml = `<div style="margin-bottom:8px"><strong style="font-size:12px;color:var(--text-secondary)">Recent Commands</strong></div>`
+		timelineHtml += commands
+			.slice(0, 8)
+			.map((cmd, i) => {
+				const status = cmd.status || "completed"
+				const icon = status === "failed" ? "❌" : status === "running" ? "⏳" : "✅"
+				const time = cmd.timestamp ? new Date(cmd.timestamp).toLocaleTimeString() : ""
+				return `
+				<div class="memory-timeline-item">
+					<span class="memory-timeline-dot" style="background:${status === "failed" ? "var(--red)" : "var(--green)"}"></span>
+					<div class="memory-timeline-body">
+						<div style="font-size:11px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(cmd.command || cmd.label || "Command")}</div>
+						<div style="font-size:10px;color:var(--text-muted)">${time} ${icon}</div>
+					</div>
+				</div>
+			`
+			})
+			.join("")
+	}
+
+	// Recent errors list
+	let errorsHtml = ""
+	if (errors.length > 0) {
+		errorsHtml = `<div style="margin-top:8px;margin-bottom:4px"><strong style="font-size:12px;color:var(--red)">Recent Errors (${errors.length})</strong></div>`
+		errorsHtml += errors
+			.slice(0, 4)
+			.map(
+				(err) => `
+			<div style="font-size:10px;color:var(--red);padding:3px 0;border-bottom:1px solid var(--border)">
+				❌ ${escapeHtml((err.message || err.type || "Error").substring(0, 60))}
+			</div>
+		`,
+			)
+			.join("")
+	}
+
+	container.innerHTML = statsHtml + rateHtml + timelineHtml + errorsHtml
+}
+
+// ── Error Badge Counts on Brain Tabs ───────────────────────────────────────────
+
+function updateBrainTabBadges() {
+	const errorCount = state.brain.errors ? state.brain.errors.length : 0
+	const fixCount = state.brain.fixes ? state.brain.fixes.length : 0
+	const approvalCount = state.brain.approvals ? state.brain.approvals.length : 0
+
+	// Update error tab badge
+	const errorTab = document.querySelector('.brain-tab[data-tab="errors"]')
+	if (errorTab) {
+		const existing = errorTab.querySelector(".tab-badge")
+		if (errorCount > 0) {
+			if (existing) {
+				existing.textContent = errorCount
+			} else {
+				const badge = document.createElement("span")
+				badge.className = "tab-badge tab-badge-error"
+				badge.textContent = errorCount
+				errorTab.appendChild(badge)
+			}
+		} else if (existing) {
+			existing.remove()
+		}
+	}
+
+	// Update fix plan tab badge
+	const fixTab = document.querySelector('.brain-tab[data-tab="fixplan"]')
+	if (fixTab) {
+		const existing = fixTab.querySelector(".tab-badge")
+		if (fixCount > 0) {
+			if (existing) {
+				existing.textContent = fixCount
+			} else {
+				const badge = document.createElement("span")
+				badge.className = "tab-badge tab-badge-fix"
+				badge.textContent = fixCount
+				fixTab.appendChild(badge)
+			}
+		} else if (existing) {
+			existing.remove()
+		}
+	}
+
+	// Update approvals tab badge
+	const approvalTab = document.querySelector('.brain-tab[data-tab="approvals"]')
+	if (approvalTab) {
+		const existing = approvalTab.querySelector(".tab-badge")
+		if (approvalCount > 0) {
+			if (existing) {
+				existing.textContent = approvalCount
+			} else {
+				const badge = document.createElement("span")
+				badge.className = "tab-badge tab-badge-approval"
+				badge.textContent = approvalCount
+				approvalTab.appendChild(badge)
+			}
+		} else if (existing) {
+			existing.remove()
+		}
+	}
+}
+
 // ── Tab Switching ──────────────────────────────────────────────────────────────
 
 function switchBrainTab(tabId) {
@@ -164,12 +420,24 @@ async function sendBrainCommand() {
 	state.brain.loading = true
 	showNotice("🧠 Terminal Brain is processing...")
 
+	// Add pipeline steps
+	state.pipeline = [
+		{ label: "Plan", status: "running" },
+		{ label: "Execute", status: "pending" },
+		{ label: "Analyze", status: "pending" },
+		{ label: "Fix", status: "pending" },
+		{ label: "Verify", status: "pending" },
+	]
+	renderPipeline()
+
 	try {
 		// Step 1: Plan — convert NL to command sequence
 		const planResult = await brainRequest("plan", { query: prompt })
 		const plan = planResult.plan || planResult.commands || []
 		state.brain.plan = plan
 		renderBrainPlan(plan)
+		updatePipelineStep("Plan", "success")
+		updatePipelineStep("Execute", "running")
 
 		// Step 2: Execute each planned command
 		const allOutput = []
@@ -204,6 +472,8 @@ async function sendBrainCommand() {
 			renderLogs()
 		}
 
+		updatePipelineStep("Execute", "success")
+
 		// Step 3: Analyze output for errors
 		if (allOutput.length > 0) {
 			const analyzeResult = await brainRequest("analyze", { output: allOutput.join("\n") })
@@ -213,11 +483,18 @@ async function sendBrainCommand() {
 		}
 
 		// Step 4: Get fix suggestions
+		updatePipelineStep("Analyze", "running")
 		if (allErrors.length > 0) {
 			const fixResult = await brainRequest("fix", { output: allOutput.join("\n") })
 			if (fixResult.fixes) {
 				allFixes.push(...fixResult.fixes)
 			}
+		}
+		updatePipelineStep("Analyze", "success")
+		updatePipelineStep("Fix", allErrors.length > 0 ? "running" : "success")
+
+		if (allErrors.length > 0) {
+			updatePipelineStep("Fix", "success")
 		}
 
 		// Update state
@@ -232,7 +509,8 @@ async function sendBrainCommand() {
 			output: allOutput.join("\n\n"),
 			errors: allErrors,
 			fixes: allFixes,
-			verification: allErrors.length === 0 ? "All commands completed successfully." : "Errors detected — see Fix Plan tab.",
+			verification:
+				allErrors.length === 0 ? "All commands completed successfully." : "Errors detected — see Fix Plan tab.",
 			status: allErrors.length === 0 ? "success" : "failed",
 		}
 		state.brain.feedback = lastFeedback
@@ -246,8 +524,17 @@ async function sendBrainCommand() {
 			switchBrainTab("errors")
 		}
 
-		showNotice(allErrors.length === 0 ? "✅ Brain execution complete." : "⚠️ Brain found errors — check Fix Plan tab.")
+		// Final pipeline status
+		updatePipelineStep("Verify", allErrors.length === 0 ? "success" : "failed")
+
+		// Update badge counts on brain tabs
+		updateBrainTabBadges()
+
+		showNotice(
+			allErrors.length === 0 ? "✅ Brain execution complete." : "⚠️ Brain found errors — check Fix Plan tab.",
+		)
 	} catch (err) {
+		updatePipelineStep("Execute", "failed")
 		showNotice(`❌ Brain error: ${err.message}`, true)
 	} finally {
 		state.brain.loading = false
@@ -306,13 +593,14 @@ function renderBrainFeedback(feedback) {
 	const lines = (feedback.output || "").split("\n")
 	outputEl.innerHTML = lines
 		.map((line) => {
-			const cls = line.toLowerCase().includes("error") || line.toLowerCase().includes("failed")
-				? "error-line"
-				: line.toLowerCase().includes("warn") || line.toLowerCase().includes("warning")
-					? "warn-line"
-					: line.toLowerCase().includes("success") || line.toLowerCase().includes("complete")
-						? "ok-line"
-						: ""
+			const cls =
+				line.toLowerCase().includes("error") || line.toLowerCase().includes("failed")
+					? "error-line"
+					: line.toLowerCase().includes("warn") || line.toLowerCase().includes("warning")
+						? "warn-line"
+						: line.toLowerCase().includes("success") || line.toLowerCase().includes("complete")
+							? "ok-line"
+							: ""
 			return `<div class="${cls}">${escapeHtml(line)}</div>`
 		})
 		.join("")
@@ -385,41 +673,8 @@ async function loadBrainMemory() {
 		state.brain.memory = memory
 		statsEl.textContent = memory.stats ? `${memory.stats.totalCommands || 0} cmds` : "0"
 
-		let html = ""
-
-		// Stats section
-		if (memory.stats) {
-			const s = memory.stats
-			html += `
-	       <div style="margin-bottom:8px">
-	         <div class="memory-stat-row"><span class="stat-label">Sessions</span><span class="stat-value">${s.totalSessions || 0}</span></div>
-	         <div class="memory-stat-row"><span class="stat-label">Commands</span><span class="stat-value">${s.totalCommands || 0}</span></div>
-	         <div class="memory-stat-row"><span class="stat-label">Errors</span><span class="stat-value">${s.totalErrors || 0}</span></div>
-	         <div class="memory-stat-row"><span class="stat-label">Fixes Applied</span><span class="stat-value">${s.totalFixes || 0}</span></div>
-	         <div class="memory-stat-row"><span class="stat-label">Deployments</span><span class="stat-value">${s.totalDeployments || 0}</span></div>
-	         <div class="memory-stat-row"><span class="stat-label">Success Rate</span><span class="stat-value">${s.successRate ? Math.round(s.successRate * 100) + "%" : "N/A"}</span></div>
-	       </div>
-	     `
-		}
-
-		// Recent commands
-		const commands = memory.commands || memory.recentCommands || []
-		if (commands.length > 0) {
-			html += '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Recent Commands:</div>'
-			html += commands
-				.slice(0, 10)
-				.map(
-					(cmd) => `
-	         <div class="memory-record">
-	           <div class="record-cmd">${escapeHtml(cmd.command || cmd)}</div>
-	           <div class="record-time">${cmd.timestamp || cmd.time || ""} · ${cmd.status || ""}</div>
-	         </div>
-	       `,
-				)
-				.join("")
-		}
-
-		container.innerHTML = html || '<p class="muted">No memory data yet.</p>'
+		// Use rich visualization
+		renderRichMemory(memory)
 	} catch (err) {
 		container.innerHTML = `<p class="muted">Failed to load memory: ${escapeHtml(err.message)}</p>`
 	}
@@ -458,7 +713,10 @@ async function loadBrainServices() {
 
 	try {
 		// Try to get Docker/process info via the brain
-		const result = await brainRequest("execute", { command: "docker ps --format '{{.Names}}|{{.Status}}|{{.Ports}}' 2>/dev/null || echo 'Docker not available'" })
+		const result = await brainRequest("execute", {
+			command:
+				"docker ps --format '{{.Names}}|{{.Status}}|{{.Ports}}' 2>/dev/null || echo 'Docker not available'",
+		})
 		const output = result.feedback?.output || result.output || ""
 
 		if (output && !output.includes("Docker not available")) {
@@ -500,14 +758,22 @@ async function loadBrainEnv() {
 
 		if (ctx) {
 			// Project info
-			if (ctx.name) html += `<div class="env-item"><span class="env-key">Project</span><span class="env-value">${escapeHtml(ctx.name)}</span></div>`
-			if (ctx.framework) html += `<div class="env-item"><span class="env-key">Framework</span><span class="env-value">${escapeHtml(ctx.framework)}</span></div>`
-			if (ctx.packageManager) html += `<div class="env-item"><span class="env-key">Package Manager</span><span class="env-value">${escapeHtml(ctx.packageManager)}</span></div>`
-			if (ctx.nodeVersion) html += `<div class="env-item"><span class="env-key">Node</span><span class="env-value">${escapeHtml(ctx.nodeVersion)}</span></div>`
-			if (ctx.port) html += `<div class="env-item"><span class="env-key">Port</span><span class="env-value">${escapeHtml(String(ctx.port))}</span></div>`
-			if (ctx.branch) html += `<div class="env-item"><span class="env-key">Branch</span><span class="env-value">${escapeHtml(ctx.branch)}</span></div>`
-			if (ctx.hasDocker !== undefined) html += `<div class="env-item"><span class="env-key">Docker</span><span class="env-value">${ctx.hasDocker ? "✅ Available" : "❌ Not available"}</span></div>`
-			if (ctx.hasTypeScript !== undefined) html += `<div class="env-item"><span class="env-key">TypeScript</span><span class="env-value">${ctx.hasTypeScript ? "✅ Yes" : "❌ No"}</span></div>`
+			if (ctx.name)
+				html += `<div class="env-item"><span class="env-key">Project</span><span class="env-value">${escapeHtml(ctx.name)}</span></div>`
+			if (ctx.framework)
+				html += `<div class="env-item"><span class="env-key">Framework</span><span class="env-value">${escapeHtml(ctx.framework)}</span></div>`
+			if (ctx.packageManager)
+				html += `<div class="env-item"><span class="env-key">Package Manager</span><span class="env-value">${escapeHtml(ctx.packageManager)}</span></div>`
+			if (ctx.nodeVersion)
+				html += `<div class="env-item"><span class="env-key">Node</span><span class="env-value">${escapeHtml(ctx.nodeVersion)}</span></div>`
+			if (ctx.port)
+				html += `<div class="env-item"><span class="env-key">Port</span><span class="env-value">${escapeHtml(String(ctx.port))}</span></div>`
+			if (ctx.branch)
+				html += `<div class="env-item"><span class="env-key">Branch</span><span class="env-value">${escapeHtml(ctx.branch)}</span></div>`
+			if (ctx.hasDocker !== undefined)
+				html += `<div class="env-item"><span class="env-key">Docker</span><span class="env-value">${ctx.hasDocker ? "✅ Available" : "❌ Not available"}</span></div>`
+			if (ctx.hasTypeScript !== undefined)
+				html += `<div class="env-item"><span class="env-key">TypeScript</span><span class="env-value">${ctx.hasTypeScript ? "✅ Yes" : "❌ No"}</span></div>`
 		}
 
 		container.innerHTML = html || '<p class="muted">No project context available.</p>'
@@ -731,6 +997,9 @@ async function selectWorkspace(ws) {
 	try {
 		await loadBrainMemory()
 	} catch {}
+
+	// Reconnect WebSocket for this workspace
+	connectWebSocket()
 }
 
 // ── Load Files ─────────────────────────────────────────────────────────────────
@@ -1166,11 +1435,346 @@ async function runAgent() {
 	await sendCommand()
 }
 
-// ── Terminal / Commit ──────────────────────────────────────────────────────────
+// ── Terminal ────────────────────────────────────────────────────────────────────
 
-function openTerminal() {
-	showNotice("⌨ Terminal feature — coming soon.")
+function toggleTerminal() {
+	state.terminal.visible = !state.terminal.visible
+	const section = document.getElementById("terminal-section")
+	if (section) {
+		section.classList.toggle("hidden", !state.terminal.visible)
+	}
+	if (state.terminal.visible) {
+		setTimeout(() => {
+			const input = document.getElementById("terminal-input")
+			if (input) input.focus()
+		}, 100)
+	}
 }
+
+function renderTerminalOutput() {
+	const container = document.getElementById("terminal-output")
+	if (!container) return
+	container.innerHTML = state.terminal.output
+		.map((line) => {
+			const cls =
+				line.startsWith("error:") || line.startsWith("Error:") || line.startsWith("❌")
+					? "term-line-error"
+					: line.startsWith("warn:") || line.startsWith("Warn:") || line.startsWith("⚠️")
+						? "term-line-warn"
+						: line.startsWith("→") || line.startsWith("ℹ️")
+							? "term-line-info"
+							: line.startsWith("#") || line.startsWith("//")
+								? "term-line-muted"
+								: ""
+			return `<div class="${cls}">${escapeHtml(line)}</div>`
+		})
+		.join("")
+	container.scrollTop = container.scrollHeight
+}
+
+async function executeTerminalCommand() {
+	const input = document.getElementById("terminal-input")
+	if (!input) return
+	const cmd = input.value.trim()
+	if (!cmd) return
+
+	// Add to terminal output
+	state.terminal.output.push(`$ ${cmd}`)
+	state.terminal.history.push(cmd)
+	state.terminal.historyIndex = state.terminal.history.length
+	input.value = ""
+
+	// Hide suggestions
+	hideTerminalSuggestions()
+
+	// Check for @agent mentions
+	if (cmd.startsWith("@")) {
+		const agentName = cmd.split(" ")[0].slice(1)
+		state.terminal.output.push(`→ Delegating to @${agentName}...`)
+		renderTerminalOutput()
+		try {
+			const result = await apiRequest(`/workspaces/${state.active.id}/command`, {
+				method: "POST",
+				body: JSON.stringify({ prompt: cmd, agent: agentName }),
+			})
+			state.terminal.output.push(result.output || result.message || `✅ @${agentName} completed.`)
+		} catch (err) {
+			state.terminal.output.push(`❌ Agent error: ${err.message}`)
+		}
+		renderTerminalOutput()
+		return
+	}
+
+	// Execute command via API
+	state.terminal.output.push(`→ Running...`)
+	renderTerminalOutput()
+
+	try {
+		const result = await apiRequest(`/workspaces/${state.active.id}/command`, {
+			method: "POST",
+			body: JSON.stringify({ prompt: cmd, terminal: true }),
+		})
+		const output = result.output || result.message || "✅ Command completed."
+		const lines = Array.isArray(output) ? output : output.split("\n")
+		state.terminal.output.push(...lines)
+	} catch (err) {
+		state.terminal.output.push(`❌ ${err.message}`)
+	}
+
+	renderTerminalOutput()
+
+	// Add to logs
+	state.logs.unshift({
+		type: "ok",
+		text: `Terminal: "${cmd.substring(0, 50)}${cmd.length > 50 ? "..." : ""}"`,
+		time: new Date().toLocaleTimeString(),
+	})
+	renderLogs()
+}
+
+function handleTerminalKeyDown(e) {
+	if (e.key === "Enter") {
+		e.preventDefault()
+		executeTerminalCommand()
+	} else if (e.key === "ArrowUp") {
+		e.preventDefault()
+		if (state.terminal.history.length > 0 && state.terminal.historyIndex > 0) {
+			state.terminal.historyIndex--
+			const input = document.getElementById("terminal-input")
+			if (input) input.value = state.terminal.history[state.terminal.historyIndex]
+		}
+	} else if (e.key === "ArrowDown") {
+		e.preventDefault()
+		if (state.terminal.historyIndex < state.terminal.history.length - 1) {
+			state.terminal.historyIndex++
+			const input = document.getElementById("terminal-input")
+			if (input) input.value = state.terminal.history[state.terminal.historyIndex]
+		} else {
+			state.terminal.historyIndex = state.terminal.history.length
+			const input = document.getElementById("terminal-input")
+			if (input) input.value = ""
+		}
+	} else if (e.key === "Escape") {
+		hideTerminalSuggestions()
+	} else if (e.key === "Tab") {
+		e.preventDefault()
+		showTerminalSuggestions()
+	}
+}
+
+function clearTerminal() {
+	state.terminal.output = []
+	renderTerminalOutput()
+}
+
+function copyTerminal() {
+	const text = state.terminal.output.join("\n")
+	navigator.clipboard
+		.writeText(text)
+		.then(() => {
+			showNotice("📋 Terminal output copied.")
+		})
+		.catch(() => {})
+}
+
+// ── Terminal Autocomplete ───────────────────────────────────────────────────────
+
+const TERMINAL_SUGGESTIONS = [
+	{ cmd: "build", desc: "Run build process" },
+	{ cmd: "test", desc: "Run test suite" },
+	{ cmd: "deploy", desc: "Deploy to production" },
+	{ cmd: "dev", desc: "Start dev server" },
+	{ cmd: "install", desc: "Install dependencies" },
+	{ cmd: "lint", desc: "Run linter" },
+	{ cmd: "format", desc: "Format code" },
+	{ cmd: "clean", desc: "Clean build artifacts" },
+	{ cmd: "docker ps", desc: "List Docker containers" },
+	{ cmd: "docker logs", desc: "View Docker logs" },
+	{ cmd: "git status", desc: "Check git status" },
+	{ cmd: "git diff", desc: "Show git diff" },
+	{ cmd: "git log", desc: "Show git log" },
+	{ cmd: "git push", desc: "Push to remote" },
+	{ cmd: "npm run build", desc: "NPM build" },
+	{ cmd: "npm test", desc: "NPM test" },
+	{ cmd: "@debugger", desc: "Delegate to debug agent" },
+	{ cmd: "@deployer", desc: "Delegate to deploy agent" },
+	{ cmd: "@tester", desc: "Delegate to test agent" },
+	{ cmd: "@coder", desc: "Delegate to coding agent" },
+	{ cmd: "@reviewer", desc: "Delegate to review agent" },
+]
+
+function showTerminalSuggestions() {
+	const input = document.getElementById("terminal-input")
+	if (!input) return
+	const val = input.value.toLowerCase()
+	const container = document.getElementById("terminal-suggestions")
+	if (!container) return
+
+	const matches = TERMINAL_SUGGESTIONS.filter((s) => s.cmd.startsWith(val) || s.cmd.includes(val))
+
+	if (matches.length === 0 || val.length === 0) {
+		container.classList.add("hidden")
+		return
+	}
+
+	container.innerHTML = matches
+		.map(
+			(s) =>
+				`<div class="suggestion-item" onclick="selectTerminalSuggestion('${s.cmd}')">
+					${escapeHtml(s.cmd)}
+					<span class="suggestion-desc">${escapeHtml(s.desc)}</span>
+				</div>`,
+		)
+		.join("")
+	container.classList.remove("hidden")
+}
+
+function hideTerminalSuggestions() {
+	const container = document.getElementById("terminal-suggestions")
+	if (container) container.classList.add("hidden")
+}
+
+function selectTerminalSuggestion(cmd) {
+	const input = document.getElementById("terminal-input")
+	if (input) {
+		input.value = cmd
+		input.focus()
+	}
+	hideTerminalSuggestions()
+}
+
+// ── Pipeline ────────────────────────────────────────────────────────────────────
+
+function renderPipeline() {
+	const bar = document.getElementById("pipeline-bar")
+	const steps = document.getElementById("pipeline-steps")
+	const status = document.getElementById("pipeline-status")
+	if (!bar || !steps) return
+
+	if (state.pipeline.length === 0) {
+		bar.classList.add("hidden")
+		return
+	}
+
+	bar.classList.remove("hidden")
+	steps.innerHTML = state.pipeline
+		.map(
+			(s) => `
+		<div class="pipeline-step step-${s.status || "pending"}" onclick="quickAction('${s.label}')">
+			<span class="step-icon">${s.status === "success" ? "✅" : s.status === "failed" ? "❌" : s.status === "running" ? "⏳" : "⏸️"}</span>
+			<span class="step-label">${escapeHtml(s.label)}</span>
+		</div>
+	`,
+		)
+		.join("")
+
+	const running = state.pipeline.find((s) => s.status === "running")
+	const failed = state.pipeline.find((s) => s.status === "failed")
+	if (status) {
+		status.textContent = running ? "Running" : failed ? "Failed" : "Completed"
+		status.className = `pill ${running ? "yellow" : failed ? "red" : "green"}`
+	}
+}
+
+function addPipelineStep(label) {
+	state.pipeline.push({ label, status: "pending" })
+	renderPipeline()
+}
+
+function updatePipelineStep(label, status) {
+	const step = state.pipeline.find((s) => s.label === label)
+	if (step) {
+		step.status = status
+		renderPipeline()
+	}
+}
+
+// ── Agent Mode ──────────────────────────────────────────────────────────────────
+
+function setAgentMode(mode) {
+	state.agentMode = mode
+	document.querySelectorAll(".agent-mode").forEach((btn) => {
+		btn.classList.toggle("active", btn.dataset.mode === mode)
+	})
+	const label = document.getElementById("agent-mode-label")
+	if (label) {
+		const labels = { auto: "Auto", plan: "Plan", code: "Code", debug: "Debug", review: "Review", crawl: "Crawl" }
+		label.textContent = labels[mode] || mode
+	}
+	showNotice(`🤖 Agent mode switched to ${mode}`)
+}
+
+// ── Keyboard Shortcuts Modal ────────────────────────────────────────────────────
+
+function showKeyboardShortcuts() {
+	const modal = document.getElementById("shortcuts-modal")
+	if (modal) modal.classList.remove("hidden")
+}
+
+function closeShortcutsModal(event) {
+	if (event && event.target !== event.currentTarget) return
+	const modal = document.getElementById("shortcuts-modal")
+	if (modal) modal.classList.add("hidden")
+}
+
+// ── Global Keyboard Shortcuts ───────────────────────────────────────────────────
+
+document.addEventListener("keydown", function (e) {
+	// Ctrl+` : Toggle terminal
+	if (e.ctrlKey && e.key === "`") {
+		e.preventDefault()
+		toggleTerminal()
+	}
+	// Ctrl+K : Clear terminal (only if terminal is focused)
+	if (e.ctrlKey && e.key === "k") {
+		const active = document.activeElement
+		if (active && active.id === "terminal-input") {
+			e.preventDefault()
+			clearTerminal()
+		}
+	}
+	// Ctrl+S : Save file
+	if (e.ctrlKey && e.key === "s") {
+		e.preventDefault()
+		saveFile()
+	}
+	// Ctrl+Shift+M : Show shortcuts modal
+	if (e.ctrlKey && e.shiftKey && (e.key === "m" || e.key === "M")) {
+		e.preventDefault()
+		showKeyboardShortcuts()
+	}
+	// Escape : Close modals
+	if (e.key === "Escape") {
+		closeShortcutsModal()
+		hideTerminalSuggestions()
+	}
+	// Ctrl+Enter : Send AI command (from ai-prompt)
+	if (e.ctrlKey && e.key === "Enter") {
+		const active = document.activeElement
+		if (active && active.id === "ai-prompt") {
+			e.preventDefault()
+			sendBrainCommand()
+		}
+	}
+	// Ctrl+Shift+Enter : Send brain command
+	if (e.ctrlKey && e.shiftKey && e.key === "Enter") {
+		e.preventDefault()
+		sendBrainCommand()
+	}
+})
+
+// ── Terminal input keydown handler (attached on init) ───────────────────────────
+
+function initTerminalInput() {
+	const input = document.getElementById("terminal-input")
+	if (input) {
+		input.addEventListener("keydown", handleTerminalKeyDown)
+		input.addEventListener("input", showTerminalSuggestions)
+		input.addEventListener("blur", () => setTimeout(hideTerminalSuggestions, 200))
+	}
+}
+
+// ── Commit ──────────────────────────────────────────────────────────────────────
 
 function commitChanges() {
 	if (!state.active) return
@@ -1267,6 +1871,9 @@ async function init() {
 
 		// Initialize Monaco editor
 		initEditor()
+
+		// Initialize terminal input handler
+		initTerminalInput()
 
 		// Load workspaces
 		await loadWorkspaces()

@@ -17,7 +17,8 @@ param(
 )
 
 $SSH_KEY = "C:\Users\User\.ssh\id_superroo_vps"
-$SSH_TARGET = "root@104.248.225.250"
+# Using Tailscale IP (100.64.175.88) instead of public IP for secure mesh connection
+$SSH_TARGET = "root@100.64.175.88"
 $SSH_OPTS = "-o StrictHostKeyChecking=no -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -i `"$SSH_KEY`""
 $PROJECT_ROOT = "/opt/superroo2"
 $CLOUD_DIR = "$PROJECT_ROOT/cloud"

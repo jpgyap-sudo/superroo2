@@ -31,7 +31,8 @@ const LOG_FILE = path.join(__dirname, "..", "logs", "auto-deployer.log")
 const PROJECT_ROOT = "/opt/superroo2"
 const CLOUD_DIR = path.join(PROJECT_ROOT, "cloud")
 const DASHBOARD_DIR = path.join(CLOUD_DIR, "dashboard")
-const SSH_TARGET = "root@104.248.225.250"
+// Using Tailscale IP (100.64.175.88) instead of public IP for secure mesh connection
+const SSH_TARGET = "root@100.64.175.88"
 const SSH_KEY = "/root/.ssh/id_superroo_vps"
 const SSH_OPTS = `-o StrictHostKeyChecking=no -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -i ${SSH_KEY}`
 
@@ -59,7 +60,9 @@ function log(msg) {
 	console.log(line)
 	try {
 		fs.appendFileSync(LOG_FILE, line + "\n")
-	} catch { /* ignore */ }
+	} catch {
+		/* ignore */
+	}
 }
 
 // ── Status Persistence ─────────────────────────────────────────────────────────
@@ -80,7 +83,9 @@ function loadStatus() {
 			const data = fs.readFileSync(STATUS_FILE, "utf8")
 			status = { ...status, ...JSON.parse(data) }
 		}
-	} catch { /* ignore */ }
+	} catch {
+		/* ignore */
+	}
 }
 
 // ── SSH Helpers ────────────────────────────────────────────────────────────────
@@ -89,7 +94,9 @@ function killStuckSSH() {
 	try {
 		execSync("pkill -9 ssh 2>/dev/null || true", { stdio: "ignore" })
 		log("[SSH] Killed all stuck SSH processes")
-	} catch { /* ignore */ }
+	} catch {
+		/* ignore */
+	}
 }
 
 function sshCmd(desc, timeout, command) {
@@ -127,18 +134,20 @@ async function runDeploy() {
 	await sshCmd("git pull", 60, `cd ${PROJECT_ROOT} && git pull origin main`)
 
 	// Step 3: Install deps (filtered)
-	await sshCmd("pnpm install (filtered)", 180,
-		`cd ${PROJECT_ROOT} && corepack enable 2>/dev/null; corepack pnpm install --filter cloud/dashboard --frozen-lockfile --prefer-offline`
+	await sshCmd(
+		"pnpm install (filtered)",
+		180,
+		`cd ${PROJECT_ROOT} && corepack enable 2>/dev/null; corepack pnpm install --filter cloud/dashboard --frozen-lockfile --prefer-offline`,
 	)
 
 	// Step 4: Build
-	await sshCmd("pnpm build", 300,
-		`cd ${PROJECT_ROOT} && corepack pnpm --dir ${DASHBOARD_DIR} run build`
-	)
+	await sshCmd("pnpm build", 300, `cd ${PROJECT_ROOT} && corepack pnpm --dir ${DASHBOARD_DIR} run build`)
 
 	// Step 5: Restart PM2
-	await sshCmd("pm2 restart", 60,
-		`cd ${CLOUD_DIR} && (pm2 restart ecosystem.config.js || pm2 start ecosystem.config.js) && pm2 save`
+	await sshCmd(
+		"pm2 restart",
+		60,
+		`cd ${CLOUD_DIR} && (pm2 restart ecosystem.config.js || pm2 start ecosystem.config.js) && pm2 save`,
 	)
 
 	// Step 6: Verify
@@ -247,26 +256,30 @@ function handleRequest(req, res) {
 	// GET /status — Return current auto-deployer status
 	if (method === "GET" && (url.pathname === "/status" || url.pathname === "/api/auto-deploy/status")) {
 		res.writeHead(200, { "Content-Type": "application/json" })
-		res.end(JSON.stringify({
-			success: true,
-			data: {
-				...status,
-				isRunning,
-				currentAttempt,
-			},
-		}))
+		res.end(
+			JSON.stringify({
+				success: true,
+				data: {
+					...status,
+					isRunning,
+					currentAttempt,
+				},
+			}),
+		)
 		return
 	}
 
 	// POST /trigger — Trigger a deploy
 	if (method === "POST" && (url.pathname === "/trigger" || url.pathname === "/api/auto-deploy/trigger")) {
-		startDeploy("api").then((result) => {
-			res.writeHead(result.success ? 200 : 500, { "Content-Type": "application/json" })
-			res.end(JSON.stringify(result))
-		}).catch((err) => {
-			res.writeHead(500, { "Content-Type": "application/json" })
-			res.end(JSON.stringify({ success: false, error: err.message }))
-		})
+		startDeploy("api")
+			.then((result) => {
+				res.writeHead(result.success ? 200 : 500, { "Content-Type": "application/json" })
+				res.end(JSON.stringify(result))
+			})
+			.catch((err) => {
+				res.writeHead(500, { "Content-Type": "application/json" })
+				res.end(JSON.stringify({ success: false, error: err.message }))
+			})
 		return
 	}
 

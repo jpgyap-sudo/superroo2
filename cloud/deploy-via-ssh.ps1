@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory=$true)]
     [string]$Command,
     [int]$TimeoutSeconds = 30,
-    [string]$RemoteHost = "root@104.248.225.250"
+    [string]$RemoteHost = "root@100.64.175.88"
 )
 
 $sshArgs = @(

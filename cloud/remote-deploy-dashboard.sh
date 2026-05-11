@@ -17,8 +17,9 @@
 
 set -euo pipefail
 
+# Tailscale IP (100.64.175.88) used instead of public IP (104.248.225.250) for secure mesh connection
 SSH_KEY="C:\\Users\\User\\.ssh\\id_superroo_vps"
-SSH_TARGET="root@104.248.225.250"
+SSH_TARGET="root@100.64.175.88"
 # SSH options to prevent hanging:
 #   ServerAliveInterval=15  — send keepalive every 15s
 #   ServerAliveCountMax=3   — disconnect after 3 missed keepalives (45s silence)

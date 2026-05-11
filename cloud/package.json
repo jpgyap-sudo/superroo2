@@ -5,6 +5,7 @@
 	"private": true,
 	"dependencies": {
 		"bullmq": "^5.76.5",
-		"ioredis": "^5.10.1"
+		"ioredis": "^5.10.1",
+		"ws": "^8.16.0"
 	}
 }

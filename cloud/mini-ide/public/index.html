@@ -86,11 +86,53 @@
                   <p id="ws-repo">—</p>
                 </div>
                 <div class="button-row">
-                  <button class="btn secondary" onclick="openTerminal()">⌨ Terminal</button>
+                  <button class="btn secondary" onclick="toggleTerminal()">⌨ Terminal</button>
                   <button class="btn secondary" onclick="commitChanges()">🌿 Commit</button>
+                  <button class="btn secondary" onclick="showKeyboardShortcuts()">⌨️ Shortcuts</button>
                 </div>
               </div>
               <div class="stats-grid" id="stats-grid"></div>
+            </div>
+
+            <!-- Pipeline Bar -->
+            <div id="pipeline-bar" class="card pipeline-bar hidden" style="margin-bottom:8px">
+              <div class="section-head">
+                <h2>📋 Pipeline</h2>
+                <span class="pill blue" id="pipeline-status">Idle</span>
+              </div>
+              <div id="pipeline-steps" class="pipeline-steps"></div>
+            </div>
+
+            <!-- Terminal -->
+            <div id="terminal-section" class="card terminal-card hidden" style="margin-bottom:8px">
+              <div class="terminal-head">
+                <span>⌨ Terminal</span>
+                <div class="terminal-actions">
+                  <button class="btn secondary small" onclick="clearTerminal()">Clear</button>
+                  <button class="btn secondary small" onclick="copyTerminal()">📋 Copy</button>
+                  <button class="btn secondary small" onclick="toggleTerminal()">✕</button>
+                </div>
+              </div>
+              <div id="terminal-output" class="terminal-output"></div>
+              <div class="terminal-input-row">
+                <span class="terminal-prompt">$</span>
+                <input type="text" id="terminal-input" placeholder="Type a command or @agent mention..." autocomplete="off" />
+                <button class="btn primary small" onclick="executeTerminalCommand()">▶</button>
+              </div>
+              <div id="terminal-suggestions" class="terminal-suggestions hidden"></div>
+            </div>
+
+            <!-- Agent Mode Bar -->
+            <div class="card agent-mode-bar" style="margin-bottom:8px">
+              <div class="agent-modes">
+                <button class="agent-mode active" data-mode="auto" onclick="setAgentMode('auto')">🤖 Auto</button>
+                <button class="agent-mode" data-mode="plan" onclick="setAgentMode('plan')">📋 Plan</button>
+                <button class="agent-mode" data-mode="code" onclick="setAgentMode('code')">💻 Code</button>
+                <button class="agent-mode" data-mode="debug" onclick="setAgentMode('debug')">🐛 Debug</button>
+                <button class="agent-mode" data-mode="review" onclick="setAgentMode('review')">👁 Review</button>
+                <button class="agent-mode" data-mode="crawl" onclick="setAgentMode('crawl')">🕷 Crawl</button>
+              </div>
+              <span class="agent-mode-label" id="agent-mode-label">Auto</span>
             </div>
 
             <!-- Editor -->
@@ -253,6 +295,17 @@
               </div>
             </div>
 
+            <!-- Recent Tasks (cross-platform memory) -->
+            <div class="card" style="margin-top:8px">
+              <div class="section-head">
+                <h2>📋 Recent Tasks</h2>
+                <span class="pill blue" id="task-count">0</span>
+              </div>
+              <div id="tasks-container" class="tasks-container">
+                <p class="muted">No recent tasks. Send a command to get started.</p>
+              </div>
+            </div>
+
             <!-- Live Logs (always visible) -->
             <div class="card" style="margin-top:8px">
               <div class="section-head">
@@ -275,6 +328,26 @@
               </div>
             </div>
           </aside>
+        </div>
+      </div>
+    </div>
+
+    <!-- Keyboard Shortcuts Modal -->
+    <div id="shortcuts-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeShortcutsModal()">
+      <div class="modal-content">
+        <div class="modal-head">
+          <h2>⌨️ Keyboard Shortcuts</h2>
+          <button class="btn secondary small" onclick="closeShortcutsModal()">✕</button>
+        </div>
+        <div class="shortcuts-list">
+          <div class="shortcut-row"><kbd>Ctrl+Enter</kbd><span>Send AI command</span></div>
+          <div class="shortcut-row"><kbd>Ctrl+Shift+Enter</kbd><span>Execute with Terminal Brain</span></div>
+          <div class="shortcut-row"><kbd>Ctrl+`</kbd><span>Toggle terminal</span></div>
+          <div class="shortcut-row"><kbd>Ctrl+K</kbd><span>Clear terminal output</span></div>
+          <div class="shortcut-row"><kbd>Ctrl+S</kbd><span>Save file</span></div>
+          <div class="shortcut-row"><kbd>Ctrl+P</kbd><span>Search files</span></div>
+          <div class="shortcut-row"><kbd>Ctrl+Shift+M</kbd><span>Toggle agent mode menu</span></div>
+          <div class="shortcut-row"><kbd>Escape</kbd><span>Close modals / suggestions</span></div>
         </div>
       </div>
     </div>

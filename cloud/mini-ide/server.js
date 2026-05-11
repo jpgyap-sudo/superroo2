@@ -19,6 +19,8 @@ const fs = require("fs").promises
 const path = require("path")
 const os = require("os")
 const multer = require("multer")
+const http = require("http")
+const { WebSocketServer } = require("ws")
 
 // ── Terminal Brain integration ─────────────────────────────────────────────────
 
@@ -225,6 +227,7 @@ async function getWorkspaceLogs(workspaceId) {
 // ── Express app ────────────────────────────────────────────────────────────────
 
 const app = express()
+const server = http.createServer(app)
 
 app.use(cors({ origin: CORS_ORIGIN || true }))
 app.use(express.json({ limit: "10mb" }))
@@ -263,14 +266,18 @@ app.use("/api", (req, res, next) => {
 // ── Terminal Brain routes (mounted under /api/terminal-brain) ──────────────────
 
 if (terminalBrainRouter) {
-	app.use("/api/terminal-brain", (req, res, next) => {
-		// Forward Telegram user info as session headers
-		if (req.telegramUser) {
-			req.headers["x-session-id"] = `tg-${req.telegramUser.id || "anon"}-${Date.now()}`
-		}
-		req.headers["x-workspace-root"] = WORKSPACE_ROOT || process.cwd()
-		next()
-	}, terminalBrainRouter)
+	app.use(
+		"/api/terminal-brain",
+		(req, res, next) => {
+			// Forward Telegram user info as session headers
+			if (req.telegramUser) {
+				req.headers["x-session-id"] = `tg-${req.telegramUser.id || "anon"}-${Date.now()}`
+			}
+			req.headers["x-workspace-root"] = WORKSPACE_ROOT || process.cwd()
+			next()
+		},
+		terminalBrainRouter,
+	)
 }
 
 // ── API Routes ─────────────────────────────────────────────────────────────────
@@ -556,6 +563,88 @@ app.delete("/api/tasks/:id", async (req, res) => {
 	}
 })
 
+// ── WebSocket server for real-time terminal output streaming ───────────────────
+
+const wss = new WebSocketServer({ server, path: "/ws" })
+
+// Track connected clients per workspace
+const wsClients = new Map() // workspaceId -> Set<WebSocket>
+
+wss.on("connection", (ws, req) => {
+	const url = new URL(req.url, `http://${req.headers.host}`)
+	const workspaceId = url.searchParams.get("workspace") || "global"
+
+	if (!wsClients.has(workspaceId)) {
+		wsClients.set(workspaceId, new Set())
+	}
+	wsClients.get(workspaceId).add(ws)
+	ws.workspaceId = workspaceId
+
+	console.log(`[Mini IDE WS] Client connected for workspace: ${workspaceId}`)
+
+	// Send a welcome message
+	ws.send(JSON.stringify({ type: "connected", workspaceId, timestamp: new Date().toISOString() }))
+
+	ws.on("close", () => {
+		const clients = wsClients.get(workspaceId)
+		if (clients) {
+			clients.delete(ws)
+			if (clients.size === 0) {
+				wsClients.delete(workspaceId)
+			}
+		}
+		console.log(`[Mini IDE WS] Client disconnected for workspace: ${workspaceId}`)
+	})
+
+	ws.on("error", (err) => {
+		console.error(`[Mini IDE WS] Error for workspace ${workspaceId}:`, err.message)
+	})
+})
+
+// Broadcast a message to all clients connected to a specific workspace
+function broadcastToWorkspace(workspaceId, message) {
+	const clients = wsClients.get(workspaceId)
+	if (!clients) return
+	const data = typeof message === "string" ? message : JSON.stringify(message)
+	for (const ws of clients) {
+		try {
+			ws.send(data)
+		} catch (err) {
+			console.error("[Mini IDE WS] Broadcast error:", err.message)
+		}
+	}
+}
+
+// Broadcast a terminal output line to all workspace clients
+function broadcastTerminalOutput(workspaceId, line) {
+	broadcastToWorkspace(workspaceId, {
+		type: "terminal-output",
+		workspaceId,
+		line,
+		timestamp: new Date().toISOString(),
+	})
+}
+
+// Broadcast a pipeline update to all workspace clients
+function broadcastPipelineUpdate(workspaceId, pipeline) {
+	broadcastToWorkspace(workspaceId, {
+		type: "pipeline-update",
+		workspaceId,
+		pipeline,
+		timestamp: new Date().toISOString(),
+	})
+}
+
+// Broadcast a log entry to all workspace clients
+function broadcastLogEntry(workspaceId, logEntry) {
+	broadcastToWorkspace(workspaceId, {
+		type: "log-entry",
+		workspaceId,
+		log: logEntry,
+		timestamp: new Date().toISOString(),
+	})
+}
+
 // ── Error handler ──────────────────────────────────────────────────────────────
 
 app.use((err, req, res, next) => {
@@ -567,8 +656,9 @@ app.use((err, req, res, next) => {
 
 // ── Start server ───────────────────────────────────────────────────────────────
 
-app.listen(PORT, () => {
+server.listen(PORT, () => {
 	console.log(`[Mini IDE] SuperRoo Telegram Mini IDE API listening on port ${PORT}`)
+	console.log(`[Mini IDE] WebSocket available at ws://0.0.0.0:${PORT}/ws`)
 	console.log(`[Mini IDE] Upload dir: ${UPLOAD_DIR}`)
 	console.log(`[Mini IDE] Workspace root: ${WORKSPACE_ROOT || "(not set, using demo data)"}`)
 	console.log(`[Mini IDE] NODE_ENV: ${process.env.NODE_ENV || "development"}`)
@@ -578,10 +668,16 @@ app.listen(PORT, () => {
 
 process.on("SIGINT", () => {
 	console.log("[Mini IDE] Shutting down...")
-	process.exit(0)
+	wss.close(() => {
+		console.log("[Mini IDE] WebSocket server closed")
+		process.exit(0)
+	})
 })
 
 process.on("SIGTERM", () => {
 	console.log("[Mini IDE] Shutting down...")
-	process.exit(0)
+	wss.close(() => {
+		console.log("[Mini IDE] WebSocket server closed")
+		process.exit(0)
+	})
 })

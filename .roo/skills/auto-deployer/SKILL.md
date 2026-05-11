@@ -83,6 +83,38 @@ This is the core workflow. The **coding bot** (VS Code / IDE agent) tries to dep
 └──────────────────────────────────────────────────────────────────┘
 ```
 
+## Tailscale Integration
+
+All SSH connections now use **Tailscale IP** (`100.64.175.88`) instead of the public IP (`104.248.225.250`) for secure mesh networking.
+
+### SSH Target
+
+```bash
+# Before (public IP):
+SSH_TARGET="root@104.248.225.250"
+
+# After (Tailscale IP):
+SSH_TARGET="root@100.64.175.88"
+```
+
+### Files Updated
+
+| File                                 | Change                              |
+| ------------------------------------ | ----------------------------------- |
+| `cloud/remote-deploy-dashboard.sh`   | `104.248.225.250` → `100.64.175.88` |
+| `cloud/worker/autoDeployer.js`       | `104.248.225.250` → `100.64.175.88` |
+| `cloud/deploy-via-ssh.ps1`           | `104.248.225.250` → `100.64.175.88` |
+| `cloud/deploy-dashboard-windows.ps1` | `104.248.225.250` → `100.64.175.88` |
+| `cloud/auto-deploy-windows.ps1`      | `104.248.225.250` → `100.64.175.88` |
+| `cloud/auto-deploy.sh`               | `104.248.225.250` → `100.64.175.88` |
+| `cloud/remote-deploy-crash-fixes.sh` | `104.248.225.250` → `100.64.175.88` |
+
+### Benefits
+
+- **WireGuard encryption** — all traffic encrypted by default
+- **No open SSH port** — SSH doesn't need to be exposed to the internet
+- **Direct connection** — currently direct (not relayed), no performance loss
+- **Stable IP** — Tailscale IP doesn't change even if public IP changes
 
 ## SSH Hang Prevention (Built-in)
 
