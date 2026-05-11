@@ -171,3 +171,72 @@ CREATE TABLE IF NOT EXISTS memory_store (
 );
 
 CREATE INDEX IF NOT EXISTS idx_memory_category ON memory_store(category);
+
+-- ML Sync: stores serialized model weights for federated learning
+CREATE TABLE IF NOT EXISTS ml_models (
+  id TEXT PRIMARY KEY,
+  model_type TEXT NOT NULL,
+  source TEXT NOT NULL,
+  schema_version INTEGER NOT NULL DEFAULT 1,
+  feature_dimensions INTEGER NOT NULL,
+  training_samples INTEGER NOT NULL DEFAULT 0,
+  parameters TEXT NOT NULL,
+  architecture TEXT DEFAULT '{}',
+  metadata TEXT DEFAULT '{}',
+  is_merged INTEGER NOT NULL DEFAULT 0,
+  merged_from TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ml_models_type ON ml_models(model_type);
+CREATE INDEX IF NOT EXISTS idx_ml_models_source ON ml_models(source);
+CREATE INDEX IF NOT EXISTS idx_ml_models_samples ON ml_models(training_samples);
+CREATE INDEX IF NOT EXISTS idx_ml_models_merged ON ml_models(is_merged);
+
+-- ML Sync: enhanced observations with unified 10-dim features
+CREATE TABLE IF NOT EXISTS ml_observations_v2 (
+  id TEXT PRIMARY KEY,
+  task_type TEXT NOT NULL,
+  input_summary TEXT,
+  output_summary TEXT,
+  success INTEGER NOT NULL DEFAULT 1,
+  duration_ms INTEGER,
+  features_local TEXT DEFAULT '[]',
+  features_cloud TEXT DEFAULT '[]',
+  features_unified TEXT DEFAULT '[]',
+  source TEXT NOT NULL DEFAULT 'local',
+  session_id TEXT,
+  model_version TEXT,
+  predicted_outcome REAL,
+  actual_outcome REAL,
+  prediction_error REAL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ml_obs_v2_type ON ml_observations_v2(task_type);
+CREATE INDEX IF NOT EXISTS idx_ml_obs_v2_success ON ml_observations_v2(success);
+CREATE INDEX IF NOT EXISTS idx_ml_obs_v2_source ON ml_observations_v2(source);
+CREATE INDEX IF NOT EXISTS idx_ml_obs_v2_created ON ml_observations_v2(created_at);
+
+-- ML Sync: tracks sync operations between local and cloud
+CREATE TABLE IF NOT EXISTS ml_sync_log (
+  id TEXT PRIMARY KEY,
+  direction TEXT NOT NULL CHECK(direction IN ('upload','download','bidirectional')),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','in_progress','completed','failed')),
+  model_id TEXT,
+  model_type TEXT,
+  feature_dimensions INTEGER,
+  training_samples INTEGER,
+  source TEXT,
+  target TEXT,
+  payload_size_bytes INTEGER,
+  error_message TEXT,
+  started_at INTEGER,
+  completed_at INTEGER,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ml_sync_direction ON ml_sync_log(direction);
+CREATE INDEX IF NOT EXISTS idx_ml_sync_status ON ml_sync_log(status);
+CREATE INDEX IF NOT EXISTS idx_ml_sync_created ON ml_sync_log(created_at);

@@ -38,6 +38,17 @@ const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || ""
 
 const WORKSPACE_STORE_PATH = path.join(__dirname, "..", "data", "ide-workspace.json")
 
+// ── ML Sync Modules ────────────────────────────────────────────────────────────
+
+const {
+	serializeNeuralNetwork,
+	serializeLinearRegression,
+	deserialize,
+	validate,
+} = require("../orchestrator/ml/ModelSerializer")
+const { federatedMerge, mergeLocalAndCloud } = require("../orchestrator/ml/FederatedMerge")
+const { fromLocal, fromCloud, toLocal, toCloud, UNIFIED_DIMENSIONS } = require("../orchestrator/ml/FeatureMapper")
+
 async function loadWorkspaceStore() {
 	try {
 		const raw = await fs.readFile(WORKSPACE_STORE_PATH, "utf8")
@@ -4223,6 +4234,385 @@ const server = http.createServer(async (req, res) => {
 			}
 			orchestrator.improvementLoop.triggerCycle()
 			sendJson(res, 200, { success: true })
+			return
+		}
+
+		// ── ML Sync API Routes ────────────────────────────────────────────────────
+		// These endpoints enable bidirectional ML model sync between local VS Code
+		// extensions and the cloud orchestrator for federated learning.
+
+		// POST /ml/model/upload — Upload a local model to the cloud
+		// Body: serialized model JSON (from ModelSerializer)
+		if (method === "POST" && (url === "/ml/model/upload" || normalizedUrl === "/ml/model/upload")) {
+			try {
+				const data = await parseBody(req)
+				const validation = validate(data)
+				if (!validation.valid) {
+					sendJson(res, 400, { success: false, error: "Invalid model format", details: validation.errors })
+					return
+				}
+				if (!orchestrator || !orchestrator.memory) {
+					sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
+					return
+				}
+				const modelId = crypto.randomUUID()
+				const now = Date.now()
+				const modelRecord = {
+					id: modelId,
+					modelType: data.modelType,
+					source: data.source || "local",
+					schemaVersion: data.schemaVersion,
+					featureDimensions: data.featureDimensions,
+					trainingSamples: data.trainingSamples || 0,
+					parameters: JSON.stringify(data.parameters),
+					architecture: JSON.stringify(data.architecture || {}),
+					metadata: JSON.stringify(data.metadata || {}),
+					isMerged: 0,
+					mergedFrom: null,
+					createdAt: now,
+					updatedAt: now,
+				}
+				const db = orchestrator.memory.getDb()
+				db.prepare(
+					`INSERT INTO ml_models (id, model_type, source, schema_version, feature_dimensions, training_samples, parameters, architecture, metadata, is_merged, merged_from, created_at, updated_at)
+					 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				).run(
+					modelRecord.id,
+					modelRecord.modelType,
+					modelRecord.source,
+					modelRecord.schemaVersion,
+					modelRecord.featureDimensions,
+					modelRecord.trainingSamples,
+					modelRecord.parameters,
+					modelRecord.architecture,
+					modelRecord.metadata,
+					modelRecord.isMerged,
+					modelRecord.mergedFrom,
+					modelRecord.createdAt,
+					modelRecord.updatedAt,
+				)
+				// Record sync log
+				db.prepare(
+					`INSERT INTO ml_sync_log (id, direction, status, model_id, model_type, feature_dimensions, training_samples, source, target, payload_size_bytes, created_at)
+					 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				).run(
+					crypto.randomUUID(),
+					"upload",
+					"completed",
+					modelId,
+					data.modelType,
+					data.featureDimensions,
+					data.trainingSamples || 0,
+					data.source || "local",
+					"cloud",
+					Buffer.byteLength(JSON.stringify(data), "utf8"),
+					now,
+				)
+				sendJson(res, 200, { success: true, modelId })
+			} catch (err) {
+				writeApiLog("error", "ml-sync", "Model upload failed", { error: err.message })
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /ml/model/latest — Download the latest merged cloud model
+		// Query: ?source=cloud&type=neural-network
+		if (method === "GET" && (url.startsWith("/ml/model/latest") || normalizedUrl.startsWith("/ml/model/latest"))) {
+			try {
+				if (!orchestrator || !orchestrator.memory) {
+					sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
+					return
+				}
+				const targetUrl = url.startsWith("/ml/model/latest") ? url : normalizedUrl
+				const urlObj = new URL(targetUrl, `http://localhost:${PORT}`)
+				const source = urlObj.searchParams.get("source") || "cloud"
+				const modelType = urlObj.searchParams.get("type") || null
+
+				const db = orchestrator.memory.getDb()
+				let row
+				if (modelType) {
+					row = db
+						.prepare(
+							`SELECT * FROM ml_models WHERE source = ? AND model_type = ? ORDER BY training_samples DESC, created_at DESC LIMIT 1`,
+						)
+						.get(source, modelType)
+				} else {
+					row = db
+						.prepare(
+							`SELECT * FROM ml_models WHERE source = ? ORDER BY training_samples DESC, created_at DESC LIMIT 1`,
+						)
+						.get(source)
+				}
+				if (!row) {
+					sendJson(res, 404, { success: false, error: "No model found" })
+					return
+				}
+				const model = {
+					schemaVersion: row.schema_version,
+					modelType: row.model_type,
+					timestamp: new Date(row.created_at).toISOString(),
+					source: row.source,
+					featureDimensions: row.feature_dimensions,
+					trainingSamples: row.training_samples,
+					architecture: JSON.parse(row.architecture || "{}"),
+					parameters: JSON.parse(row.parameters),
+					metadata: {
+						...JSON.parse(row.metadata || "{}"),
+						modelId: row.id,
+						isMerged: !!row.is_merged,
+					},
+				}
+				sendJson(res, 200, { success: true, model })
+			} catch (err) {
+				writeApiLog("error", "ml-sync", "Model download failed", { error: err.message })
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /ml/observations/sync — Sync observations from local to cloud
+		// Body: { observations: [{ taskType, inputSummary, outputSummary, success, durationMs, featuresLocal, featuresCloud, featuresUnified, source, sessionId }] }
+		if (method === "POST" && (url === "/ml/observations/sync" || normalizedUrl === "/ml/observations/sync")) {
+			try {
+				const data = await parseBody(req)
+				if (!data.observations || !Array.isArray(data.observations) || data.observations.length === 0) {
+					sendJson(res, 400, { success: false, error: "observations array is required" })
+					return
+				}
+				if (!orchestrator || !orchestrator.memory) {
+					sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
+					return
+				}
+				const db = orchestrator.memory.getDb()
+				const insert = db.prepare(
+					`INSERT OR IGNORE INTO ml_observations_v2 (id, task_type, input_summary, output_summary, success, duration_ms, features_local, features_cloud, features_unified, source, session_id, created_at)
+					 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				)
+				const now = Date.now()
+				let inserted = 0
+				for (const obs of data.observations) {
+					insert.run(
+						obs.id || crypto.randomUUID(),
+						obs.taskType || "unknown",
+						obs.inputSummary || "",
+						obs.outputSummary || "",
+						obs.success ? 1 : 0,
+						obs.durationMs || 0,
+						JSON.stringify(obs.featuresLocal || []),
+						JSON.stringify(obs.featuresCloud || []),
+						JSON.stringify(obs.featuresUnified || []),
+						obs.source || "local",
+						obs.sessionId || null,
+						obs.createdAt || now,
+					)
+					inserted++
+				}
+				sendJson(res, 200, { success: true, inserted })
+			} catch (err) {
+				writeApiLog("error", "ml-sync", "Observation sync failed", { error: err.message })
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /ml/model/merge — Trigger federated model merge
+		// Body: { sources?: string[], minSamples?: number }
+		if (method === "POST" && (url === "/ml/model/merge" || normalizedUrl === "/ml/model/merge")) {
+			try {
+				if (!orchestrator || !orchestrator.memory) {
+					sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
+					return
+				}
+				const data = await parseBody(req)
+				const db = orchestrator.memory.getDb()
+
+				// Fetch all models with sufficient samples
+				const minSamples = data.minSamples || 1
+				const rows = db
+					.prepare(`SELECT * FROM ml_models WHERE training_samples >= ? ORDER BY created_at DESC`)
+					.all(minSamples)
+
+				if (rows.length < 2) {
+					sendJson(res, 400, {
+						success: false,
+						error: `Need at least 2 models to merge (found ${rows.length})`,
+					})
+					return
+				}
+
+				// Convert DB rows to serialized model format
+				const models = rows.map((r) => ({
+					schemaVersion: r.schema_version,
+					modelType: r.model_type,
+					timestamp: new Date(r.created_at).toISOString(),
+					source: r.source,
+					featureDimensions: r.feature_dimensions,
+					trainingSamples: r.training_samples,
+					architecture: JSON.parse(r.architecture || "{}"),
+					parameters: JSON.parse(r.parameters),
+					metadata: JSON.parse(r.metadata || "{}"),
+				}))
+
+				// Perform federated merge
+				const merged = federatedMerge(models, { minSamples, source: "cloud" })
+
+				// Store merged model
+				const modelId = crypto.randomUUID()
+				const now = Date.now()
+				const mergedFrom = JSON.stringify(
+					models.map((m) => ({
+						source: m.source,
+						samples: m.trainingSamples,
+						type: m.modelType,
+					})),
+				)
+
+				db.prepare(
+					`INSERT INTO ml_models (id, model_type, source, schema_version, feature_dimensions, training_samples, parameters, architecture, metadata, is_merged, merged_from, created_at, updated_at)
+					 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				).run(
+					modelId,
+					merged.modelType,
+					merged.source,
+					merged.schemaVersion,
+					merged.featureDimensions,
+					merged.trainingSamples,
+					JSON.stringify(merged.parameters),
+					JSON.stringify(merged.architecture),
+					JSON.stringify(merged.metadata),
+					1,
+					mergedFrom,
+					now,
+					now,
+				)
+
+				// Record sync log
+				db.prepare(
+					`INSERT INTO ml_sync_log (id, direction, status, model_id, model_type, feature_dimensions, training_samples, source, target, payload_size_bytes, created_at)
+					 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				).run(
+					crypto.randomUUID(),
+					"bidirectional",
+					"completed",
+					modelId,
+					merged.modelType,
+					merged.featureDimensions,
+					merged.trainingSamples,
+					"cloud",
+					"all",
+					Buffer.byteLength(JSON.stringify(merged), "utf8"),
+					now,
+				)
+
+				sendJson(res, 200, {
+					success: true,
+					modelId,
+					mergedFrom: models.length,
+					totalSamples: merged.trainingSamples,
+					modelType: merged.modelType,
+				})
+			} catch (err) {
+				writeApiLog("error", "ml-sync", "Model merge failed", { error: err.message })
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /ml/sync/status — Get sync status and history
+		if (method === "GET" && (url === "/ml/sync/status" || normalizedUrl === "/ml/sync/status")) {
+			try {
+				if (!orchestrator || !orchestrator.memory) {
+					sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
+					return
+				}
+				const db = orchestrator.memory.getDb()
+
+				const totalSyncs = db.prepare("SELECT COUNT(*) as count FROM ml_sync_log").get()
+				const completedSyncs = db
+					.prepare("SELECT COUNT(*) as count FROM ml_sync_log WHERE status = 'completed'")
+					.get()
+				const failedSyncs = db
+					.prepare("SELECT COUNT(*) as count FROM ml_sync_log WHERE status = 'failed'")
+					.get()
+				const totalModels = db.prepare("SELECT COUNT(*) as count FROM ml_models").get()
+				const mergedModels = db.prepare("SELECT COUNT(*) as count FROM ml_models WHERE is_merged = 1").get()
+				const totalObservations = db.prepare("SELECT COUNT(*) as count FROM ml_observations_v2").get()
+				const latestSync = db.prepare("SELECT * FROM ml_sync_log ORDER BY created_at DESC LIMIT 1").get()
+				const latestModel = db
+					.prepare("SELECT * FROM ml_models ORDER BY training_samples DESC, created_at DESC LIMIT 1")
+					.get()
+
+				sendJson(res, 200, {
+					success: true,
+					stats: {
+						totalSyncs: totalSyncs.count,
+						completedSyncs: completedSyncs.count,
+						failedSyncs: failedSyncs.count,
+						totalModels: totalModels.count,
+						mergedModels: mergedModels.count,
+						totalObservations: totalObservations.count,
+					},
+					latestSync: latestSync
+						? {
+								id: latestSync.id,
+								direction: latestSync.direction,
+								status: latestSync.status,
+								modelType: latestSync.model_type,
+								source: latestSync.source,
+								createdAt: latestSync.created_at,
+							}
+						: null,
+					latestModel: latestModel
+						? {
+								id: latestModel.id,
+								modelType: latestModel.model_type,
+								source: latestModel.source,
+								trainingSamples: latestModel.training_samples,
+								featureDimensions: latestModel.feature_dimensions,
+								isMerged: !!latestModel.is_merged,
+								createdAt: latestModel.created_at,
+							}
+						: null,
+				})
+			} catch (err) {
+				writeApiLog("error", "ml-sync", "Sync status failed", { error: err.message })
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /ml/observations — Get recent observations for analysis
+		// Query: ?limit=50&type=code
+		if (method === "GET" && (url.startsWith("/ml/observations") || normalizedUrl.startsWith("/ml/observations"))) {
+			try {
+				if (!orchestrator || !orchestrator.memory) {
+					sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
+					return
+				}
+				const targetUrl = url.startsWith("/ml/observations") ? url : normalizedUrl
+				const urlObj = new URL(targetUrl, `http://localhost:${PORT}`)
+				const limit = parseInt(urlObj.searchParams.get("limit") || "50")
+				const taskType = urlObj.searchParams.get("type") || null
+
+				const db = orchestrator.memory.getDb()
+				let rows
+				if (taskType) {
+					rows = db
+						.prepare(
+							`SELECT * FROM ml_observations_v2 WHERE task_type = ? ORDER BY created_at DESC LIMIT ?`,
+						)
+						.all(taskType, Math.min(limit, 500))
+				} else {
+					rows = db
+						.prepare(`SELECT * FROM ml_observations_v2 ORDER BY created_at DESC LIMIT ?`)
+						.all(Math.min(limit, 500))
+				}
+				sendJson(res, 200, { success: true, observations: rows })
+			} catch (err) {
+				writeApiLog("error", "ml-sync", "Fetch observations failed", { error: err.message })
+				sendJson(res, 500, { success: false, error: err.message })
+			}
 			return
 		}
 

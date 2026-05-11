@@ -10,7 +10,10 @@
  *   4. ACT       — submit follow-up tasks via orchestrator (validated)
  *   5. EVALUATE  — compare predicted vs actual outcomes, track metrics
  *   6. PERSIST   — save model weights so learning survives restarts
- *   7. LOOP      — sleep and repeat
+ *   7. SYNC      — upload local model to cloud, download merged cloud model
+ *   8. LOOP      — sleep and repeat
+ *
+ * Enhanced with bidirectional ML sync via MLSyncClient.
  */
 
 import type { SuperRooOrchestrator } from "../../orchestrator/SuperRooOrchestrator"
@@ -20,6 +23,9 @@ import { CodeLearner } from "../learning/CodeLearner"
 import { DebugLearner } from "../learning/DebugLearner"
 import { TestLearner } from "../learning/TestLearner"
 import { ActionOutcomeTracker } from "../engine/Metrics"
+import { MLSyncClient, type MLSyncConfig, type SyncObservation } from "../sync/MLSyncClient"
+import { ModelPersistence } from "../engine/ModelPersistence"
+import { NeuralNetwork } from "../engine/NeuralNetwork"
 
 export interface LoopConfig {
 	/** Minimum samples before training starts. */
@@ -36,6 +42,12 @@ export interface LoopConfig {
 	modelDir?: string
 	/** Max auto-actions per loop iteration to avoid runaway queuing. */
 	maxActionsPerIteration: number
+	/** Cloud API base URL for ML sync (e.g., "http://100.64.175.88:8787"). */
+	cloudApiBaseUrl?: string
+	/** Auth token for cloud API. */
+	cloudAuthToken?: string
+	/** Sync interval in ms. Default: 5 minutes. */
+	syncIntervalMs?: number
 }
 
 export interface LoopStats {
@@ -77,6 +89,10 @@ export class InfiniteImprovementLoop {
 	private outcomeTracker = new ActionOutcomeTracker()
 	private actionCountThisIteration = 0
 
+	// ML Sync
+	private mlSyncClient: MLSyncClient | null = null
+	private modelPersistence: ModelPersistence | null = null
+
 	constructor(
 		private readonly orchestrator: SuperRooOrchestrator,
 		private readonly config: LoopConfig = {
@@ -103,6 +119,20 @@ export class InfiniteImprovementLoop {
 			epochs: this.config.trainEpochs,
 			modelDir: this.config.modelDir,
 		})
+
+		// Initialize MLSyncClient if cloud API URL is configured
+		if (this.config.cloudApiBaseUrl) {
+			this.modelPersistence = new ModelPersistence({
+				dir: this.config.modelDir || ".",
+				name: "ml-sync-model",
+			})
+			const syncConfig: MLSyncConfig = {
+				apiBaseUrl: this.config.cloudApiBaseUrl,
+				syncIntervalMs: this.config.syncIntervalMs,
+				authToken: this.config.cloudAuthToken,
+			}
+			this.mlSyncClient = new MLSyncClient(syncConfig, this.modelPersistence)
+		}
 	}
 
 	// ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -130,6 +160,17 @@ export class InfiniteImprovementLoop {
 			this.orchestrator.events.warn("ml.loop.restore_error", `Could not restore weights: ${msg}`)
 		}
 
+		// Start ML sync client if configured
+		if (this.mlSyncClient) {
+			try {
+				await this.mlSyncClient.start()
+				this.orchestrator.events.info("ml.loop.sync_started", "ML Sync client started")
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err)
+				this.orchestrator.events.warn("ml.loop.sync_error", `ML Sync client failed to start: ${msg}`)
+			}
+		}
+
 		this.handle = this.loop()
 	}
 
@@ -137,6 +178,16 @@ export class InfiniteImprovementLoop {
 		if (!this.running) return
 		this.running = false
 		this.sleeper.stop()
+
+		// Stop ML sync client first
+		if (this.mlSyncClient) {
+			try {
+				await this.mlSyncClient.stop()
+			} catch {
+				/* ignore */
+			}
+		}
+
 		if (this.handle) {
 			try {
 				await this.handle
@@ -159,6 +210,13 @@ export class InfiniteImprovementLoop {
 
 	getStats(): LoopStats {
 		return { ...this.stats }
+	}
+
+	/**
+	 * Get MLSyncClient status if available.
+	 */
+	getSyncStatus() {
+		return this.mlSyncClient?.getStatus() ?? null
 	}
 
 	// ── Core loop ─────────────────────────────────────────────────────────────
@@ -310,6 +368,72 @@ export class InfiniteImprovementLoop {
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err)
 			this.orchestrator.events.warn("ml.loop.save_error", `Failed to save weights after training: ${msg}`)
+		}
+
+		// Queue observations for cloud sync
+		if (this.mlSyncClient) {
+			this.queueObservationsForSync(codeSamples, debugSamples, testSamples)
+		}
+	}
+
+	/**
+	 * Queue training samples as observations for cloud sync.
+	 */
+	private queueObservationsForSync(
+		codeSamples: Array<{ features: number[]; quality: number; success: number; bugRisk: number }>,
+		debugSamples: Array<{ features: number[]; causeCategory: number; fixComplexity: number; fixSuccess: number }>,
+		testSamples: Array<{ features: number[]; willFail: number; execTime: number; coverageGap: number }>,
+	): void {
+		if (!this.mlSyncClient) return
+
+		const now = Date.now()
+
+		// Queue code samples
+		for (const s of codeSamples) {
+			const obs: SyncObservation = {
+				taskType: "code",
+				inputSummary: `features: [${s.features.map((f) => f.toFixed(2)).join(",")}]`,
+				outputSummary: `quality=${s.quality.toFixed(2)}, success=${s.success}, bugRisk=${s.bugRisk}`,
+				success: s.success === 1,
+				durationMs: 0,
+				featuresLocal: s.features,
+				featuresUnified: s.features.concat(0, 0, 0),
+				source: "local",
+				createdAt: now,
+			}
+			this.mlSyncClient.queueObservation(obs)
+		}
+
+		// Queue debug samples
+		for (const s of debugSamples) {
+			const obs: SyncObservation = {
+				taskType: "debug",
+				inputSummary: `features: [${s.features.map((f) => f.toFixed(2)).join(",")}]`,
+				outputSummary: `causeCategory=${s.causeCategory}, fixComplexity=${s.fixComplexity.toFixed(2)}, fixSuccess=${s.fixSuccess}`,
+				success: s.fixSuccess === 1,
+				durationMs: 0,
+				featuresLocal: s.features,
+				featuresUnified: s.features.concat(0, 0, 0),
+				source: "local",
+				createdAt: now,
+			}
+			this.mlSyncClient.queueObservation(obs)
+		}
+
+		// Queue test samples
+		for (const s of testSamples) {
+			const obs: SyncObservation = {
+				taskType: "test",
+				inputSummary: `features: [${s.features.map((f) => f.toFixed(2)).join(",")}]`,
+				outputSummary: `willFail=${s.willFail}, execTime=${s.execTime.toFixed(2)}, coverageGap=${s.coverageGap.toFixed(2)}`,
+				success: s.willFail === 0,
+				durationMs: 0,
+				featuresLocal: s.features,
+				featuresUnified: s.features.concat(0, 0, 0),
+				source: "local",
+				createdAt: now,
+			}
+			this.mlSyncClient.queueObservation(obs)
 		}
 	}
 

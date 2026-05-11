@@ -4,9 +4,17 @@
  * ML-powered continuous improvement loop that observes task outcomes,
  * learns patterns, and makes predictions to improve future task execution.
  *
- * Ported from src/super-roo/ml/loop/InfiniteImprovementLoop.ts for the cloud runtime.
- * Uses a simplified in-memory learning model with SQLite-backed persistence.
+ * Enhanced with bidirectional ML sync:
+ *   - Loads merged models from ml_models table
+ *   - Saves observations to ml_observations_v2 with unified 10-dim features
+ *   - Triggers federated merge when sufficient new data arrives
+ *   - Auto-queues improvement tasks based on predictions
  */
+
+const crypto = require("crypto")
+const { serializeLinearRegression, deserialize } = require("../ml/ModelSerializer")
+const { fromCloud, toLocal, UNIFIED_DIMENSIONS } = require("../ml/FeatureMapper")
+const { federatedMerge } = require("../ml/FederatedMerge")
 
 class InfiniteImprovementLoop {
 	/**
@@ -18,6 +26,8 @@ class InfiniteImprovementLoop {
 	 * @param {number} [opts.config.observeBatchSize=10]
 	 * @param {number} [opts.config.minSamplesForPrediction=5]
 	 * @param {number} [opts.config.maxRecentActions=50]
+	 * @param {number} [opts.config.minSamplesForMerge=20] - Min total samples before triggering merge
+	 * @param {number} [opts.config.mergeIntervalMs=3600000] - Min time between merges (1 hour)
 	 */
 	constructor(opts = {}) {
 		if (!opts.memoryStore) {
@@ -30,6 +40,8 @@ class InfiniteImprovementLoop {
 			observeBatchSize: opts.config?.observeBatchSize || 10,
 			minSamplesForPrediction: opts.config?.minSamplesForPrediction || 5,
 			maxRecentActions: opts.config?.maxRecentActions || 50,
+			minSamplesForMerge: opts.config?.minSamplesForMerge || 20,
+			mergeIntervalMs: opts.config?.mergeIntervalMs || 3600000,
 		}
 
 		this._running = false
@@ -55,7 +67,13 @@ class InfiniteImprovementLoop {
 			actionsTaken: 0,
 			validationFailures: 0,
 			lastLoopTime: null,
+			lastMergeTime: null,
+			modelsSynced: 0,
+			observationsSynced: 0,
 		}
+
+		// Track last merge to avoid excessive merges
+		this._lastMergeTimestamp = 0
 	}
 
 	async initialize() {
@@ -70,13 +88,121 @@ class InfiniteImprovementLoop {
 				this._debugSamples = state.debugSamples || []
 				this._testSamples = state.testSamples || []
 				this.stats = state.stats || this.stats
+				this._lastMergeTimestamp = state.lastMergeTimestamp || 0
 				console.log("[orchestrator/improvement-loop] Loaded state from MemoryStore")
 			}
+
+			// Try to load a merged cloud model from ml_models to bootstrap weights
+			await this._loadMergedModel()
 		} catch (err) {
 			console.warn("[orchestrator/improvement-loop] Failed to load state:", err.message)
 		}
 
 		console.log("[orchestrator/improvement-loop] Initialized")
+	}
+
+	/**
+	 * Load the latest merged model from ml_models table to bootstrap weights.
+	 * Converts neural-network weights to linear regression format for the cloud model.
+	 */
+	async _loadMergedModel() {
+		try {
+			const db = this.memory.getDb()
+			const row = db
+				.prepare(
+					`SELECT * FROM ml_models WHERE is_merged = 1 ORDER BY training_samples DESC, created_at DESC LIMIT 1`,
+				)
+				.get()
+
+			if (!row) {
+				// Try any cloud model
+				const fallback = db
+					.prepare(
+						`SELECT * FROM ml_models WHERE source = 'cloud' ORDER BY training_samples DESC, created_at DESC LIMIT 1`,
+					)
+					.get()
+				if (!fallback) return
+
+				// Use fallback
+				this._applyModelFromDb(fallback)
+				return
+			}
+
+			this._applyModelFromDb(row)
+		} catch (err) {
+			console.warn("[orchestrator/improvement-loop] Failed to load merged model:", err.message)
+		}
+	}
+
+	/**
+	 * Apply model parameters from a DB row to the in-memory weights.
+	 */
+	_applyModelFromDb(row) {
+		try {
+			const params = JSON.parse(row.parameters)
+			const modelJson = {
+				schemaVersion: row.schema_version,
+				modelType: row.model_type,
+				featureDimensions: row.feature_dimensions,
+				trainingSamples: row.training_samples,
+				parameters: params,
+			}
+
+			const deserialized = deserialize(modelJson)
+
+			if (deserialized.modelType === "neural-network") {
+				// Neural network: extract first layer weights as linear approximation
+				const firstLayer = deserialized.weights[0]
+				if (firstLayer && firstLayer.length >= 2) {
+					// firstLayer[0] is the weight matrix (flattened), firstLayer[1] is bias
+					// For a network with inputDim=8, the first layer weights are [inputDim, hiddenSize]
+					// We take the mean across the hidden dimension to get a linear approximation
+					const wFlat = firstLayer[0]
+					const bFlat = firstLayer[1]
+					const outputSize = bFlat ? bFlat.length : 1
+					const inputSize = wFlat ? Math.floor(wFlat.length / outputSize) : 8
+
+					// Average across output neurons to get a single weight per input feature
+					const linearWeights = []
+					for (let i = 0; i < inputSize; i++) {
+						let sum = 0
+						for (let j = 0; j < outputSize; j++) {
+							sum += wFlat[j * inputSize + i] || 0
+						}
+						linearWeights.push(sum / outputSize)
+					}
+					const avgBias = bFlat ? bFlat.reduce((a, b) => a + b, 0) / bFlat.length : 0
+
+					// Apply to all three task models
+					for (const modelName of ["code", "debug", "test"]) {
+						this._weights[modelName] = {
+							featureWeights: [...linearWeights],
+							bias: avgBias,
+						}
+					}
+					console.log(
+						`[orchestrator/improvement-loop] Applied merged neural network model (${inputDim} features)`,
+					)
+				}
+			} else if (deserialized.modelType === "linear-regression") {
+				// Linear regression: directly apply weights
+				const w = deserialized.weights
+				const b = deserialized.bias
+				for (const modelName of ["code", "debug", "test"]) {
+					this._weights[modelName] = {
+						featureWeights: [...w],
+						bias: b,
+					}
+				}
+				console.log(
+					`[orchestrator/improvement-loop] Applied merged linear regression model (${w.length} features)`,
+				)
+			}
+
+			this.stats.modelsSynced++
+		} catch (err) {
+			console.warn("[orchestrator/improvement-loop] Failed to apply model:", err.message)
+		}
 	}
 
 	async _persist() {
@@ -146,6 +272,7 @@ class InfiniteImprovementLoop {
 
 	/**
 	 * Observe completed tasks and learn from their outcomes.
+	 * Saves observations to ml_observations_v2 with unified 10-dim features.
 	 */
 	async observeAndLearn() {
 		const db = this.memory.getDb()
@@ -162,23 +289,51 @@ class InfiniteImprovementLoop {
 			)
 			.all(this.config.observeBatchSize)
 
+		const now = Date.now()
+		const obsInsert = db.prepare(
+			`INSERT OR IGNORE INTO ml_observations_v2
+			 (id, task_type, input_summary, output_summary, success, duration_ms, features_cloud, features_unified, source, session_id, created_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		)
+
 		for (const task of tasks) {
-			const features = this._taskToFeatures(task)
+			const cloudFeatures = this._taskToFeatures(task)
+			const unifiedFeatures = fromCloud(cloudFeatures, task)
 			const outcome = task.status === "completed" ? 1 : 0
 
 			// Categorize and store samples
 			if (task.type && task.type.includes("code")) {
-				this._codeSamples.push({ features, outcome })
+				this._codeSamples.push({ features: cloudFeatures, outcome })
 				this._extractCodeSamples([task])
 			} else if (task.type && task.type.includes("debug")) {
-				this._debugSamples.push({ features, outcome })
+				this._debugSamples.push({ features: cloudFeatures, outcome })
 				this._extractDebugSamples([task])
 			} else if (task.type && task.type.includes("test")) {
-				this._testSamples.push({ features, outcome })
+				this._testSamples.push({ features: cloudFeatures, outcome })
 				this._extractTestSamples([task])
 			}
 
 			this.stats.observationsCollected++
+
+			// Save observation to ml_observations_v2
+			try {
+				obsInsert.run(
+					crypto.randomUUID(),
+					task.type || "unknown",
+					(task.body || "").slice(0, 500),
+					(task.output || task.error || "").slice(0, 500),
+					outcome,
+					task.completed_at && task.started_at ? task.completed_at - task.started_at : 0,
+					JSON.stringify(cloudFeatures),
+					JSON.stringify(unifiedFeatures),
+					"cloud",
+					task.session_id || null,
+					now,
+				)
+				this.stats.observationsSynced++
+			} catch (err) {
+				console.warn("[orchestrator/improvement-loop] Failed to save observation:", err.message)
+			}
 		}
 
 		// Train models if we have enough samples
@@ -191,6 +346,9 @@ class InfiniteImprovementLoop {
 		if (this._testSamples.length >= this.config.minSamplesForPrediction) {
 			this._trainModel("test", this._testSamples)
 		}
+
+		// Serialize cloud model and save to ml_models after training
+		await this._saveCloudModel()
 	}
 
 	/**
@@ -253,6 +411,8 @@ class InfiniteImprovementLoop {
 
 	/**
 	 * Make predictions about pending tasks and take improvement actions.
+	 * Enhanced: auto-queues improvement tasks when predictions are low,
+	 * and triggers federated merge when sufficient data accumulates.
 	 */
 	async predictAndAct() {
 		const db = this.memory.getDb()
@@ -301,7 +461,221 @@ class InfiniteImprovementLoop {
 				)
 
 				this.stats.actionsTaken++
+
+				// Auto-queue an improvement task if we have a taskQueue
+				if (this.taskQueue && this._recentActions.length % 5 === 0) {
+					try {
+						await this.taskQueue.add("ml-improvement-task", {
+							type: "improvement",
+							description: `Auto-generated: improve ${modelName} task handling (prediction: ${(prediction * 100).toFixed(1)}%)`,
+							source: "improvement-loop",
+							taskId: task.id,
+							modelName,
+							prediction,
+						})
+						console.log(`[orchestrator/improvement-loop] Queued improvement task for ${modelName}`)
+					} catch (qErr) {
+						console.warn("[orchestrator/improvement-loop] Failed to queue improvement task:", qErr.message)
+					}
+				}
 			}
+		}
+
+		// Trigger federated merge if conditions are met
+		await this._maybeTriggerMerge()
+	}
+
+	/**
+	 * Check if conditions are right for a federated merge and trigger one.
+	 */
+	async _maybeTriggerMerge() {
+		const now = Date.now()
+		if (now - this._lastMergeTimestamp < this.config.mergeIntervalMs) {
+			return // Not enough time since last merge
+		}
+
+		try {
+			const db = this.memory.getDb()
+			const totalSamples = db.prepare(`SELECT COALESCE(SUM(training_samples), 0) as total FROM ml_models`).get()
+
+			if (totalSamples.total < this.config.minSamplesForMerge) {
+				return // Not enough total samples
+			}
+
+			// Check if there are at least 2 models to merge
+			const modelCount = db.prepare(`SELECT COUNT(*) as count FROM ml_models`).get()
+			if (modelCount.count < 2) {
+				return
+			}
+
+			console.log("[orchestrator/improvement-loop] Triggering federated model merge...")
+			await this._triggerMerge()
+			this._lastMergeTimestamp = now
+			this.stats.lastMergeTime = new Date(now).toISOString()
+		} catch (err) {
+			console.warn("[orchestrator/improvement-loop] Merge check failed:", err.message)
+		}
+	}
+
+	/**
+	 * Perform federated merge of all available models.
+	 */
+	async _triggerMerge() {
+		try {
+			const db = this.memory.getDb()
+			const rows = db
+				.prepare(`SELECT * FROM ml_models WHERE training_samples >= 1 ORDER BY created_at DESC`)
+				.all()
+
+			if (rows.length < 2) {
+				console.log("[orchestrator/improvement-loop] Not enough models to merge")
+				return
+			}
+
+			const models = rows.map((r) => ({
+				schemaVersion: r.schema_version,
+				modelType: r.model_type,
+				timestamp: new Date(r.created_at).toISOString(),
+				source: r.source,
+				featureDimensions: r.feature_dimensions,
+				trainingSamples: r.training_samples,
+				architecture: JSON.parse(r.architecture || "{}"),
+				parameters: JSON.parse(r.parameters),
+				metadata: JSON.parse(r.metadata || "{}"),
+			}))
+
+			const merged = federatedMerge(models, { minSamples: 1, source: "cloud" })
+
+			const modelId = crypto.randomUUID()
+			const now = Date.now()
+			const mergedFrom = JSON.stringify(
+				models.map((m) => ({
+					source: m.source,
+					samples: m.trainingSamples,
+					type: m.modelType,
+				})),
+			)
+
+			db.prepare(
+				`INSERT INTO ml_models (id, model_type, source, schema_version, feature_dimensions, training_samples, parameters, architecture, metadata, is_merged, merged_from, created_at, updated_at)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			).run(
+				modelId,
+				merged.modelType,
+				merged.source,
+				merged.schemaVersion,
+				merged.featureDimensions,
+				merged.trainingSamples,
+				JSON.stringify(merged.parameters),
+				JSON.stringify(merged.architecture),
+				JSON.stringify(merged.metadata),
+				1,
+				mergedFrom,
+				now,
+				now,
+			)
+
+			// Record sync log
+			db.prepare(
+				`INSERT INTO ml_sync_log (id, direction, status, model_id, model_type, feature_dimensions, training_samples, source, target, payload_size_bytes, created_at)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			).run(
+				crypto.randomUUID(),
+				"bidirectional",
+				"completed",
+				modelId,
+				merged.modelType,
+				merged.featureDimensions,
+				merged.trainingSamples,
+				"cloud",
+				"all",
+				Buffer.byteLength(JSON.stringify(merged), "utf8"),
+				now,
+			)
+
+			// Apply the merged model to local weights
+			this._applyModelFromDb({
+				schema_version: merged.schemaVersion,
+				model_type: merged.modelType,
+				feature_dimensions: merged.featureDimensions,
+				training_samples: merged.trainingSamples,
+				parameters: JSON.stringify(merged.parameters),
+				architecture: JSON.stringify(merged.architecture),
+			})
+
+			console.log(
+				`[orchestrator/improvement-loop] Federated merge complete: ${models.length} models -> 1 merged model (${merged.trainingSamples} samples)`,
+			)
+		} catch (err) {
+			console.warn("[orchestrator/improvement-loop] Merge failed:", err.message)
+		}
+	}
+
+	/**
+	 * Save the current cloud model weights to ml_models table.
+	 */
+	async _saveCloudModel() {
+		try {
+			const db = this.memory.getDb()
+
+			// Use the code model as the representative (all models have same feature count)
+			const codeModel = this._weights.code
+			if (!codeModel.featureWeights) return
+
+			const serialized = serializeLinearRegression({
+				weights: codeModel.featureWeights,
+				bias: codeModel.bias,
+				featureDimensions: codeModel.featureWeights.length,
+				trainingSamples: this._codeSamples.length + this._debugSamples.length + this._testSamples.length,
+				source: "cloud",
+				metadata: {
+					codeSamples: this._codeSamples.length,
+					debugSamples: this._debugSamples.length,
+					testSamples: this._testSamples.length,
+				},
+			})
+
+			const modelId = crypto.randomUUID()
+			const now = Date.now()
+
+			db.prepare(
+				`INSERT INTO ml_models (id, model_type, source, schema_version, feature_dimensions, training_samples, parameters, architecture, metadata, is_merged, merged_from, created_at, updated_at)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			).run(
+				modelId,
+				serialized.modelType,
+				serialized.source,
+				serialized.schemaVersion,
+				serialized.featureDimensions,
+				serialized.trainingSamples,
+				JSON.stringify(serialized.parameters),
+				JSON.stringify(serialized.architecture),
+				JSON.stringify(serialized.metadata),
+				0,
+				null,
+				now,
+				now,
+			)
+
+			console.log(
+				`[orchestrator/improvement-loop] Saved cloud model (${serialized.trainingSamples} samples, ${serialized.featureDimensions} features)`,
+			)
+		} catch (err) {
+			console.warn("[orchestrator/improvement-loop] Failed to save cloud model:", err.message)
+		}
+	}
+
+	/**
+	 * Manually trigger an improvement cycle (called from API).
+	 */
+	async triggerCycle() {
+		try {
+			await this.observeAndLearn()
+			await this.predictAndAct()
+			await this._persist()
+			console.log("[orchestrator/improvement-loop] Manual cycle triggered")
+		} catch (err) {
+			console.error("[orchestrator/improvement-loop] Manual cycle error:", err.message)
 		}
 	}
 
