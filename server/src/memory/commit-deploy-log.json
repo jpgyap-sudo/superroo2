@@ -208,6 +208,23 @@
 			],
 			"featuresAffected": ["cloud-orchestrator", "api", "telegram-bot", "telegram-auth", "deploy-orchestrator"],
 			"timestamp": "2026-05-11T18:47:18.000Z"
+		},
+		{
+			"id": "commit_826803570",
+			"commitSha": "826803570",
+			"agent": "code",
+			"type": "refactor",
+			"title": "refactor: change autonomous command from trading to coding and debugging focus",
+			"description": "Refactored autonomous loop to focus on coding and debugging instead of trading. Updated SKILL.md and api.js with new autonomous command structure. Added AutonomousLoop.js module to cloud orchestrator.",
+			"filesChanged": [
+				".roo/skills/autonomous/SKILL.md",
+				"cloud/api/api.js",
+				"cloud/orchestrator/index.js",
+				"cloud/orchestrator/modules/AutonomousLoop.js",
+				"server/src/memory/commit-deploy-log.json"
+			],
+			"featuresAffected": ["autonomous-loop", "cloud-orchestrator", "api"],
+			"timestamp": "2026-05-11T19:37:00.000Z"
 		}
 	],
 	"deploys": [
@@ -317,6 +334,20 @@
 			"healthCheckLatencyMs": 300,
 			"startedAt": "2026-05-11T19:00:30.000Z",
 			"completedAt": "2026-05-11T19:00:59.000Z"
+		},
+		{
+			"id": "deploy-autonomous-v2-2026-05-11",
+			"version": "1.7.3",
+			"commitSha": "826803570",
+			"agent": "code",
+			"status": "healthy",
+			"environment": "production",
+			"commitsIncluded": ["826803570"],
+			"featuresDeployed": ["autonomous-loop", "cloud-orchestrator", "api"],
+			"healthCheckPassed": true,
+			"healthCheckLatencyMs": 250,
+			"startedAt": "2026-05-11T19:37:00.000Z",
+			"completedAt": "2026-05-11T19:39:06.000Z"
 		}
 	]
 }
