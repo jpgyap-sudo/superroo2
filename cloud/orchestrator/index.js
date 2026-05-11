@@ -24,6 +24,7 @@ const { InfiniteImprovementLoop } = require("./modules/InfiniteImprovementLoop")
 const { CrawlerAgent } = require("./modules/CrawlerAgent")
 const { DeployOrchestrator } = require("./modules/DeployOrchestrator")
 const { FileImporter } = require("./modules/FileImporter")
+const { AutonomousLoop } = require("./modules/AutonomousLoop")
 const {
 	getCpuUsagePercent,
 	getRamUsagePercent,
@@ -56,6 +57,7 @@ module.exports = {
 	CrawlerAgent,
 	DeployOrchestrator,
 	FileImporter,
+	AutonomousLoop,
 	// CPU Guard exports
 	getCpuUsagePercent,
 	getRamUsagePercent,

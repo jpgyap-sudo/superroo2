@@ -22,6 +22,7 @@ const path = require("path")
 // ── Cloud Orchestrator ────────────────────────────────────────────────────────
 
 const { CloudOrchestrator, SafetyMode } = require("../orchestrator")
+const { AutonomousLoop } = require("../orchestrator/modules/AutonomousLoop")
 const TelegramOrchestratorBridge = require("../orchestrator/TelegramOrchestratorBridge")
 
 // ── Auth & Telegram Bot ───────────────────────────────────────────────────────
@@ -305,6 +306,8 @@ const queue = new Queue(QUEUE_NAME, { connection })
 let orchestrator = null
 /** @type {TelegramOrchestratorBridge|null} */
 let tgOrchestratorBridge = null
+/** @type {AutonomousLoop|null} */
+let autonomousLoop = null
 
 async function initOrchestrator() {
 	try {
@@ -4886,6 +4889,76 @@ const server = http.createServer(async (req, res) => {
 				sendJson(res, 200, { success: true, message: `Ignored ${event} on ${body.ref || "unknown"}` })
 			} catch (err) {
 				console.error(`[github-webhook] Error: ${err.message}`)
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// ── Autonomous Loop Endpoints ──────────────────────────────────────────
+
+		// POST /autonomous/start — Start the autonomous improvement loop
+		if (method === "POST" && (url === "/autonomous/start" || normalizedUrl === "/autonomous/start")) {
+			try {
+				const body = await parseBody(req)
+				const target = body.target || "xsjprd55"
+				const branch = body.branch || "main"
+				const durationMs = body.durationMs || 5 * 60 * 60 * 1000
+				const stepTimeoutMs = body.stepTimeoutMs || 10 * 60 * 1000
+
+				if (!orchestrator) {
+					sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
+					return
+				}
+
+				autonomousLoop = new AutonomousLoop({
+					orchestrator,
+					target,
+					branch,
+					durationMs,
+					stepTimeoutMs,
+					workspaceRoot: process.cwd(),
+					containerFirst: body.containerFirst !== false,
+				})
+
+				const result = await autonomousLoop.start({ jobId: `auto-${Date.now()}` })
+				sendJson(res, result.success ? 200 : 400, result)
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /autonomous/status/:jobId — Get loop status
+		if (
+			method === "GET" &&
+			(url.startsWith("/autonomous/status/") || normalizedUrl.startsWith("/autonomous/status/"))
+		) {
+			try {
+				if (!autonomousLoop) {
+					sendJson(res, 404, { success: false, error: "No autonomous loop has been started" })
+					return
+				}
+				const status = autonomousLoop.getStatus()
+				sendJson(res, 200, { success: true, status })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /autonomous/stop/:jobId — Stop the autonomous loop
+		if (
+			method === "POST" &&
+			(url.startsWith("/autonomous/stop/") || normalizedUrl.startsWith("/autonomous/stop/"))
+		) {
+			try {
+				if (!autonomousLoop) {
+					sendJson(res, 404, { success: false, error: "No autonomous loop is running" })
+					return
+				}
+				const result = await autonomousLoop.stop()
+				sendJson(res, 200, result)
+			} catch (err) {
 				sendJson(res, 500, { success: false, error: err.message })
 			}
 			return
