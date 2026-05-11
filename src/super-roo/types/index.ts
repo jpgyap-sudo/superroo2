@@ -180,7 +180,9 @@ export const FeatureInputSchema = z.object({
 	name: z.string().min(1),
 	description: z.string().default(""),
 	ownerAgent: z.string().default("product-manager"),
-	status: z.enum(["planned", "building", "testing", "working", "suspected_bug", "broken", "fixed", "deprecated"]).default("planned"),
+	status: z
+		.enum(["planned", "building", "testing", "working", "suspected_bug", "broken", "fixed", "deprecated"])
+		.default("planned"),
 	health: z.enum(["unknown", "healthy", "degraded", "failing"]).default("unknown"),
 	priority: z.enum(["low", "normal", "high", "critical"]).default("normal"),
 	relatedFiles: z.array(z.string()).default([]),
@@ -274,6 +276,15 @@ export const RootCauseCategory = {
 	DEPLOY_DRIFT: "DEPLOY_DRIFT",
 	TEST_FAILURE: "TEST_FAILURE",
 	SECURITY_RISK: "SECURITY_RISK",
+	MEMORY_LEAK: "MEMORY_LEAK",
+	RACE_CONDITION: "RACE_CONDITION",
+	CONFIGURATION_ERROR: "CONFIGURATION_ERROR",
+	DEPENDENCY_CONFLICT: "DEPENDENCY_CONFLICT",
+	AUTHENTICATION_FAILURE: "AUTHENTICATION_FAILURE",
+	NETWORK_TIMEOUT: "NETWORK_TIMEOUT",
+	FILE_SYSTEM_ERROR: "FILE_SYSTEM_ERROR",
+	DNS_RESOLUTION: "DNS_RESOLUTION",
+	SSL_TLS_ERROR: "SSL_TLS_ERROR",
 	UNKNOWN: "UNKNOWN",
 } as const
 
@@ -325,6 +336,13 @@ export interface IncidentInputRaw {
 	fixAttempts?: number
 }
 
+export type ExecutionStatus = "pending" | "in_progress" | "completed" | "failed" | "cancelled"
+
+export interface ExecutionResult {
+	success: boolean
+	message: string
+}
+
 export interface RepairPlan {
 	incidentId: string
 	featureKey: string | null
@@ -336,6 +354,9 @@ export interface RepairPlan {
 	testsToRun: string[]
 	approvalRequired: boolean
 	approvalReason?: string
+	executionStatus: ExecutionStatus
+	executedAt?: number
+	executionResult?: ExecutionResult
 }
 
 export interface BugRecord {

@@ -1,0 +1,96 @@
+[
+	{
+		"id": "INC-001",
+		"title": "OpenAI API key expired — all agent requests failing",
+		"rootCauseCategory": "API_AUTH_FAILURE",
+		"severity": "critical",
+		"status": "needs_human_approval",
+		"affectedFiles": [
+			"src/super-roo/healing/SelfHealingLoop.ts",
+			"src/super-roo/orchestrator/SuperRooOrchestrator.ts"
+		],
+		"sourceAgent": "healing-loop",
+		"fixAttempts": 4,
+		"recommendedAction": "Rotate the OpenAI API key in the vault and re-test connectivity",
+		"createdAt": 1746974400000,
+		"updatedAt": 1746978000000
+	},
+	{
+		"id": "INC-002",
+		"title": "Redis connection timeout in queue worker",
+		"rootCauseCategory": "NETWORK_TIMEOUT",
+		"severity": "high",
+		"status": "fixing",
+		"affectedFiles": ["packages/queue/src/worker.ts"],
+		"sourceAgent": "monitor",
+		"fixAttempts": 2,
+		"recommendedAction": "Increase Redis connection timeout and add retry logic",
+		"createdAt": 1746975000000,
+		"updatedAt": 1746977800000
+	},
+	{
+		"id": "INC-003",
+		"title": "Test suite failing in CI — snapshot mismatch",
+		"rootCauseCategory": "TEST_FAILURE",
+		"severity": "medium",
+		"status": "verified",
+		"affectedFiles": ["src/super-roo/healing/__tests__/HealingBus.test.ts"],
+		"sourceAgent": "ci-pipeline",
+		"fixAttempts": 1,
+		"recommendedAction": "Update snapshots and re-run CI",
+		"createdAt": 1746972000000,
+		"updatedAt": 1746976000000
+	},
+	{
+		"id": "INC-004",
+		"title": "Worker process crash on OOM — large model inference",
+		"rootCauseCategory": "WORKER_CRASH",
+		"severity": "critical",
+		"status": "blocked",
+		"affectedFiles": ["packages/worker/src/inference.ts"],
+		"sourceAgent": "supervisor",
+		"fixAttempts": 3,
+		"recommendedAction": "Increase worker memory limit and add batch size cap",
+		"createdAt": 1746968000000,
+		"updatedAt": 1746977000000
+	},
+	{
+		"id": "INC-005",
+		"title": "Memory leak in agent loop after 10k iterations",
+		"rootCauseCategory": "MEMORY_LEAK",
+		"severity": "high",
+		"status": "reopened",
+		"affectedFiles": ["src/super-roo/ml/loop/InfiniteImprovementLoop.ts", "src/super-roo/ml/engine/Metrics.ts"],
+		"sourceAgent": "healing-loop",
+		"fixAttempts": 5,
+		"recommendedAction": "Add maxRecords cap with automatic pruning in ActionOutcomeTracker",
+		"createdAt": 1746960000000,
+		"updatedAt": 1746976800000
+	},
+	{
+		"id": "INC-006",
+		"title": "Database schema mismatch after migration v23",
+		"rootCauseCategory": "DB_SCHEMA_MISMATCH",
+		"severity": "high",
+		"status": "queued_for_fix",
+		"affectedFiles": ["server/src/db/migrations/023_add_healing_tables.ts"],
+		"sourceAgent": "deploy-agent",
+		"fixAttempts": 1,
+		"recommendedAction": "Run migration rollback and re-apply with corrected schema",
+		"createdAt": 1746970000000,
+		"updatedAt": 1746975000000
+	},
+	{
+		"id": "INC-007",
+		"title": "Configuration error in nginx reverse proxy",
+		"rootCauseCategory": "CONFIGURATION_ERROR",
+		"severity": "medium",
+		"status": "verified",
+		"affectedFiles": ["ops/nginx-dashboard.conf"],
+		"sourceAgent": "deploy-agent",
+		"fixAttempts": 1,
+		"recommendedAction": "Fix upstream server directive in nginx config",
+		"createdAt": 1746965000000,
+		"updatedAt": 1746969000000
+	}
+]

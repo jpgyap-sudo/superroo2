@@ -1,6 +1,6 @@
 # Next Improvements
 
-## Generated from Autonomous Improvement Loop (2026-04-30) — Updated 2026-05-07
+## Generated from Autonomous Improvement Loop (2026-04-30) — Updated 2026-05-11
 
 ### ✅ Completed Items
 
@@ -9,65 +9,45 @@
     - Node.js v20.19.2 is active and configured via `nvm`
     - Verified: `node -v` returns v20.19.2
 
-2. **Run Full Test Suite** ✅ (partial — WASM assets fixed, pre-existing failures remain)
+2. **Run Full Test Suite** ✅ (WASM assets fixed)
 
     - **WASM asset fix**: Copied 37 missing `.wasm` files to `src/dist/`:
         - 35 tree-sitter language WASMs from `tree-sitter-wasms` package
         - `tree-sitter.wasm` (base) from `web-tree-sitter` package
         - `tiktoken_bg.wasm` from `tiktoken` package
     - **Results before fix**: 287 passed, 139 failed, 4692 tests passed
-    - **Results after fix**: 344 passed, 82 failed, 4999 tests passed
+    - **Results after WASM fix**: 344 passed, 82 failed, 4999 tests passed
     - **Improvement**: +57 test files, +307 individual tests passing
-    - **Remaining 82 failing test files** (8 individual test failures + 1 unhandled error):
 
-        | Category    | Failure                                                         | Files Affected                                                                                                                 |
-        | ----------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-        | Missing dep | `Cannot find module 'graceful-fs'` (proper-lockfile dependency) | `safeWriteJson.test.ts`, `extract-text-from-xlsx.test.ts`, `learners.test.ts` (3 persistence tests), `CodeChangeStore.spec.ts` |
-        | Null target | `Target cannot be null or undefined`                            | `workRecord.spec.ts` (2 tests)                                                                                                 |
-        | Assertion   | `expected false to be true` (didEditFile not set)               | `editTool.spec.ts`, `writeToFileTool.spec.ts`                                                                                  |
-        | Assertion   | `expected spy to be called with user_feedback_diff`             | `writeToFileTool.spec.ts`                                                                                                      |
-        | Unhandled   | `GuardedLoopError` (expected behavior, Vitest treats as error)  | `AgentLoopGuard.test.ts`                                                                                                       |
+3. **Fix All 8 Remaining Test Failures** ✅
 
-3. **Verify Healing Module** ✅
+    All 8 pre-existing test failures (across 5 test files) have been fixed:
+
+    | Category    | Root Cause                                                                                            | Fix Applied                                                                                                                                         |
+    | ----------- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+    | Missing dep | `proper-lockfile` requires `graceful-fs` at runtime                                                   | Installed `graceful-fs ^4.2.11` in `src/package.json` — unblocks 4 test files (`safeWriteJson.test.ts`, `extract-text-from-xlsx.test.ts`, etc.)     |
+    | Null target | `workRecord.spec.ts` used old tool names (`write_to_file`, `apply_diff`, `execute_command`)           | Updated test data to use `newFileCreated`, `appliedDiff`, `executeCommand` — matching what `buildWorkRecord` checks for                             |
+    | Assertion   | `editTool.spec.ts` / `writeToFileTool.spec.ts` missing `mockTask.recordCodeChange` mock               | Added `mockTask.recordCodeChange = vi.fn()` / `mockCline.recordCodeChange = vi.fn()` in `beforeEach` — fixes `didEditFile` and `user_feedback_diff` |
+    | Unhandled   | `AgentLoopGuard.test.ts` — `GuardedLoopError` rejection detected by Vitest before `await` could catch | Attached `.catch()` handler before advancing fake timers to suppress false-positive unhandled rejection detection                                   |
+
+4. **Verify Healing Module** ✅
 
     - `HealingBus.test.ts` — ALL 30 tests PASSED
     - `HealingBus.validation.test.ts` — ALL 21 tests PASSED
     - `RootCauseClassifier.test.ts` — ALL 10 tests PASSED
     - **Total**: 61 tests, all passing
 
-4. **ML Engine Tests** ✅
+5. **ML Engine Tests** ✅
 
     - `ml/engine.test.ts` — ALL 31 tests PASSED
 
-5. **VPS Deployment** ✅
+6. **VPS Deployment** ✅
     - Deployed v1.3.0 to SuperRoo VPS (104.248.225.250)
     - All 4 services healthy:
         - API (port 8787): HTTP 200, redis:true, worker:true
         - Dashboard (port 3001): HTTP 200
         - Worker: PM2 online
     - Recorded in CommitDeployLog
-
-### Remaining Issues (Pre-existing, not caused by WASM fix)
-
-1. **Install `graceful-fs`** (blocks 4 test files, 6 individual tests)
-
-    - `proper-lockfile` (used by `safeWriteJson`) requires `graceful-fs`
-    - Run: `pnpm add -D graceful-fs` in `src/`
-
-2. **Fix `workRecord.spec.ts`** (2 tests — null target in `buildWorkRecord`)
-
-    - The `buildWorkRecord` function receives null/undefined target
-    - Needs investigation of the test input data
-
-3. **Fix `editTool.spec.ts` / `writeToFileTool.spec.ts`** (3 tests — `didEditFile` not set, diff feedback not called)
-
-    - `didEditFile` not set to `true` after save
-    - `say` not called with `user_feedback_diff`
-    - Likely related to mock setup or async timing
-
-4. **Fix `AgentLoopGuard.test.ts`** (1 unhandled error — `GuardedLoopError`)
-    - Test intentionally triggers the guard, but Vitest treats the thrown error as unhandled
-    - May need to wrap in `expect().rejects.toThrow()`
 
 ### Code Improvements Identified
 
@@ -125,8 +105,8 @@
 | -------- | ----------------------------- | ------ | ------ | ---------- |
 | P0       | Fix Node.js                   | 5 min  | High   | ✅ Done    |
 | P0       | Run tests (WASM fix)          | 15 min | High   | ✅ Done    |
-| P0       | Fix remaining 8 test failures | 2 hrs  | Medium | 🔴 Open    |
-| P1       | Install graceful-fs dep       | 5 min  | Medium | 🔴 Open    |
+| P0       | Fix remaining 8 test failures | 2 hrs  | Medium | ✅ Done    |
+| P1       | Install graceful-fs dep       | 5 min  | Medium | ✅ Done    |
 | P1       | VPS deployment                | 1 hr   | Medium | ✅ Done    |
 | P2       | ML enhancements               | 4 hrs  | Low    | 📋 Backlog |
 | P2       | Healing improvements          | 3 hrs  | Medium | 📋 Backlog |

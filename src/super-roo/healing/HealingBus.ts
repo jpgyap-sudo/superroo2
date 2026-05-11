@@ -32,6 +32,7 @@ import type {
 import { BugSeverity as BugSeverityEnum, IncidentStatus as IncidentStatusEnum } from "../types"
 import type { MemoryStore } from "../memory/MemoryStore"
 import type { EventLog } from "../logging/EventLog"
+import type { LogAggregator } from "../infrastructure/LogAggregator"
 import { v4 as uuidv4 } from "uuid"
 
 /** Maximum length for incident title to prevent DB issues */
@@ -98,6 +99,7 @@ export class HealingBus {
 		private readonly memory: MemoryStore,
 		private readonly events: EventLog,
 		config: HealingBusConfig = {},
+		private readonly logAggregator?: LogAggregator,
 	) {
 		this.config = {
 			autoFixPolicies: {
@@ -250,6 +252,20 @@ export class HealingBus {
 			incidentId: resolvedId,
 			data: { severity: incident.severity, sourceAgent: incident.sourceAgent, fingerprint },
 		})
+
+		// Forward to LogAggregator if available
+		this.logAggregator?.log(
+			"healing",
+			incident.severity === "critical" || incident.severity === "high" ? "error" : "warn",
+			`Incident reported: ${input.title}`,
+			{
+				incidentId: resolvedId,
+				severity: incident.severity,
+				sourceAgent: incident.sourceAgent,
+				fingerprint,
+				featureKey: input.featureKey,
+			},
+		)
 
 		await this.logHealingAction(
 			resolvedId,

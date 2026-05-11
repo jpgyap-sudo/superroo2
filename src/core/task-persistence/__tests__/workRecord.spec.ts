@@ -62,11 +62,11 @@ describe("buildWorkRecord", () => {
 		const messages: ClineMessage[] = [
 			makeMessage({
 				say: "tool",
-				text: JSON.stringify({ tool: "write_to_file", path: "src/app.ts" }),
+				text: JSON.stringify({ tool: "newFileCreated", path: "src/app.ts" }),
 			}),
 			makeMessage({
 				say: "tool",
-				text: JSON.stringify({ tool: "apply_diff", path: "src/utils.ts" }),
+				text: JSON.stringify({ tool: "appliedDiff", path: "src/utils.ts" }),
 			}),
 		]
 		const record = buildWorkRecord({
@@ -88,7 +88,7 @@ describe("buildWorkRecord", () => {
 		const messages: ClineMessage[] = [
 			makeMessage({
 				say: "tool",
-				text: JSON.stringify({ tool: "execute_command", command: "npm test" }),
+				text: JSON.stringify({ tool: "executeCommand", command: "npm test" }),
 			}),
 			makeMessage({
 				say: "command_output",
@@ -112,11 +112,11 @@ describe("buildWorkRecord", () => {
 		const messages: ClineMessage[] = [
 			makeMessage({
 				say: "tool",
-				text: JSON.stringify({ tool: "write_to_file", path: "a.ts" }),
+				text: JSON.stringify({ tool: "newFileCreated", path: "a.ts" }),
 			}),
 			makeMessage({
 				say: "tool",
-				text: JSON.stringify({ tool: "write_to_file", path: "a.ts" }),
+				text: JSON.stringify({ tool: "newFileCreated", path: "a.ts" }),
 			}),
 		]
 		const record = buildWorkRecord({

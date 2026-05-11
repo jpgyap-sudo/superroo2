@@ -73,16 +73,7 @@ const CLASSIFICATION_PATTERNS: ClassificationPattern[] = [
 	},
 	{
 		category: "BROKEN_ROUTE",
-		keywords: [
-			"404",
-			"route",
-			"not found",
-			"endpoint",
-			"cannot get",
-			"cannot post",
-			"handler",
-			"no route",
-		],
+		keywords: ["404", "route", "not found", "endpoint", "cannot get", "cannot post", "handler", "no route"],
 		confidence: 0.85,
 	},
 	{
@@ -92,40 +83,17 @@ const CLASSIFICATION_PATTERNS: ClassificationPattern[] = [
 	},
 	{
 		category: "WORKER_CRASH",
-		keywords: [
-			"pm2",
-			"crash",
-			"restart",
-			"process exited",
-			"fatal",
-			"uncaught exception",
-			"unhandled rejection",
-		],
+		keywords: ["pm2", "crash", "restart", "process exited", "fatal", "uncaught exception", "unhandled rejection"],
 		confidence: 0.85,
 	},
 	{
 		category: "STALE_DATA",
-		keywords: [
-			"stale",
-			"freshness",
-			"cache",
-			"outdated",
-			"last updated",
-			"not updating",
-			"sync",
-		],
+		keywords: ["stale", "freshness", "cache", "outdated", "last updated", "not updating", "sync"],
 		confidence: 0.8,
 	},
 	{
 		category: "TRADING_GATE_BLOCKED",
-		keywords: [
-			"trading gate",
-			"gate blocked",
-			"paper trade",
-			"live trading",
-			"risk limit",
-			"position limit",
-		],
+		keywords: ["trading gate", "gate blocked", "paper trade", "live trading", "risk limit", "position limit"],
 		confidence: 0.85,
 	},
 	{
@@ -144,17 +112,7 @@ const CLASSIFICATION_PATTERNS: ClassificationPattern[] = [
 	},
 	{
 		category: "TEST_FAILURE",
-		keywords: [
-			"test",
-			"assert",
-			"expect",
-			"failed test",
-			"test suite",
-			"coverage",
-			"jasmine",
-			"jest",
-			"vitest",
-		],
+		keywords: ["test", "assert", "expect", "failed test", "test suite", "coverage", "jasmine", "jest", "vitest"],
 		confidence: 0.9,
 	},
 	{
@@ -171,6 +129,134 @@ const CLASSIFICATION_PATTERNS: ClassificationPattern[] = [
 			"production risk",
 		],
 		confidence: 0.9,
+	},
+	// ── New categories (Phase 1) ──────────────────────────────────────────────
+	{
+		category: "MEMORY_LEAK",
+		keywords: [
+			"memory leak",
+			"heap exhausted",
+			"out of memory",
+			"heap overflow",
+			"allocation failure",
+			"gc overhead",
+			"memory pressure",
+			"heap limit",
+		],
+		confidence: 0.85,
+	},
+	{
+		category: "RACE_CONDITION",
+		keywords: [
+			"race condition",
+			"concurrent access",
+			"deadlock",
+			"data race",
+			"mutex",
+			"lock contention",
+			"thread safety",
+			"atomicity",
+		],
+		confidence: 0.8,
+	},
+	{
+		category: "CONFIGURATION_ERROR",
+		keywords: [
+			"config error",
+			"invalid config",
+			"misconfiguration",
+			"bad config",
+			"configuration invalid",
+			"malformed config",
+			"config validation",
+		],
+		confidence: 0.85,
+	},
+	{
+		category: "DEPENDENCY_CONFLICT",
+		keywords: [
+			"dependency conflict",
+			"peer dependency",
+			"version mismatch",
+			"incompatible dependency",
+			"module not found",
+			"cannot find module",
+			"package resolution",
+			"npm error",
+		],
+		confidence: 0.85,
+	},
+	{
+		category: "AUTHENTICATION_FAILURE",
+		keywords: [
+			"auth failed",
+			"unauthorized",
+			"forbidden",
+			"403",
+			"login failed",
+			"session expired",
+			"invalid credentials",
+			"access denied",
+		],
+		confidence: 0.9,
+	},
+	{
+		category: "NETWORK_TIMEOUT",
+		keywords: [
+			"timeout",
+			"ETIMEDOUT",
+			"connection timed out",
+			"network error",
+			"ECONNRESET",
+			"ECONNREFUSED",
+			"ENOTFOUND",
+			"request timed out",
+			"socket hang up",
+		],
+		confidence: 0.9,
+	},
+	{
+		category: "FILE_SYSTEM_ERROR",
+		keywords: [
+			"ENOENT",
+			"EACCES",
+			"permission denied",
+			"disk full",
+			"no space left",
+			"file not found",
+			"cannot read file",
+			"cannot write file",
+			"EEXIST",
+		],
+		confidence: 0.9,
+	},
+	{
+		category: "DNS_RESOLUTION",
+		keywords: [
+			"dns",
+			"dns resolution",
+			"ENOTFOUND",
+			"getaddrinfo",
+			"dns lookup",
+			"hostname resolution",
+			"name not resolved",
+		],
+		confidence: 0.85,
+	},
+	{
+		category: "SSL_TLS_ERROR",
+		keywords: [
+			"ssl",
+			"tls",
+			"certificate",
+			"self-signed",
+			"unable to verify",
+			"certificate expired",
+			"ssl error",
+			"handshake failed",
+			"UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+		],
+		confidence: 0.85,
 	},
 ]
 
@@ -215,10 +301,7 @@ export function classifyRootCause(incident: IncidentRecord): ClassificationResul
 /**
  * Quick classify from raw text (for inline use).
  */
-export function classifyFromText(
-	text: string,
-	defaultCategory: RootCauseCategory = "UNKNOWN",
-): ClassificationResult {
+export function classifyFromText(text: string, defaultCategory: RootCauseCategory = "UNKNOWN"): ClassificationResult {
 	const mockIncident: IncidentRecord = {
 		id: "temp",
 		fingerprint: "temp",
@@ -260,6 +343,7 @@ export function requiresHumanApproval(category: RootCauseCategory): boolean {
 		"SECURITY_RISK",
 		"TRADING_GATE_BLOCKED",
 		"DEPLOY_DRIFT", // May need deploy coordination
+		"SSL_TLS_ERROR", // Certificate changes need human review
 	]
 	return requiresApproval.includes(category)
 }
@@ -340,6 +424,60 @@ export function getDiagnosticSteps(category: RootCauseCategory): string[] {
 			"Escalate to security team",
 			"Document exposure scope",
 			"Prepare incident report",
+		],
+		MEMORY_LEAK: [
+			"Check heap usage over time",
+			"Review object allocation patterns",
+			"Look for missing cleanup/dispose calls",
+			"Use heap snapshot comparison tools",
+		],
+		RACE_CONDITION: [
+			"Review concurrent access patterns",
+			"Check for missing mutex/locks",
+			"Verify atomic operations",
+			"Add logging around shared state mutations",
+		],
+		CONFIGURATION_ERROR: [
+			"Validate config file format and schema",
+			"Check for missing required fields",
+			"Verify config against documentation",
+			"Review recent config changes",
+		],
+		DEPENDENCY_CONFLICT: [
+			"Check package.json dependency versions",
+			"Run npm ls to inspect dependency tree",
+			"Look for peer dependency warnings",
+			"Verify lockfile consistency",
+		],
+		AUTHENTICATION_FAILURE: [
+			"Check login/session flow",
+			"Verify credential storage",
+			"Review auth middleware configuration",
+			"Check token refresh mechanism",
+		],
+		NETWORK_TIMEOUT: [
+			"Check network connectivity",
+			"Verify DNS resolution",
+			"Review firewall/security group rules",
+			"Check service endpoint availability",
+		],
+		FILE_SYSTEM_ERROR: [
+			"Check file/directory permissions",
+			"Verify disk space availability",
+			"Review file path construction",
+			"Check for race conditions in file operations",
+		],
+		DNS_RESOLUTION: [
+			"Check DNS server configuration",
+			"Verify hostname spelling",
+			"Test with nslookup or dig",
+			"Check /etc/hosts for overrides",
+		],
+		SSL_TLS_ERROR: [
+			"STOP - Do not auto-fix certificate issues",
+			"Verify certificate expiry dates",
+			"Check certificate chain completeness",
+			"Review SSL/TLS library configuration",
 		],
 		UNKNOWN: [
 			"Review application logs",

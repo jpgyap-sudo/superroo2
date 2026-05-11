@@ -18,6 +18,10 @@
  *   verifying → reopened
  *   fixing → blocked
  *   queued_for_fix → needs_human_approval
+ *
+ * Phase 1 enhancements:
+ *   - Escalation rules for repeated failures
+ *   - Failure count tracking per incident signature
  */
 
 import type { IncidentRecord, IncidentStatus, RootCauseCategory, TaskInputRaw, TaskPriority } from "../types"
@@ -26,6 +30,33 @@ import { CancellableSleep } from "../utils/CancellableSleep"
 import { HealingBus } from "./HealingBus"
 import { classifyRootCause, requiresHumanApproval } from "./RootCauseClassifier"
 import { buildRepairPlan, severityToPriority } from "./RepairPlanBuilder"
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Escalation types
+// ──────────────────────────────────────────────────────────────────────────────
+
+export type EscalationAction = "warn" | "notify" | "block" | "circuit_breaker"
+
+export interface EscalationPolicy {
+	/** Maximum retries before escalation. Default: 3 */
+	maxRetries: number
+	/** Action to take when escalation threshold is reached */
+	escalationAction: EscalationAction
+	/** Whether to skip auto-repair after escalation */
+	skipAutoRepair: boolean
+}
+
+export interface IncidentSignature {
+	category: RootCauseCategory
+	affectedFile: string
+}
+
+export interface FailureRecord {
+	signature: IncidentSignature
+	failureCount: number
+	lastFailureAt: number
+	escalated: boolean
+}
 
 export interface SelfHealingConfig {
 	/** Milliseconds between healing cycles. Default: 30000 (30s) */
@@ -51,6 +82,8 @@ export interface SelfHealingConfig {
 	maxBackoffMs?: number
 	/** Cleanup old healing actions every N cycles. Default: 10 */
 	cleanupIntervalCycles?: number
+	/** Escalation policy for repeated failures. Default: 3 retries, warn, skip auto-repair */
+	escalationPolicy?: EscalationPolicy
 }
 
 export interface SelfHealingStats {
@@ -92,6 +125,9 @@ export class SelfHealingLoop {
 	private readonly config: Required<SelfHealingConfig>
 	private sleeper = new CancellableSleep()
 
+	/** Tracks failure counts per incident signature for escalation */
+	private failureRecords: Map<string, FailureRecord> = new Map()
+
 	constructor(
 		private readonly orchestrator: SuperRooOrchestrator,
 		config: SelfHealingConfig = {
@@ -111,11 +147,18 @@ export class SelfHealingLoop {
 			cleanupIntervalCycles: 10,
 		},
 	) {
+		const defaultEscalationPolicy: EscalationPolicy = {
+			maxRetries: 3,
+			escalationAction: "warn",
+			skipAutoRepair: true,
+		}
+
 		this.config = {
 			circuitBreakerThreshold: 5,
 			circuitBreakerTimeoutMs: 300000,
 			maxBackoffMs: 300000,
 			cleanupIntervalCycles: 10,
+			escalationPolicy: defaultEscalationPolicy,
 			...config,
 		}
 		this.healingBus = new HealingBus(orchestrator.memory, orchestrator.events, {
@@ -275,11 +318,43 @@ export class SelfHealingLoop {
 
 	/**
 	 * Process a single incident through the state machine.
+	 * Checks escalation rules before processing.
 	 */
 	private async processIncident(incident: IncidentRecord): Promise<string | null> {
 		// Skip already processed terminal states
 		if (["verified", "blocked", "needs_human_approval"].includes(incident.status)) {
 			return null
+		}
+
+		// Check escalation before processing
+		if (this.shouldEscalate(incident)) {
+			const category = incident.rootCauseCategory ?? "UNKNOWN"
+			const firstFile = incident.affectedFiles[0] ?? "unknown"
+			const signature = this.makeSignature(category, firstFile)
+			const record = this.failureRecords.get(signature)
+
+			const action = this.config.escalationPolicy.escalationAction
+			this.orchestrator.events.warn(
+				"healing.loop.escalated",
+				`Incident ${incident.id} escalated after ${record?.failureCount ?? 0} failures (action: ${action})`,
+				{
+					incidentId: incident.id,
+					data: { category, affectedFile: firstFile, failureCount: record?.failureCount, action },
+				},
+			)
+
+			// Block the incident if escalation policy says to skip auto-repair
+			if (this.config.escalationPolicy.skipAutoRepair) {
+				await this.healingBus.transitionState(incident.id, "blocked", "self_healing_loop", {
+					reason: "escalated",
+					failureCount: record?.failureCount,
+					escalationAction: action,
+				})
+				this.stats.incidentsBlocked++
+				return `escalated_blocked_${action}`
+			}
+
+			return "escalated_but_continuing"
 		}
 
 		switch (incident.status) {
@@ -535,6 +610,87 @@ export class SelfHealingLoop {
 		}
 
 		this.orchestrator.submit(task)
+	}
+
+	// ────────────────────────────────────────────────────────────────────────────
+	// Escalation
+	// ────────────────────────────────────────────────────────────────────────────
+
+	/**
+	 * Build a deterministic signature for an incident based on category + affected file.
+	 */
+	private makeSignature(category: RootCauseCategory, affectedFile: string): string {
+		return `${category}::${affectedFile}`
+	}
+
+	/**
+	 * Check whether an incident should be escalated based on failure history.
+	 * Returns true if the incident signature has failed >= maxRetries times.
+	 */
+	shouldEscalate(incident: IncidentRecord): boolean {
+		const category = incident.rootCauseCategory ?? "UNKNOWN"
+		if (category === "UNKNOWN") return false
+
+		const firstFile = incident.affectedFiles[0] ?? "unknown"
+		const signature = this.makeSignature(category, firstFile)
+		const record = this.failureRecords.get(signature)
+
+		if (!record) return false
+		if (record.escalated) return true // Already escalated
+
+		return record.failureCount >= this.config.escalationPolicy.maxRetries
+	}
+
+	/**
+	 * Record a failure for an incident signature.
+	 * Increments the failure count and marks as escalated if threshold is reached.
+	 */
+	recordFailure(incident: IncidentRecord): void {
+		const category = incident.rootCauseCategory ?? "UNKNOWN"
+		const firstFile = incident.affectedFiles[0] ?? "unknown"
+		const signature = this.makeSignature(category, firstFile)
+
+		const existing = this.failureRecords.get(signature)
+		const newCount = (existing?.failureCount ?? 0) + 1
+		const escalated = newCount >= this.config.escalationPolicy.maxRetries
+
+		this.failureRecords.set(signature, {
+			signature: { category, affectedFile: firstFile },
+			failureCount: newCount,
+			lastFailureAt: Date.now(),
+			escalated,
+		})
+
+		if (escalated) {
+			this.orchestrator.events.warn(
+				"healing.loop.escalation_threshold",
+				`Incident signature ${signature} reached ${newCount} failures, escalating`,
+				{
+					data: {
+						signature,
+						failureCount: newCount,
+						escalationAction: this.config.escalationPolicy.escalationAction,
+					},
+				},
+			)
+		}
+	}
+
+	/**
+	 * Get all failure records for diagnostics.
+	 */
+	getFailureRecords(): Map<string, FailureRecord> {
+		return new Map(this.failureRecords)
+	}
+
+	/**
+	 * Clear failure records for a specific signature (e.g., after successful fix).
+	 */
+	clearFailureRecord(incident: IncidentRecord): void {
+		const category = incident.rootCauseCategory ?? "UNKNOWN"
+		const firstFile = incident.affectedFiles[0] ?? "unknown"
+		const signature = this.makeSignature(category, firstFile)
+		this.failureRecords.delete(signature)
 	}
 
 	// ────────────────────────────────────────────────────────────────────────────

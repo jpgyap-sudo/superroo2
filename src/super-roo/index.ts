@@ -202,3 +202,14 @@ export type {
 	ResourceGuardEvent,
 	ResourceGuardListener,
 } from "./cpu-guard"
+
+// Infrastructure (Log Aggregation & Monitoring)
+export { LogAggregator, getLogAggregator } from "./infrastructure"
+export type {
+	LogEntry,
+	LogSource,
+	LogLevel,
+	LogQueryOptions,
+	LogQueryResult,
+	LogAggregatorConfig,
+} from "./infrastructure"

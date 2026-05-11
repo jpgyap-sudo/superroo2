@@ -903,6 +903,15 @@ async function handleAuthRoute(method, url, req, res) {
 	// Don't intercept IDE workspace routes — they are handled by api.js directly
 	if (normalizedPath.startsWith("/ide-workspace/")) return false
 
+	// Don't intercept Terminal Brain routes — they are handled by api.js directly
+	if (normalizedPath.startsWith("/terminal-brain/")) return false
+
+	// Don't intercept Healing Metrics routes — they are handled by api.js directly
+	if (normalizedPath.startsWith("/healing/")) return false
+
+	// Don't intercept Monitoring routes — they are handled by api.js directly
+	if (normalizedPath.startsWith("/monitoring/")) return false
+
 	// ── Protected Web Auth Routes ───────────────────────────────────────────
 
 	const email = requireAuth(req, res)

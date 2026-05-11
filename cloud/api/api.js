@@ -13,6 +13,7 @@ const IORedis = require("ioredis")
 const { exec } = require("child_process")
 const { promisify } = require("util")
 const fs = require("fs").promises
+const fsSync = require("fs")
 const path = require("path")
 
 // ── Auth & Telegram Bot ───────────────────────────────────────────────────────
@@ -20,7 +21,34 @@ const path = require("path")
 const auth = require("./auth")
 const telegramBot = require("./telegramBot")
 const telegramClassifier = require("./telegramClassifier")
+const healingMetrics = require("./routes/healing-metrics")
+const monitoring = require("./routes/monitoring")
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || ""
+
+// ── IDE Workspace Persistence ─────────────────────────────────────────────────
+
+const WORKSPACE_STORE_PATH = path.join(__dirname, "..", "data", "ide-workspace.json")
+
+async function loadWorkspaceStore() {
+	try {
+		const raw = await fs.readFile(WORKSPACE_STORE_PATH, "utf8")
+		return JSON.parse(raw)
+	} catch {
+		return null
+	}
+}
+
+async function saveWorkspaceStore(data) {
+	try {
+		await fs.mkdir(path.dirname(WORKSPACE_STORE_PATH), { recursive: true })
+		// Atomic write: write to temp then rename
+		const tmp = WORKSPACE_STORE_PATH + ".tmp"
+		await fs.writeFile(tmp, JSON.stringify(data, null, 2), "utf8")
+		await fs.rename(tmp, WORKSPACE_STORE_PATH)
+	} catch (err) {
+		console.error("[workspace-store] Failed to save:", err.message)
+	}
+}
 
 const execAsync = promisify(exec)
 
@@ -2034,33 +2062,134 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// ── Healing Metrics routes ───────────────────────────────────────────
+
+		// Healing Metrics — exposes healing module data for the dashboard
+		// Provides metrics, incidents, and escalated issues endpoints
+		if (normalizedUrl.startsWith("/healing/")) {
+			if (await healingMetrics.handleHealingRoute(method, url, req, res)) {
+				return
+			}
+		}
+
+		// ── Monitoring routes ────────────────────────────────────────────────
+
+		// Monitoring — exposes log aggregation, system stats, and health timeline
+		// Provides log viewer, system stats, and health check history endpoints
+		if (normalizedUrl.startsWith("/monitoring/")) {
+			if (await monitoring.handleMonitoringRoute(method, url, req, res)) {
+				return
+			}
+		}
+
+		// ── Terminal Brain routes ────────────────────────────────────────────
+
+		// Terminal Brain — integrates with packages/terminal-core/src/brain
+		// Provides context, memory, plan, execute, analyze, fix endpoints
+		if (normalizedUrl.startsWith("/terminal-brain/")) {
+			const action = normalizedUrl.slice("/terminal-brain/".length).split("?")[0].split("/")[0]
+
+			// Lazy-load TerminalBrain (it may not be installed in all environments)
+			let TerminalBrain
+			try {
+				TerminalBrain = require("../../../packages/terminal-core/src/brain").TerminalBrain
+			} catch (e) {
+				// Fallback: return empty responses if terminal-core is not available
+				if (action === "context" || action === "memory") {
+					sendJson(res, 200, { ok: true, context: null, memory: null })
+				} else {
+					sendJson(res, 200, {
+						ok: true,
+						feedback: { status: "unavailable", output: "Terminal Brain not available" },
+					})
+				}
+				return
+			}
+
+			// Get or create brain instance (keyed by session or default)
+			const sessionId = req.headers["x-session-id"] || `session-${Date.now()}`
+			const workspaceRoot = process.env.WORKSPACE_ROOT || "/opt/superroo2"
+			if (!global.__terminalBrains) global.__terminalBrains = new Map()
+			if (!global.__terminalBrains.has(sessionId)) {
+				global.__terminalBrains.set(sessionId, new TerminalBrain({ workspaceRoot, sessionId }))
+			}
+			const brain = global.__terminalBrains.get(sessionId)
+
+			try {
+				if (method === "GET" && action === "context") {
+					const result = await brain.process({ action: "context" })
+					sendJson(res, 200, result)
+				} else if (method === "GET" && action === "memory") {
+					const result = await brain.process({ action: "memory" })
+					sendJson(res, 200, result)
+				} else if (method === "GET" && action === "stats") {
+					const stats = brain.getStats()
+					sendJson(res, 200, { ok: true, stats })
+				} else if (method === "POST" && action === "plan") {
+					const data = await parseBody(req)
+					const result = await brain.process({ action: "plan", nlQuery: data.query || data.nlQuery || "" })
+					sendJson(res, 200, result)
+				} else if (method === "POST" && action === "execute") {
+					const data = await parseBody(req)
+					const result = await brain.process({ action: "execute", command: data.command || "" })
+					sendJson(res, 200, result)
+				} else if (method === "POST" && action === "analyze") {
+					const data = await parseBody(req)
+					const result = await brain.process({ action: "analyze", command: data.output || "" })
+					sendJson(res, 200, result)
+				} else if (method === "POST" && action === "fix") {
+					const data = await parseBody(req)
+					const result = await brain.process({ action: "fix", command: data.output || "" })
+					sendJson(res, 200, result)
+				} else if (method === "POST" && action === "process") {
+					const data = await parseBody(req)
+					const result = await brain.process(data)
+					sendJson(res, 200, result)
+				} else {
+					sendJson(res, 404, {
+						error: "not_found",
+						detail: `No terminal-brain route for ${method} ${action}`,
+					})
+				}
+			} catch (err) {
+				console.error(`[terminal-brain] Error handling ${action}:`, err.message)
+				sendJson(res, 500, { ok: false, error: err.message })
+			}
+			return
+		}
+
 		// ── IDE Workspace routes ──────────────────────────────────────────────
 
-		// In-memory IDE workspace state
+		// Persistent IDE workspace state (survives server restarts)
 		if (!global.__ideWorkspace) {
-			global.__ideWorkspace = {
-				repoName: "superroo2",
-				branch: "main",
-				workspaceDir: process.env.WORKSPACE_ROOT || "/opt/superroo2",
-				terminalSessions: [
-					{
-						id: "term-1",
-						name: "bash",
-						cwd: process.env.WORKSPACE_ROOT || "/opt/superroo2",
-						createdAt: new Date().toISOString(),
-						output: ["Welcome to SuperRoo IDE Terminal", "Type a command to get started..."],
-					},
-				],
-				activeTerminal: "term-1",
-				chatMessages: [],
-				pipeline: [
-					{ id: "plan", label: "Plan", status: "pending" },
-					{ id: "crawl", label: "Crawl", status: "pending" },
-					{ id: "patch", label: "Patch", status: "pending" },
-					{ id: "approval", label: "Approval", status: "pending" },
-					{ id: "tests", label: "Tests", status: "pending" },
-					{ id: "deploy", label: "Deploy", status: "pending" },
-				],
+			const saved = await loadWorkspaceStore()
+			if (saved && saved.chatMessages) {
+				global.__ideWorkspace = saved
+			} else {
+				global.__ideWorkspace = {
+					repoName: "superroo2",
+					branch: "main",
+					workspaceDir: process.env.WORKSPACE_ROOT || "/opt/superroo2",
+					terminalSessions: [
+						{
+							id: "term-1",
+							name: "bash",
+							cwd: process.env.WORKSPACE_ROOT || "/opt/superroo2",
+							createdAt: new Date().toISOString(),
+							output: ["Welcome to SuperRoo IDE Terminal", "Type a command to get started..."],
+						},
+					],
+					activeTerminal: "term-1",
+					chatMessages: [],
+					pipeline: [
+						{ id: "plan", label: "Plan", status: "pending" },
+						{ id: "crawl", label: "Crawl", status: "pending" },
+						{ id: "patch", label: "Patch", status: "pending" },
+						{ id: "approval", label: "Approval", status: "pending" },
+						{ id: "tests", label: "Tests", status: "pending" },
+						{ id: "deploy", label: "Deploy", status: "pending" },
+					],
+				}
 			}
 		}
 		const ws = global.__ideWorkspace
@@ -2677,6 +2806,7 @@ const server = http.createServer(async (req, res) => {
 					output: ["Welcome to SuperRoo IDE Terminal", "Type a command to get started..."],
 				},
 			]
+			saveWorkspaceStore(global.__ideWorkspace) // persist reset
 			sendJson(res, 200, { ok: true, message: "Workspace reset" })
 			return
 		}
@@ -2710,6 +2840,7 @@ const server = http.createServer(async (req, res) => {
 					// Log to terminal session
 					term.output.push(`$ ${cmd}`)
 					term.output.push(...outputLines)
+					saveWorkspaceStore(global.__ideWorkspace) // persist terminal
 					sendJson(res, 200, {
 						ok: true,
 						output: outputLines,
@@ -2719,6 +2850,7 @@ const server = http.createServer(async (req, res) => {
 				} catch (err) {
 					const errorLines = [`$ ${cmd}`, `Error: ${err.message}`]
 					term.output.push(...errorLines)
+					saveWorkspaceStore(global.__ideWorkspace) // persist terminal
 					sendJson(res, 200, {
 						ok: true,
 						output: errorLines,
@@ -2746,6 +2878,7 @@ const server = http.createServer(async (req, res) => {
 					term.output.push(...lines.map((l) => `stderr: ${l}`))
 				}
 
+				saveWorkspaceStore(global.__ideWorkspace) // persist terminal
 				sendJson(res, 200, {
 					ok: true,
 					message: "Command executed",
@@ -2763,6 +2896,7 @@ const server = http.createServer(async (req, res) => {
 			} catch (err) {
 				const errorMsg = err.stderr || err.message || "Command failed"
 				term.output.push(`Error: ${errorMsg}`)
+				saveWorkspaceStore(global.__ideWorkspace) // persist terminal
 				sendJson(res, 200, {
 					ok: true,
 					message: "Command completed with errors",
@@ -2784,6 +2918,7 @@ const server = http.createServer(async (req, res) => {
 			}
 			ws.terminalSessions.push(newTerm)
 			ws.activeTerminal = newTerm.id
+			saveWorkspaceStore(global.__ideWorkspace) // persist terminal
 			sendJson(res, 200, { ok: true, message: "Terminal created", terminal: newTerm })
 			return
 		}
@@ -2826,6 +2961,7 @@ const server = http.createServer(async (req, res) => {
 				time: new Date().toLocaleTimeString(),
 				content: msg,
 			})
+			saveWorkspaceStore(global.__ideWorkspace) // persist chat
 
 			// ── OpenClaw intent classification ──────────────────────────────
 			// Build providers array for the classifier (same format askAI uses)
@@ -2896,6 +3032,7 @@ const server = http.createServer(async (req, res) => {
 					time: new Date().toLocaleTimeString(),
 					content: noProviderMsg,
 				})
+				saveWorkspaceStore(global.__ideWorkspace) // persist chat
 				sendJson(res, 200, {
 					ok: true,
 					message: "No AI provider available",
@@ -2948,6 +3085,8 @@ const server = http.createServer(async (req, res) => {
 					}))
 				}
 
+				saveWorkspaceStore(global.__ideWorkspace) // persist chat + pipeline
+
 				sendJson(res, 200, {
 					ok: true,
 					message: "OK",
@@ -2967,6 +3106,7 @@ const server = http.createServer(async (req, res) => {
 					time: new Date().toLocaleTimeString(),
 					content: `AI request failed: ${err.message}`,
 				})
+				saveWorkspaceStore(global.__ideWorkspace) // persist chat
 				sendJson(res, 200, {
 					ok: true,
 					message: "AI call failed",
@@ -3002,6 +3142,7 @@ const server = http.createServer(async (req, res) => {
 				}
 			}
 
+			saveWorkspaceStore(global.__ideWorkspace) // persist pipeline
 			sendJson(res, 200, {
 				ok: true,
 				message: `Pipeline step "${stepId}" updated with action "${action}"`,
@@ -3819,10 +3960,44 @@ const server = http.createServer(async (req, res) => {
 	}
 })
 
+// ── Log Aggregator (optional) ──────────────────────────────────────────────────
+
+// Initialize the LogAggregator to capture HTTP request logs.
+// Uses a simple JSONL-based logger that writes to the logs/ directory.
+const LOGS_DIR_AGG = process.env.LOGS_DIR || path.resolve(__dirname, "..", "..", "logs")
+
+/**
+ * Simple JSONL log writer for the Cloud API.
+ * Writes structured log entries to logs/superroo-YYYY-MM-DD.jsonl.
+ */
+function writeApiLog(level, source, message, metadata) {
+	try {
+		const dateStr = new Date().toISOString().slice(0, 10)
+		const logDir = LOGS_DIR_AGG
+		if (!fsSync.existsSync(logDir)) {
+			fsSync.mkdirSync(logDir, { recursive: true })
+		}
+		const logFile = path.join(logDir, `superroo-${dateStr}.jsonl`)
+		const entry = JSON.stringify({
+			id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+			timestamp: Date.now(),
+			source,
+			level,
+			message,
+			metadata: metadata || {},
+		})
+		fsSync.appendFileSync(logFile, entry + "\n", "utf-8")
+	} catch {
+		// Silently fail — logging should never crash the API
+	}
+}
+
 // Load persisted encrypted secrets and auth store before accepting requests
 Promise.all([loadEncryptedSecrets(), auth.loadStore()]).then(() => {
 	loadEnvironmentSecrets()
 	server.listen(PORT, () => {
 		console.log(`[api] Listening on port ${PORT} | queue=${QUEUE_NAME} | redis=${REDIS_URL}`)
+		// Log API startup to the aggregated log
+		writeApiLog("info", "cloud-api", `API server started on port ${PORT}`, { port: PORT })
 	})
 })

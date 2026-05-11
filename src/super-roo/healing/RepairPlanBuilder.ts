@@ -11,6 +11,7 @@ import type {
 	BugSeverity,
 	RepairPlan,
 	TaskPriority,
+	ExecutionResult,
 } from "../types"
 import { classifyRootCause, getDiagnosticSteps, requiresHumanApproval } from "./RootCauseClassifier"
 
@@ -26,10 +27,7 @@ export interface RepairPlanOptions {
 /**
  * Build a comprehensive repair plan for an incident.
  */
-export function buildRepairPlan(
-	incident: IncidentRecord,
-	options: RepairPlanOptions = {},
-): RepairPlan {
+export function buildRepairPlan(incident: IncidentRecord, options: RepairPlanOptions = {}): RepairPlan {
 	const classification = options.rootCauseCategory
 		? { category: options.rootCauseCategory, confidence: 1, reasoning: "Manual override" }
 		: classifyRootCause(incident)
@@ -61,6 +59,41 @@ export function buildRepairPlan(
 		testsToRun,
 		approvalRequired: needsApproval,
 		approvalReason,
+		executionStatus: "pending",
+	}
+}
+
+/**
+ * Mark a repair plan as executed with a result.
+ */
+export function markPlanExecuted(plan: RepairPlan, result: ExecutionResult): RepairPlan {
+	return {
+		...plan,
+		executionStatus: result.success ? "completed" : "failed",
+		executedAt: Date.now(),
+		executionResult: result,
+	}
+}
+
+/**
+ * Mark a repair plan as in progress.
+ */
+export function markPlanInProgress(plan: RepairPlan): RepairPlan {
+	return {
+		...plan,
+		executionStatus: "in_progress",
+	}
+}
+
+/**
+ * Mark a repair plan as cancelled.
+ */
+export function markPlanCancelled(plan: RepairPlan): RepairPlan {
+	return {
+		...plan,
+		executionStatus: "cancelled",
+		executedAt: Date.now(),
+		executionResult: { success: false, message: "Plan was cancelled" },
 	}
 }
 
@@ -94,6 +127,15 @@ function determineAffectedFiles(incident: IncidentRecord, category: RootCauseCat
 		DEPLOY_DRIFT: [".github/workflows/", "scripts/deploy/", "ops/"],
 		TEST_FAILURE: ["src/", "tests/", "__tests__/"],
 		SECURITY_RISK: [], // Don't suggest files for security issues
+		MEMORY_LEAK: ["src/", "lib/", "workers/"],
+		RACE_CONDITION: ["src/", "lib/", "workers/"],
+		CONFIGURATION_ERROR: [".env", "src/config/", "lib/config/"],
+		DEPENDENCY_CONFLICT: ["package.json", "package-lock.json", "node_modules/"],
+		AUTHENTICATION_FAILURE: ["src/auth/", "lib/auth/", "src/middleware/"],
+		NETWORK_TIMEOUT: ["src/api/", "lib/api/", "src/middleware/"],
+		FILE_SYSTEM_ERROR: ["src/", "lib/", "scripts/"],
+		DNS_RESOLUTION: ["src/api/", "lib/api/", "src/config/"],
+		SSL_TLS_ERROR: [], // Don't suggest files for certificate issues
 		UNKNOWN: ["src/", "lib/", "api/"],
 	}
 
@@ -186,6 +228,60 @@ function buildSafePatchPlan(category: RootCauseCategory, affectedFiles: string[]
 			"Document exposure scope and timeline",
 			"Prepare formal incident report",
 		],
+		MEMORY_LEAK: [
+			"Add heap snapshot before/after comparison",
+			"Review object lifecycle and disposal patterns",
+			"Check for event listener leaks",
+			"Consider WeakRef for cache-like structures",
+		],
+		RACE_CONDITION: [
+			"Add mutex/lock around shared state",
+			"Review async operation ordering",
+			"Consider using atomic operations",
+			"Add integration tests for concurrent scenarios",
+		],
+		CONFIGURATION_ERROR: [
+			"Add config schema validation",
+			"Provide clear error messages for invalid config",
+			"Add config migration path for breaking changes",
+			"Consider config health check on startup",
+		],
+		DEPENDENCY_CONFLICT: [
+			"Run npm dedupe to flatten dependencies",
+			"Check for peer dependency mismatches",
+			"Consider using overrides/resolutions in package.json",
+			"Verify lockfile is up to date",
+		],
+		AUTHENTICATION_FAILURE: [
+			"Check session/cookie configuration",
+			"Verify credential storage mechanism",
+			"Review auth middleware chain order",
+			"Add auth failure logging with context",
+		],
+		NETWORK_TIMEOUT: [
+			"Add retry with exponential backoff",
+			"Implement circuit breaker pattern",
+			"Review timeout configuration values",
+			"Add connectivity health checks",
+		],
+		FILE_SYSTEM_ERROR: [
+			"Add file existence checks before operations",
+			"Implement proper error handling for file ops",
+			"Use temp files for atomic writes",
+			"Add disk space monitoring",
+		],
+		DNS_RESOLUTION: [
+			"Verify DNS server configuration",
+			"Add DNS caching layer",
+			"Consider using IP as fallback",
+			"Add DNS resolution health checks",
+		],
+		SSL_TLS_ERROR: [
+			"HUMAN APPROVAL REQUIRED",
+			"Verify certificate chain and expiry",
+			"Check SSL/TLS library configuration",
+			"Review certificate pinning logic",
+		],
 		UNKNOWN: [
 			"Gather more diagnostic data",
 			"Check related logs and metrics",
@@ -225,11 +321,7 @@ function determineTestsToRun(category: RootCauseCategory, affectedFiles: string[
 /**
  * Build human-readable approval reason.
  */
-function buildApprovalReason(
-	category: RootCauseCategory,
-	severity: BugSeverity,
-	autoFixAllowed: boolean,
-): string {
+function buildApprovalReason(category: RootCauseCategory, severity: BugSeverity, autoFixAllowed: boolean): string {
 	if (category === "SECURITY_RISK") {
 		return "Security risk detected - requires security team review"
 	}

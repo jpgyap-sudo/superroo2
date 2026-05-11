@@ -143,6 +143,7 @@ describe("editTool", () => {
 		mockTask.ask = vi.fn().mockResolvedValue(undefined)
 		mockTask.recordToolError = vi.fn()
 		mockTask.recordToolUsage = vi.fn()
+		mockTask.recordCodeChange = vi.fn()
 		mockTask.processQueuedMessages = vi.fn()
 		mockTask.sayAndCreateMissingParamError = vi.fn().mockResolvedValue("Missing param error")
 

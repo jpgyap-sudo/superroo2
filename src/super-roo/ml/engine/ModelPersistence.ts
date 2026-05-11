@@ -2,7 +2,7 @@
  * Super Roo ML — Model Persistence
  *
  * Serialise / deserialise full learner state (encoder + heads) to disk.
- * Uses safeWriteJson for atomic writes.
+ * Uses atomic write (write to temp file, rename) to prevent corruption.
  */
 
 import * as fs from "node:fs/promises"
@@ -28,10 +28,13 @@ export class ModelPersistence {
 		this.filePath = path.join(config.dir, `${config.name}.json`)
 	}
 
-	/** Save weights atomically. */
+	/** Save weights atomically (write to temp file, then rename). */
 	async save(weights: PersistedWeights): Promise<void> {
-		const { safeWriteJson } = await import("../../../utils/safeWriteJson")
-		await safeWriteJson(this.filePath, weights)
+		const dir = path.dirname(this.filePath)
+		await fs.mkdir(dir, { recursive: true })
+		const tmpPath = path.join(dir, `.${path.basename(this.filePath)}.tmp_${Date.now()}`)
+		await fs.writeFile(tmpPath, JSON.stringify(weights, null, 2), "utf-8")
+		await fs.rename(tmpPath, this.filePath)
 	}
 
 	/** Load weights if they exist. */

@@ -53,12 +53,20 @@ describe("runGuardedAgentLoop", () => {
 		const step = vi.fn().mockResolvedValue({ done: false })
 		const logger = { info: vi.fn(), warn: vi.fn() }
 
-		// Start the loop (will hang on sleep(cooldownMs) between iterations)
+		// Track the rejection in a variable so we can assert on it later.
+		// We must attach a .catch() handler before advancing timers to prevent
+		// Vitest's global handler from detecting the rejection as unhandled.
+		// With fake timers, vi.advanceTimersByTimeAsync resolves the sleep()
+		// microtasks, causing the GuardedLoopError to be thrown. Vitest detects
+		// the rejection before await promise can catch it.
+		let rejection: unknown = undefined
 		const promise = runGuardedAgentLoop(step, {
 			taskName: "infinite-task",
 			maxLoops: 3,
 			cooldownMs: 10,
 			logger: logger as unknown as Console,
+		}).catch((e) => {
+			rejection = e
 		})
 
 		// Advance fake timers to let each sleep(cooldownMs) resolve
@@ -66,7 +74,14 @@ describe("runGuardedAgentLoop", () => {
 		// The mock waitForCpuBelow resolves immediately, so only cooldown sleeps block
 		await vi.advanceTimersByTimeAsync(50)
 
-		await expect(promise).rejects.toThrow(GuardedLoopError)
+		// Wait for the promise chain to settle
+		await promise
+
+		expect(rejection).toBeInstanceOf(GuardedLoopError)
+		if (rejection instanceof GuardedLoopError) {
+			expect(rejection.taskName).toBe("infinite-task")
+			expect(rejection.loopsExecuted).toBe(3)
+		}
 		expect(step).toHaveBeenCalledTimes(3)
 	})
 

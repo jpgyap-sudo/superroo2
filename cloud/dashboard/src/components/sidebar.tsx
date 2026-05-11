@@ -27,6 +27,8 @@ import {
 	Menu,
 	X,
 	Rocket,
+	HeartPulse,
+	Activity,
 } from "lucide-react"
 
 const NAV = [
@@ -38,6 +40,8 @@ const NAV = [
 	{ id: "agents", icon: Bot, label: "Agents" },
 	{ id: "skill-generator", icon: Wand2, label: "Skill Generator" },
 	{ id: "bugs", icon: Bug, label: "Bugs" },
+	{ id: "healing", icon: HeartPulse, label: "Healing" },
+	{ id: "monitoring", icon: Activity, label: "Monitoring" },
 	{ id: "logs", icon: ScrollText, label: "Logs" },
 	{ id: "docker", icon: Container, label: "Docker" },
 	{ id: "github", icon: Github, label: "GitHub" },
