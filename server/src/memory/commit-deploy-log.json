@@ -7,13 +7,8 @@
 			"type": "feature",
 			"title": "feat: add quotation-automation-system workspace to projects.json",
 			"description": "Created add-workspace.py script for adding workspaces to VPS projects.json. Updated create-projects-json.py to include quotation-automation-system. Deployed to VPS and restarted superroo-api.",
-			"filesChanged": [
-				"cloud/add-workspace.py",
-				"cloud/create-projects-json.py"
-			],
-			"featuresAffected": [
-				"Telegram Workspace System"
-			],
+			"filesChanged": ["cloud/add-workspace.py", "cloud/create-projects-json.py"],
+			"featuresAffected": ["Telegram Workspace System"],
 			"timestamp": "2026-05-10T15:06:24.631Z"
 		},
 		{
@@ -28,14 +23,8 @@
 				"src/telegram/__tests__/bot.test.ts",
 				"apps/web-superroo/src/lib/constants.ts"
 			],
-			"featuresAffected": [
-				"telegram-bot",
-				"web-superroo"
-			],
-			"bugsFixed": [
-				"Telegram bot not responding in group chats",
-				"404 error when logging in via Telegram"
-			],
+			"featuresAffected": ["telegram-bot", "web-superroo"],
+			"bugsFixed": ["Telegram bot not responding in group chats", "404 error when logging in via Telegram"],
 			"timestamp": "2026-05-09T15:36:25.000Z"
 		},
 		{
@@ -45,13 +34,8 @@
 			"type": "feature",
 			"title": "feat: rewrite Docker tab with full Docker Control Center UI",
 			"description": "",
-			"filesChanged": [
-				"cloud/dashboard/src/components/views/docker.tsx",
-				"cloud/dashboard/src/app/page.tsx"
-			],
-			"featuresAffected": [
-				"dashboard"
-			],
+			"filesChanged": ["cloud/dashboard/src/components/views/docker.tsx", "cloud/dashboard/src/app/page.tsx"],
+			"featuresAffected": ["dashboard"],
 			"timestamp": "2026-05-08T05:26:40.000Z"
 		},
 		{
@@ -61,14 +45,8 @@
 			"type": "bugfix",
 			"title": "fix: Telegram group chat auth not recognizing logged-in user + /projects command missing",
 			"description": "Four bugs fixed:\n\n1. /projects command was missing from command routing in telegramBot.js — the handleProjects function existed but was never called in the if/else chain, so /projects fell through to NL processing which failed.\n\n2. handleTelegramProjects() in auth.js threw 'Not authenticated' error instead of returning gracefully when no session existed, causing /projects to crash for unauthenticated users.\n\n3. handleSpecify failed because handleTelegramProjects called getTelegramSession with group chatId, but the session was created in DM with a different chatId — getTelegramSession had no fallback to try without chatId.\n\n4. getTelegramSession() in auth.js lacked the same two-step fallback that checkAuthSession() in telegramBot.js had (try exact chatId match first, then fall back to most recent session).",
-			"filesChanged": [
-				"cloud/api/telegramBot.js",
-				"cloud/api/auth.js"
-			],
-			"featuresAffected": [
-				"telegram-bot",
-				"telegram-auth"
-			],
+			"filesChanged": ["cloud/api/telegramBot.js", "cloud/api/auth.js"],
+			"featuresAffected": ["telegram-bot", "telegram-auth"],
 			"bugsFixed": [
 				"Telegram /projects command not routed in command handler",
 				"Telegram group chat auth not recognizing DM session",
@@ -89,12 +67,7 @@
 				"cloud/api/telegramNotifier.js",
 				"cloud/api/telegramEngineer.js"
 			],
-			"featuresAffected": [
-				"telegram-bot",
-				"telegram-auth",
-				"telegram-mini-ide",
-				"telegram-notifier"
-			],
+			"featuresAffected": ["telegram-bot", "telegram-auth", "telegram-mini-ide", "telegram-notifier"],
 			"bugsFixed": [
 				"10 missing commands not routed in command handler",
 				"messageId is not defined in debug_plan handler",
@@ -120,13 +93,82 @@
 				"cloud/api/api.js",
 				"cloud/api/auth.js"
 			],
-			"featuresAffected": [
-				"mini-ide",
-				"ide-terminal",
-				"dashboard",
-				"telegram-mini-ide"
-			],
+			"featuresAffected": ["mini-ide", "ide-terminal", "dashboard", "telegram-mini-ide"],
 			"timestamp": "2026-05-11T08:05:00.000Z"
+		},
+		{
+			"id": "commit_eef58594f",
+			"commitSha": "eef58594f7197c2f81c7bc9ab3959531fb57600b",
+			"agent": "orchestrator",
+			"type": "deploy",
+			"title": "deploy: sync all uncommitted updates before deployment",
+			"description": "Bulk commit of all uncommitted changes across the monorepo before full VPS deployment. Includes healing module updates, ML engine improvements, dashboard monitoring/healing views, API routes, infrastructure layer, and documentation.",
+			"filesChanged": [
+				".roo/skills/terminal-brain-upgrade/SKILL.md",
+				"NEXT_IMPROVEMENTS.md",
+				"cloud/api/api.js",
+				"cloud/api/auth.js",
+				"cloud/api/routes/healing-metrics.js",
+				"cloud/api/routes/monitoring.js",
+				"cloud/dashboard/src/app/page.tsx",
+				"cloud/dashboard/src/components/sidebar.tsx",
+				"cloud/dashboard/src/components/views/healing.tsx",
+				"cloud/dashboard/src/components/views/monitoring.tsx",
+				"docs/resources/smart-terminal-research.md",
+				"docs/super-roo/ARCHITECTURE_DIAGRAMS.md",
+				"docs/super-roo/HEALING_MODULE_GUIDE.md",
+				"docs/super-roo/ML_ENGINE_API.md",
+				"docs/super-roo/TROUBLESHOOTING.md",
+				"docs/super-roo/UPDATES.md",
+				"memory/healing-incidents.json",
+				"memory/healing-metrics.json",
+				"pnpm-lock.yaml",
+				"src/core/task-persistence/__tests__/workRecord.spec.ts",
+				"src/core/tools/__tests__/editTool.spec.ts",
+				"src/core/tools/__tests__/writeToFileTool.spec.ts",
+				"src/package.json",
+				"src/super-roo/__tests__/ml/engine.test.ts",
+				"src/super-roo/cpu-guard/__tests__/AgentLoopGuard.test.ts",
+				"src/super-roo/healing/HealingBus.ts",
+				"src/super-roo/healing/HealingMetrics.ts",
+				"src/super-roo/healing/RepairPlanBuilder.ts",
+				"src/super-roo/healing/RootCauseClassifier.ts",
+				"src/super-roo/healing/SelfHealingLoop.ts",
+				"src/super-roo/healing/__tests__/HealingMetrics.test.ts",
+				"src/super-roo/healing/__tests__/RootCauseClassifier.test.ts",
+				"src/super-roo/healing/index.ts",
+				"src/super-roo/index.ts",
+				"src/super-roo/infrastructure/LogAggregator.ts",
+				"src/super-roo/infrastructure/index.ts",
+				"src/super-roo/ml/engine/LRScheduler.ts",
+				"src/super-roo/ml/engine/Loss.ts",
+				"src/super-roo/ml/engine/ModelPersistence.ts",
+				"src/super-roo/ml/engine/Optimizer.ts",
+				"src/super-roo/ml/engine/checkpoint.ts",
+				"src/super-roo/ml/engine/index.ts",
+				"src/super-roo/ml/engine/layers/conv.ts",
+				"src/super-roo/types/index.ts"
+			],
+			"featuresAffected": [
+				"healing-module",
+				"ml-engine",
+				"dashboard",
+				"api",
+				"infrastructure",
+				"terminal-brain-upgrade"
+			],
+			"timestamp": "2026-05-11T17:35:27.000Z"
+		},
+		{
+			"id": "commit_03fcd5ff3",
+			"commitSha": "03fcd5ff3a96274c08ccb7da940856af60024791",
+			"agent": "orchestrator",
+			"type": "bugfix",
+			"title": "fix: change terminalRef type from HTMLPreElement to HTMLDivElement to fix build error",
+			"description": "Fixed TypeScript build error in ide-terminal.tsx where terminalRef was typed as useRef<HTMLPreElement> but used on a <div> element. Changed to HTMLDivElement to match the actual DOM element.",
+			"filesChanged": ["cloud/dashboard/src/components/views/ide-terminal.tsx"],
+			"featuresAffected": ["dashboard", "ide-terminal"],
+			"timestamp": "2026-05-11T17:39:11.000Z"
 		}
 	],
 	"deploys": [
@@ -137,12 +179,8 @@
 			"agent": "Roo Code",
 			"status": "failed",
 			"environment": "production",
-			"commitsIncluded": [
-				"ccbf850c6"
-			],
-			"featuresDeployed": [
-				"commit-deploy-log"
-			],
+			"commitsIncluded": ["ccbf850c6"],
+			"featuresDeployed": ["commit-deploy-log"],
 			"healthCheckPassed": null,
 			"healthCheckLatencyMs": null,
 			"startedAt": "2025-05-05T22:26:25.000Z",
@@ -156,12 +194,8 @@
 			"agent": "Roo Code",
 			"status": "healthy",
 			"environment": "production",
-			"commitsIncluded": [
-				"615816247b217e67d2adfd0974a12d9c5e1f9f50"
-			],
-			"featuresDeployed": [
-				"dashboard"
-			],
+			"commitsIncluded": ["615816247b217e67d2adfd0974a12d9c5e1f9f50"],
+			"featuresDeployed": ["dashboard"],
 			"healthCheckPassed": true,
 			"healthCheckLatencyMs": 250,
 			"startedAt": "2026-05-08T05:26:40.000Z",
@@ -174,13 +208,8 @@
 			"agent": "Roo Code",
 			"status": "healthy",
 			"environment": "production",
-			"commitsIncluded": [
-				"telegram-group-auth-fix-002"
-			],
-			"featuresDeployed": [
-				"telegram-bot",
-				"telegram-auth"
-			],
+			"commitsIncluded": ["telegram-group-auth-fix-002"],
+			"featuresDeployed": ["telegram-bot", "telegram-auth"],
 			"healthCheckPassed": true,
 			"healthCheckLatencyMs": 250,
 			"startedAt": "2026-05-11T01:36:54.000Z",
@@ -193,15 +222,8 @@
 			"agent": "Roo Code",
 			"status": "healthy",
 			"environment": "production",
-			"commitsIncluded": [
-				"telegram-e2e-fix-003"
-			],
-			"featuresDeployed": [
-				"telegram-bot",
-				"telegram-auth",
-				"telegram-mini-ide",
-				"telegram-notifier"
-			],
+			"commitsIncluded": ["telegram-e2e-fix-003"],
+			"featuresDeployed": ["telegram-bot", "telegram-auth", "telegram-mini-ide", "telegram-notifier"],
 			"healthCheckPassed": true,
 			"healthCheckLatencyMs": 250,
 			"startedAt": "2026-05-11T06:16:36.000Z",
@@ -214,19 +236,34 @@
 			"agent": "Roo Code",
 			"status": "healthy",
 			"environment": "production",
-			"commitsIncluded": [
-				"code-everywhere-fix-004"
-			],
-			"featuresDeployed": [
-				"mini-ide",
-				"ide-terminal",
-				"dashboard",
-				"telegram-mini-ide"
-			],
+			"commitsIncluded": ["code-everywhere-fix-004"],
+			"featuresDeployed": ["mini-ide", "ide-terminal", "dashboard", "telegram-mini-ide"],
 			"healthCheckPassed": true,
 			"healthCheckLatencyMs": 250,
 			"startedAt": "2026-05-11T07:30:00.000Z",
 			"completedAt": "2026-05-11T07:35:00.000Z"
+		},
+		{
+			"id": "deploy-sync-and-fix-2026-05-11",
+			"version": "1.7.1",
+			"commitSha": "03fcd5ff3a96274c08ccb7da940856af60024791",
+			"agent": "orchestrator",
+			"status": "healthy",
+			"environment": "production",
+			"commitsIncluded": ["eef58594f7197c2f81c7bc9ab3959531fb57600b", "03fcd5ff3a96274c08ccb7da940856af60024791"],
+			"featuresDeployed": [
+				"healing-module",
+				"ml-engine",
+				"dashboard",
+				"api",
+				"infrastructure",
+				"ide-terminal",
+				"terminal-brain-upgrade"
+			],
+			"healthCheckPassed": true,
+			"healthCheckLatencyMs": 250,
+			"startedAt": "2026-05-11T17:43:15.000Z",
+			"completedAt": "2026-05-11T17:45:46.000Z"
 		}
 	]
 }
