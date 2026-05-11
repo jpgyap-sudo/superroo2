@@ -238,6 +238,27 @@ async function startDeploy(triggeredBy = "auto") {
 
 const PORT = parseInt(process.env.AUTO_DEPLOYER_PORT || "8790", 10)
 
+// GitHub webhook secret — set via env var for security
+const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || ""
+
+/**
+ * Verify GitHub webhook HMAC-SHA256 signature.
+ * Returns true if signature matches or no secret is configured.
+ */
+function verifyGitHubSignature(reqBody, signatureHeader) {
+	if (!GITHUB_WEBHOOK_SECRET) {
+		log("[WEBHOOK] No GITHUB_WEBHOOK_SECRET set — skipping signature verification")
+		return true // allow if no secret configured (dev mode)
+	}
+	if (!signatureHeader) {
+		log("[WEBHOOK] Missing X-Hub-Signature-256 header")
+		return false
+	}
+	const crypto = require("crypto")
+	const sig = "sha256=" + crypto.createHmac("sha256", GITHUB_WEBHOOK_SECRET).update(reqBody).digest("hex")
+	return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(signatureHeader))
+}
+
 function handleRequest(req, res) {
 	const url = new URL(req.url, `http://localhost:${PORT}`)
 	const method = req.method
@@ -280,6 +301,59 @@ function handleRequest(req, res) {
 				res.writeHead(500, { "Content-Type": "application/json" })
 				res.end(JSON.stringify({ success: false, error: err.message }))
 			})
+		return
+	}
+
+	// POST /github-webhook — Receive GitHub push webhook and auto-deploy
+	if (
+		method === "POST" &&
+		(url.pathname === "/github-webhook" ||
+			url.pathname === "/api/auto-deploy/github-webhook" ||
+			url.pathname === "/api/github-webhook")
+	) {
+		let body = ""
+		req.on("data", (chunk) => (body += chunk))
+		req.on("end", () => {
+			// Verify signature
+			const signature = req.headers["x-hub-signature-256"]
+			if (!verifyGitHubSignature(body, signature)) {
+				res.writeHead(401, { "Content-Type": "application/json" })
+				res.end(JSON.stringify({ success: false, error: "Invalid signature" }))
+				return
+			}
+
+			try {
+				const event = req.headers["x-github-event"]
+				const payload = JSON.parse(body)
+
+				if (event === "push" && payload.ref === "refs/heads/main") {
+					const pusher = payload.pusher?.name || "unknown"
+					const commitCount = payload.commits?.length || 0
+					const headCommit = payload.head_commit?.message?.split("\n")[0] || "no message"
+					log(`[WEBHOOK] Push to main by ${pusher}: ${commitCount} commit(s) — "${headCommit}"`)
+
+					// Trigger deploy asynchronously (don't block the webhook response)
+					startDeploy("github-webhook").catch((err) =>
+						log(`[WEBHOOK] Deploy triggered by webhook failed: ${err.message}`),
+					)
+
+					res.writeHead(200, { "Content-Type": "application/json" })
+					res.end(JSON.stringify({ success: true, message: "Deploy triggered by GitHub webhook" }))
+				} else if (event === "push") {
+					log(`[WEBHOOK] Push to ${payload.ref} (not main) — ignoring`)
+					res.writeHead(200, { "Content-Type": "application/json" })
+					res.end(JSON.stringify({ success: true, message: "Ignored — not a push to main" }))
+				} else {
+					log(`[WEBHOOK] Received ${event} event — ignoring`)
+					res.writeHead(200, { "Content-Type": "application/json" })
+					res.end(JSON.stringify({ success: true, message: `Ignored ${event} event` }))
+				}
+			} catch (err) {
+				log(`[WEBHOOK] Error processing webhook: ${err.message}`)
+				res.writeHead(400, { "Content-Type": "application/json" })
+				res.end(JSON.stringify({ success: false, error: err.message }))
+			}
+		})
 		return
 	}
 

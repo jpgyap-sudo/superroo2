@@ -60,12 +60,12 @@ async function callChatCompletion(apiBaseUrl, apiKey, model, messages) {
 }
 
 /**
-	* Vision Fallback — Uses OpenAI GPT-4o (vision-capable) to analyze images/PDFs
-	* when the primary model doesn't support vision.
-	*
-	* Accepts a base64-encoded image or PDF and returns a text description.
-	* Falls back gracefully if OpenAI key is not configured.
-	*/
+ * Vision Fallback — Uses OpenAI GPT-4o (vision-capable) to analyze images/PDFs
+ * when the primary model doesn't support vision.
+ *
+ * Accepts a base64-encoded image or PDF and returns a text description.
+ * Falls back gracefully if OpenAI key is not configured.
+ */
 async function visionFallback(imageBase64, mimeType, prompt) {
 	try {
 		// Try OpenAI first (GPT-4o has vision)
@@ -107,7 +107,12 @@ async function visionFallback(imageBase64, mimeType, prompt) {
 					],
 				},
 			]
-			return await callChatCompletion("https://api.anthropic.com/v1", anthropicKey, "claude-sonnet-4-20250514", messages)
+			return await callChatCompletion(
+				"https://api.anthropic.com/v1",
+				anthropicKey,
+				"claude-sonnet-4-20250514",
+				messages,
+			)
 		}
 
 		// Fallback to any available vision-capable provider
@@ -119,7 +124,10 @@ async function visionFallback(imageBase64, mimeType, prompt) {
 						{
 							role: "user",
 							content: [
-								{ type: "text", text: prompt || "Please describe what you see in this image in detail." },
+								{
+									type: "text",
+									text: prompt || "Please describe what you see in this image in detail.",
+								},
 								{
 									type: "image_url",
 									image_url: {
@@ -130,7 +138,12 @@ async function visionFallback(imageBase64, mimeType, prompt) {
 							],
 						},
 					]
-					return await callChatCompletion(provider.apiBaseUrl, key, provider.defaultModel || "gpt-4o", messages)
+					return await callChatCompletion(
+						provider.apiBaseUrl,
+						key,
+						provider.defaultModel || "gpt-4o",
+						messages,
+					)
 				}
 			}
 		}
@@ -951,7 +964,7 @@ const server = http.createServer(async (req, res) => {
 		// Vision Analyze — Fallback for image/PDF analysis when primary model lacks vision
 		// POST /api/vision/analyze
 		// Body: { image: "<base64>", mimeType: "image/png", prompt: "optional prompt" }
-		if ((method === "POST" && (url === "/vision/analyze" || normalizedUrl === "/vision/analyze"))) {
+		if (method === "POST" && (url === "/vision/analyze" || normalizedUrl === "/vision/analyze")) {
 			const data = await parseBody(req)
 			if (!data.image || !data.mimeType) {
 				sendJson(res, 400, { success: false, error: "Missing required fields: image (base64), mimeType" })
@@ -2064,7 +2077,12 @@ const server = http.createServer(async (req, res) => {
 					const relPath = path.join(basePath, item.name)
 					if (item.isDirectory()) {
 						const children = await walkDir(fullPath, relPath)
-						entries.push({ path: "/" + relPath.replace(/\\/g, "/"), name: item.name, kind: "folder", children })
+						entries.push({
+							path: "/" + relPath.replace(/\\/g, "/"),
+							name: item.name,
+							kind: "folder",
+							children,
+						})
 					} else {
 						entries.push({ path: "/" + relPath.replace(/\\/g, "/"), name: item.name, kind: "file" })
 					}
@@ -2089,8 +2107,14 @@ const server = http.createServer(async (req, res) => {
 			"/plan": { agent: "planner", description: "Create a plan for a task" },
 			"/code": { agent: "coder", description: "Execute a coding task" },
 			"/heal": { agent: "self-healing", description: "Run self-healing cycle" },
-			"/orchestrate": { agent: "orchestrator", description: "Break down and coordinate multi-step tasks across agents" },
-			"/auto-deploy": { agent: "auto-deployer", description: "Trigger or check status of the cloud auto-deployer" },
+			"/orchestrate": {
+				agent: "orchestrator",
+				description: "Break down and coordinate multi-step tasks across agents",
+			},
+			"/auto-deploy": {
+				agent: "auto-deployer",
+				description: "Trigger or check status of the cloud auto-deployer",
+			},
 			"/status": { agent: "system", description: "Show system status" },
 			"/memory": { agent: "system", description: "Show memory/context status" },
 			"/pipeline": { agent: "system", description: "Show current pipeline status" },
@@ -2099,22 +2123,22 @@ const server = http.createServer(async (req, res) => {
 		// Skill commands (loaded from .roo/skills/)
 		const SKILL_COMMANDS = {
 			"auto-deployer": { description: "Self-retrying SSH deploy agent" },
-			"autonomous": { description: "Self-directed scanning, reporting & improvement loop" },
+			autonomous: { description: "Self-directed scanning, reporting & improvement loop" },
 			"debug-team": { description: "Autonomous multi-agent debugging system" },
 			"digitalocean-vps": { description: "Deploy and manage DigitalOcean Droplets" },
 			"e2e-test": { description: "Run comprehensive end-to-end tests" },
 			"google-cloud-api": { description: "Integrate Google Cloud services" },
-			"n8n": { description: "Integrate n8n workflow automation" },
+			n8n: { description: "Integrate n8n workflow automation" },
 			"phase-breakdown": { description: "Break down complex problems into phases" },
-			"supabase": { description: "Integrate Supabase services" },
+			supabase: { description: "Integrate Supabase services" },
 			"telegram-integration": { description: "Manage Telegram bot integration" },
-			"vercel": { description: "Deploy and integrate Vercel" },
+			vercel: { description: "Deploy and integrate Vercel" },
 		}
 
 		/**
-			* Handles agent/skill commands from the IDE terminal.
-			* Routes /prefixed commands through the agent system instead of raw shell.
-			*/
+		 * Handles agent/skill commands from the IDE terminal.
+		 * Routes /prefixed commands through the agent system instead of raw shell.
+		 */
 		async function handleAgentTerminalCommand(cmd, ws, term) {
 			const parts = cmd.trim().split(/\s+/)
 			const command = parts[0].toLowerCase()
@@ -2130,12 +2154,7 @@ const server = http.createServer(async (req, res) => {
 					return {
 						agent: "system",
 						skill: true,
-						output: [
-							"Available skills:",
-							skillList,
-							"",
-							"Usage: /skill <name> [args]",
-						],
+						output: ["Available skills:", skillList, "", "Usage: /skill <name> [args]"],
 					}
 				}
 
@@ -2196,15 +2215,19 @@ const server = http.createServer(async (req, res) => {
 
 				// Map @mentions to agent types
 				const mentionToAgent = {
-					"coder": { agent: "coder", taskType: "coder", description: "Coding agent" },
-					"debugger": { agent: "debugger", taskType: "debug", description: "Debugging agent" },
-					"tester": { agent: "tester", taskType: "test", description: "Testing agent" },
-					"planner": { agent: "planner", taskType: "plan", description: "Planning agent" },
-					"deployer": { agent: "deployer", taskType: "deploy", description: "Deployment agent" },
-					"crawler": { agent: "crawler", taskType: "crawl", description: "Crawler agent" },
-					"healer": { agent: "self-healing", taskType: "coder", description: "Self-healing agent" },
-					"pm": { agent: "pm", taskType: "coder", description: "Product manager agent" },
-					"orchestrator": { agent: "orchestrator", taskType: "coder", description: "Orchestrator agent — breaks down and coordinates multi-step tasks" },
+					coder: { agent: "coder", taskType: "coder", description: "Coding agent" },
+					debugger: { agent: "debugger", taskType: "debug", description: "Debugging agent" },
+					tester: { agent: "tester", taskType: "test", description: "Testing agent" },
+					planner: { agent: "planner", taskType: "plan", description: "Planning agent" },
+					deployer: { agent: "deployer", taskType: "deploy", description: "Deployment agent" },
+					crawler: { agent: "crawler", taskType: "crawl", description: "Crawler agent" },
+					healer: { agent: "self-healing", taskType: "coder", description: "Self-healing agent" },
+					pm: { agent: "pm", taskType: "coder", description: "Product manager agent" },
+					orchestrator: {
+						agent: "orchestrator",
+						taskType: "coder",
+						description: "Orchestrator agent — breaks down and coordinates multi-step tasks",
+					},
 				}
 
 				const mentionTarget = mentionToAgent[mentionAgent]
@@ -2221,7 +2244,13 @@ const server = http.createServer(async (req, res) => {
 				if (!mentionTask) {
 					return {
 						agent: mentionTarget.agent,
-						output: [`@${mentionAgent} — ${mentionTarget.description}`, "", "Usage: @<agent> <task description>", "", "Example: @coder fix the login validation bug"],
+						output: [
+							`@${mentionAgent} — ${mentionTarget.description}`,
+							"",
+							"Usage: @<agent> <task description>",
+							"",
+							"Example: @coder fix the login validation bug",
+						],
 					}
 				}
 
@@ -2235,9 +2264,8 @@ const server = http.createServer(async (req, res) => {
 				}
 
 				// Update pipeline
-				const pipelineStep = ws.pipeline.find(s =>
-					s.label.toLowerCase() === mentionTarget.agent ||
-					s.id === mentionTarget.agent
+				const pipelineStep = ws.pipeline.find(
+					(s) => s.label.toLowerCase() === mentionTarget.agent || s.id === mentionTarget.agent,
 				)
 				if (pipelineStep) {
 					pipelineStep.status = "running"
@@ -2348,12 +2376,7 @@ const server = http.createServer(async (req, res) => {
 							.join("\n")
 						return {
 							agent: "system",
-							output: [
-								"Available skills:",
-								allSkills,
-								"",
-								"Usage: /skill <name> [args]",
-							],
+							output: ["Available skills:", allSkills, "", "Usage: /skill <name> [args]"],
 						}
 
 					case "/status":
@@ -2365,7 +2388,7 @@ const server = http.createServer(async (req, res) => {
 								`Directory: ${ws.workspaceDir}`,
 								`Terminal sessions: ${ws.terminalSessions.length}`,
 								`Chat messages: ${ws.chatMessages.length}`,
-								`Pipeline steps: ${ws.pipeline.filter(s => s.status !== "pending").length}/${ws.pipeline.length} active`,
+								`Pipeline steps: ${ws.pipeline.filter((s) => s.status !== "pending").length}/${ws.pipeline.length} active`,
 								`Connected: true`,
 							],
 						}
@@ -2382,15 +2405,15 @@ const server = http.createServer(async (req, res) => {
 						}
 
 					case "/pipeline":
-						const pipelineStatus = ws.pipeline.map(s =>
-							`  [${s.status === "done" ? "✓" : s.status === "running" ? "●" : s.status === "approval" ? "Ⅱ" : s.status === "failed" ? "✗" : "○"}] ${s.label} — ${s.status}${s.agent ? ` (${s.agent})` : ""}`
-						).join("\n")
+						const pipelineStatus = ws.pipeline
+							.map(
+								(s) =>
+									`  [${s.status === "done" ? "✓" : s.status === "running" ? "●" : s.status === "approval" ? "Ⅱ" : s.status === "failed" ? "✗" : "○"}] ${s.label} — ${s.status}${s.agent ? ` (${s.agent})` : ""}`,
+							)
+							.join("\n")
 						return {
 							agent: "system",
-							output: [
-								`Pipeline for task ${ws.repoName}:`,
-								pipelineStatus,
-							],
+							output: [`Pipeline for task ${ws.repoName}:`, pipelineStatus],
 						}
 
 					default:
@@ -2409,7 +2432,9 @@ const server = http.createServer(async (req, res) => {
 
 					// If args contain "trigger" or "deploy", trigger a deploy
 					if (args && (args.includes("trigger") || args.includes("deploy"))) {
-						const triggerRes = await fetch("http://127.0.0.1:8790/api/auto-deploy/trigger", { method: "POST" })
+						const triggerRes = await fetch("http://127.0.0.1:8790/api/auto-deploy/trigger", {
+							method: "POST",
+						})
 						const triggerData = await triggerRes.json()
 						return {
 							agent: "auto-deployer",
@@ -2540,13 +2565,19 @@ const server = http.createServer(async (req, res) => {
 
 			// ── Agent commands (route through AI provider) ────────────────
 			const provider = resolveProviderForTask(
-				agentCmd.agent === "debugger" ? "debug" :
-				agentCmd.agent === "tester" ? "test" :
-				agentCmd.agent === "deployer" ? "deploy" :
-				agentCmd.agent === "crawler" ? "crawl" :
-				agentCmd.agent === "planner" ? "plan" :
-				agentCmd.agent === "orchestrator" ? "coder" :
-				"coder"
+				agentCmd.agent === "debugger"
+					? "debug"
+					: agentCmd.agent === "tester"
+						? "test"
+						: agentCmd.agent === "deployer"
+							? "deploy"
+							: agentCmd.agent === "crawler"
+								? "crawl"
+								: agentCmd.agent === "planner"
+									? "plan"
+									: agentCmd.agent === "orchestrator"
+										? "coder"
+										: "coder",
 			)
 
 			if (!provider) {
@@ -2557,9 +2588,8 @@ const server = http.createServer(async (req, res) => {
 			}
 
 			// Update pipeline to show this agent is active
-			const pipelineStep = ws.pipeline.find(s =>
-				s.label.toLowerCase() === agentCmd.agent ||
-				s.id === agentCmd.agent
+			const pipelineStep = ws.pipeline.find(
+				(s) => s.label.toLowerCase() === agentCmd.agent || s.id === agentCmd.agent,
 			)
 			if (pipelineStep) {
 				pipelineStep.status = "running"
@@ -2719,7 +2749,16 @@ const server = http.createServer(async (req, res) => {
 				sendJson(res, 200, {
 					ok: true,
 					message: "Command executed",
-					output: [`$ ${cmd}`, ...(result.stdout ? result.stdout.trim().split("\n") : []), ...(result.stderr ? result.stderr.trim().split("\n").map((l) => `stderr: ${l}`) : [])],
+					output: [
+						`$ ${cmd}`,
+						...(result.stdout ? result.stdout.trim().split("\n") : []),
+						...(result.stderr
+							? result.stderr
+									.trim()
+									.split("\n")
+									.map((l) => `stderr: ${l}`)
+							: []),
+					],
 				})
 			} catch (err) {
 				const errorMsg = err.stderr || err.message || "Command failed"
@@ -2842,11 +2881,14 @@ const server = http.createServer(async (req, res) => {
 				provider = resolveProviderById(requestedProvider, requestedModel)
 			}
 			if (!provider) {
-				provider = resolveProviderForTask(routing.agent === "debugger" ? "debug" : routing.agent === "tester" ? "test" : "coder")
+				provider = resolveProviderForTask(
+					routing.agent === "debugger" ? "debug" : routing.agent === "tester" ? "test" : "coder",
+				)
 			}
 
 			if (!provider) {
-				const noProviderMsg = "No AI provider is configured and connected. Please go to the API Keys page to add and test a provider API key (e.g., DeepSeek, OpenAI, or Anthropic). After saving the key, click 'Test' to verify the connection."
+				const noProviderMsg =
+					"No AI provider is configured and connected. Please go to the API Keys page to add and test a provider API key (e.g., DeepSeek, OpenAI, or Anthropic). After saving the key, click 'Test' to verify the connection."
 				ws.chatMessages.push({
 					id: `msg-${Date.now() + 1}`,
 					role: "agent",
@@ -2863,15 +2905,22 @@ const server = http.createServer(async (req, res) => {
 			}
 
 			// ── Build context-aware system prompt ──────────────────────────
-			const contextParts = [`You are SuperRoo, an expert AI coding assistant running in the Cloud Dashboard IDE Terminal.`]
+			const contextParts = [
+				`You are SuperRoo, an expert AI coding assistant running in the Cloud Dashboard IDE Terminal.`,
+			]
 			contextParts.push(`The current workspace is "${ws.repoName}" on branch "${ws.branch}".`)
 			contextParts.push(`The workspace directory is: ${ws.workspaceDir}`)
 			if (ws.chatMessages.length > 2) {
-				const recent = ws.chatMessages.slice(-4, -1).map((m) => `${m.author}: ${m.content.slice(0, 200)}`).join("\n")
+				const recent = ws.chatMessages
+					.slice(-4, -1)
+					.map((m) => `${m.author}: ${m.content.slice(0, 200)}`)
+					.join("\n")
 				contextParts.push(`Recent conversation:\n${recent}`)
 			}
 			if (intentKind !== "chat" && intentConfidence >= 0.3) {
-				contextParts.push(`The user's intent was classified as "${intentKind}" (confidence: ${(intentConfidence * 100).toFixed(0)}%). Route your response accordingly.`)
+				contextParts.push(
+					`The user's intent was classified as "${intentKind}" (confidence: ${(intentConfidence * 100).toFixed(0)}%). Route your response accordingly.`,
+				)
 			}
 
 			const systemPrompt = contextParts.join("\n")
@@ -3668,6 +3717,94 @@ const server = http.createServer(async (req, res) => {
 				sendJson(res, proxyRes.status, data)
 			} catch (err) {
 				sendJson(res, 503, { success: false, error: "Auto-deployer not available", detail: err.message })
+			}
+			return
+		}
+
+		// POST /api/github-webhook — Receive GitHub push webhook, proxy to auto-deployer
+		if (
+			method === "POST" &&
+			(url === "/api/github-webhook" ||
+				url === "/api/auto-deploy/github-webhook" ||
+				normalizedUrl === "/github-webhook")
+		) {
+			try {
+				const body = await parseBody(req)
+				const event = req.headers["x-github-event"]
+				const signature = req.headers["x-hub-signature-256"] || ""
+
+				// Only trigger on push to main
+				if (event === "push" && body.ref === "refs/heads/main") {
+					const pusher = body.pusher?.name || "unknown"
+					const headMsg = body.head_commit?.message?.split("\n")[0] || "no message"
+					console.log(`[github-webhook] Push to main by ${pusher}: "${headMsg}"`)
+
+					// Try auto-deployer first (port 8790)
+					try {
+						const proxyRes = await fetch("http://127.0.0.1:8790/api/auto-deploy/github-webhook", {
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								"X-Hub-Signature-256": signature,
+								"X-GitHub-Event": event,
+							},
+							body: JSON.stringify(body),
+						})
+						const data = await proxyRes.json()
+						sendJson(res, proxyRes.status, data)
+						return
+					} catch (autoDeployerErr) {
+						// FALLBACK: Auto-deployer is down — run deploy directly via SSH
+						console.log(
+							`[github-webhook] Auto-deployer unavailable (${autoDeployerErr.message}) — using SSH fallback`,
+						)
+						sendJson(res, 202, {
+							success: true,
+							message: "Push received. Auto-deployer unavailable — deploy queued for retry.",
+							fallback: "queued",
+						})
+
+						// Spawn fallback deploy in background (non-blocking)
+						const { exec } = require("child_process")
+						const deployScript = path.join(__dirname, "..", "remote-deploy-dashboard.sh")
+						const logFile = path.join(__dirname, "..", "logs", "fallback-deploy.log")
+						const child = exec(
+							`bash "${deployScript}" >> "${logFile}" 2>&1`,
+							{ timeout: 600000, cwd: path.join(__dirname, "..") },
+							(err, stdout, stderr) => {
+								if (err) {
+									console.error(`[github-webhook] Fallback deploy FAILED: ${err.message}`)
+									// Notify boss via Telegram if possible
+									try {
+										const botToken = process.env.TELEGRAM_BOT_TOKEN
+										const bossChatId = process.env.BOSS_TELEGRAM_CHAT_ID || "8485794779"
+										if (botToken) {
+											const url = `https://api.telegram.org/bot${botToken}/sendMessage`
+											fetch(url, {
+												method: "POST",
+												headers: { "Content-Type": "application/json" },
+												body: JSON.stringify({
+													chat_id: bossChatId,
+													text: `🚨 *Auto-Deploy Failed*\n\nPush by: ${pusher}\nCommit: ${headMsg}\nError: ${err.message}\n\nManual deploy needed: \`ssh root@100.64.175.88 "cd /opt/superroo2 && git pull && pm2 restart ecosystem.config.js"\``,
+													parse_mode: "Markdown",
+												}),
+											}).catch(() => {})
+										}
+									} catch {}
+								} else {
+									console.log(`[github-webhook] Fallback deploy SUCCEEDED`)
+								}
+							},
+						)
+						return
+					}
+				}
+
+				// Not a push to main — acknowledge but don't deploy
+				sendJson(res, 200, { success: true, message: `Ignored ${event} on ${body.ref || "unknown"}` })
+			} catch (err) {
+				console.error(`[github-webhook] Error: ${err.message}`)
+				sendJson(res, 500, { success: false, error: err.message })
 			}
 			return
 		}
