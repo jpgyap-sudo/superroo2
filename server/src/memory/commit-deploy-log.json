@@ -1,6 +1,27 @@
 {
 	"commits": [
 		{
+			"id": "commit_ml_bidirectional_sync_001",
+			"commitSha": "03fcd5ff3a96274c08ccb7da940856af60024791",
+			"agent": "code",
+			"type": "feature",
+			"title": "feat: implement bidirectional ML sync between local VS Code and cloud",
+			"description": "Complete bidirectional ML sync system bridging local VS Code extension (neural network, 8-dim features) and cloud orchestrator (linear regression, 5-dim features) through a unified 10-dim feature space and federated learning:\n\n- ModelSerializer.js: unified JSON schema for neural network and linear regression models\n- FeatureMapper.js: 10-dim unified feature space bridging local (8-dim) and cloud (5-dim)\n- FederatedMerge.js: weighted averaging of model parameters by training sample count\n- schema.sql: add ml_models, ml_observations_v2, ml_sync_log tables\n- ML API endpoints: upload, download, merge, sync status, observations\n- MLSyncClient.ts: periodic sync client with offline queuing for VS Code extension\n- Cloud InfiniteImprovementLoop.js: load from ml_models, save observations, trigger merge\n- Local InfiniteImprovementLoop.ts: integrate MLSyncClient for bidirectional sync",
+			"filesChanged": [
+				"cloud/orchestrator/ml/ModelSerializer.js",
+				"cloud/orchestrator/ml/FeatureMapper.js",
+				"cloud/orchestrator/ml/FederatedMerge.js",
+				"cloud/orchestrator/stores/schema.sql",
+				"cloud/api/api.js",
+				"src/super-roo/ml/sync/MLSyncClient.ts",
+				"cloud/orchestrator/modules/InfiniteImprovementLoop.js",
+				"src/super-roo/ml/loop/InfiniteImprovementLoop.ts"
+			],
+			"featuresAffected": ["ml-engine", "cloud-orchestrator", "api", "infrastructure"],
+			"bugsFixed": [],
+			"timestamp": "2026-05-11T19:56:00.000Z"
+		},
+		{
 			"id": "commit_quotation_workspace_001",
 			"commitSha": "eacf5336b",
 			"agent": "Roo Code",
@@ -348,6 +369,20 @@
 			"healthCheckLatencyMs": 250,
 			"startedAt": "2026-05-11T19:37:00.000Z",
 			"completedAt": "2026-05-11T19:39:06.000Z"
+		},
+		{
+			"id": "deploy-ml-bidirectional-sync-2026-05-11",
+			"version": "1.8.0",
+			"commitSha": "03fcd5ff3a96274c08ccb7da940856af60024791",
+			"agent": "code",
+			"status": "healthy",
+			"environment": "production",
+			"commitsIncluded": ["03fcd5ff3a96274c08ccb7da940856af60024791"],
+			"featuresDeployed": ["ml-engine", "cloud-orchestrator", "api", "infrastructure"],
+			"healthCheckPassed": true,
+			"healthCheckLatencyMs": 250,
+			"startedAt": "2026-05-11T20:00:00.000Z",
+			"completedAt": "2026-05-11T20:00:35.000Z"
 		}
 	]
 }
