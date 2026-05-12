@@ -213,3 +213,26 @@ export type {
 	LogQueryResult,
 	LogAggregatorConfig,
 } from "./infrastructure"
+
+// Brain + Central Memory System
+export {
+	AgentRuntimeWrapper,
+	CentralBrain,
+	BrainEnabledAgent,
+	TelegramBrainBridge,
+	UnifiedTaskRouter,
+	VscodeBrainBridge,
+} from "./brain"
+export type {
+	AgentLike,
+	AgentRuntimeWrapperOptions,
+	CentralBrainOptions,
+	CentralBrainRunResult,
+	BrainEnabledAgentOptions,
+	TelegramBrainBridgeOptions,
+	UnifiedTask,
+	UnifiedTaskResult,
+	VscodeBrainBridgeOptions,
+	VscodeContextPayload,
+	BrainWebSocketMessage,
+} from "./brain"

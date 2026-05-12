@@ -1,0 +1,131 @@
+# =============================================================================
+# SuperRoo Central Brain — Docker Compose
+#
+# Three services:
+#   1. postgres  — PostgreSQL 16 + pgvector extension (persistent memory store)
+#   2. ollama    — Local LLM provider for embeddings & cheap inference
+#   3. daemon    — SuperRoo daemon (brain API, agent routing, RAG pipeline)
+#
+# Usage:
+#   docker compose up -d                     # Start all services
+#   docker compose logs -f                   # Follow logs
+#   docker compose exec ollama pull <model>  # Pull additional Ollama models
+#   docker compose down -v                   # Destroy everything (incl. volumes)
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL + pgvector
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: superroo-postgres
+    restart: unless-stopped
+    shm_size: 256mb
+    environment:
+      POSTGRES_DB: superroo
+      POSTGRES_USER: superroo
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-superroo_secret_2026}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Auto-initialize the pgvector schema on first run
+      - ./sql/001_pgvector_schema.sql:/docker-entrypoint-initdb.d/001_pgvector_schema.sql:ro
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U superroo -d superroo"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - brain-net
+
+  # ---------------------------------------------------------------------------
+  # Ollama — local LLM provider
+  # ---------------------------------------------------------------------------
+  ollama:
+    image: ollama/ollama:latest
+    container_name: superroo-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+      - ./docker/ollama-entrypoint.sh:/entrypoint.sh:ro
+    ports:
+      - "127.0.0.1:11434:11434"
+    environment:
+      # Limit Ollama to CPU only (no GPU passthrough needed for small models)
+      OLLAMA_NUM_PARALLEL: 2
+      OLLAMA_MAX_LOADED_MODELS: 2
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - brain-net
+
+  # ---------------------------------------------------------------------------
+  # SuperRoo Daemon — brain API, agent routing, RAG pipeline
+  # ---------------------------------------------------------------------------
+  daemon:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: superroo-daemon
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    environment:
+      # --- Database ---
+      DATABASE_URL: postgres://superroo:${PG_PASSWORD:-superroo_secret_2026}@postgres:5432/superroo
+      # --- Ollama ---
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+      OLLAMA_TEXT_MODEL: ${OLLAMA_TEXT_MODEL:-qwen2.5:0.5b}
+      # --- Brain ---
+      BRAIN_TOKEN: ${BRAIN_TOKEN:-dev-brain-token}
+      BRAIN_SAFE_MODE: ${BRAIN_SAFE_MODE:-true}
+      # --- Daemon ---
+      PORT: "3417"
+      SUPERR0O_BRAIN_URL: http://daemon:3417
+      SUPERR0O_DEVICE_TOKEN: ${BRAIN_TOKEN:-dev-brain-token}
+      # --- Logging ---
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      NODE_ENV: production
+    ports:
+      - "127.0.0.1:3417:3417"
+    volumes:
+      # Mount config so it can be updated without rebuilding
+      - ./config:/app/config:ro
+      - ./memory:/app/memory
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3417/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - brain-net
+
+# ---------------------------------------------------------------------------
+# Volumes
+# ---------------------------------------------------------------------------
+volumes:
+  pgdata:
+    name: superroo_pgdata
+  ollama_data:
+    name: superroo_ollama_data
+
+# ---------------------------------------------------------------------------
+# Networks
+# ---------------------------------------------------------------------------
+networks:
+  brain-net:
+    name: superroo-brain-net
+    driver: bridge

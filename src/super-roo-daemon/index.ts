@@ -12,6 +12,8 @@ import * as path from "node:path"
 
 import { parseTaskSubmission } from "../core/SuperRooTask"
 import { SafetyMode, SuperRooOrchestrator } from "../super-roo"
+import { UnifiedTaskRouter } from "../super-roo/brain"
+import { handleBrainRoutes } from "./brain-routes"
 
 interface DaemonConfig {
 	host: string
@@ -111,9 +113,22 @@ async function main(): Promise<void> {
 	orch.start()
 	orch.runLoop({ idleSleepMs: Number(process.env.SUPERROO_IDLE_SLEEP_MS || "1000") })
 
+	// Initialize the Unified Task Router (Brain) with all agents
+	const router = new UnifiedTaskRouter()
+	router.registerAgent("coder", orch.agents.get("coder")!)
+	router.registerAgent("debugger", orch.agents.get("debugger")!)
+	router.registerAgent("tester", orch.agents.get("tester")!)
+	router.registerAgent("product-manager", orch.agents.get("product-manager")!)
+	router.registerAgent("supabase", orch.agents.get("supabase")!)
+	router.registerAgent("self-healing", orch.agents.get("self-healing")!)
+
 	const server = http.createServer(async (req, res) => {
 		try {
 			const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`)
+
+			// Try brain routes first (UnifiedTaskRouter)
+			const handled = await handleBrainRoutes(req, res, { orch, router, token: config.token })
+			if (handled) return
 
 			if (req.method === "GET" && url.pathname === "/health") {
 				json(res, 200, {
@@ -161,11 +176,45 @@ async function main(): Promise<void> {
 					json(res, 400, { ok: false, error: "body_must_be_object" })
 					return
 				}
+				const raw = parsed as Record<string, unknown>
+				const agentName = String(raw.agent ?? "coder")
+				const goal = String(raw.goal ?? "")
+				const source = (raw.source as string) ?? "cli"
+				const payload = (raw.payload as Record<string, unknown>) ?? {}
+
+				// Route through UnifiedTaskRouter (Brain) if agent is registered
+				if (router.hasAgent(agentName)) {
+					try {
+						const result = await router.routeTask({
+							source: source as "vscode" | "cloud" | "telegram" | "cli",
+							projectId: process.env.SUPERROO_PROJECT_ID ?? "superroo2",
+							userMessage: goal,
+							goal,
+							agent: agentName,
+							payload: {
+								...payload,
+								replyTo: raw.replyTo,
+							},
+						})
+						json(res, 200, {
+							ok: result.ok,
+							summary: result.summary,
+							route: result.route,
+							memorySaved: result.memorySaved,
+							brain: true,
+						})
+					} catch (err) {
+						const msg = err instanceof Error ? err.message : String(err)
+						json(res, 500, { ok: false, error: msg, brain: true })
+					}
+					return
+				}
+
+				// Legacy fallback: submit to orchestrator queue
 				const input = parseTaskSubmission(parsed)
-				// Fallback: stamp the daemon's own coder ID if the submission didn't include one.
 				if (!input.codedBy && config.codedBy) input.codedBy = config.codedBy
 				const task = orch.submit(input)
-				json(res, 202, { ok: true, task })
+				json(res, 202, { ok: true, task, brain: false })
 				return
 			}
 

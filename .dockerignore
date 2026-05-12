@@ -1,93 +1,48 @@
-# git
+# =============================================================================
+# SuperRoo — .dockerignore
+# =============================================================================
+
+# Git
 .git
-
-# build artifacts
-bin/
-dist/
-**/dist/
-out/
-**/out/
-src/webview-ui/
-
-# dependencies
-node_modules/
-**/node_modules/
-
-# testing
-coverage/
-**/.vscode-test/
-**/mock/
-
-# devtools
-knip.json
-.husky/
-
-# monorepo
-.turbo/
-**/.turbo/
-
-# next.js
-**/.next/
-.vercel
-
-# Ignore common development files
-node_modules
-.git
+.gitattributes
 .gitignore
-.dockerignore
-.env*
+.git-blame-ignore-revs
+
+# Node
+node_modules
+.pnpm-store
+
+# Build outputs
+dist
+out
+bin
+.vite-port
+.turbo
+*.vsix
+
+# IDE
 .vscode
 .idea
+*.swp
+*.swo
 
-# Ignore build artifacts
-dist
-build
-*.log
-*.tmp
-.cache
-coverage
-
-# Ignore OS files
+# OS
 .DS_Store
 Thumbs.db
 
-# Ignore test files
-__tests__
-*.test.js
-*.spec.js
-*.test.ts
-*.spec.ts
+# Environment
+.env
+.env.local
+.env.*.local
 
-# Ignore development config files
-.eslintrc*
-.prettierrc*
+# Logs
+*.log
+npm-debug.log*
 
-# Ignore most directories except what we need for the build
-apps/
-evals/
-webview-ui/node_modules
-src/node_modules
+# Memory (persistent data, not in image)
+memory/*.json
 
-# Keep essential files for the build
-!README.md
-!CHANGELOG.md
-!package.json
-!pnpm-lock.yaml
-!pnpm-workspace.yaml
-!scripts/bootstrap.mjs
-!apps/web-evals/
-!apps/cli/
-!src/
-!webview-ui/
-!packages/evals/.docker/entrypoints/runner.sh
-!packages/build/
-!packages/config-eslint/
-!packages/config-typescript/
-!packages/core/
-!packages/evals/
-!packages/ipc/
-!packages/telemetry/
-!packages/types/
-!packages/vscode-shim/
-!packages/cloud/
-!locales/
+# Large files
+*.zip
+*.tar.gz
+*.tgz

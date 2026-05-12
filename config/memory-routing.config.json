@@ -1,0 +1,33 @@
+{
+	"projectId": "superroo2",
+	"embeddingDimensions": 768,
+	"rag": {
+		"memoryTopK": 10,
+		"codeTopK": 8,
+		"minSimilarity": 0.25,
+		"includeDeprecated": false
+	},
+	"routing": {
+		"cheapFirst": true,
+		"ollamaTasks": [
+			"embedding",
+			"summarize_log",
+			"classify_error",
+			"tag_memory",
+			"compress_memory",
+			"telegram_short_reply"
+		],
+		"cloudTasks": [
+			"complex_coding",
+			"architecture",
+			"security_review",
+			"multi_file_refactor",
+			"production_deploy_decision"
+		]
+	},
+	"safety": {
+		"requireApprovalForRiskyCommands": true,
+		"requireGitCheckpointBeforeEdit": true,
+		"denyCommandsContaining": ["rm -rf /", "drop database", "docker system prune -a", "sudo rm"]
+	}
+}

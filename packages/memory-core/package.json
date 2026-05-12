@@ -1,0 +1,26 @@
+{
+	"name": "@superroo/memory-core",
+	"description": "Central memory system with PostgreSQL + pgvector, RAG context builder, and embedding provider.",
+	"version": "0.0.1",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./types": "./src/types.ts"
+	},
+	"scripts": {
+		"lint": "eslint src --ext=ts --max-warnings=0",
+		"check-types": "tsc --noEmit",
+		"test": "vitest run",
+		"clean": "rimraf .turbo"
+	},
+	"dependencies": {
+		"pg": "^8.14.0"
+	},
+	"devDependencies": {
+		"@superroo/config-eslint": "workspace:^",
+		"@superroo/config-typescript": "workspace:^",
+		"@types/node": "^24.1.0",
+		"@types/pg": "^8.11.13",
+		"vitest": "^3.2.3"
+	}
+}
