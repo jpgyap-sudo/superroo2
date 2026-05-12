@@ -1282,11 +1282,29 @@ async function handleWsChatMessage(ws, sessionId, msg, workspaceDir) {
 		}
 	}
 
-	// 5. Proactive suggestions instruction
+	// 5. Behavior rules — make the AI feel like VS Code's chat: reconstruct intent, give solutions, offer integration
 	contextParts.push(`## Behavior Rules
-- Respond conversationally and naturally, like a senior developer pair programming with the user.
-- After providing code or an answer, ALWAYS suggest 1-2 next steps the user might want to take.
-- If the user shows an error, proactively suggest the fix.
+### Message Reconstruction
+- Before answering, silently reconstruct what the user is asking. If they say "this", "that", "it", or refer to something without context, look at the conversation history to understand what they mean.
+- Start your response by briefly confirming your understanding: "So you want to [reconstructed intent] — here's the solution."
+- This makes the user feel heard and ensures you understood correctly.
+
+### Solution-First Approach
+- NEVER just give steps or instructions. ALWAYS provide the actual solution directly:
+	 - If they need code → give the complete code block with file path
+	 - If they need a command → give the exact command to run
+	 - If they need a fix → give the exact fix with before/after
+- After providing the solution, ask: "Would you like me to integrate this?" or "Do you want me to apply this change?"
+- If they say yes, provide clear instructions on how to apply it, or offer to do it through the terminal.
+
+### Context Learning
+- Maintain continuity across the conversation. Reference previous messages naturally.
+- If the user asks a follow-up, connect it to what was discussed before.
+- Learn from corrections — if the user corrects you, remember that for the rest of the conversation.
+
+### Tone
+- Be direct, helpful, and solution-oriented. No fluff, no unnecessary explanations.
+- Use simple language — the user may not be a coder. Explain technical terms only when needed.
 - Format code blocks with \`\`\`language for syntax highlighting.
 - When suggesting file changes, include the file path as a comment.`)
 
@@ -1419,8 +1437,9 @@ async function handleWsChatMessage(ws, sessionId, msg, workspaceDir) {
 		try {
 			const suggestionPrompt = [
 				`Based on this conversation, suggest 1-2 very short next steps the user might want to take.`,
+				`The user is NOT a coder — prefer actionable suggestions like "Yes, integrate this fix" or "Show me how to test it" over technical commands.`,
 				`Format as a JSON array of strings, each max 60 chars.`,
-				`Examples: ["Run npm test", "Check the API logs", "Deploy to production"]`,
+				`Examples: ["Yes, apply this change", "Show me how to verify it works", "What else can you help with?"]`,
 				`User said: "${text.slice(0, 200)}"`,
 				`Assistant replied: "${fullReply.slice(0, 300)}"`,
 			].join("\n")
@@ -1473,23 +1492,6 @@ async function handleWsChatMessage(ws, sessionId, msg, workspaceDir) {
 	}
 }
 
-// ── WebSocket Upgrade Handler ────────────────────────────────────────────────
-// Intercept HTTP upgrade requests for /api/ws/chat path
-server.on("upgrade", (request, socket, head) => {
-	const url = request.url || ""
-	// Normalize: handle both /api/ws/chat and /ws/chat
-	const normalizedUrl = url.startsWith("/api") ? url.slice(4) : url
-
-	if (normalizedUrl.startsWith("/ws/chat")) {
-		wss.handleUpgrade(request, socket, head, (ws) => {
-			wss.emit("connection", ws, request)
-		})
-	} else {
-		socket.destroy()
-	}
-})
-
-const server = http.createServer(async (req, res) => {
 	const url = req.url || ""
 	const method = req.method || "GET"
 
