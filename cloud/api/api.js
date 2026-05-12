@@ -330,6 +330,11 @@ async function initOrchestrator() {
 			loopIntervalMs: parseInt(process.env.ORCHESTRATOR_LOOP_INTERVAL || "5000", 10),
 		})
 
+		// ── Start orchestrator FIRST to initialize core (memory, eventLog, taskQueue) ──
+		// Module registrations below depend on orchestrator.memory and orchestrator.eventLog
+		// being non-null, which requires start() to have been called.
+		await orchestrator.start()
+
 		// ── Register all Phase 2-6 modules ──────────────────────────────
 		// Use safeRequire to clear module cache and prevent "X is not a constructor"
 		// errors when PM2 restarts the process.
@@ -360,11 +365,11 @@ async function initOrchestrator() {
 
 		orchestrator.registerAgentRegistry(new AgentRegistry())
 
-		orchestrator.registerFeatureRegistry(new FeatureRegistry(orchestrator.memory, orchestrator.eventLog))
-		orchestrator.registerBugRegistry(new BugRegistry(orchestrator.memory, orchestrator.eventLog))
+		orchestrator.registerFeatureRegistry(new FeatureRegistry({ memoryStore: orchestrator.memory }))
+		orchestrator.registerBugRegistry(new BugRegistry({ memoryStore: orchestrator.memory }))
 		orchestrator.registerCommitDeployLog(new CommitDeployLog())
 
-		const healingBus = new HealingBus(orchestrator.memory, orchestrator.eventLog)
+		const healingBus = new HealingBus({ memoryStore: orchestrator.memory })
 		orchestrator.registerHealingBus(healingBus)
 
 		const selfHealingLoop = new SelfHealingLoop(orchestrator, {
@@ -416,7 +421,6 @@ async function initOrchestrator() {
 		// ── Set provider resolver for LLM-based multi-agent breakdown ────
 		orchestrator.setProviderResolver(resolveProviderForTask, callChatCompletion)
 
-		await orchestrator.start()
 		tgOrchestratorBridge = new TelegramOrchestratorBridge(orchestrator)
 
 		console.log(
