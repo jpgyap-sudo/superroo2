@@ -949,6 +949,10 @@ export default function IdeTerminalView() {
 	}
 
 	// ── Load workspace data on mount ──────────────────────────────────────
+	// Use a ref to track hydration status so the closure captures the latest value
+	const hydratedRef = useRef(_hydrated)
+	hydratedRef.current = _hydrated
+
 	useEffect(() => {
 		async function load() {
 			try {
@@ -963,7 +967,8 @@ export default function IdeTerminalView() {
 					status: WorkspaceStatus
 				}>("/workspace")
 				// Only set data if not already hydrated from localStorage
-				if (!_hydrated) {
+				// Use ref to get the latest _hydrated value (effect closure captures stale value)
+				if (!hydratedRef.current) {
 					if (data.repoName) dispatch({ type: "SET_REPO_NAME", payload: data.repoName })
 					if (data.branch) dispatch({ type: "SET_BRANCH", payload: data.branch })
 					if (data.files?.length) dispatch({ type: "SET_FILES", payload: data.files })
