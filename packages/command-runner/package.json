@@ -1,0 +1,18 @@
+{
+	"name": "@superroo/command-runner",
+	"description": "Safe command execution with safety checks and structured output.",
+	"version": "0.0.1",
+	"type": "module",
+	"exports": {
+		".": "./src/runner.ts"
+	},
+	"scripts": {
+		"lint": "eslint src --ext=ts --max-warnings=0",
+		"check-types": "tsc --noEmit",
+		"clean": "rimraf .turbo"
+	},
+	"devDependencies": {
+		"@superroo/config-typescript": "workspace:^",
+		"@types/node": "^24.1.0"
+	}
+}
