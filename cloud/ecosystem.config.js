@@ -25,12 +25,14 @@ module.exports = {
 			watch: false,
 			max_memory_restart: "256M",
 			// Crash resilience: exponential backoff restart
-			exp_backoff_restart_delay: 1000,
-			max_restarts: 10,
-			restart_delay: 5000,
-			min_uptime: 10000,
+			// Increased min_uptime to 30s so PM2 doesn't restart too aggressively
+			// when the process takes time to acquire the port after a crash
+			exp_backoff_restart_delay: 2000,
+			max_restarts: 15,
+			restart_delay: 10000,
+			min_uptime: 30000,
 			// Graceful shutdown
-			kill_timeout: 15000,
+			kill_timeout: 30000,
 			env: {
 				NODE_ENV: "production",
 				REDIS_URL: "redis://127.0.0.1:6379",

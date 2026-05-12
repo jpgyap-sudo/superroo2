@@ -331,20 +331,22 @@ async function initOrchestrator() {
 		})
 
 		// ── Register all Phase 2-6 modules ──────────────────────────────
-		const SafetyManager = require("../orchestrator/modules/SafetyManager")
-		const AgentRegistry = require("../orchestrator/modules/AgentRegistry")
-		const FeatureRegistry = require("../orchestrator/modules/FeatureRegistry")
-		const BugRegistry = require("../orchestrator/modules/BugRegistry")
-		const CommitDeployLog = require("../orchestrator/modules/CommitDeployLog")
-		const HealingBus = require("../orchestrator/modules/HealingBus")
-		const SelfHealingLoop = require("../orchestrator/modules/SelfHealingLoop")
-		const ParallelExecutor = require("../orchestrator/modules/ParallelExecutor")
-		const AgentBus = require("../orchestrator/modules/AgentBus")
-		const InfiniteImprovementLoop = require("../orchestrator/modules/InfiniteImprovementLoop")
-		const CrawlerAgent = require("../orchestrator/modules/CrawlerAgent")
-		const DeployOrchestrator = require("../orchestrator/modules/DeployOrchestrator")
-		const FileImporter = require("../orchestrator/modules/FileImporter")
-		const CPUGuard = require("../orchestrator/modules/CPUGuard")
+		// Use safeRequire to clear module cache and prevent "X is not a constructor"
+		// errors when PM2 restarts the process
+		const SafetyManager = safeRequire("../orchestrator/modules/SafetyManager")
+		const AgentRegistry = safeRequire("../orchestrator/modules/AgentRegistry")
+		const FeatureRegistry = safeRequire("../orchestrator/modules/FeatureRegistry")
+		const BugRegistry = safeRequire("../orchestrator/modules/BugRegistry")
+		const CommitDeployLog = safeRequire("../orchestrator/modules/CommitDeployLog")
+		const HealingBus = safeRequire("../orchestrator/modules/HealingBus")
+		const SelfHealingLoop = safeRequire("../orchestrator/modules/SelfHealingLoop")
+		const ParallelExecutor = safeRequire("../orchestrator/modules/ParallelExecutor")
+		const AgentBus = safeRequire("../orchestrator/modules/AgentBus")
+		const InfiniteImprovementLoop = safeRequire("../orchestrator/modules/InfiniteImprovementLoop")
+		const CrawlerAgent = safeRequire("../orchestrator/modules/CrawlerAgent")
+		const DeployOrchestrator = safeRequire("../orchestrator/modules/DeployOrchestrator")
+		const FileImporter = safeRequire("../orchestrator/modules/FileImporter")
+		const CPUGuard = safeRequire("../orchestrator/modules/CPUGuard")
 
 		orchestrator.registerSafetyManager(
 			new SafetyManager({
@@ -388,7 +390,7 @@ async function initOrchestrator() {
 		orchestrator.registerCPUGuard(new CPUGuard())
 
 		// ── HermesClaw — Memory & Context Agent ─────────────────────────
-		const HermesClaw = require("../orchestrator/modules/HermesClaw")
+		const HermesClaw = safeRequire("../orchestrator/modules/HermesClaw")
 		const hermesClaw = new HermesClaw({
 			apiKey: process.env.OPENAI_API_KEY || "",
 			fallbackApiKey: process.env.DEEPSEEK_API_KEY || "",
@@ -5575,22 +5577,80 @@ function writeApiLog(level, source, message, metadata) {
 	}
 }
 
+// ── Crash Resilience: Unhandled Rejection Handler ──────────────────────────────
+// Prevents the process from crashing due to async errors in initOrchestrator()
+// or other async operations. Without this, Node 16+ crashes on unhandled rejections.
+process.on("unhandledRejection", (reason, promise) => {
+	console.error("[api] Unhandled Rejection at:", promise, "reason:", reason)
+	writeApiLog("error", "cloud-api", "Unhandled rejection", {
+		reason: reason instanceof Error ? reason.message : String(reason),
+	})
+	// Do NOT exit — let the process continue running
+})
+
+// ── Crash Resilience: Port Retry Logic ─────────────────────────────────────────
+// When PM2 restarts the process, the old port may still be in TIME_WAIT state.
+// This retries listening with exponential backoff instead of crashing.
+function listenWithRetry(serverInstance, port, maxRetries = 5, baseDelay = 1000) {
+	return new Promise((resolve, reject) => {
+		function attempt(retryCount) {
+			serverInstance.listen(port, () => {
+				console.log(`[api] Listening on port ${port} | queue=${QUEUE_NAME} | redis=${REDIS_URL}`)
+				writeApiLog("info", "cloud-api", `API server started on port ${port}`, { port })
+				resolve()
+			})
+			serverInstance.once("error", (err) => {
+				if (err.code === "EADDRINUSE" && retryCount < maxRetries) {
+					const delay = baseDelay * Math.pow(2, retryCount)
+					console.log(`[api] Port ${port} in use — retrying in ${delay}ms (attempt ${retryCount + 1}/${maxRetries})`)
+					writeApiLog("warn", "cloud-api", `Port ${port} in use, retrying`, { port, retry: retryCount + 1, delay })
+					setTimeout(() => attempt(retryCount + 1), delay)
+				} else {
+					reject(err)
+				}
+			})
+		}
+		attempt(0)
+	})
+}
+
+// ── Crash Resilience: Safe Module Require ──────────────────────────────────────
+// Clears the module cache for orchestrator modules before requiring them.
+// This prevents "X is not a constructor" errors when PM2 restarts the process
+// and the module cache has corrupted references from a previous crash.
+function safeRequire(modulePath) {
+	// Clear the specific module and its parent chain from cache
+	const resolved = require.resolve(modulePath)
+	delete require.cache[resolved]
+	// Also clear any cached modules that were loaded from the orchestrator directory
+	for (const key of Object.keys(require.cache)) {
+		if (key.includes("/orchestrator/")) {
+			delete require.cache[key]
+		}
+	}
+	return require(modulePath)
+}
+
 // Load persisted encrypted secrets and auth store before accepting requests
 Promise.all([loadEncryptedSecrets(), auth.loadStore()]).then(async () => {
 	loadEnvironmentSecrets()
 
 	// Initialize the Cloud Orchestrator (non-blocking — API starts regardless)
+	// Use safeRequire to clear module cache and prevent "not a constructor" errors
+	// on PM2 restart
 	initOrchestrator()
 		.then(() => {
 			console.log("[api] Cloud Orchestrator initialization complete")
 		})
 		.catch((err) => {
 			console.error("[api] Cloud Orchestrator initialization failed (non-fatal):", err.message)
+			writeApiLog("error", "cloud-api", "Orchestrator init failed", { error: err.message })
 		})
 
-	server.listen(PORT, () => {
-		console.log(`[api] Listening on port ${PORT} | queue=${QUEUE_NAME} | redis=${REDIS_URL}`)
-		// Log API startup to the aggregated log
-		writeApiLog("info", "cloud-api", `API server started on port ${PORT}`, { port: PORT })
+	// Listen with retry to handle EADDRINUSE after PM2 restart
+	listenWithRetry(server, PORT).catch((err) => {
+		console.error(`[api] Failed to listen on port ${PORT}:`, err.message)
+		writeApiLog("error", "cloud-api", "Failed to start server", { error: err.message, port: PORT })
+		process.exit(1)
 	})
 })

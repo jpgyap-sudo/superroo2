@@ -6,6 +6,9 @@
  *   - Kills stuck SSH processes before each attempt
  *   - Retries with exponential backoff (10s, 20s, 40s, 80s, 160s)
  *   - Reports status to shared JSON file (readable by API)
+ *   - Cooldown timeout (10 min) to prevent spamming
+ *   - Max overall duration (30 min) to prevent runaway deploys
+ *   - Rate-limiting — ignores duplicate triggers within cooldown
  *   - Graceful shutdown on SIGTERM/SIGINT
  *   - Can be triggered via API endpoint
  *
@@ -40,17 +43,28 @@ const MAX_RETRIES = 5
 const RETRY_DELAY = 10 // seconds, doubles each retry
 const DEPLOY_TIMEOUT = 600 // seconds per deploy attempt
 
+// ── Anti-Spam / Cooldown Configuration ────────────────────────────────────────
+// Prevents the auto-deployer from being triggered too frequently.
+// - COOLDOWN_MS: Minimum time between deploy starts (10 minutes)
+// - MAX_DURATION_MS: Hard cap on total deploy runtime (30 minutes)
+// - After MAX_DURATION_MS, the deploy is force-stopped and marked as failed
+const COOLDOWN_MS = 10 * 60 * 1000 // 10 minutes
+const MAX_DURATION_MS = 30 * 60 * 1000 // 30 minutes
+
 // ── State ──────────────────────────────────────────────────────────────────────
 
 let isRunning = false
 let currentAttempt = 0
+let deployStartTime = null // Date.now() when deploy started (for max duration check)
+let deployTimer = null // setTimeout reference for max duration enforcement
 let status = {
-	state: "idle", // idle | running | success | failed
+	state: "idle", // idle | running | success | failed | cooldown
 	attempts: [],
 	startTime: null,
 	endTime: null,
 	lastError: null,
-	triggeredBy: null, // "auto" | "api" | "startup"
+	triggeredBy: null, // "auto" | "api" | "startup" | "github-webhook"
+	cooldownUntil: null, // ISO timestamp when cooldown expires
 }
 
 // ── Logging ────────────────────────────────────────────────────────────────────
@@ -157,16 +171,87 @@ async function runDeploy() {
 	return true
 }
 
+// ── Cooldown / Rate-Limiting ──────────────────────────────────────────────────
+
+/**
+ * Check if we're in cooldown period (after a deploy, wait COOLDOWN_MS before
+ * allowing another one). This prevents spamming from GitHub webhooks or
+ * auto-retry loops.
+ */
+function isInCooldown() {
+	if (status.cooldownUntil && Date.now() < new Date(status.cooldownUntil).getTime()) {
+		return true
+	}
+	return false
+}
+
+/**
+ * Set the cooldown period starting now.
+ */
+function setCooldown() {
+	const until = new Date(Date.now() + COOLDOWN_MS).toISOString()
+	status.cooldownUntil = until
+	status.state = "cooldown"
+	saveStatus()
+	log(`[COOLDOWN] Set cooldown until ${until} (${COOLDOWN_MS / 1000}s)`)
+}
+
+/**
+ * Clear the cooldown (e.g., on manual trigger override).
+ */
+function clearCooldown() {
+	status.cooldownUntil = null
+	if (status.state === "cooldown") {
+		status.state = "idle"
+	}
+	saveStatus()
+}
+
+/**
+ * Force-stop a running deploy (called when MAX_DURATION_MS is exceeded).
+ */
+function forceStopDeploy(reason) {
+	log(`[FORCE-STOP] ${reason}`)
+	killStuckSSH()
+	if (deployTimer) {
+		clearTimeout(deployTimer)
+		deployTimer = null
+	}
+	isRunning = false
+	deployStartTime = null
+	status.state = "failed"
+	status.endTime = new Date().toISOString()
+	status.lastError = reason
+	status.attempts.push({
+		attempt: currentAttempt || 0,
+		status: "force-stopped",
+		error: reason,
+		time: new Date().toISOString(),
+	})
+	saveStatus()
+	setCooldown()
+}
+
 // ── Main Retry Loop ────────────────────────────────────────────────────────────
 
 async function startDeploy(triggeredBy = "auto") {
+	// ── Anti-spam checks ──────────────────────────────────────────────────
 	if (isRunning) {
-		log("[SKIP] Deploy already in progress")
-		return { success: false, error: "Deploy already in progress" }
+		log(`[SKIP] Deploy already in progress (triggered by: ${triggeredBy})`)
+		return { success: false, error: "Deploy already in progress", cooldown: true }
 	}
 
+	// Check cooldown — skip if we deployed less than COOLDOWN_MS ago
+	if (isInCooldown()) {
+		const remaining = Math.round((new Date(status.cooldownUntil).getTime() - Date.now()) / 1000)
+		log(`[SKIP] In cooldown — ${remaining}s remaining (triggered by: ${triggeredBy})`)
+		return { success: false, error: `In cooldown — ${remaining}s remaining`, cooldown: true, remaining }
+	}
+
+	// ── Start deploy ──────────────────────────────────────────────────────
 	isRunning = true
 	currentAttempt = 0
+	deployStartTime = Date.now()
 	status.state = "running"
 	status.startTime = new Date().toISOString()
 	status.endTime = null
@@ -179,10 +264,28 @@ async function startDeploy(triggeredBy = "auto") {
 	log(`  SuperRoo Cloud Auto-Deployer`)
 	log(`  Target: ${SSH_TARGET}`)
 	log(`  Max retries: ${MAX_RETRIES}`)
+	log(`  Max duration: ${MAX_DURATION_MS / 1000}s`)
+	log(`  Cooldown: ${COOLDOWN_MS / 1000}s`)
 	log(`  Triggered by: ${triggeredBy}`)
 	log(`============================================`)
 
+	// ── Max duration enforcement ──────────────────────────────────────────
+	// If the deploy takes longer than MAX_DURATION_MS, force-stop it.
+	// This prevents runaway deploys that keep retrying forever.
+	deployTimer = setTimeout(() => {
+		if (isRunning) {
+			forceStopDeploy(`Deploy exceeded max duration of ${MAX_DURATION_MS / 1000}s`)
+		}
+	}, MAX_DURATION_MS)
+	deployTimer.unref() // Don't keep process alive just for this timer
+
 	for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+		// Check if we were force-stopped by the max duration timer
+		if (!isRunning) {
+			log(`[ABORT] Deploy was force-stopped during attempt ${attempt}`)
+			return { success: false, error: `Force-stopped: ${status.lastError || "max duration exceeded"}` }
+		}
+
 		currentAttempt = attempt
 		const attemptStart = Date.now()
 		log(`=== Attempt ${attempt}/${MAX_RETRIES} ===`)
@@ -203,6 +306,13 @@ async function startDeploy(triggeredBy = "auto") {
 			saveStatus()
 			log(`✅ DEPLOY SUCCESSFUL on attempt ${attempt} (${duration}s)`)
 			isRunning = false
+			deployStartTime = null
+			if (deployTimer) {
+				clearTimeout(deployTimer)
+				deployTimer = null
+			}
+			// Set cooldown after successful deploy
+			setCooldown()
 			return { success: true, attempt, duration: `${duration}s` }
 		} catch (err) {
 			const duration = Math.round((Date.now() - attemptStart) / 1000)
@@ -230,6 +340,13 @@ async function startDeploy(triggeredBy = "auto") {
 	}
 
 	isRunning = false
+	deployStartTime = null
+	if (deployTimer) {
+		clearTimeout(deployTimer)
+		deployTimer = null
+	}
+	// Set cooldown even after failed deploy to prevent immediate re-trigger
+	setCooldown()
 	return { success: false, error: `All ${MAX_RETRIES} attempts exhausted` }
 }
 
@@ -276,6 +393,10 @@ function handleRequest(req, res) {
 
 	// GET /status — Return current auto-deployer status
 	if (method === "GET" && (url.pathname === "/status" || url.pathname === "/api/auto-deploy/status")) {
+		const now = Date.now()
+		const cooldownRemaining = status.cooldownUntil
+			? Math.max(0, Math.round((new Date(status.cooldownUntil).getTime() - now) / 1000))
+			: 0
 		res.writeHead(200, { "Content-Type": "application/json" })
 		res.end(
 			JSON.stringify({
@@ -284,6 +405,14 @@ function handleRequest(req, res) {
 					...status,
 					isRunning,
 					currentAttempt,
+					cooldownRemaining, // seconds until cooldown expires
+					inCooldown: isInCooldown(),
+					config: {
+						cooldownMs: COOLDOWN_MS,
+						maxDurationMs: MAX_DURATION_MS,
+						maxRetries: MAX_RETRIES,
+						retryDelay: RETRY_DELAY,
+					},
 				},
 			}),
 		)
@@ -373,11 +502,18 @@ server.listen(PORT, () => {
 	log(`[auto-deployer] Listening on port ${PORT}`)
 	log(`[auto-deployer] Status: http://localhost:${PORT}/api/auto-deploy/status`)
 	log(`[auto-deployer] Trigger: POST http://localhost:${PORT}/api/auto-deploy/trigger`)
+	log(`[auto-deployer] Cooldown: ${COOLDOWN_MS / 1000}s | Max duration: ${MAX_DURATION_MS / 1000}s`)
 
 	// Auto-start deploy on startup if last state was running/failed
+	// Respect cooldown — don't auto-restart if we're still in cooldown
 	if (status.state === "running" || status.state === "failed") {
-		log("[auto-deployer] Previous deploy was incomplete — auto-restarting")
-		startDeploy("startup").catch((err) => log(`[ERROR] Startup deploy failed: ${err.message}`))
+		if (isInCooldown()) {
+			const remaining = Math.round((new Date(status.cooldownUntil).getTime() - Date.now()) / 1000)
+			log(`[auto-deployer] Previous deploy was incomplete but in cooldown (${remaining}s remaining) — skipping auto-restart`)
+		} else {
+			log("[auto-deployer] Previous deploy was incomplete — auto-restarting")
+			startDeploy("startup").catch((err) => log(`[ERROR] Startup deploy failed: ${err.message}`))
+		}
 	}
 })
 
