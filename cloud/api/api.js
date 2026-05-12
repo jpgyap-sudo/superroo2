@@ -332,21 +332,24 @@ async function initOrchestrator() {
 
 		// ── Register all Phase 2-6 modules ──────────────────────────────
 		// Use safeRequire to clear module cache and prevent "X is not a constructor"
-		// errors when PM2 restarts the process
-		const SafetyManager = safeRequire("../orchestrator/modules/SafetyManager")
-		const AgentRegistry = safeRequire("../orchestrator/modules/AgentRegistry")
-		const FeatureRegistry = safeRequire("../orchestrator/modules/FeatureRegistry")
-		const BugRegistry = safeRequire("../orchestrator/modules/BugRegistry")
-		const CommitDeployLog = safeRequire("../orchestrator/modules/CommitDeployLog")
-		const HealingBus = safeRequire("../orchestrator/modules/HealingBus")
-		const SelfHealingLoop = safeRequire("../orchestrator/modules/SelfHealingLoop")
-		const ParallelExecutor = safeRequire("../orchestrator/modules/ParallelExecutor")
-		const AgentBus = safeRequire("../orchestrator/modules/AgentBus")
-		const InfiniteImprovementLoop = safeRequire("../orchestrator/modules/InfiniteImprovementLoop")
-		const CrawlerAgent = safeRequire("../orchestrator/modules/CrawlerAgent")
-		const DeployOrchestrator = safeRequire("../orchestrator/modules/DeployOrchestrator")
-		const FileImporter = safeRequire("../orchestrator/modules/FileImporter")
-		const CPUGuard = safeRequire("../orchestrator/modules/CPUGuard")
+		// errors when PM2 restarts the process.
+		// NOTE: All orchestrator modules export as { ClassName } named objects,
+		// except EventLog and TaskQueueBullMQ which export as direct class references.
+		// We must destructure named exports to get the actual class.
+		const { SafetyManager } = safeRequire("../orchestrator/modules/SafetyManager")
+		const { AgentRegistry } = safeRequire("../orchestrator/modules/AgentRegistry")
+		const { FeatureRegistry } = safeRequire("../orchestrator/modules/FeatureRegistry")
+		const { BugRegistry } = safeRequire("../orchestrator/modules/BugRegistry")
+		const { CommitDeployLog } = safeRequire("../orchestrator/modules/CommitDeployLog")
+		const { HealingBus } = safeRequire("../orchestrator/modules/HealingBus")
+		const { SelfHealingLoop } = safeRequire("../orchestrator/modules/SelfHealingLoop")
+		const { ParallelExecutor } = safeRequire("../orchestrator/modules/ParallelExecutor")
+		const { AgentBus } = safeRequire("../orchestrator/modules/AgentBus")
+		const { InfiniteImprovementLoop } = safeRequire("../orchestrator/modules/InfiniteImprovementLoop")
+		const { CrawlerAgent } = safeRequire("../orchestrator/modules/CrawlerAgent")
+		const { DeployOrchestrator } = safeRequire("../orchestrator/modules/DeployOrchestrator")
+		const { FileImporter } = safeRequire("../orchestrator/modules/FileImporter")
+		const { getCpuUsagePercent, getRamUsagePercent, getResourceSample, onResourceGuardEvent, waitForCpuBelow, runGuardedAgentLoop, GuardedLoopError, autonomousController, onAutonomousControllerEvent, runControlledAutonomousTask } = safeRequire("../orchestrator/modules/CPUGuard")
 
 		orchestrator.registerSafetyManager(
 			new SafetyManager({
@@ -387,10 +390,22 @@ async function initOrchestrator() {
 		orchestrator.registerCrawlerAgent(new CrawlerAgent())
 		orchestrator.registerDeployOrchestrator(new DeployOrchestrator({}))
 		orchestrator.registerFileImporter(new FileImporter("/opt/superroo2"))
-		orchestrator.registerCPUGuard(new CPUGuard())
+		// CPUGuard exports individual functions, not a class — pass as a namespace object
+		orchestrator.registerCPUGuard({
+			getCpuUsagePercent,
+			getRamUsagePercent,
+			getResourceSample,
+			onResourceGuardEvent,
+			waitForCpuBelow,
+			runGuardedAgentLoop,
+			GuardedLoopError,
+			autonomousController,
+			onAutonomousControllerEvent,
+			runControlledAutonomousTask,
+		})
 
 		// ── HermesClaw — Memory & Context Agent ─────────────────────────
-		const HermesClaw = safeRequire("../orchestrator/modules/HermesClaw")
+		const { HermesClaw } = safeRequire("../orchestrator/modules/HermesClaw")
 		const hermesClaw = new HermesClaw({
 			apiKey: process.env.OPENAI_API_KEY || "",
 			fallbackApiKey: process.env.DEEPSEEK_API_KEY || "",
