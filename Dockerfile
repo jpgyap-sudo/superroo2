@@ -15,10 +15,11 @@ RUN npm install -g pnpm@10.8.1
 
 WORKDIR /app
 
-# Copy workspace manifests
+# Copy workspace manifests (all packages with package.json)
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY src/package.json ./src/package.json
 COPY webview-ui/package.json ./webview-ui/package.json
+COPY apps/cli/package.json ./apps/cli/package.json
 COPY packages/memory-core/package.json ./packages/memory-core/package.json
 COPY packages/brain-router/package.json ./packages/brain-router/package.json
 COPY packages/core/package.json ./packages/core/package.json
@@ -27,8 +28,10 @@ COPY packages/ipc/package.json ./packages/ipc/package.json
 COPY packages/vscode-shim/package.json ./packages/vscode-shim/package.json
 COPY packages/config-typescript/package.json ./packages/config-typescript/package.json
 COPY packages/config-eslint/package.json ./packages/config-eslint/package.json
-COPY apps/cli/package.json ./apps/cli/package.json
 COPY packages/command-runner/package.json ./packages/command-runner/package.json
+COPY packages/types/package.json ./packages/types/package.json
+COPY packages/build/package.json ./packages/build/package.json
+COPY packages/telemetry/package.json ./packages/telemetry/package.json
 
 # Install ALL dependencies (including devDependencies for build)
 RUN pnpm install --no-frozen-lockfile --no-optional 2>&1
