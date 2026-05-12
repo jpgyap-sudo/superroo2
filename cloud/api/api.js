@@ -5615,7 +5615,7 @@ process.on("unhandledRejection", (reason, promise) => {
 // ── Crash Resilience: Port Retry Logic ─────────────────────────────────────────
 // When PM2 restarts the process, the old port may still be in TIME_WAIT state.
 // This retries listening with exponential backoff instead of crashing.
-function listenWithRetry(serverInstance, port, maxRetries = 5, baseDelay = 1000) {
+function listenWithRetry(serverInstance, port, maxRetries = 20, baseDelay = 2000) {
 	return new Promise((resolve, reject) => {
 		function attempt(retryCount) {
 			serverInstance.listen(port, () => {
@@ -5628,6 +5628,13 @@ function listenWithRetry(serverInstance, port, maxRetries = 5, baseDelay = 1000)
 					const delay = baseDelay * Math.pow(2, retryCount)
 					console.log(`[api] Port ${port} in use — retrying in ${delay}ms (attempt ${retryCount + 1}/${maxRetries})`)
 					writeApiLog("warn", "cloud-api", `Port ${port} in use, retrying`, { port, retry: retryCount + 1, delay })
+					// Try to kill the stale process holding the port
+					if (retryCount >= 3) {
+						try {
+							require("child_process").execSync(`fuser -k ${port}/tcp 2>/dev/null`, { timeout: 3000 })
+							console.log(`[api] Attempted to kill stale process on port ${port}`)
+						} catch (_) { /* ignore */ }
+					}
 					setTimeout(() => attempt(retryCount + 1), delay)
 				} else {
 					reject(err)
