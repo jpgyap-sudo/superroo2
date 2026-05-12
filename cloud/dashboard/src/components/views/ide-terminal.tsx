@@ -949,7 +949,11 @@ export default function IdeTerminalView() {
 	}
 
 	// ── Load workspace data on mount ──────────────────────────────────────
-	// Use a ref to track hydration status so the closure captures the latest value
+	// Wait for IdeProvider hydration to complete before deciding whether to
+	// overwrite state with API data. The hydration effect runs in the parent
+	// (IdeProvider) and sets _hydrated: true, but the child component's effect
+	// may fire before the parent's re-render propagates. We use a ref to track
+	// the latest _hydrated value across renders.
 	const hydratedRef = useRef(_hydrated)
 	hydratedRef.current = _hydrated
 
@@ -966,9 +970,12 @@ export default function IdeTerminalView() {
 					chatMessages: ChatMessage[]
 					status: WorkspaceStatus
 				}>("/workspace")
-				// Only set data if not already hydrated from localStorage
-				// Use ref to get the latest _hydrated value (effect closure captures stale value)
-				if (!hydratedRef.current) {
+				// Only set data if not already hydrated from localStorage.
+				// The ref captures the latest _hydrated value across renders,
+				// but on first mount the IdeProvider's hydration effect may not
+				// have propagated yet. As a secondary guard, also check if
+				// aiMessages already exist in the store (from localStorage).
+				if (!hydratedRef.current && aiMessages.length === 0) {
 					if (data.repoName) dispatch({ type: "SET_REPO_NAME", payload: data.repoName })
 					if (data.branch) dispatch({ type: "SET_BRANCH", payload: data.branch })
 					if (data.files?.length) dispatch({ type: "SET_FILES", payload: data.files })
@@ -2710,6 +2717,16 @@ User message: ${text}`
 														title="Copy all text">
 														<Copy size={9} />
 														Copy All
+													</button>
+													<button
+														onClick={() => {
+															dispatch({ type: "SET_AI_INPUT", payload: msg.content })
+															setTimeout(() => textareaRef.current?.focus(), 50)
+														}}
+														className="flex items-center gap-1 px-1.5 py-0.5 text-[9px] text-blue-400 hover:text-blue-300 hover:bg-[#1e2535] rounded transition-colors"
+														title="Copy message text to chat input for follow-up">
+														<MessageSquare size={9} />
+														Copy to input
 													</button>
 													{(() => {
 														const codeBlocks = msg.content.match(/```\w*\n?[\s\S]*?```/g)
