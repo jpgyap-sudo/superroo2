@@ -391,7 +391,12 @@ async function initOrchestrator() {
 		)
 
 		orchestrator.registerAgentBus(new AgentBus(orchestrator.eventLog))
-		orchestrator.registerImprovementLoop(new InfiniteImprovementLoop(orchestrator))
+		orchestrator.registerImprovementLoop(
+			new InfiniteImprovementLoop({
+				memoryStore: orchestrator.memory,
+				taskQueue: orchestrator.taskQueue,
+			}),
+		)
 		orchestrator.registerCrawlerAgent(new CrawlerAgent())
 		orchestrator.registerDeployOrchestrator(new DeployOrchestrator({}))
 		orchestrator.registerFileImporter(new FileImporter("/opt/superroo2"))
