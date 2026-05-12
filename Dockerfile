@@ -34,7 +34,7 @@ COPY packages/build/package.json ./packages/build/package.json
 COPY packages/telemetry/package.json ./packages/telemetry/package.json
 
 # Install ALL dependencies (including devDependencies for build)
-RUN pnpm install --no-frozen-lockfile --no-optional --ignore-scripts 2>&1
+RUN pnpm install --no-frozen-lockfile --ignore-scripts 2>&1
 
 # ---- Stage 2: Build / compile ----
 FROM node:20.19.2-slim AS builder
