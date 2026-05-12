@@ -4430,6 +4430,77 @@ async function handleWsChatMessage(ws, sessionId, msg, workspaceDir) {
 			return
 		}
 
+		// POST /ide-workspace/file/diff — compute diff between two file contents
+		if (method === "POST" && normalizedUrl.startsWith("/ide-workspace/file/diff")) {
+			const data = await parseBody(req)
+			const oldContent = data?.oldContent || ""
+			const newContent = data?.newContent || ""
+
+			try {
+				// Simple line-by-line diff
+				const oldLines = oldContent.split("\n")
+				const newLines = newContent.split("\n")
+				const changes = []
+				let maxLen = Math.max(oldLines.length, newLines.length)
+				for (let i = 0; i < maxLen; i++) {
+					if (oldLines[i] !== newLines[i]) {
+						changes.push({
+							line: i + 1,
+							old: oldLines[i] || "",
+							new: newLines[i] || "",
+						})
+					}
+				}
+				sendJson(res, 200, { ok: true, changes, totalChanges: changes.length })
+			} catch (err) {
+				sendJson(res, 500, { ok: false, error: `Failed to compute diff: ${err.message}` })
+			}
+			return
+		}
+
+		// POST /ide-workspace/file/create — create a new file at specified path
+		if (method === "POST" && normalizedUrl.startsWith("/ide-workspace/file/create")) {
+			const data = await parseBody(req)
+			const filePath = data?.path || ""
+			const content = data?.content || ""
+
+			if (!filePath) {
+				sendJson(res, 400, { ok: false, error: "Missing path" })
+				return
+			}
+
+			// Resolve the absolute path (prevent directory traversal)
+			const resolvedPath = path.resolve(ws.workspaceDir, "." + filePath)
+			if (!resolvedPath.startsWith(path.resolve(ws.workspaceDir))) {
+				sendJson(res, 403, { ok: false, error: "Access denied: path outside workspace" })
+				return
+			}
+
+			try {
+				// Check if file already exists
+				try {
+					await fs.stat(resolvedPath)
+					sendJson(res, 409, { ok: false, error: "File already exists" })
+					return
+				} catch {
+					// File doesn't exist, good to create
+				}
+				// Ensure parent directory exists
+				await fs.mkdir(path.dirname(resolvedPath), { recursive: true })
+				await fs.writeFile(resolvedPath, content, "utf-8")
+				const stat = await fs.stat(resolvedPath)
+				sendJson(res, 200, {
+					ok: true,
+					path: filePath,
+					size: stat.size,
+					modified: stat.mtimeMs,
+				})
+			} catch (err) {
+				sendJson(res, 500, { ok: false, error: `Failed to create file: ${err.message}` })
+			}
+			return
+		}
+
 		// POST /ide-workspace/workspace/import-github — import GitHub repo
 		if (method === "POST" && normalizedUrl.startsWith("/ide-workspace/workspace/import-github")) {
 			const data = await parseBody(req)

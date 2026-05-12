@@ -86,6 +86,15 @@ import {
 	RotateCcw,
 	FolderGit2,
 	GitFork,
+	// Icons for 8 new functions
+	FilePlus2,
+	Terminal as TerminalIcon2,
+	Slash,
+	List,
+	Diff,
+	FileOutput,
+	Eye,
+	Columns,
 } from "lucide-react"
 
 // ─── Types ────────────────────────────────────────────────────────────────
@@ -518,11 +527,22 @@ function renderMessageContent(content: string): React.ReactNode[] {
 
 		const language = match[1] || "text"
 		const code = match[2].trim()
+		const isShellLanguage = ["bash", "sh", "shell", "terminal", "cmd", "powershell", "docker", "zsh"].includes(language.toLowerCase())
 		nodes.push(
 			<div key={key++} className="my-2 rounded border border-[#1e2535] overflow-hidden">
 				<div className="flex items-center justify-between bg-[#1a2030] px-3 py-1 border-b border-[#1e2535]">
 					<span className="text-[10px] text-gray-500 font-mono">{language}</span>
 					<div className="flex items-center gap-1">
+						{/* Function 2: Run-in-Terminal button for shell commands */}
+						{isShellLanguage && (
+							<button
+								onClick={() => handleRunInTerminalFromBlock(code)}
+								className="flex items-center gap-1 px-1.5 py-0.5 text-[9px] text-green-400 hover:text-green-300 hover:bg-[#253045] rounded transition-colors"
+								title="Run in terminal">
+								<Play size={9} />
+								Run
+							</button>
+						)}
 						<button
 							onClick={() => navigator.clipboard.writeText(code).catch(() => {})}
 							className="flex items-center gap-1 px-1.5 py-0.5 text-[9px] text-gray-500 hover:text-gray-300 hover:bg-[#253045] rounded transition-colors"
@@ -646,6 +666,7 @@ function renderTextWithLinks(text: string, key: number): React.ReactNode[] {
 // Module-level refs so renderMessageContent can use callbacks from the component
 let _handleApplyCodeFromBlock: ((code: string, language: string) => void) | null = null
 let _handleFileLinkClick: ((path: string) => void) | null = null
+let _handleRunInTerminal: ((code: string) => void) | null = null
 
 function handleApplyCodeFromBlock(code: string, language: string) {
 	if (_handleApplyCodeFromBlock) _handleApplyCodeFromBlock(code, language)
@@ -653,6 +674,10 @@ function handleApplyCodeFromBlock(code: string, language: string) {
 
 function handleFileLinkClick(path: string) {
 	if (_handleFileLinkClick) _handleFileLinkClick(path)
+}
+
+function handleRunInTerminalFromBlock(code: string) {
+	if (_handleRunInTerminal) _handleRunInTerminal(code)
 }
 
 // ── Main Component ────────────────────────────────────────────────────────
@@ -708,6 +733,21 @@ export default function IdeTerminalView() {
 	const [aiSending, setAiSending] = useState(false)
 	const [aiAttachments, setAiAttachments] = useState<ChatAttachment[]>([])
 	const [aiTab, setAiTab] = useState<string>("chat")
+
+	// ── AI Input change handler with slash command detection ──────────────
+	const handleAiInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+		const val = e.target.value
+		setAiInput(val)
+		// Function 3: Show slash commands dropdown when typing /
+		if (val.startsWith("/")) {
+			const cmd = val.split(" ")[0].toLowerCase()
+			setSlashCommandFilter(cmd)
+			const hasMatch = slashCommandsList.some((sc) => sc.command.startsWith(cmd))
+			setShowSlashCommands(hasMatch)
+		} else {
+			setShowSlashCommands(false)
+		}
+	}, [])
 	const [brainPlan, setBrainPlan] = useState<BrainPlanStep[]>([])
 	const [brainFeedback, setBrainFeedback] = useState<BrainFeedback | null>(null)
 	const [brainErrors, setBrainErrors] = useState<BrainError[]>([])
@@ -785,12 +825,36 @@ export default function IdeTerminalView() {
 	const [showRecordings, setShowRecordings] = useState(false)
 	const [recordingBlocks, setRecordingBlocks] = useState<OutputBlock[]>([])
 
+	// ── Slash Commands state ──────────────────────────────────────────────
+	const [showSlashCommands, setShowSlashCommands] = useState(false)
+	const [slashCommandFilter, setSlashCommandFilter] = useState("")
+	const slashCommandsList = [
+		{ command: "/fix", description: "Fix errors in the current file", icon: "Bug" },
+		{ command: "/explain", description: "Explain the selected code", icon: "MessageCircle" },
+		{ command: "/help", description: "Get help with the IDE", icon: "Lightbulb" },
+		{ command: "/tests", description: "Generate tests for the current file", icon: "CheckCircle2" },
+		{ command: "/optimize", description: "Optimize the current file", icon: "Zap" },
+		{ command: "/refactor", description: "Refactor the current file", icon: "Wand2" },
+		{ command: "/docs", description: "Generate documentation", icon: "BookOpen" },
+		{ command: "/review", description: "Review code for issues", icon: "Search" },
+	]
+	// ── Diff View state ──────────────────────────────────────────────────
+	const [showDiffView, setShowDiffView] = useState(false)
+	const [diffData, setDiffData] = useState<{ path: string; changes: Array<{ line: number; old: string; new: string }>; totalChanges: number } | null>(null)
+	// ── Quick Action state ────────────────────────────────────────────────
+	const [showQuickActions, setShowQuickActions] = useState<string | null>(null) // message id
+	// ── Inline Selection state ────────────────────────────────────────────
+	const [showInlineAiButton, setShowInlineAiButton] = useState(false)
+	const [inlineSelectionPos, setInlineSelectionPos] = useState<{ top: number; left: number } | null>(null)
+	const inlineEditorRef = useRef<HTMLTextAreaElement>(null)
+
 	const fileInputRef = useRef<HTMLInputElement>(null)
 	const imageInputRef = useRef<HTMLInputElement>(null)
 	const aiMessagesEndRef = useRef<HTMLDivElement>(null)
 	const terminalRef = useRef<HTMLDivElement>(null)
 	const terminalInputRef = useRef<HTMLInputElement>(null)
 	const terminalResizeRef = useRef<HTMLDivElement>(null)
+	const textareaRef = useRef<HTMLTextAreaElement>(null)
 
 	// ── Agent command definitions ────────────────────────────────────────
 	const agentCommands: Record<string, { agent: string; description: string; icon: string }> = {
@@ -1073,6 +1137,29 @@ export default function IdeTerminalView() {
 		} catch {}
 	}, [workspaceTasks])
 
+	// ── Persist chat messages to localStorage ──────────────────────────────
+	// Function 4: Chat History Persistence
+	useEffect(() => {
+		try {
+			if (aiMessages.length > 0) {
+				localStorage.setItem("superroo-ai-messages", JSON.stringify(aiMessages.slice(-50)))
+			}
+		} catch {}
+	}, [aiMessages])
+
+	// Restore chat messages from localStorage on mount
+	useEffect(() => {
+		try {
+			const stored = localStorage.getItem("superroo-ai-messages")
+			if (stored) {
+				const parsed = JSON.parse(stored)
+				if (Array.isArray(parsed) && parsed.length > 0) {
+					setAiMessages(parsed)
+				}
+			}
+		} catch {}
+	}, [])
+
 	// ── OpenClaw data fetching ────────────────────────────────────────────
 	// Fetch orchestrator status for the Plan tab
 	const fetchOrchestratorStatus = useCallback(async () => {
@@ -1265,17 +1352,46 @@ export default function IdeTerminalView() {
 		return () => window.removeEventListener("paste", handlePaste)
 	}, [])
 
+	// ── Slash command handlers ────────────────────────────────────────────
+	const slashCommandHandlers: Record<string, string> = {
+		"/fix": `Fix any errors, bugs, or issues in the current file. Analyze the code carefully and provide the complete fixed version.`,
+		"/explain": `Explain the selected code or the current file in simple terms. Break down what each part does.`,
+		"/help": `Provide helpful guidance about using the Cloud IDE. List available features and how to use them.`,
+		"/tests": `Generate comprehensive tests for the current file. Include unit tests, edge cases, and test descriptions.`,
+		"/optimize": `Optimize the current file for better performance, readability, and maintainability.`,
+		"/refactor": `Refactor the current file to improve code structure while preserving functionality.`,
+		"/docs": `Generate documentation for the current file including function descriptions, parameters, and usage examples.`,
+		"/review": `Review the current file for potential issues, security concerns, and best practices.`,
+	}
+
 	// ── UNIFIED AI Chat Send (WebSocket) ──────────────────────────────────
 	const handleAiSend = useCallback(async () => {
-		const text = aiInput.trim()
+		let text = aiInput.trim()
 		if (!text && aiAttachments.length === 0) return
+
+		// Function 3: Slash commands — expand /fix, /explain, etc. into full prompts
+		let slashCommandUsed = ""
+		if (text.startsWith("/")) {
+			const cmd = text.split(" ")[0].toLowerCase()
+			const rest = text.slice(cmd.length).trim()
+			if (slashCommandHandlers[cmd]) {
+				slashCommandUsed = cmd
+				const fileContext = activeFilePath
+					? `\n\nCurrent file: ${activeFilePath}\n\`\`\`\n${(openFiles.find((f) => f.path === activeFilePath)?.content || "").slice(0, 3000)}\n\`\`\``
+					: ""
+				const selectionContext = currentFileSelection
+					? `\n\nSelected code:\n\`\`\`\n${currentFileSelection}\n\`\`\``
+					: ""
+				text = `${slashCommandHandlers[cmd]}${fileContext}${selectionContext}${rest ? `\n\nAdditional context: ${rest}` : ""}`
+			}
+		}
 
 		const userMsg: ChatMessage = {
 			id: `msg-${Date.now()}`,
 			role: "user",
 			author: "You",
 			time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-			content: text || "Sent files",
+			content: slashCommandUsed ? `${slashCommandUsed} ${aiInput.trim().slice(slashCommandUsed.length).trim()}` : (text || "Sent files"),
 			attachments: aiAttachments.length > 0 ? [...aiAttachments] : undefined,
 		}
 
@@ -1284,6 +1400,7 @@ export default function IdeTerminalView() {
 		setAiAttachments([])
 		setAiSending(true)
 		setProactiveSuggestions([])
+		setShowSlashCommands(false)
 
 		// If WebSocket is connected, use it for real-time streaming
 		if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -1416,12 +1533,27 @@ export default function IdeTerminalView() {
 
 	const handleAiKeyDown = useCallback(
 		(e: React.KeyboardEvent) => {
+			// Function 3: Slash commands auto-complete
+			if (e.key === "Tab" && showSlashCommands) {
+				e.preventDefault()
+				const filtered = slashCommandsList.filter((sc) => sc.command.startsWith(slashCommandFilter || "/"))
+				if (filtered.length > 0) {
+					setAiInput(filtered[0].command + " ")
+					setShowSlashCommands(false)
+				}
+				return
+			}
+			if (e.key === "Escape") {
+				setShowSlashCommands(false)
+				return
+			}
 			if (e.key === "Enter" && !e.shiftKey) {
 				e.preventDefault()
+				setShowSlashCommands(false)
 				handleAiSend()
 			}
 		},
-		[handleAiSend],
+		[handleAiSend, showSlashCommands, slashCommandFilter],
 	)
 
 	// ── Terminal command handlers ─────────────────────────────────────────
@@ -1595,20 +1727,134 @@ export default function IdeTerminalView() {
 		setAiAttachments((prev) => prev.filter((a) => a.id !== id))
 	}, [])
 
+	// ── Function 2: Run-in-Terminal handler ────────────────────────────────
+	const handleRunInTerminal = useCallback((code: string) => {
+		// Set the terminal input to the command and focus it
+		setTerminalInput(code)
+		// Focus the terminal input after a short delay to let React render
+		setTimeout(() => {
+			terminalInputRef.current?.focus()
+		}, 50)
+	}, [])
+
 	// ── Set up module-level refs for rich content rendering callbacks ──────
 	useEffect(() => {
 		_handleApplyCodeFromBlock = handleApplyCode
 		_handleFileLinkClick = handleFileLinkClickFromContent
+		_handleRunInTerminal = handleRunInTerminal
 	})
 
-	// ── Apply code from a code block ──────────────────────────────────────
+	// ── Detect file path from code comments (Function 1: Smart Apply-to-File) ──
+	function detectFilePathFromCode(code: string, language: string): string | null {
+		// Look for patterns like: // path/to/file.ts, # path/to/file.py, <!-- path/to/file.html -->
+		const patterns = [
+			// TypeScript/JavaScript/CSS: // path/to/file.ts or /* path/to/file.ts */
+			{ regex: /\/\/\s*([a-zA-Z0-9_\-./]+\.(ts|tsx|js|jsx|css|scss|json|md|html|vue|svelte))/ },
+			{ regex: /\/\*\s*([a-zA-Z0-9_\-./]+\.(ts|tsx|js|jsx|css|scss|json|md|html|vue|svelte))\s*\*\// },
+			// Python/Ruby/Shell: # path/to/file.py
+			{ regex: /#\s*([a-zA-Z0-9_\-./]+\.(py|rb|sh|bash|yml|yaml|env|txt|md|cfg|ini))/, flags: "" },
+			// HTML/XML: <!-- path/to/file.html -->
+			{ regex: /<!--\s*([a-zA-Z0-9_\-./]+\.(html|htm|xml|svg))\s*-->/ },
+			// Generic file: path/to/filename.ext at start of comment
+			{ regex: /\/[a-zA-Z0-9_\-./]+\/[a-zA-Z0-9_\-]+\.[a-zA-Z0-9]+/, flags: "" },
+		]
+		for (const { regex } of patterns) {
+			const m = regex.exec(code)
+			if (m && m[1]) return m[1]
+		}
+		// Also check first line for a file path comment
+		const firstLine = code.split("\n")[0].trim()
+		const fileMatch = firstLine.match(/\/\/\s*(.+)/) || firstLine.match(/#\s*(.+)/)
+		if (fileMatch) {
+			const path = fileMatch[1].trim()
+			if (path.includes(".") && !path.includes(" ")) return path
+		}
+		return null
+	}
+
+	// ── Apply code from a code block (Function 1: Smart Apply-to-File, Function 6: File creation) ──
 	const handleApplyCode = useCallback(
-		(code: string, language: string) => {
+		async (code: string, language: string) => {
+			// Try to detect file path from code comments
+			const detectedPath = detectFilePathFromCode(code, language)
+
+			if (detectedPath) {
+				// Function 6: File creation from chat — if file doesn't exist, create it
+				try {
+					// Try reading the file first
+					const existing = await api<{ ok: boolean; content?: string }>(
+						`/ide-workspace/file/read?path=${encodeURIComponent(detectedPath)}`,
+					)
+					if (existing.ok) {
+						// File exists — save old content for diff, then apply
+						const oldContent = existing.content || ""
+						// Save diff data for Function 7
+						try {
+							const diffResult = await api<{ ok: boolean; changes: Array<{ line: number; old: string; new: string }>; totalChanges: number }>(
+								"/ide-workspace/file/diff",
+								{
+									method: "POST",
+									body: JSON.stringify({ oldContent, newContent: code }),
+								},
+							)
+							if (diffResult.ok && diffResult.totalChanges > 0) {
+								setDiffData({ path: detectedPath, changes: diffResult.changes, totalChanges: diffResult.totalChanges })
+							}
+						} catch {}
+					}
+				} catch {
+					// File doesn't exist — create it
+					try {
+						await api("/ide-workspace/file/create", {
+							method: "POST",
+							body: JSON.stringify({ path: detectedPath, content: code }),
+						})
+					} catch {}
+				}
+
+				// Save the file
+				await api("/ide-workspace/file/save", {
+					method: "POST",
+					body: JSON.stringify({ path: detectedPath, content: code }),
+				}).catch(() => {})
+
+				// Open the file in the editor
+				const name = detectedPath.split("/").pop() || detectedPath
+				setOpenFiles((prev) => {
+					const existing = prev.find((f) => f.path === detectedPath)
+					if (existing) {
+						return prev.map((f) =>
+							f.path === detectedPath ? { ...f, content: code, modified: true } : f,
+						)
+					}
+					return [...prev, { path: detectedPath, name, content: code, language, modified: true }]
+				})
+				setActiveFilePath(detectedPath)
+				return
+			}
+
+			// Fallback: apply to active file or create untitled
 			if (activeFilePath) {
+				// Save old content for diff
+				const oldFile = openFiles.find((f) => f.path === activeFilePath)
+				if (oldFile) {
+					try {
+						const diffResult = await api<{ ok: boolean; changes: Array<{ line: number; old: string; new: string }>; totalChanges: number }>(
+							"/ide-workspace/file/diff",
+							{
+								method: "POST",
+								body: JSON.stringify({ oldContent: oldFile.content, newContent: code }),
+							},
+						)
+						if (diffResult.ok && diffResult.totalChanges > 0) {
+							setDiffData({ path: activeFilePath, changes: diffResult.changes, totalChanges: diffResult.totalChanges })
+						}
+					} catch {}
+				}
 				setOpenFiles((prev) =>
 					prev.map((f) => (f.path === activeFilePath ? { ...f, content: code, modified: true } : f)),
 				)
-				api("/ide-workspace/file/write", {
+				api("/ide-workspace/file/save", {
 					method: "POST",
 					body: JSON.stringify({ path: activeFilePath, content: code }),
 				}).catch(() => {})
@@ -1627,7 +1873,7 @@ export default function IdeTerminalView() {
 				setActiveFilePath(path)
 			}
 		},
-		[activeFilePath],
+		[activeFilePath, openFiles],
 	)
 
 	// ── Handle file link click from rich content ──────────────────────────
@@ -1996,7 +2242,25 @@ export default function IdeTerminalView() {
 						)}
 						<div className="flex-1 overflow-y-auto bg-[#0a0d14] p-4">
 							{activeFilePath ? (
-								<pre className="text-[12px] font-mono text-gray-300 leading-relaxed whitespace-pre-wrap">
+								<pre
+									className="text-[12px] font-mono text-gray-300 leading-relaxed whitespace-pre-wrap"
+									onMouseUp={(e) => {
+										// Function 5: Detect text selection for inline AI button
+										const selection = window.getSelection()
+										const selectedText = selection?.toString().trim()
+										if (selectedText && selectedText.length > 5) {
+											setCurrentFileSelection(selectedText.slice(0, 3000))
+											const rect = e.currentTarget.getBoundingClientRect()
+											setInlineSelectionPos({
+												top: Math.min(e.clientY, rect.bottom - 40),
+												left: Math.max(e.clientX - 40, rect.left + 10),
+											})
+											setShowInlineAiButton(true)
+										} else {
+											setShowInlineAiButton(false)
+											setCurrentFileSelection("")
+										}
+									}}>
 									{openFiles.find((f) => f.path === activeFilePath)?.content || "// No content"}
 								</pre>
 							) : (
@@ -2231,6 +2495,62 @@ export default function IdeTerminalView() {
 											<div className="text-[12px] text-gray-300 leading-relaxed">
 												{renderMessageContent(msg.content)}
 											</div>
+											{/* Function 8: Quick Action Buttons after each AI response */}
+											{msg.role !== "user" && msg.content && msg.content.length > 20 && (
+												<div className="flex items-center gap-1 mt-1.5">
+													<button
+														onClick={() => {
+															navigator.clipboard.writeText(msg.content).catch(() => {})
+														}}
+														className="flex items-center gap-1 px-1.5 py-0.5 text-[9px] text-gray-500 hover:text-gray-300 hover:bg-[#1e2535] rounded transition-colors"
+														title="Copy all text">
+														<Copy size={9} />
+														Copy All
+													</button>
+													{(() => {
+														const codeBlocks = msg.content.match(/```\w*\n?[\s\S]*?```/g)
+														if (codeBlocks && codeBlocks.length > 0) {
+															return (
+																<button
+																	onClick={() => {
+																		codeBlocks.forEach((block) => {
+																			const langMatch = block.match(/```(\w*)\n?([\s\S]*?)```/)
+																			if (langMatch) {
+																				handleApplyCode(langMatch[2].trim(), langMatch[1] || "text")
+																			}
+																		})
+																	}}
+																	className="flex items-center gap-1 px-1.5 py-0.5 text-[9px] text-violet-400 hover:text-violet-300 hover:bg-[#1e2535] rounded transition-colors"
+																	title="Apply all code blocks">
+																	<Code size={9} />
+																	Apply All ({codeBlocks.length})
+																</button>
+															)
+														}
+														return null
+													})()}
+													{(() => {
+														const shellBlocks = msg.content.match(/```(bash|sh|shell|terminal|cmd|powershell|docker|zsh)\n?[\s\S]*?```/g)
+														if (shellBlocks && shellBlocks.length > 0) {
+															return (
+																<button
+																	onClick={() => {
+																		const firstMatch = shellBlocks[0].match(/```\w+\n?([\s\S]*?)```/)
+																		if (firstMatch) {
+																			handleRunInTerminal(firstMatch[1].trim())
+																		}
+																	}}
+																	className="flex items-center gap-1 px-1.5 py-0.5 text-[9px] text-green-400 hover:text-green-300 hover:bg-[#1e2535] rounded transition-colors"
+																	title="Run shell commands in terminal">
+																	<Play size={9} />
+																	Run Commands ({shellBlocks.length})
+																</button>
+															)
+														}
+														return null
+													})()}
+												</div>
+											)}
 											{msg.attachments && msg.attachments.length > 0 && (
 												<div className="flex flex-wrap gap-1 mt-1">
 													{msg.attachments.map((att) => (
@@ -2245,6 +2565,7 @@ export default function IdeTerminalView() {
 											)}
 										</div>
 									))}
+
 									{/* Proactive Suggestions */}
 									{proactiveSuggestions.length > 0 && (
 										<div className="flex flex-wrap gap-1.5 px-1">
@@ -2291,11 +2612,33 @@ export default function IdeTerminalView() {
 								<div className="border-t border-[#1e2535] px-3 py-2 bg-[#0a0d14]">
 									<div className="flex items-end gap-2">
 										<div className="flex-1 relative">
+											{/* Function 3: Slash commands dropdown */}
+											{showSlashCommands && (
+												<div className="absolute bottom-full left-0 right-0 mb-1 bg-[#0f1117] border border-[#1e2535] rounded shadow-xl max-h-48 overflow-y-auto z-10">
+													{slashCommandsList
+														.filter((sc) => sc.command.startsWith(slashCommandFilter || "/"))
+														.map((sc) => (
+															<button
+																key={sc.command}
+																onClick={() => {
+																	setAiInput(sc.command + " ")
+																	setShowSlashCommands(false)
+																	textareaRef?.current?.focus()
+																}}
+																className="w-full flex items-center gap-2 px-2.5 py-1.5 text-[11px] text-left hover:bg-[#1e2535] transition-colors">
+																<Slash size={11} className="text-violet-400 shrink-0" />
+																<span className="text-violet-300 font-medium">{sc.command}</span>
+																<span className="text-gray-500 ml-1">{sc.description}</span>
+															</button>
+														))}
+												</div>
+											)}
 											<textarea
+												ref={textareaRef}
 												value={aiInput}
-												onChange={(e) => setAiInput(e.target.value)}
+												onChange={handleAiInputChange}
 												onKeyDown={handleAiKeyDown}
-												placeholder="Ask AI or @agent for help..."
+												placeholder="Ask AI or @agent for help... (type / for commands)"
 												rows={2}
 												className="w-full bg-[#1e2535] text-[12px] text-gray-300 placeholder-gray-600 border border-[#2a3344] rounded px-2.5 py-1.5 outline-none resize-none"
 											/>
@@ -2667,6 +3010,80 @@ export default function IdeTerminalView() {
 							</button>
 						</div>
 					</div>
+				</div>
+			)}
+
+			{/* ── Function 7: Diff View Modal ──────────────────────────────────────────── */}
+			{showDiffView && diffData && (
+				<div
+					className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+					onClick={() => setShowDiffView(false)}>
+					<div
+						className="bg-[#0f1117] border border-[#1e2535] rounded-lg p-4 w-full max-w-2xl mx-4 shadow-2xl max-h-[80vh] flex flex-col"
+						onClick={(e) => e.stopPropagation()}>
+						<div className="flex items-center justify-between mb-3">
+							<div className="flex items-center gap-2">
+								<Diff size={14} className="text-violet-400" />
+								<span className="text-sm font-semibold text-[#e2e8f0]">
+									Changes: {diffData.path}
+								</span>
+							</div>
+							<div className="flex items-center gap-2">
+								<span className="text-[10px] text-gray-500">
+									{diffData.totalChanges} change{diffData.totalChanges !== 1 ? "s" : ""}
+								</span>
+								<button
+									onClick={() => setShowDiffView(false)}
+									className="text-gray-500 hover:text-gray-300">
+									<X size={14} />
+								</button>
+							</div>
+						</div>
+						<div className="flex-1 overflow-y-auto space-y-1">
+							{diffData.changes.map((change, idx) => (
+								<div key={idx} className="text-[10px] font-mono">
+									<div className="flex items-center gap-2 text-gray-600 bg-[#1a2030] px-2 py-0.5 rounded-t">
+										<span>Line {change.line}</span>
+									</div>
+									{change.old !== "" && (
+										<div className="bg-red-900/20 border-l-2 border-red-500 px-2 py-0.5 text-red-300">
+											- {change.old}
+										</div>
+									)}
+									{change.new !== "" && (
+										<div className="bg-green-900/20 border-l-2 border-green-500 px-2 py-0.5 text-green-300 rounded-b">
+											+ {change.new}
+										</div>
+									)}
+								</div>
+							))}
+						</div>
+					</div>
+				</div>
+			)}
+
+			{/* ── Function 5: Inline AI Selection Button ─────────────────────────────── */}
+			{showInlineAiButton && inlineSelectionPos && (
+				<div
+					className="fixed z-50"
+					style={{
+						top: inlineSelectionPos.top - 30,
+						left: inlineSelectionPos.left,
+					}}>
+					<button
+						onClick={() => {
+							if (currentFileSelection) {
+								setAiInput(`Explain this code:\n\`\`\`\n${currentFileSelection.slice(0, 2000)}\n\`\`\``)
+								setShowInlineAiButton(false)
+								// Focus the AI input
+								setTimeout(() => textareaRef.current?.focus(), 50)
+							}
+						}}
+						className="flex items-center gap-1 px-2 py-1 bg-violet-600 hover:bg-violet-500 text-white text-[10px] rounded shadow-lg transition-colors"
+						title="Ask AI about selected code">
+						<Sparkles size={10} />
+						Ask AI
+					</button>
 				</div>
 			)}
 		</div>
