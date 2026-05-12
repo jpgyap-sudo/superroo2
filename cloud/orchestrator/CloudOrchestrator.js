@@ -17,6 +17,7 @@ const EventEmitter = require("events")
 const MemoryStore = require("./stores/MemoryStore")
 const EventLog = require("./modules/EventLog")
 const TaskQueueBullMQ = require("./modules/TaskQueueBullMQ")
+const { TaskExecutor } = require("./modules/TaskExecutor")
 
 // ─── Safety Modes ─────────────────────────────────────────────────────
 
@@ -74,10 +75,20 @@ class CloudOrchestrator extends EventEmitter {
 		this.fileImporter = null
 		this.cpuGuard = null
 
+		// HermesClaw — Memory & Context Agent
+		this.hermesClaw = null
+
 		// Internal state
 		this._running = false
 		this._loopHandle = null
 		this._startedAt = null
+
+		// Task executor for smart multi-agent breakdown
+		this.taskExecutor = null
+
+		// Provider resolver (set by api.js for LLM-based breakdown)
+		this._resolveProvider = null
+		this._callChatCompletion = null
 	}
 
 	// ─── Lifecycle ──────────────────────────────────────────────────────
@@ -97,6 +108,9 @@ class CloudOrchestrator extends EventEmitter {
 		this.taskQueue = new TaskQueueBullMQ(this.memory, {
 			bullQueue: this.config.bullQueue || null,
 		})
+
+		// Initialize task executor for smart multi-agent breakdown
+		this.taskExecutor = new TaskExecutor(this)
 
 		// Log startup event
 		this.eventLog.record({
@@ -240,6 +254,8 @@ class CloudOrchestrator extends EventEmitter {
 
 	/**
 	 * Process the next pending task from the queue.
+	 * Uses TaskExecutor for orchestrator-type tasks (multi-agent breakdown).
+	 * For other task types, emits taskReady for external processing.
 	 * @returns {Promise<object>} Processing result
 	 */
 	async processNext() {
@@ -279,8 +295,31 @@ class CloudOrchestrator extends EventEmitter {
 		})
 
 		try {
-			// If BullMQ is available, the worker handles execution
-			// Otherwise, emit for external processing
+			// ── Orchestrator-type tasks: use smart multi-agent breakdown ──
+			if (task.type === "orchestrator" && this.taskExecutor) {
+				const result = await this.taskExecutor.execute(task)
+
+				if (result.ok) {
+					this.completeTask(task.id, result.output)
+				} else {
+					this.failTask(task.id, result.error || "Orchestration failed")
+				}
+
+				// Trigger healing cycle on failure if available
+				if (!result.ok && this.selfHealingLoop) {
+					try {
+						this.selfHealingLoop.runHealingCycle().catch((err) => {
+							console.error("[CloudOrchestrator] Healing cycle error:", err.message)
+						})
+					} catch {
+						// Non-blocking
+					}
+				}
+
+				return { processed: true, taskId: task.id, task, result }
+			}
+
+			// ── Other task types: emit for external processing ────────────
 			if (!this.taskQueue.bullQueue) {
 				this.emit("taskReady", task)
 			}
@@ -501,6 +540,33 @@ class CloudOrchestrator extends EventEmitter {
 		this.cpuGuard = cpuGuard
 	}
 
+	/**
+	 * Set the provider resolver function (called by api.js during init).
+	 * This enables LLM-based multi-agent breakdown in TaskExecutor.
+	 * @param {Function} resolveProviderFn
+	 * @param {Function} callChatCompletionFn
+	 */
+	setProviderResolver(resolveProviderFn, callChatCompletionFn) {
+		this._resolveProvider = resolveProviderFn
+		this._callChatCompletion = callChatCompletionFn
+		if (this.taskExecutor) {
+			console.log("[CloudOrchestrator] Provider resolver set — LLM-based breakdown enabled")
+		}
+	}
+
+	/**
+	 * Register the HermesClaw memory & context agent.
+	 * @param {object} hermesClaw - HermesClaw instance
+	 */
+	registerHermesClaw(hermesClaw) {
+		this.hermesClaw = hermesClaw
+		// Wire into TaskExecutor for context recall & lesson extraction
+		if (this.taskExecutor && typeof this.taskExecutor.setHermesClaw === "function") {
+			this.taskExecutor.setHermesClaw(hermesClaw)
+		}
+		console.log("[CloudOrchestrator] HermesClaw registered")
+	}
+
 	// ─── Status ─────────────────────────────────────────────────────────
 
 	/**
@@ -532,6 +598,7 @@ class CloudOrchestrator extends EventEmitter {
 				deployOrchestrator: !!this.deployOrchestrator,
 				fileImporter: !!this.fileImporter,
 				cpuGuard: !!this.cpuGuard,
+				hermesClaw: !!this.hermesClaw,
 			},
 			taskStats: this.taskQueue ? this.taskQueue.getStats() : null,
 			eventStats: this.eventLog ? this.eventLog.getStats() : null,

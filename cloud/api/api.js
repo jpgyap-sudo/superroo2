@@ -330,6 +330,75 @@ async function initOrchestrator() {
 			loopIntervalMs: parseInt(process.env.ORCHESTRATOR_LOOP_INTERVAL || "5000", 10),
 		})
 
+		// ── Register all Phase 2-6 modules ──────────────────────────────
+		const SafetyManager = require("../orchestrator/modules/SafetyManager")
+		const AgentRegistry = require("../orchestrator/modules/AgentRegistry")
+		const FeatureRegistry = require("../orchestrator/modules/FeatureRegistry")
+		const BugRegistry = require("../orchestrator/modules/BugRegistry")
+		const CommitDeployLog = require("../orchestrator/modules/CommitDeployLog")
+		const HealingBus = require("../orchestrator/modules/HealingBus")
+		const SelfHealingLoop = require("../orchestrator/modules/SelfHealingLoop")
+		const ParallelExecutor = require("../orchestrator/modules/ParallelExecutor")
+		const AgentBus = require("../orchestrator/modules/AgentBus")
+		const InfiniteImprovementLoop = require("../orchestrator/modules/InfiniteImprovementLoop")
+		const CrawlerAgent = require("../orchestrator/modules/CrawlerAgent")
+		const DeployOrchestrator = require("../orchestrator/modules/DeployOrchestrator")
+		const FileImporter = require("../orchestrator/modules/FileImporter")
+		const CPUGuard = require("../orchestrator/modules/CPUGuard")
+
+		orchestrator.registerSafetyManager(
+			new SafetyManager({
+				initialMode: process.env.ORCHESTRATOR_MODE || "safe",
+				blocklistPath: require("path").join(__dirname, "..", "orchestrator", "config", "blocklist.json"),
+			}),
+		)
+
+		orchestrator.registerAgentRegistry(new AgentRegistry())
+
+		orchestrator.registerFeatureRegistry(new FeatureRegistry(orchestrator.memory, orchestrator.eventLog))
+		orchestrator.registerBugRegistry(new BugRegistry(orchestrator.memory, orchestrator.eventLog))
+		orchestrator.registerCommitDeployLog(new CommitDeployLog())
+
+		const healingBus = new HealingBus(orchestrator.memory, orchestrator.eventLog)
+		orchestrator.registerHealingBus(healingBus)
+
+		const selfHealingLoop = new SelfHealingLoop(orchestrator, {
+			cycleIntervalMs: 30000,
+			maxPerCycle: 10,
+			autoFixPolicies: { low: true, medium: false, high: false, critical: false },
+			suggestionOnly: false,
+			maxRetries: 3,
+		})
+		orchestrator.registerSelfHealingLoop(selfHealingLoop)
+
+		orchestrator.registerParallelExecutor(
+			new ParallelExecutor(orchestrator.eventLog, orchestrator.safetyManager, {
+				maxConcurrency: 2,
+				maxTokenBudget: 100,
+				enablePreemption: false,
+				taskTimeoutMs: 600000,
+			}),
+		)
+
+		orchestrator.registerAgentBus(new AgentBus(orchestrator.eventLog))
+		orchestrator.registerImprovementLoop(new InfiniteImprovementLoop(orchestrator))
+		orchestrator.registerCrawlerAgent(new CrawlerAgent())
+		orchestrator.registerDeployOrchestrator(new DeployOrchestrator({}))
+		orchestrator.registerFileImporter(new FileImporter("/opt/superroo2"))
+		orchestrator.registerCPUGuard(new CPUGuard())
+
+		// ── HermesClaw — Memory & Context Agent ─────────────────────────
+		const HermesClaw = require("../orchestrator/modules/HermesClaw")
+		const hermesClaw = new HermesClaw({
+			apiKey: process.env.OPENAI_API_KEY || "",
+			fallbackApiKey: process.env.DEEPSEEK_API_KEY || "",
+		})
+		await hermesClaw.init()
+		orchestrator.registerHermesClaw(hermesClaw)
+
+		// ── Set provider resolver for LLM-based multi-agent breakdown ────
+		orchestrator.setProviderResolver(resolveProviderForTask, callChatCompletion)
+
 		await orchestrator.start()
 		tgOrchestratorBridge = new TelegramOrchestratorBridge(orchestrator)
 
@@ -339,6 +408,7 @@ async function initOrchestrator() {
 		writeApiLog("info", "cloud-orchestrator", "Cloud Orchestrator initialized", {
 			mode: orchestrator.mode,
 			dbPath: ORCHESTRATOR_DB_PATH,
+			modules: Object.keys(orchestrator.getStatus().modules).filter((k) => orchestrator.getStatus().modules[k]),
 		})
 	} catch (err) {
 		console.error("[orchestrator] Failed to initialize Cloud Orchestrator:", err.message)
@@ -2693,13 +2763,15 @@ const server = http.createServer(async (req, res) => {
 				}
 			}
 
-			// ── Orchestrator agent (multi-step task breakdown) ────────────
+			// ── Orchestrator agent (CloudOrchestrator-powered task breakdown) ─
 			if (agentCmd.agent === "orchestrator") {
-				const provider = resolveProviderForTask("coder")
-				if (!provider) {
+				if (!orchestrator) {
 					return {
 						agent: "orchestrator",
-						output: ["No AI provider available. Please configure API keys first."],
+						output: [
+							"Cloud Orchestrator is not initialized.",
+							"Check server logs for initialization errors.",
+						],
 					}
 				}
 
@@ -2707,58 +2779,81 @@ const server = http.createServer(async (req, res) => {
 				ws.pipeline = ws.pipeline.map((s) => ({ ...s, status: "pending" }))
 				if (ws.pipeline[0]) ws.pipeline[0].status = "running"
 
-				const orchestratorPrompt = [
-					`You are SuperRoo acting as the Orchestrator agent.`,
-					`Your role is to break down complex tasks into clear phases and coordinate multiple agents.`,
-					`User request: ${args || "No specific task provided"}`,
-					`Workspace: ${ws.repoName} on branch ${ws.branch}`,
-					`Directory: ${ws.workspaceDir}`,
-					``,
-					`Available agents you can delegate to:`,
-					`  @planner — Create detailed plans and architecture`,
-					`  @coder — Write and modify code`,
-					`  @debugger — Debug and investigate issues`,
-					`  @tester — Run and write tests`,
-					`  @deployer — Deploy the project`,
-					`  @crawler — Crawl and analyze codebase`,
-					`  @healer — Run self-healing cycles`,
-					``,
-					`Available skills:`,
-					`  /skill supabase — Integrate Supabase`,
-					`  /skill n8n — Workflow automation`,
-					`  /skill vercel — Vercel deployment`,
-					`  /skill digitalocean-vps — VPS management`,
-					`  /skill e2e-test — End-to-end testing`,
-					`  /skill phase-breakdown — Break down complex problems`,
-					``,
-					`For each phase of the task:`,
-					`1. Describe what needs to be done`,
-					`2. Specify which agent should handle it (using @mentions)`,
-					`3. Provide the exact command or instructions for that agent`,
-					`4. Define success criteria for each phase`,
-					``,
-					`Output a structured plan with phases, then execute them sequentially.`,
-					`Be thorough and provide actionable commands the user can run.`,
-				].join("\n")
-
 				try {
-					const reply = await callChatCompletion(provider.apiBaseUrl, provider.apiKey, provider.model, [
-						{ role: "system", content: orchestratorPrompt },
-						{ role: "user", content: args || "Help me plan and execute a task." },
-					])
+					// Submit task to CloudOrchestrator (SQLite-backed, event-logged, safety-checked)
+					const task = orchestrator.submit({
+						type: "orchestrator",
+						input: {
+							instruction: args || "Help me plan and execute a task.",
+							workspace: {
+								repoName: ws.repoName,
+								branch: ws.branch,
+								directory: ws.workspaceDir,
+							},
+						},
+						priority: 10,
+						agent: "orchestrator",
+						sessionId: ws.sessionId || "ide-session",
+					})
 
-					// Mark pipeline as done after orchestration
+					// Log the orchestration event
+					writeApiLog("info", "orchestrator-agent", `Task submitted: ${task.id}`, {
+						taskId: task.id,
+						instruction: (args || "").substring(0, 200),
+					})
+
+					// Poll for task completion (up to 120s, 1s interval)
+					const maxWait = 120_000
+					const pollInterval = 1_000
+					const started = Date.now()
+					let result = null
+
+					while (Date.now() - started < maxWait) {
+						const current = orchestrator.taskQueue.get(task.id)
+						if (!current) break
+
+						if (current.status === "completed") {
+							result = current.output
+							break
+						}
+						if (current.status === "failed") {
+							throw new Error(current.error || "Task failed without error message")
+						}
+						if (current.status === "blocked") {
+							throw new Error(`Task blocked by safety: ${current.error || "unknown reason"}`)
+						}
+
+						// Process next pending task in the queue
+						await orchestrator.processNext()
+						await new Promise((r) => setTimeout(r, pollInterval))
+					}
+
+					if (!result) {
+						throw new Error("Orchestrator task timed out after 120s")
+					}
+
+					// Mark pipeline as done
 					ws.pipeline = ws.pipeline.map((s) => ({ ...s, status: "done" }))
+
+					// Format output — result can be string, array, or object
+					const outputLines = Array.isArray(result)
+						? result
+						: typeof result === "object" && result !== null
+							? [JSON.stringify(result, null, 2)]
+							: [String(result)]
 
 					return {
 						agent: "orchestrator",
-						output: reply.split("\n"),
+						output: outputLines,
 					}
 				} catch (err) {
 					ws.pipeline = ws.pipeline.map((s) => ({
 						...s,
 						status: s.status === "running" ? "failed" : s.status,
 					}))
+					writeApiLog("error", "orchestrator-agent", `Orchestration failed: ${err.message}`, {
+						error: err.message,
+					})
 					return {
 						agent: "orchestrator",
 						output: [`Orchestrator error: ${err.message}`],
@@ -4234,6 +4329,87 @@ const server = http.createServer(async (req, res) => {
 			}
 			orchestrator.improvementLoop.triggerCycle()
 			sendJson(res, 200, { success: true })
+			return
+		}
+
+		// ── HermesClaw — Memory & Context Agent API ──────────────────────────────
+
+		// GET /orchestrator/hermes/query — query the Hermes knowledge base
+		if (
+			method === "GET" &&
+			(url === "/orchestrator/hermes/query" || normalizedUrl === "/orchestrator/hermes/query")
+		) {
+			if (!orchestrator || !orchestrator.hermesClaw) {
+				sendJson(res, 503, { success: false, error: "HermesClaw not initialized" })
+				return
+			}
+			const urlObj = new URL(url, `http://localhost:${PORT}`)
+			const q = urlObj.searchParams.get("q") || ""
+			const limit = parseInt(urlObj.searchParams.get("limit") || "5", 10)
+			if (!q) {
+				sendJson(res, 400, { success: false, error: "Missing query parameter: q" })
+				return
+			}
+			try {
+				const result = await orchestrator.hermesClaw.queryKnowledge(q)
+				sendJson(res, 200, { success: true, result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /orchestrator/hermes/lesson — receive a lesson notification from agent runners
+		if (
+			method === "POST" &&
+			(url === "/orchestrator/hermes/lesson" || normalizedUrl === "/orchestrator/hermes/lesson")
+		) {
+			if (!orchestrator || !orchestrator.hermesClaw) {
+				sendJson(res, 503, { success: false, error: "HermesClaw not initialized" })
+				return
+			}
+			try {
+				const data = await parseBody(req)
+				// Fire-and-forget lesson extraction (non-blocking)
+				orchestrator.hermesClaw
+					.extractLessons({
+						taskId: data.parentTaskId || data.jobId || "unknown",
+						goal: data.instruction?.substring(0, 500) || "",
+						phases: [
+							{
+								number: data.phase || 1,
+								phase: data.runnerType || "unknown",
+								result: data.success ? "completed" : "failed",
+							},
+						],
+						finalStatus: data.success ? "completed" : "failed",
+						error: data.error || null,
+					})
+					.catch((err) => {
+						console.error("[hermes] lesson extraction error:", err.message)
+					})
+				sendJson(res, 200, { success: true })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /orchestrator/hermes/stats — get HermesClaw statistics
+		if (
+			method === "GET" &&
+			(url === "/orchestrator/hermes/stats" || normalizedUrl === "/orchestrator/hermes/stats")
+		) {
+			if (!orchestrator || !orchestrator.hermesClaw) {
+				sendJson(res, 503, { success: false, error: "HermesClaw not initialized" })
+				return
+			}
+			try {
+				const stats = orchestrator.hermesClaw.getStats()
+				sendJson(res, 200, { success: true, stats })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
 			return
 		}
 
