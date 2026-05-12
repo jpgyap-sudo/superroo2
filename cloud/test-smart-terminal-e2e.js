@@ -248,7 +248,7 @@ test("Workflow templates include build", function () {
 })
 
 test("Workflow templates include logs", function () {
-	assert(source.includes('"logs"'), "Missing logs template")
+	assert(source.includes("logs:"), "Missing logs template")
 })
 
 test("Workflow templates include status", function () {

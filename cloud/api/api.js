@@ -3236,28 +3236,110 @@ const server = http.createServer(async (req, res) => {
 				return
 			}
 
-			// ── Build context-aware system prompt ──────────────────────────
-			const contextParts = [
-				`You are SuperRoo, an expert AI coding assistant running in the Cloud Dashboard IDE Terminal.`,
-			]
-			contextParts.push(`The current workspace is "${ws.repoName}" on branch "${ws.branch}".`)
-			contextParts.push(`The workspace directory is: ${ws.workspaceDir}`)
-			if (ws.chatMessages.length > 2) {
-				const recent = ws.chatMessages
-					.slice(-4, -1)
-					.map((m) => `${m.author}: ${m.content.slice(0, 200)}`)
-					.join("\n")
-				contextParts.push(`Recent conversation:\n${recent}`)
-			}
-			if (intentKind !== "chat" && intentConfidence >= 0.3) {
-				contextParts.push(
-					`The user's intent was classified as "${intentKind}" (confidence: ${(intentConfidence * 100).toFixed(0)}%). Route your response accordingly.`,
-				)
-			}
-
-			const systemPrompt = contextParts.join("\n")
+			// ── OpenClaw-powered response ─────────────────────────────────
+			// Use HermesClaw context recall + orchestrator dispatch for smarter replies
+			let hermesContext = ""
+			let orchestratorTaskId = null
+			let orchestratorResult = null
 
 			try {
+				// Step 1: HermesClaw context recall — inject relevant past knowledge
+				if (orchestrator && orchestrator.hermesClaw) {
+					try {
+						const recallResult = await orchestrator.hermesClaw.recallContext(msg, 3)
+						if (recallResult && recallResult.output) {
+							hermesContext = recallResult.output
+						}
+					} catch (hermesErr) {
+						console.error("[ide-chat] Hermes recall error:", hermesErr.message)
+					}
+				}
+
+				// Step 2: Route complex tasks through orchestrator, simple chat stays as LLM call
+				const isComplexTask =
+					intentKind !== "chat" && intentConfidence >= 0.5 &&
+					["debug_plan", "run_tests", "deploy", "shell", "create_branch", "create_pr"].includes(intentKind)
+
+				if (isComplexTask && orchestrator) {
+					// Submit as orchestrator task for multi-agent breakdown
+					const task = orchestrator.submit({
+						type: "orchestrator",
+						input: {
+							instruction: msg,
+							workspace: {
+								repoName: ws.repoName,
+								branch: ws.branch,
+								workspaceDir: ws.workspaceDir,
+							},
+						},
+						metadata: {
+							source: "ide-terminal",
+							intent: intentKind,
+							confidence: intentConfidence,
+							hermesContext: hermesContext ? hermesContext.substring(0, 1000) : "",
+						},
+					})
+					orchestratorTaskId = task.id
+
+					// Poll for completion (max 30s for simple tasks)
+					const pollStart = Date.now()
+					const POLL_TIMEOUT = 30_000
+					const POLL_INTERVAL = 500
+					let taskResult = null
+					while (Date.now() - pollStart < POLL_TIMEOUT) {
+						const status = orchestrator.getStatus()
+						const taskStatus = status.tasks?.find((t) => t.id === task.id)
+						if (taskStatus) {
+							if (taskStatus.status === "completed") {
+								taskResult = taskStatus.output || "Task completed successfully."
+								break
+							}
+							if (taskStatus.status === "failed") {
+								taskResult = `Task failed: ${taskStatus.error || "Unknown error"}`
+								break
+							}
+						}
+						await new Promise((r) => setTimeout(r, POLL_INTERVAL))
+					}
+					if (!taskResult) {
+						taskResult = "Task is still processing in the background. Check the Plan tab for progress."
+					}
+					orchestratorResult = taskResult
+				}
+
+				// Step 3: Build context-aware system prompt with Hermes recall
+				const contextParts = [
+					`You are SuperRoo, an expert AI coding assistant running in the Cloud Dashboard IDE Terminal.`,
+					`You have access to the OpenClaw orchestrator system with multi-agent capabilities.`,
+				]
+				contextParts.push(`The current workspace is "${ws.repoName}" on branch "${ws.branch}".`)
+				contextParts.push(`The workspace directory is: ${ws.workspaceDir}`)
+				if (ws.chatMessages.length > 2) {
+					const recent = ws.chatMessages
+						.slice(-4, -1)
+						.map((m) => `${m.author}: ${m.content.slice(0, 200)}`)
+						.join("\n")
+					contextParts.push(`Recent conversation:\n${recent}`)
+				}
+				if (intentKind !== "chat" && intentConfidence >= 0.3) {
+					contextParts.push(
+						`The user's intent was classified as "${intentKind}" (confidence: ${(intentConfidence * 100).toFixed(0)}%). Route your response accordingly.`,
+					)
+				}
+				if (hermesContext) {
+					contextParts.push(
+						`Relevant context from past sessions (HermesClaw memory):\n${hermesContext.substring(0, 1500)}`,
+					)
+				}
+				if (orchestratorResult) {
+					contextParts.push(
+						`Orchestrator task result:\n${orchestratorResult.substring(0, 2000)}`,
+					)
+				}
+
+				const systemPrompt = contextParts.join("\n")
+
+				// Step 4: Call LLM with enriched context
 				const reply = await callChatCompletion(provider.apiBaseUrl, provider.apiKey, provider.model, [
 					{ role: "system", content: systemPrompt },
 					{ role: "user", content: msg },
@@ -3267,7 +3349,7 @@ const server = http.createServer(async (req, res) => {
 					id: `msg-${Date.now() + 1}`,
 					role: "agent",
 					author: provider.providerId,
-					meta: `${provider.model} · ${routing.agent}`,
+					meta: `${provider.model} · ${routing.agent}${orchestratorTaskId ? ` · task:${orchestratorTaskId.substring(0, 8)}` : ""}`,
 					time: new Date().toLocaleTimeString(),
 					content: reply,
 				})
@@ -3282,6 +3364,27 @@ const server = http.createServer(async (req, res) => {
 
 				saveWorkspaceStore(global.__ideWorkspace) // persist chat + pipeline
 
+				// Step 5: Fire-and-forget HermesClaw lesson extraction (learn from every interaction)
+				if (orchestrator && orchestrator.hermesClaw) {
+					orchestrator.hermesClaw
+						.extractLessons({
+							taskId: `ide-chat-${Date.now()}`,
+							goal: msg.substring(0, 500),
+							phases: [
+								{
+									number: 1,
+									phase: routing.agent,
+									result: "completed",
+								},
+							],
+							finalStatus: "completed",
+							error: null,
+						})
+						.catch((err) => {
+							console.error("[ide-chat] Hermes lesson error:", err.message)
+						})
+				}
+
 				sendJson(res, 200, {
 					ok: true,
 					message: "OK",
@@ -3291,6 +3394,8 @@ const server = http.createServer(async (req, res) => {
 					intent: intentKind,
 					intentConfidence,
 					agent: routing.agent,
+					orchestratorTaskId,
+					hermesContextUsed: !!hermesContext,
 				})
 			} catch (err) {
 				console.error(`[api] Chat error with ${provider.providerId}:`, err.message)
@@ -3343,6 +3448,160 @@ const server = http.createServer(async (req, res) => {
 				message: `Pipeline step "${stepId}" updated with action "${action}"`,
 				pipeline: ws.pipeline,
 			})
+			return
+		}
+
+		// ── OpenClaw IDE Terminal Integration ─────────────────────────────────
+		// These endpoints let the IDE Terminal UI interact with the orchestrator
+		// and HermesClaw directly (Plan tab, Memory tab, Deploy tab)
+
+		// GET /ide-workspace/orchestrator/status — get orchestrator status + tasks
+		if (method === "GET" && normalizedUrl === "/ide-workspace/orchestrator/status") {
+			if (!orchestrator) {
+				sendJson(res, 503, { ok: false, error: "Orchestrator not initialized" })
+				return
+			}
+			try {
+				const status = orchestrator.getStatus()
+				sendJson(res, 200, {
+					ok: true,
+					running: status.running,
+					mode: status.mode,
+					uptime: status.uptimeMs,
+					taskCount: status.taskCount,
+					tasks: (status.tasks || []).slice(-20).map((t) => ({
+						id: t.id,
+						type: t.type,
+						status: t.status,
+						createdAt: t.createdAt,
+						updatedAt: t.updatedAt,
+						instruction: t.input?.instruction?.substring(0, 200) || "",
+					})),
+					modules: Object.keys(status.modules || {}).filter((k) => status.modules[k]),
+					hermesClaw: !!orchestrator.hermesClaw,
+				})
+			} catch (err) {
+				sendJson(res, 500, { ok: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /ide-workspace/orchestrator/submit — submit a task to the orchestrator
+		if (method === "POST" && normalizedUrl === "/ide-workspace/orchestrator/submit") {
+			if (!orchestrator) {
+				sendJson(res, 503, { ok: false, error: "Orchestrator not initialized" })
+				return
+			}
+			try {
+				const data = await parseBody(req)
+				const instruction = data?.instruction || ""
+				if (!instruction) {
+					sendJson(res, 400, { ok: false, error: "Missing instruction" })
+					return
+				}
+				const task = orchestrator.submit({
+					type: "orchestrator",
+					input: {
+						instruction,
+						workspace: {
+							repoName: ws.repoName,
+							branch: ws.branch,
+							workspaceDir: ws.workspaceDir,
+						},
+					},
+					metadata: {
+						source: "ide-terminal",
+						intent: data.intent || "manual",
+					},
+				})
+				sendJson(res, 200, {
+					ok: true,
+					taskId: task.id,
+					status: task.status,
+					createdAt: task.createdAt,
+				})
+			} catch (err) {
+				sendJson(res, 500, { ok: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /ide-workspace/orchestrator/task/:id — get task status
+		const taskMatch = normalizedUrl.match(/^\/ide-workspace\/orchestrator\/task\/([a-zA-Z0-9_-]+)$/)
+		if (method === "GET" && taskMatch) {
+			if (!orchestrator) {
+				sendJson(res, 503, { ok: false, error: "Orchestrator not initialized" })
+				return
+			}
+			try {
+				const taskId = taskMatch[1]
+				const status = orchestrator.getStatus()
+				const task = (status.tasks || []).find((t) => t.id === taskId)
+				if (!task) {
+					sendJson(res, 404, { ok: false, error: "Task not found" })
+					return
+				}
+				sendJson(res, 200, {
+					ok: true,
+					task: {
+						id: task.id,
+						type: task.type,
+						status: task.status,
+						createdAt: task.createdAt,
+						updatedAt: task.updatedAt,
+						instruction: task.input?.instruction?.substring(0, 500) || "",
+						output: task.output?.substring(0, 5000) || null,
+						error: task.error || null,
+					},
+				})
+			} catch (err) {
+				sendJson(res, 500, { ok: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /ide-workspace/hermes/recall — query HermesClaw memory
+		if (method === "GET" && normalizedUrl === "/ide-workspace/hermes/recall") {
+			if (!orchestrator || !orchestrator.hermesClaw) {
+				sendJson(res, 503, { ok: false, error: "HermesClaw not initialized" })
+				return
+			}
+			try {
+				const urlObj = new URL(req.url, "http://localhost")
+				const q = urlObj.searchParams.get("q") || ""
+				const limit = parseInt(urlObj.searchParams.get("limit") || "5", 10)
+				if (!q) {
+					sendJson(res, 400, { ok: false, error: "Missing query parameter: q" })
+					return
+				}
+				const result = await orchestrator.hermesClaw.recallContext(q, limit)
+				sendJson(res, 200, {
+					ok: true,
+					query: q,
+					result: result?.output || "No relevant context found.",
+					structuredData: result?.structuredData || null,
+				})
+			} catch (err) {
+				sendJson(res, 500, { ok: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /ide-workspace/hermes/stats — get HermesClaw stats for Memory tab
+		if (method === "GET" && normalizedUrl === "/ide-workspace/hermes/stats") {
+			if (!orchestrator || !orchestrator.hermesClaw) {
+				sendJson(res, 503, { ok: false, error: "HermesClaw not initialized" })
+				return
+			}
+			try {
+				const stats = orchestrator.hermesClaw.getStats()
+				sendJson(res, 200, {
+					ok: true,
+					stats,
+				})
+			} catch (err) {
+				sendJson(res, 500, { ok: false, error: err.message })
+			}
 			return
 		}
 

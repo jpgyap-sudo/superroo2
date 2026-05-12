@@ -53,6 +53,12 @@ import {
 	Bookmark,
 	Lightbulb,
 	TerminalSquare,
+	PanelLeftClose,
+	PanelLeft,
+	PanelRightClose,
+	PanelRight,
+	Maximize2,
+	Minimize2,
 } from "lucide-react"
 
 // ─── Types ────────────────────────────────────────────────────────────────
@@ -98,33 +104,28 @@ interface TerminalSession {
 }
 
 // ── Block-Based Output Types ──────────────────────────────────────────────
+
 interface OutputBlock {
 	id: string
 	type: "command" | "output" | "error" | "success" | "info" | "agent" | "divider"
-	timestamp: string
 	content: string
 	command?: string
-	exitCode?: number
-	duration?: string
-	collapsed?: boolean
+	timestamp: string
 }
 
-// ── Smart Autocomplete Types ──────────────────────────────────────────────
 interface AutocompleteSuggestion {
 	text: string
 	description: string
-	type: "command" | "agent" | "file" | "recent" | "ai"
-	score: number
+	type: "command" | "agent" | "recent" | "ai"
 }
 
-// ── Terminal Recording Types ──────────────────────────────────────────────
 interface TerminalRecording {
 	id: string
 	name: string
-	startedAt: string
-	duration: string
 	blocks: OutputBlock[]
 	commandCount: number
+	duration: string
+	createdAt: string
 }
 
 interface WorkspaceStatus {
@@ -135,7 +136,6 @@ interface WorkspaceStatus {
 	ram: string
 }
 
-// Terminal Brain types
 interface BrainPlanStep {
 	command: string
 	description?: string
@@ -147,15 +147,14 @@ interface BrainFeedback {
 	exitCode?: number
 	errors?: BrainError[]
 	fixes?: BrainFix[]
-	verification?: string
 }
 
 interface BrainError {
 	type: string
 	message: string
-	confidence?: number
 	rootCause?: string
 	fix?: string
+	confidence?: number
 }
 
 interface BrainFix {
@@ -171,110 +170,103 @@ interface BrainMemory {
 		totalSessions: number
 		totalCommands: number
 		totalErrors: number
-		totalFixes: number
-		totalDeployments: number
 		successRate: number
 	}
-	commands?: Array<{ command: string; timestamp?: string; status?: string }>
+	commands?: { command: string; status: string; timestamp?: string }[]
 }
 
 interface BrainDeployment {
-	version?: string
-	id?: string
 	status: string
+	version?: string
+	agent?: string
 	timestamp?: string
 	time?: string
-	agent?: string
 }
 
 interface BrainApproval {
+	message?: string
+	reason?: string
 	command?: string
 	action?: string
-	reason?: string
-	message?: string
 }
 
 interface ProjectContext {
-	name?: string
 	framework?: string
 	packageManager?: string
 	nodeVersion?: string
-	port?: number
+	port?: string
 	branch?: string
 	hasDocker?: boolean
 	hasTypeScript?: boolean
 }
 
-// ─── API helper ──────────────────────────────────────────────────────────
-
-const API_BASE = "/api/ide-workspace"
-const BRAIN_API = "/api/terminal-brain"
+// ── API helpers ───────────────────────────────────────────────────────────
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-	const res = await fetch(`${API_BASE}${path}`, {
+	const base = window.location.origin
+	const res = await fetch(`${base}/api${path}`, {
 		headers: { "Content-Type": "application/json" },
 		...init,
 	})
 	if (!res.ok) {
-		const err = await res.json().catch(() => ({ error: res.statusText }))
-		throw new Error(err.error || `API error ${res.status}`)
+		const text = await res.text().catch(() => "Unknown error")
+		throw new Error(`${res.status} ${text.slice(0, 200)}`)
 	}
 	return res.json()
 }
 
 async function brainApi<T>(action: string, payload?: Record<string, unknown>): Promise<T> {
-	const method = payload ? "POST" : "GET"
-	const res = await fetch(`${BRAIN_API}/${action}`, {
-		method,
-		headers: { "Content-Type": "application/json" },
-		...(payload ? { body: JSON.stringify(payload) } : {}),
+	return api<T>("/ide-workspace/brain", {
+		method: "POST",
+		body: JSON.stringify({ action, ...payload }),
 	})
-	if (!res.ok) {
-		const err = await res.json().catch(() => ({ error: res.statusText }))
-		throw new Error(err.error || `Brain API error ${res.status}`)
-	}
-	return res.json()
 }
 
-// ─── Pipeline icon helper ─────────────────────────────────────────────────
+// ── Pipeline Icon ─────────────────────────────────────────────────────────
 
 function PipelineIcon({ status }: { status: string }) {
 	switch (status) {
 		case "done":
-			return <CheckCircle2 size={14} className="text-green-400" />
+			return <CheckCircle2 size={10} className="text-green-400" />
 		case "running":
-			return <Loader2 size={14} className="text-blue-400 animate-spin" />
-		case "approval":
-			return <AlertTriangle size={14} className="text-yellow-400" />
-		case "blocked":
-			return <XCircle size={14} className="text-red-400" />
+			return <Loader2 size={10} className="text-blue-400 animate-spin" />
 		case "failed":
-			return <XCircle size={14} className="text-red-400" />
+			return <XCircle size={10} className="text-red-400" />
+		case "approval":
+			return <Shield size={10} className="text-yellow-400" />
+		case "blocked":
+			return <AlertTriangle size={10} className="text-orange-400" />
 		default:
-			return <Clock size={14} className="text-gray-500" />
+			return <Clock size={10} className="text-gray-500" />
 	}
 }
 
-// ─── FileTree component ───────────────────────────────────────────────────
+// ── File Tree Component ───────────────────────────────────────────────────
 
 function FileTree({
 	items,
-	depth = 0,
 	onFileClick,
 	searchQuery,
 }: {
 	items: WorkspaceFile[]
-	depth?: number
-	onFileClick?: (path: string, name: string) => void
+	onFileClick: (path: string, name: string) => void
 	searchQuery?: string
 }) {
+	const [expanded, setExpanded] = useState<Set<string>>(new Set())
+
+	const toggle = (path: string) => {
+		setExpanded((prev) => {
+			const next = new Set(prev)
+			if (next.has(path)) next.delete(path)
+			else next.add(path)
+			return next
+		})
+	}
+
 	const filtered = searchQuery
 		? items.filter((item) => {
-				const nameMatch = item.name.toLowerCase().includes(searchQuery.toLowerCase())
-				const childrenMatch = item.children
-					? item.children.some((c) => c.name.toLowerCase().includes(searchQuery.toLowerCase()))
-					: false
-				return nameMatch || childrenMatch
+				const q = searchQuery.toLowerCase()
+				return item.name.toLowerCase().includes(q) || item.path.toLowerCase().includes(q)
 			})
 		: items
 
@@ -282,25 +274,27 @@ function FileTree({
 		<>
 			{filtered.map((item) => (
 				<div key={item.path}>
-					<div
-						onClick={() => item.kind === "file" && onFileClick?.(item.path, item.name)}
-						className={`flex items-center gap-1.5 px-2 py-1 text-xs rounded transition-colors ${item.kind === "file" ? "cursor-pointer hover:bg-[#1e2535]" : ""} ${item.modified ? "text-violet-300" : "text-gray-400"}`}
-						style={{ paddingLeft: `${10 + depth * 14}px` }}>
-						{item.kind === "folder" ? (
-							<Folder size={14} className="text-yellow-500" />
-						) : (
-							<FileText size={14} className="text-blue-400" />
+					<button
+						onClick={() => (item.kind === "folder" ? toggle(item.path) : onFileClick(item.path, item.name))}
+						className="flex w-full items-center gap-1.5 px-2 py-1 text-[11px] text-left hover:bg-[#1e2535]/50 transition-colors rounded-sm">
+						{item.kind === "folder" && (
+							<ChevronRight
+								size={10}
+								className={`text-gray-500 transition-transform ${expanded.has(item.path) ? "rotate-90" : ""}`}
+							/>
 						)}
-						<span>{item.name}</span>
-						{item.modified && <span className="ml-auto text-[10px] font-bold text-orange-400">M</span>}
-					</div>
-					{item.children && (
-						<FileTree
-							items={item.children}
-							depth={depth + 1}
-							onFileClick={onFileClick}
-							searchQuery={searchQuery}
-						/>
+						{item.kind === "folder" ? (
+							<Folder size={12} className="text-blue-400 shrink-0" />
+						) : (
+							<FileText size={12} className="text-gray-500 shrink-0" />
+						)}
+						<span className="truncate text-gray-300">{item.name}</span>
+						{item.modified && <span className="text-orange-400 text-[9px] font-bold ml-auto">●</span>}
+					</button>
+					{item.kind === "folder" && expanded.has(item.path) && item.children && (
+						<div className="pl-3">
+							<FileTree items={item.children} onFileClick={onFileClick} searchQuery={searchQuery} />
+						</div>
 					)}
 				</div>
 			))}
@@ -308,39 +302,39 @@ function FileTree({
 	)
 }
 
-// ─── Keyboard Shortcuts Modal ─────────────────────────────────────────────
+// ── Keyboard Shortcuts Modal ──────────────────────────────────────────────
 
 function KeyboardShortcutsModal({ onClose }: { onClose: () => void }) {
 	const shortcuts = [
-		{ key: "Ctrl+`", desc: "Toggle terminal focus" },
-		{ key: "Ctrl+P", desc: "File search" },
-		{ key: "Ctrl+S", desc: "Save current file" },
-		{ key: "Ctrl+Enter", desc: "Send chat message" },
-		{ key: "Ctrl+Shift+P", desc: "Command palette" },
+		{ key: "Ctrl+`", desc: "Toggle terminal" },
+		{ key: "Ctrl+P", desc: "Search files" },
 		{ key: "Ctrl+K", desc: "Clear terminal" },
+		{ key: "Ctrl+Enter", desc: "Send AI message" },
 		{ key: "Escape", desc: "Close modals / suggestions" },
-		{ key: "Tab", desc: "Autocomplete agent command" },
+		{ key: "Tab", desc: "Accept autocomplete suggestion" },
+		{ key: "↑↓", desc: "Navigate command history" },
 	]
 	return (
 		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
 			<div
-				className="bg-[#0f1117] border border-[#1e2535] rounded-lg p-4 max-w-md w-full mx-4"
+				className="bg-[#0f1117] border border-[#1e2535] rounded-lg p-4 w-full max-w-sm mx-4 shadow-2xl"
 				onClick={(e) => e.stopPropagation()}>
 				<div className="flex items-center justify-between mb-3">
-					<h3 className="text-sm font-semibold text-[#e2e8f0] flex items-center gap-2">
-						<Keyboard size={14} /> Keyboard Shortcuts
-					</h3>
+					<div className="flex items-center gap-2">
+						<Keyboard size={14} className="text-violet-400" />
+						<span className="text-sm font-semibold text-[#e2e8f0]">Keyboard Shortcuts</span>
+					</div>
 					<button onClick={onClose} className="text-gray-500 hover:text-gray-300">
 						<X size={14} />
 					</button>
 				</div>
 				<div className="space-y-1">
 					{shortcuts.map((s) => (
-						<div key={s.key} className="flex items-center justify-between py-1 text-[11px]">
-							<span className="text-gray-400">{s.desc}</span>
-							<kbd className="px-1.5 py-0.5 rounded bg-[#1e2535] text-violet-400 font-mono text-[10px]">
+						<div key={s.key} className="flex items-center justify-between py-1">
+							<kbd className="px-1.5 py-0.5 text-[10px] font-mono rounded bg-[#1e2535] text-gray-300 border border-[#2a3344]">
 								{s.key}
 							</kbd>
+							<span className="text-[11px] text-gray-500">{s.desc}</span>
 						</div>
 					))}
 				</div>
@@ -349,257 +343,124 @@ function KeyboardShortcutsModal({ onClose }: { onClose: () => void }) {
 	)
 }
 
-// ─── Main component ───────────────────────────────────────────────────────
+// ── Parse output lines into blocks ────────────────────────────────────────
 
-// ── Block-Based Output Helpers ────────────────────────────────────────────
-
-/**
- * Parses a flat terminal output line into a structured block.
- * Detects command prefixes ($, 🤖, ✨), error patterns, and success patterns.
- */
 function parseOutputLine(line: string, index: number): OutputBlock {
-	const id = `block-${index}-${Date.now()}`
-	const now = new Date().toLocaleTimeString()
+	const trimmed = line.trim()
+	const ts = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
 
-	// Agent/Skill blocks
-	if (line.startsWith("🤖") || line.startsWith("✨")) {
-		return {
-			id,
-			type: "agent",
-			timestamp: now,
-			content: line,
-			command: line.replace(/^[🤖✨]\s*/, ""),
-		}
+	if (trimmed.startsWith("$ ")) {
+		return { id: `block-${index}`, type: "command", content: trimmed.slice(2), command: trimmed.slice(2), timestamp: ts }
 	}
-
-	// Command blocks (start with $)
-	if (line.startsWith("$ ")) {
-		return {
-			id,
-			type: "command",
-			timestamp: now,
-			content: line.slice(2),
-			command: line.slice(2),
-		}
+	if (trimmed.startsWith("✕") || trimmed.toLowerCase().includes("error:")) {
+		return { id: `block-${index}`, type: "error", content: trimmed, timestamp: ts }
 	}
-
-	// Error blocks
-	if (line.toLowerCase().includes("error") || line.toLowerCase().includes("failed") || line.startsWith("Error:")) {
-		return {
-			id,
-			type: "error",
-			timestamp: now,
-			content: line,
-		}
+	if (trimmed.startsWith("✓") || trimmed.startsWith("✔")) {
+		return { id: `block-${index}`, type: "success", content: trimmed, timestamp: ts }
 	}
-
-	// Success blocks
-	if (line.toLowerCase().includes("success") || line.toLowerCase().includes("completed") || line.startsWith("✅")) {
-		return {
-			id,
-			type: "success",
-			timestamp: now,
-			content: line,
-		}
+	if (trimmed.startsWith("◆")) {
+		return { id: `block-${index}`, type: "agent", content: trimmed, timestamp: ts }
 	}
-
-	// Divider blocks
-	if (line.startsWith("┌") || line.startsWith("└") || line.startsWith("╔") || line.startsWith("╚")) {
-		return {
-			id,
-			type: "divider",
-			timestamp: now,
-			content: line,
-		}
+	if (trimmed.startsWith("ℹ")) {
+		return { id: `block-${index}`, type: "info", content: trimmed, timestamp: ts }
 	}
-
-	// Default: output block
-	return {
-		id,
-		type: "output",
-		timestamp: now,
-		content: line,
+	if (trimmed === "" || trimmed.startsWith("─") || trimmed.startsWith("╔") || trimmed.startsWith("╚") || trimmed.startsWith("║")) {
+		return { id: `block-${index}`, type: "divider", content: trimmed, timestamp: ts }
 	}
+	return { id: `block-${index}`, type: "output", content: trimmed, timestamp: ts }
 }
 
-/**
- * Converts flat string array to structured blocks, merging consecutive
- * output lines after a command into a single block.
- */
 function convertToBlocks(lines: string[]): OutputBlock[] {
-	const blocks: OutputBlock[] = []
-	let currentOutput: string[] = []
-	let currentCommand: string | undefined
-
-	for (let i = 0; i < lines.length; i++) {
-		const line = lines[i]
-		const block = parseOutputLine(line, i)
-
-		if (block.type === "command" || block.type === "agent") {
-			// Flush previous output block
-			if (currentOutput.length > 0) {
-				blocks.push({
-					id: `block-output-${i}-${Date.now()}`,
-					type: "output",
-					timestamp: new Date().toLocaleTimeString(),
-					content: currentOutput.join("\n"),
-					command: currentCommand,
-				})
-				currentOutput = []
-			}
-			blocks.push(block)
-			currentCommand = block.command
-		} else if (block.type === "divider") {
-			// Flush output before divider
-			if (currentOutput.length > 0) {
-				blocks.push({
-					id: `block-output-${i}-${Date.now()}`,
-					type: "output",
-					timestamp: new Date().toLocaleTimeString(),
-					content: currentOutput.join("\n"),
-					command: currentCommand,
-				})
-				currentOutput = []
-			}
-			blocks.push(block)
-		} else {
-			currentOutput.push(line)
-		}
-	}
-
-	// Flush remaining output
-	if (currentOutput.length > 0) {
-		blocks.push({
-			id: `block-output-final-${Date.now()}`,
-			type: "output",
-			timestamp: new Date().toLocaleTimeString(),
-			content: currentOutput.join("\n"),
-			command: currentCommand,
-		})
-	}
-
-	return blocks
+	return lines.map(parseOutputLine)
 }
 
-// ── Smart Autocomplete ────────────────────────────────────────────────────
+// ── Common Commands ────────────────────────────────────────────────────────
 
 const COMMON_COMMANDS = [
-	{ text: "npm run dev", description: "Start dev server", type: "command" as const },
-	{ text: "npm run build", description: "Build project", type: "command" as const },
-	{ text: "npm test", description: "Run tests", type: "command" as const },
-	{ text: "git status", description: "Check git status", type: "command" as const },
-	{ text: "git pull", description: "Pull latest changes", type: "command" as const },
-	{ text: "git push", description: "Push changes", type: "command" as const },
-	{ text: "git add .", description: "Stage all changes", type: "command" as const },
-	{ text: "git commit -m", description: "Commit changes", type: "command" as const },
-	{ text: "cd ..", description: "Go up one directory", type: "command" as const },
-	{ text: "ls -la", description: "List all files", type: "command" as const },
-	{ text: "pwd", description: "Print working directory", type: "command" as const },
-	{ text: "clear", description: "Clear terminal", type: "command" as const },
-	{ text: "docker ps", description: "List Docker containers", type: "command" as const },
-	{ text: "pm2 status", description: "Check PM2 status", type: "command" as const },
-	{ text: "pm2 logs", description: "View PM2 logs", type: "command" as const },
-	{ text: "npx vitest run", description: "Run vitest tests", type: "command" as const },
-	{ text: "node -v", description: "Check Node version", type: "command" as const },
-	{ text: "npm install", description: "Install dependencies", type: "command" as const },
+	{ text: "npm run dev", description: "Start dev server", type: "command" },
+	{ text: "npm run build", description: "Build project", type: "command" },
+	{ text: "npm test", description: "Run tests", type: "command" },
+	{ text: "git status", description: "Check git status", type: "command" },
+	{ text: "git pull", description: "Pull latest code", type: "command" },
+	{ text: "git push", description: "Push commits", type: "command" },
+	{ text: "pm2 status", description: "Check PM2 processes", type: "command" },
+	{ text: "pm2 logs", description: "View PM2 logs", type: "command" },
+	{ text: "docker ps", description: "List Docker containers", type: "command" },
+	{ text: "df -h", description: "Check disk usage", type: "command" },
+	{ text: "free -m", description: "Check memory usage", type: "command" },
+	{ text: "curl -I", description: "Check HTTP headers", type: "command" },
+	{ text: "npx vitest run", description: "Run vitest tests", type: "command" },
+	{ text: "npx tsc --noEmit", description: "TypeScript type check", type: "command" },
+	{ text: "pnpm install", description: "Install dependencies", type: "command" },
 ]
 
-/**
- * Gets smart autocomplete suggestions based on input and recent commands.
- */
+// ── Helper: addOutputBlocks ───────────────────────────────────────────────
+
+function addOutputBlocks(
+	blocks: OutputBlock[],
+	setBlocks: React.Dispatch<React.SetStateAction<OutputBlock[]>>,
+	newBlocks: OutputBlock[],
+) {
+	setBlocks((prev) => [...prev, ...newBlocks])
+}
+
+// ── Smart Suggestions ─────────────────────────────────────────────────────
+
 function getSmartSuggestions(
 	input: string,
 	recentCommands: string[],
 	agentCommands: Record<string, { agent: string; description: string; icon: string }>,
 ): AutocompleteSuggestion[] {
-	if (!input.trim()) return []
-
+	if (!input || input.length < 2) return []
 	const lower = input.toLowerCase()
-	const suggestions: AutocompleteSuggestion[] = []
+	const results: AutocompleteSuggestion[] = []
 
-	// Agent commands (start with / or @)
+	// Agent commands
 	if (lower.startsWith("/")) {
 		for (const [cmd, info] of Object.entries(agentCommands)) {
 			if (cmd.startsWith(lower)) {
-				suggestions.push({
-					text: cmd,
-					description: info.description,
-					type: "agent",
-					score: cmd === lower ? 100 : 90 - (cmd.length - lower.length),
-				})
+				results.push({ text: cmd, description: info.description, type: "command" })
 			}
 		}
 	}
 
+	// Agent mentions
 	if (lower.startsWith("@")) {
 		const mention = lower.slice(1)
-		for (const [cmd, info] of Object.entries(agentCommands)) {
-			if (info.agent.includes(mention)) {
-				suggestions.push({
-					text: `@${info.agent}`,
-					description: info.description,
-					type: "agent",
-					score: 80,
-				})
+		for (const [, info] of Object.entries(agentCommands)) {
+			if (info.agent !== "system" && info.agent.includes(mention)) {
+				results.push({ text: `@${info.agent}`, description: info.description, type: "agent" })
 			}
 		}
 	}
 
-	// Common commands
+	// Recent commands
 	if (!lower.startsWith("/") && !lower.startsWith("@")) {
-		for (const cmd of COMMON_COMMANDS) {
-			if (cmd.text.toLowerCase().includes(lower)) {
-				suggestions.push({
-					...cmd,
-					score: cmd.text.startsWith(lower) ? 70 : 50,
-				})
-			}
-		}
-
-		// Recent commands (from terminal history)
-		for (const recent of recentCommands) {
-			if (recent.toLowerCase().includes(lower) && !suggestions.some((s) => s.text === recent)) {
-				suggestions.push({
-					text: recent,
-					description: "Recent command",
-					type: "recent",
-					score: 60,
-				})
+		for (const cmd of recentCommands) {
+			if (cmd.toLowerCase().includes(lower) && !results.some((r) => r.text === cmd)) {
+				results.push({ text: cmd, description: "Recent command", type: "recent" })
 			}
 		}
 	}
 
-	// Sort by score descending, limit to 8
-	return suggestions.sort((a, b) => b.score - a.score).slice(0, 8)
+	return results.slice(0, 6)
 }
 
-// ── Terminal Recording ────────────────────────────────────────────────────
-
-/**
- * Creates a recording from terminal blocks.
- */
 function createRecording(blocks: OutputBlock[], name: string): TerminalRecording {
-	const commandBlocks = blocks.filter((b) => b.type === "command" || b.type === "agent")
-	const startedAt = blocks.length > 0 ? blocks[0].timestamp : new Date().toLocaleTimeString()
-	const lastBlock = blocks.length > 0 ? blocks[blocks.length - 1] : null
-	const duration = lastBlock
-		? `${Math.round((new Date(`1970-01-01T${lastBlock.timestamp}`).getTime() - new Date(`1970-01-01T${startedAt}`).getTime()) / 1000)}s`
-		: "0s"
-
 	return {
 		id: `rec-${Date.now()}`,
 		name,
-		startedAt,
-		duration,
 		blocks: [...blocks],
-		commandCount: commandBlocks.length,
+		commandCount: blocks.filter((b) => b.type === "command").length,
+		duration: "0:00",
+		createdAt: new Date().toISOString(),
 	}
 }
 
+// ── Main Component ────────────────────────────────────────────────────────
+
 export default function IdeTerminalView() {
-	const [input, setInput] = useState("")
 	const [terminalInput, setTerminalInput] = useState("")
-	const [messages, setMessages] = useState<ChatMessage[]>([])
 	const [terminalOutput, setTerminalOutput] = useState<string[]>([
 		"Welcome to SuperRoo IDE Terminal",
 		"Type a command to get started...",
@@ -628,15 +489,9 @@ export default function IdeTerminalView() {
 		ram: "0MB",
 	})
 	const [activeMode, setActiveMode] = useState("Auto")
-	const [activeContextPills, setActiveContextPills] = useState<Set<string>>(new Set(["3 files"]))
-	const [attachments, setAttachments] = useState<ChatAttachment[]>([])
-	const [sending, setSending] = useState(false)
 	const [loading, setLoading] = useState(true)
-	const [loopInfo] = useState({ loop: "#841", phase: "approval", agent: "Kimi", pending: 3 })
 	const [repoName, setRepoName] = useState("superroo2")
 	const [branch, setBranch] = useState("auto-improvement")
-	const [importUrl, setImportUrl] = useState("")
-	const [showImport, setShowImport] = useState(false)
 	// ── Agent/Skill awareness state ──────────────────────────────────────
 	const [terminalMode, setTerminalMode] = useState<"shell" | "agent" | "skill">("shell")
 	const [activeAgent, setActiveAgent] = useState<string | null>(null)
@@ -649,8 +504,12 @@ export default function IdeTerminalView() {
 	const fileSearchRef = useRef<HTMLInputElement>(null)
 	// ── Keyboard shortcuts modal ─────────────────────────────────────────
 	const [showShortcuts, setShowShortcuts] = useState(false)
-	// ── Terminal Brain state ─────────────────────────────────────────────
-	const [brainTab, setBrainTab] = useState<string>("command")
+	// ── UNIFIED AI Panel (replaces old Chat + Brain) ─────────────────────
+	const [aiInput, setAiInput] = useState("")
+	const [aiMessages, setAiMessages] = useState<ChatMessage[]>([])
+	const [aiSending, setAiSending] = useState(false)
+	const [aiAttachments, setAiAttachments] = useState<ChatAttachment[]>([])
+	const [aiTab, setAiTab] = useState<string>("chat")
 	const [brainPlan, setBrainPlan] = useState<BrainPlanStep[]>([])
 	const [brainFeedback, setBrainFeedback] = useState<BrainFeedback | null>(null)
 	const [brainErrors, setBrainErrors] = useState<BrainError[]>([])
@@ -660,7 +519,11 @@ export default function IdeTerminalView() {
 	const [brainApprovals, setBrainApprovals] = useState<BrainApproval[]>([])
 	const [brainContext, setBrainContext] = useState<ProjectContext | null>(null)
 	const [brainLoading, setBrainLoading] = useState(false)
-	const [brainInput, setBrainInput] = useState("")
+	// ── Panel visibility toggles ─────────────────────────────────────────
+	const [showFilePanel, setShowFilePanel] = useState(true)
+	const [showAiPanel, setShowAiPanel] = useState(true)
+	const [terminalHeight, setTerminalHeight] = useState(180)
+	const [isTerminalMaximized, setIsTerminalMaximized] = useState(false)
 	// ── Drag & drop ──────────────────────────────────────────────────────
 	const [dragOver, setDragOver] = useState(false)
 	const dragCounter = useRef(0)
@@ -682,11 +545,12 @@ export default function IdeTerminalView() {
 
 	const fileInputRef = useRef<HTMLInputElement>(null)
 	const imageInputRef = useRef<HTMLInputElement>(null)
-	const messagesEndRef = useRef<HTMLDivElement>(null)
+	const aiMessagesEndRef = useRef<HTMLDivElement>(null)
 	const terminalRef = useRef<HTMLDivElement>(null)
 	const terminalInputRef = useRef<HTMLInputElement>(null)
+	const terminalResizeRef = useRef<HTMLDivElement>(null)
 
-	// ── Agent command definitions (mirrors backend) ──────────────────────
+	// ── Agent command definitions ────────────────────────────────────────
 	const agentCommands: Record<string, { agent: string; description: string; icon: string }> = {
 		"/help": { agent: "system", description: "Show all agent and skill commands", icon: "Bot" },
 		"/agents": { agent: "system", description: "List all available agents", icon: "Brain" },
@@ -702,7 +566,7 @@ export default function IdeTerminalView() {
 		"/orchestrate": {
 			agent: "orchestrator",
 			description: "Break down and coordinate multi-step tasks",
-			icon: "GitMerge",
+			icon: "GitBranch",
 		},
 		"/auto-deploy": {
 			agent: "auto-deployer",
@@ -716,7 +580,6 @@ export default function IdeTerminalView() {
 
 	// ── Detect if input is an agent command ──────────────────────────────
 	const isAgentCommand = (cmd: string) => cmd.startsWith("/") || cmd.startsWith("@")
-	const isSkillCommand = (cmd: string) => cmd.startsWith("/skill ") || cmd.startsWith("/skills ")
 	const isAgentMention = (cmd: string) => cmd.startsWith("@")
 
 	// ── Get matching suggestions for autocomplete ────────────────────────
@@ -756,7 +619,9 @@ export default function IdeTerminalView() {
 				if (data.branch) setBranch(data.branch)
 				if (data.files?.length) setFiles(data.files)
 				if (data.pipeline?.length) setPipeline(data.pipeline)
-				if (data.chatMessages?.length) setMessages(data.chatMessages)
+				if (data.chatMessages?.length) {
+					setAiMessages(data.chatMessages)
+				}
 				if (data.status) setStatus(data.status)
 				if (data.terminalSessions?.length) {
 					setTerminalOutput(data.terminalSessions[0].output)
@@ -780,10 +645,10 @@ export default function IdeTerminalView() {
 		load()
 	}, [])
 
-	// ── Auto-scroll messages ──────────────────────────────────────────────
+	// ── Auto-scroll AI messages ──────────────────────────────────────────
 	useEffect(() => {
-		messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-	}, [messages])
+		aiMessagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+	}, [aiMessages])
 
 	// ── Auto-scroll terminal ──────────────────────────────────────────────
 	useEffect(() => {
@@ -797,117 +662,220 @@ export default function IdeTerminalView() {
 		function handleGlobalKeyDown(e: KeyboardEvent) {
 			if (e.ctrlKey && e.key === "`") {
 				e.preventDefault()
-				terminalInputRef.current?.focus()
+				setIsTerminalMaximized((prev) => !prev)
 			}
 			if (e.ctrlKey && e.key === "p") {
 				e.preventDefault()
 				setShowFileSearch(true)
 				setTimeout(() => fileSearchRef.current?.focus(), 50)
 			}
-			if (e.ctrlKey && e.key === "s") {
-				e.preventDefault()
-				handleSaveFile()
-			}
-			if (e.ctrlKey && e.shiftKey && e.key === "P") {
-				e.preventDefault()
-				setShowShortcuts(true)
-			}
 			if (e.key === "Escape") {
 				setShowFileSearch(false)
 				setShowShortcuts(false)
 				setShowAgentSuggestions(false)
+				setShowSmartSuggestions(false)
 			}
 		}
 		window.addEventListener("keydown", handleGlobalKeyDown)
 		return () => window.removeEventListener("keydown", handleGlobalKeyDown)
 	}, [])
 
-	// ── Drag & drop handlers ─────────────────────────────────────────────
+	// ── OpenClaw data fetching ────────────────────────────────────────────
+	// Fetch orchestrator status for the Plan tab
+	const fetchOrchestratorStatus = useCallback(async () => {
+		try {
+			const data = await api<{
+				ok: boolean
+				running?: boolean
+				mode?: string
+				uptime?: number
+				taskCount?: number
+				tasks?: Array<{
+					id: string
+					type: string
+					status: string
+					createdAt: number
+					instruction: string
+				}>
+				modules?: string[]
+				hermesClaw?: boolean
+			}>("/ide-workspace/orchestrator/status")
+			if (data.ok && data.tasks) {
+				setBrainPlan(
+					data.tasks.map((t) => ({
+						command: t.instruction?.substring(0, 100) || t.type,
+						description: `${t.status} · ${t.type} · ${new Date(t.createdAt).toLocaleTimeString()}`,
+					})),
+				)
+				setBrainFeedback({
+					status: data.running ? "running" : "stopped",
+					output: `Orchestrator: ${data.running ? "🟢 running" : "🔴 stopped"} · Mode: ${data.mode || "auto"} · ${data.taskCount || 0} tasks · ${data.modules?.length || 0} modules loaded`,
+				})
+			}
+		} catch {
+			// Silently fail — orchestrator may not be initialized
+		}
+	}, [])
+
+	// Fetch HermesClaw stats for the Memory tab
+	const fetchHermesStats = useCallback(async () => {
+		try {
+			const data = await api<{
+				ok: boolean
+				stats?: {
+					totalOperations?: number
+					totalMemoryEntries?: number
+					successRate?: number
+					operationsByType?: Record<string, number>
+				}
+			}>("/ide-workspace/hermes/stats")
+			if (data.ok && data.stats) {
+				setBrainMemory({
+					stats: {
+						totalSessions: data.stats.totalOperations || 0,
+						totalCommands: data.stats.totalMemoryEntries || 0,
+						totalErrors: 0,
+						successRate: data.stats.successRate || 0,
+					},
+					commands: [],
+				})
+			}
+		} catch {
+			// Silently fail
+		}
+	}, [])
+
+	// Fetch deployments for the Deploy tab
+	const fetchDeployments = useCallback(async () => {
+		try {
+			const data = await api<{
+				ok: boolean
+				deployments?: Array<{
+					version: string
+					status: string
+					timestamp: string
+				}>
+			}>("/deployments")
+			if (data.ok && data.deployments) {
+				setBrainDeployments(
+					data.deployments.map((d) => ({
+						version: d.version,
+						status: d.status,
+						timestamp: d.timestamp,
+						time: d.timestamp,
+					})),
+				)
+			}
+		} catch {
+			// Silently fail
+		}
+	}, [])
+
+	// ── Fetch data when tab changes ───────────────────────────────────────
+	useEffect(() => {
+		if (aiTab === "plan") {
+			setBrainLoading(true)
+			fetchOrchestratorStatus().finally(() => setBrainLoading(false))
+		} else if (aiTab === "memory") {
+			setBrainLoading(true)
+			fetchHermesStats().finally(() => setBrainLoading(false))
+		} else if (aiTab === "deploy") {
+			setBrainLoading(true)
+			fetchDeployments().finally(() => setBrainLoading(false))
+		}
+	}, [aiTab, fetchOrchestratorStatus, fetchHermesStats, fetchDeployments])
+
+	// ── Drag & drop handlers ──────────────────────────────────────────────
 	useEffect(() => {
 		function handleDragEnter(e: DragEvent) {
 			e.preventDefault()
 			dragCounter.current++
-			if (dragCounter.current === 1) setDragOver(true)
+			if (e.dataTransfer?.types.includes("Files")) {
+				setDragOver(true)
+			}
 		}
 		function handleDragLeave(e: DragEvent) {
 			e.preventDefault()
 			dragCounter.current--
-			if (dragCounter.current === 0) setDragOver(false)
-		}
-		function handleDragOver(e: DragEvent) {
-			e.preventDefault()
+			if (dragCounter.current <= 0) {
+				dragCounter.current = 0
+				setDragOver(false)
+			}
 		}
 		function handleDrop(e: DragEvent) {
 			e.preventDefault()
 			dragCounter.current = 0
 			setDragOver(false)
-			const files = e.dataTransfer?.files
-			if (files && files.length > 0) {
-				const newAttachments: ChatAttachment[] = []
-				for (let i = 0; i < files.length; i++) {
-					const file = files[i]
-					const ext = file.name.split(".").pop()?.toUpperCase() || "FILE"
-					newAttachments.push({
-						id: `att-${Date.now()}-${i}`,
-						filename: file.name,
-						type: ext,
-						size: `${(file.size / 1024).toFixed(1)} KB`,
-					})
+			if (e.dataTransfer?.files) {
+				for (const file of Array.from(e.dataTransfer.files)) {
+					setAiAttachments((prev) => [
+						...prev,
+						{
+							id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+							filename: file.name,
+							type: file.type || "unknown",
+							size: `${(file.size / 1024).toFixed(1)}KB`,
+						},
+					])
 				}
-				setAttachments((prev) => [...prev, ...newAttachments])
 			}
 		}
 		window.addEventListener("dragenter", handleDragEnter)
 		window.addEventListener("dragleave", handleDragLeave)
-		window.addEventListener("dragover", handleDragOver)
 		window.addEventListener("drop", handleDrop)
 		return () => {
 			window.removeEventListener("dragenter", handleDragEnter)
 			window.removeEventListener("dragleave", handleDragLeave)
-			window.removeEventListener("dragover", handleDragOver)
 			window.removeEventListener("drop", handleDrop)
 		}
 	}, [])
 
-	// ── Ctrl+V paste handler for files/images ────────────────────────────
+	// ── Paste handler ─────────────────────────────────────────────────────
+	// Handles both:
+	//   1. Image paste → AI attachments (for the AI chat textarea)
+	//   2. Text paste → terminal input (for the terminal command input)
 	useEffect(() => {
 		function handlePaste(e: ClipboardEvent) {
 			const items = e.clipboardData?.items
+			const textData = e.clipboardData?.getData("text")
 			if (!items) return
 
-			const newAttachments: ChatAttachment[] = []
-			for (let i = 0; i < items.length; i++) {
-				const item = items[i]
-				if (item.kind === "file") {
+			// Determine which element is focused
+			const activeEl = document.activeElement
+
+			// ── Case 1: Terminal input is focused → paste text into terminal ──
+			if (activeEl && activeEl === terminalInputRef.current && textData) {
+				e.preventDefault()
+				setTerminalInput((prev) => prev + textData)
+				return
+			}
+
+			// ── Case 2: AI textarea is focused → handle image attachments ──
+			for (const item of Array.from(items)) {
+				if (item.type.startsWith("image/")) {
 					const file = item.getAsFile()
-					if (!file) continue
-					const ext = file.name.split(".").pop()?.toUpperCase() || "FILE"
-					const type = file.type.startsWith("image/") ? "IMAGE" : ext
-					newAttachments.push({
-						id: `att-${Date.now()}-${i}`,
-						filename: file.name || `pasted-${Date.now()}.${ext.toLowerCase()}`,
-						type,
-						size: `${(file.size / 1024).toFixed(1)} KB`,
-					})
+					if (file) {
+						setAiAttachments((prev) => [
+							...prev,
+							{
+								id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+								filename: `pasted-${Date.now()}.${item.type.split("/")[1] || "png"}`,
+								type: item.type,
+								size: `${(file.size / 1024).toFixed(1)}KB`,
+							},
+						])
+					}
 				}
 			}
-			if (newAttachments.length > 0) {
-				e.preventDefault()
-				setAttachments((prev) => [...prev, ...newAttachments])
-			}
 		}
-
-		const textarea = document.querySelector("textarea")
-		if (textarea) {
-			textarea.addEventListener("paste", handlePaste)
-			return () => textarea.removeEventListener("paste", handlePaste)
-		}
+		window.addEventListener("paste", handlePaste)
+		return () => window.removeEventListener("paste", handlePaste)
 	}, [])
 
-	// ── Send chat message ─────────────────────────────────────────────────
-	const handleSend = useCallback(async () => {
-		const text = input.trim()
-		if (!text && attachments.length === 0) return
+	// ── UNIFIED AI Chat Send ──────────────────────────────────────────────
+	const handleAiSend = useCallback(async () => {
+		const text = aiInput.trim()
+		if (!text && aiAttachments.length === 0) return
 
 		const userMsg: ChatMessage = {
 			id: `msg-${Date.now()}`,
@@ -915,23 +883,24 @@ export default function IdeTerminalView() {
 			author: "You",
 			time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
 			content: text || "Sent files",
-			attachments: attachments.length > 0 ? [...attachments] : undefined,
+			attachments: aiAttachments.length > 0 ? [...aiAttachments] : undefined,
 		}
 
-		setMessages((prev) => [...prev, userMsg])
-		setInput("")
-		setAttachments([])
-		setSending(true)
+		setAiMessages((prev) => [...prev, userMsg])
+		setAiInput("")
+		setAiAttachments([])
+		setAiSending(true)
 
 		try {
-			const body: Record<string, unknown> = {
-				message: text,
-				attachments: attachments.map((a) => ({ filename: a.filename, type: a.type, size: a.size })),
+			const body: Record<string, unknown> = { message: text }
+			if (aiAttachments.length > 0) {
+				body.attachments = aiAttachments.map((a) => ({ filename: a.filename, type: a.type, size: a.size }))
 			}
 			const storedProvider = typeof window !== "undefined" ? localStorage.getItem("superroo-chat-provider") : null
 			if (storedProvider && storedProvider !== "auto") {
 				body.provider = storedProvider
 			}
+
 			const result = await api<{
 				ok: boolean
 				message?: string
@@ -941,7 +910,9 @@ export default function IdeTerminalView() {
 				intent?: string
 				intentConfidence?: number
 				agent?: string
-			}>("/chat", {
+				orchestratorTaskId?: string | null
+				hermesContextUsed?: boolean
+			}>("/ide-workspace/chat", {
 				method: "POST",
 				body: JSON.stringify(body),
 			})
@@ -954,6 +925,9 @@ export default function IdeTerminalView() {
 			const metaParts = [agentName]
 			if (confidence) metaParts.push(`conf ${confidence}`)
 			if (result.model) metaParts.push(result.model)
+			if (result.orchestratorTaskId) metaParts.push(`task:${result.orchestratorTaskId.substring(0, 8)}`)
+			if (result.hermesContextUsed) metaParts.push("🧠")
+
 			const assistantMsg: ChatMessage = {
 				id: `msg-${Date.now() + 1}`,
 				role: "agent",
@@ -962,7 +936,12 @@ export default function IdeTerminalView() {
 				time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
 				content: replyText,
 			}
-			setMessages((prev) => [...prev, assistantMsg])
+			setAiMessages((prev) => [...prev, assistantMsg])
+
+			// If orchestrator task was created, refresh the Plan tab data
+			if (result.orchestratorTaskId) {
+				fetchOrchestratorStatus()
+			}
 		} catch (err) {
 			const errorMsg: ChatMessage = {
 				id: `msg-${Date.now() + 1}`,
@@ -971,473 +950,194 @@ export default function IdeTerminalView() {
 				time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
 				content: `Error: ${err instanceof Error ? err.message : "Failed to send message"}`,
 			}
-			setMessages((prev) => [...prev, errorMsg])
+			setAiMessages((prev) => [...prev, errorMsg])
 		} finally {
-			setSending(false)
+			setAiSending(false)
 		}
-	}, [input, attachments])
+	}, [aiInput, aiAttachments])
 
-	// ── Handle Enter key in chat ──────────────────────────────────────────
-	const handleKeyDown = useCallback(
+	const handleAiKeyDown = useCallback(
 		(e: React.KeyboardEvent) => {
 			if (e.key === "Enter" && !e.shiftKey) {
 				e.preventDefault()
-				handleSend()
+				handleAiSend()
 			}
 		},
-		[handleSend],
+		[handleAiSend],
 	)
 
-	// ── File attachment ───────────────────────────────────────────────────
-	const handleFileAttach = useCallback(() => {
-		fileInputRef.current?.click()
-	}, [])
-
-	const handleFilesSelected = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-		const fileList = e.target.files
-		if (!fileList) return
-
-		const newAttachments: ChatAttachment[] = []
-		for (let i = 0; i < fileList.length; i++) {
-			const file = fileList[i]
-			const ext = file.name.split(".").pop()?.toUpperCase() || "FILE"
-			newAttachments.push({
-				id: `att-${Date.now()}-${i}`,
-				filename: file.name,
-				type: ext,
-				size: `${(file.size / 1024).toFixed(1)} KB`,
-			})
-		}
-		setAttachments((prev) => [...prev, ...newAttachments])
-		e.target.value = ""
-	}, [])
-
-	const removeAttachment = useCallback((id: string) => {
-		setAttachments((prev) => prev.filter((a) => a.id !== id))
-	}, [])
-
-	// ── Image attachment ──────────────────────────────────────────────────
-	const handleImageAttach = useCallback(() => {
-		imageInputRef.current?.click()
-	}, [])
-
-	const handleImagesSelected = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-		const fileList = e.target.files
-		if (!fileList) return
-
-		const newAttachments: ChatAttachment[] = []
-		for (let i = 0; i < fileList.length; i++) {
-			const file = fileList[i]
-			newAttachments.push({
-				id: `att-${Date.now()}-${i}`,
-				filename: file.name,
-				type: "IMAGE",
-				size: `${(file.size / 1024).toFixed(1)} KB`,
-			})
-		}
-		setAttachments((prev) => [...prev, ...newAttachments])
-		e.target.value = ""
-	}, [])
-
-	// ── File click handler — open file from tree ──────────────────────────
-	const handleFileClick = useCallback(
-		async (filePath: string, fileName: string) => {
-			if (openFiles.some((f) => f.path === filePath)) {
-				setActiveFilePath(filePath)
-				return
-			}
-
-			try {
-				const result = await api<{
-					ok: boolean
-					content?: string
-					language?: string
-					error?: string
-				}>(`/file/read?path=${encodeURIComponent(filePath)}`)
-
-				if (result.ok && result.content !== undefined) {
-					const newFile = {
-						path: filePath,
-						name: fileName,
-						content: result.content,
-						language: result.language || "text",
-					}
-					setOpenFiles((prev) => [...prev, newFile])
-					setActiveFilePath(filePath)
-				}
-			} catch (err) {
-				console.error("Failed to open file:", err)
-			}
-		},
-		[openFiles],
-	)
-
-	// ── Save file handler ─────────────────────────────────────────────────
-	const handleSaveFile = useCallback(async () => {
-		if (!activeFilePath) return
-		const file = openFiles.find((f) => f.path === activeFilePath)
-		if (!file) return
-
-		try {
-			const result = await api<{ ok: boolean; error?: string }>("/file/save", {
-				method: "POST",
-				body: JSON.stringify({ path: file.path, content: file.content }),
-			})
-			if (result.ok) {
-				setOpenFiles((prev) => prev.map((f) => (f.path === activeFilePath ? { ...f, modified: false } : f)))
-			}
-		} catch (err) {
-			console.error("Failed to save file:", err)
-		}
-	}, [activeFilePath, openFiles])
-
-	// ── Track content changes for modified indicator ──────────────────────
-	const handleEditorContentChange = useCallback((filePath: string, newContent: string) => {
-		setOpenFiles((prev) =>
-			prev.map((f) => (f.path === filePath ? { ...f, content: newContent, modified: true } : f)),
-		)
-	}, [])
-
-	// ── Helper: add output lines as blocks ────────────────────────────────
-	const addOutputBlocks = useCallback(
-		(newLines: string[], command?: string) => {
-			const newBlocks: OutputBlock[] = []
-			const now = new Date().toLocaleTimeString()
-
-			for (let i = 0; i < newLines.length; i++) {
-				const line = newLines[i]
-				const block = parseOutputLine(line, Date.now() + i)
-				newBlocks.push(block)
-			}
-
-			setTerminalOutput((prev) => [...prev, ...newLines])
-			setOutputBlocks((prev) => {
-				const updated = [...prev, ...newBlocks]
-				// If recording, capture blocks
-				if (isRecording) {
-					setRecordingBlocks((r) => [...r, ...newBlocks])
-				}
-				return updated
-			})
-		},
-		[isRecording],
-	)
-
-	// ── Terminal command execution (agent-aware) with Block-Based Output ──
+	// ── Terminal command handlers ─────────────────────────────────────────
 	const handleTerminalCommand = useCallback(async () => {
 		const cmd = terminalInput.trim()
 		if (!cmd) return
 
-		const isAgent = isAgentCommand(cmd)
-		const isSkill = isSkillCommand(cmd)
-		const isMention = isAgentMention(cmd)
-
-		const modePrefix = isAgent ? "🤖" : isSkill ? "✨" : "$"
-		const cmdLine = `${modePrefix} ${cmd}`
-
-		// Add command block
-		addOutputBlocks([cmdLine], cmd)
-
-		// Track recent commands for autocomplete
+		setTerminalOutput((prev) => [...prev, `$ ${cmd}`])
+		setTerminalInput("")
 		setRecentCommands((prev) => {
-			const updated = [cmd, ...prev.filter((c) => c !== cmd)].slice(0, 20)
-			return updated
+			const next = [cmd, ...prev.filter((c) => c !== cmd)]
+			return next.slice(0, 20)
 		})
 
-		setTerminalInput("")
-		setShowAgentSuggestions(false)
-		setShowSmartSuggestions(false)
-
-		if (isAgent || isSkill) {
-			setTerminalMode(isSkill ? "skill" : "agent")
+		if (isAgentCommand(cmd)) {
 			setAgentRunning(true)
-			const agentName = isMention ? cmd.split(" ")[0].slice(1) : cmd.split(" ")[0].slice(1)
-			setActiveAgent(agentName || "agent")
-		}
+			const agentName = cmd.startsWith("@") ? cmd.slice(1).split(" ")[0] : cmd.split(" ")[0].slice(1)
+			setActiveAgent(agentName)
+			setTerminalMode("agent")
 
-		try {
-			const result = await api<{
-				ok: boolean
-				output?: string[]
-				message?: string
-				agent?: string
-				skill?: boolean
-			}>("/terminal/execute", {
-				method: "POST",
-				body: JSON.stringify({ command: cmd, terminalId: "term-1" }),
-			})
-
-			if (result.output?.length) {
-				if (isAgent || isSkill) {
-					const agentLabel = result.agent || "agent"
-					const header = `┌─ [${result.skill ? "✨ Skill" : "🤖 Agent"}: ${agentLabel}] ─────────────────────`
-					const footer = `└──────────────────────────────────────────────────`
-					addOutputBlocks([header, ...result.output, footer], cmd)
-				} else {
-					addOutputBlocks(result.output, cmd)
+			try {
+				const result = await api<{ ok: boolean; output?: string[]; error?: string }>("/ide-workspace/terminal", {
+					method: "POST",
+					body: JSON.stringify({ command: cmd }),
+				})
+				if (result.output) {
+					setTerminalOutput((prev) => [...prev, ...result.output!])
 				}
-			} else if (result.message) {
-				addOutputBlocks([result.message], cmd)
-			} else {
-				addOutputBlocks([`Command executed: ${cmd}`], cmd)
+				if (result.error) {
+					setTerminalOutput((prev) => [...prev, `✕ ${result.error}`])
+				}
+			} catch (err) {
+				setTerminalOutput((prev) => [...prev, `✕ Command failed: ${err instanceof Error ? err.message : "Unknown error"}`])
+			} finally {
+				setAgentRunning(false)
+				setActiveAgent(null)
+				setTerminalMode("shell")
 			}
-		} catch (err) {
-			const errMsg = `Error: ${err instanceof Error ? err.message : "Command failed"}`
-			addOutputBlocks([errMsg], cmd)
-		} finally {
-			setAgentRunning(false)
-			setActiveAgent(null)
-			setTerminalMode("shell")
+		} else {
+			// Shell command — execute via API
+			try {
+				const result = await api<{ ok: boolean; output?: string[]; error?: string }>("/ide-workspace/terminal", {
+					method: "POST",
+					body: JSON.stringify({ command: cmd }),
+				})
+				if (result.output) {
+					setTerminalOutput((prev) => [...prev, ...result.output!])
+				}
+				if (result.error) {
+					setTerminalOutput((prev) => [...prev, `✕ ${result.error}`])
+				}
+			} catch (err) {
+				setTerminalOutput((prev) => [...prev, `✕ Command failed: ${err instanceof Error ? err.message : "Unknown error"}`])
+			}
 		}
-	}, [terminalInput, addOutputBlocks])
+	}, [terminalInput])
 
-	// ── Smart Autocomplete + Block-Aware Terminal Key Handler ────────────
 	const handleTerminalKeyDown = useCallback(
 		(e: React.KeyboardEvent) => {
 			if (e.key === "Enter") {
 				e.preventDefault()
-				// If a smart suggestion is selected, use it
-				if (selectedSuggestionIndex >= 0 && smartSuggestions[selectedSuggestionIndex]) {
-					setTerminalInput(smartSuggestions[selectedSuggestionIndex].text + " ")
-					setShowSmartSuggestions(false)
-					setSelectedSuggestionIndex(-1)
-					return
-				}
 				handleTerminalCommand()
 			}
-			if (e.key === "Tab") {
+			if (e.key === "Tab" && showSmartSuggestions && smartSuggestions.length > 0) {
 				e.preventDefault()
-				// Try smart suggestions first, fall back to agent suggestions
-				if (smartSuggestions.length > 0) {
-					const nextIdx =
-						selectedSuggestionIndex < 0 ? 0 : (selectedSuggestionIndex + 1) % smartSuggestions.length
-					setSelectedSuggestionIndex(nextIdx)
-					setTerminalInput(smartSuggestions[nextIdx].text + " ")
-				} else {
-					const suggestions = getAgentSuggestions(terminalInput)
-					if (suggestions.length === 1) {
-						setTerminalInput(suggestions[0] + " ")
-						setShowAgentSuggestions(false)
-					}
+				const idx = selectedSuggestionIndex >= 0 ? selectedSuggestionIndex : 0
+				const suggestion = smartSuggestions[idx]
+				if (suggestion) {
+					setTerminalInput(suggestion.text + " ")
+					setShowSmartSuggestions(false)
+					setSelectedSuggestionIndex(-1)
 				}
 			}
-			if (e.key === "ArrowDown") {
+			if (e.key === "ArrowUp" && showSmartSuggestions) {
 				e.preventDefault()
-				if (smartSuggestions.length > 0) {
-					setSelectedSuggestionIndex((prev) => (prev < smartSuggestions.length - 1 ? prev + 1 : 0))
-				}
+				setSelectedSuggestionIndex((prev) => Math.max(0, prev - 1))
 			}
-			if (e.key === "ArrowUp") {
+			if (e.key === "ArrowDown" && showSmartSuggestions) {
 				e.preventDefault()
-				if (smartSuggestions.length > 0) {
-					setSelectedSuggestionIndex((prev) => (prev > 0 ? prev - 1 : smartSuggestions.length - 1))
-				}
+				setSelectedSuggestionIndex((prev) => Math.min(smartSuggestions.length - 1, prev + 1))
 			}
-			if (e.key === "Escape") {
+		},
+		[handleTerminalCommand, showSmartSuggestions, smartSuggestions, selectedSuggestionIndex],
+	)
+
+	const handleTerminalInputChange = useCallback(
+		(e: React.ChangeEvent<HTMLInputElement>) => {
+			const val = e.target.value
+			setTerminalInput(val)
+
+			if (val.startsWith("/") || val.startsWith("@")) {
+				const suggestions = getAgentSuggestions(val)
+				setAgentSuggestions(suggestions)
+				setShowAgentSuggestions(suggestions.length > 0)
+				setShowSmartSuggestions(false)
+			} else if (val.length >= 2) {
+				const smart = getSmartSuggestions(val, recentCommands, agentCommands)
+				setSmartSuggestions(smart)
+				setShowSmartSuggestions(smart.length > 0)
+				setShowAgentSuggestions(false)
+				setSelectedSuggestionIndex(-1)
+			} else {
 				setShowAgentSuggestions(false)
 				setShowSmartSuggestions(false)
 				setSelectedSuggestionIndex(-1)
 			}
 		},
-		[handleTerminalCommand, terminalInput, smartSuggestions, selectedSuggestionIndex],
+		[recentCommands],
 	)
 
-	// ── Smart Autocomplete Input Change Handler ──────────────────────────
-	const handleTerminalInputChange = useCallback(
-		(e: React.ChangeEvent<HTMLInputElement>) => {
-			const value = e.target.value
-			setTerminalInput(value)
-			setSelectedSuggestionIndex(-1)
+	const handleFileClick = useCallback((path: string, name: string) => {
+		if (!openFiles.find((f) => f.path === path)) {
+			setOpenFiles((prev) => [...prev, { path, name, content: `// ${name}\n\n// Loading...`, language: "text", modified: false }])
+		}
+		setActiveFilePath(path)
+	}, [openFiles])
 
-			// Agent suggestions for / and @ prefixes
-			if (value.startsWith("/") || value.startsWith("@")) {
-				const suggestions = getAgentSuggestions(value)
-				setAgentSuggestions(suggestions)
-				setShowAgentSuggestions(suggestions.length > 0)
-				setShowSmartSuggestions(false)
-			} else if (value.trim().length > 0) {
-				// Smart autocomplete for regular commands
-				setShowAgentSuggestions(false)
-				const suggestions = getSmartSuggestions(value, recentCommands, agentCommands)
-				setSmartSuggestions(suggestions)
-				setShowSmartSuggestions(suggestions.length > 0)
-			} else {
-				setShowAgentSuggestions(false)
-				setShowSmartSuggestions(false)
-			}
-		},
-		[recentCommands, agentCommands],
-	)
-
-	// ── Toggle block collapse ────────────────────────────────────────────
-	const toggleBlockCollapse = useCallback((blockId: string) => {
-		setCollapsedBlocks((prev) => {
-			const next = new Set(prev)
-			if (next.has(blockId)) {
-				next.delete(blockId)
-			} else {
-				next.add(blockId)
-			}
-			return next
-		})
+	const handleFilesSelected = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+		const files = e.target.files
+		if (!files) return
+		for (const file of Array.from(files)) {
+			setAiAttachments((prev) => [...prev, { id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, filename: file.name, type: file.type || "unknown", size: `${(file.size / 1024).toFixed(1)}KB` }])
+		}
+		e.target.value = ""
 	}, [])
 
-	// ── Recording controls ───────────────────────────────────────────────
-	const handleStartRecording = useCallback(() => {
-		setIsRecording(true)
-		setRecordingBlocks([])
+	const handleImagesSelected = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+		const files = e.target.files
+		if (!files) return
+		for (const file of Array.from(files)) {
+			setAiAttachments((prev) => [...prev, { id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, filename: file.name, type: file.type || "image/png", size: `${(file.size / 1024).toFixed(1)}KB` }])
+		}
+		e.target.value = ""
 	}, [])
 
+	const removeAttachment = useCallback((id: string) => {
+		setAiAttachments((prev) => prev.filter((a) => a.id !== id))
+	}, [])
+
+	const handleTerminalResizeMouseDown = useCallback((e: React.MouseEvent) => {
+		e.preventDefault()
+		const startY = e.clientY
+		const startHeight = terminalHeight
+		function onMouseMove(ev: MouseEvent) { setTerminalHeight(Math.max(80, Math.min(600, startHeight + (ev.clientY - startY)))) }
+		function onMouseUp() { window.removeEventListener("mousemove", onMouseMove); window.removeEventListener("mouseup", onMouseUp) }
+		window.addEventListener("mousemove", onMouseMove)
+		window.addEventListener("mouseup", onMouseUp)
+	}, [terminalHeight])
+
+	const handleCopyTerminal = useCallback((index: number, content: string) => {
+		navigator.clipboard.writeText(content).catch(() => {})
+		setCopiedIndex(index)
+		setTimeout(() => setCopiedIndex(null), 1500)
+	}, [])
+
+	const toggleBlockCollapse = useCallback((id: string) => {
+		setCollapsedBlocks((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next })
+	}, [])
+
+	const handleStartRecording = useCallback(() => { setIsRecording(true); setRecordingBlocks([]) }, [])
 	const handleStopRecording = useCallback(() => {
 		setIsRecording(false)
 		if (recordingBlocks.length > 0) {
-			const rec = createRecording(recordingBlocks, `Session ${recordings.length + 1}`)
-			setRecordings((prev) => [rec, ...prev])
+			setRecordings((prev) => [...prev, createRecording(recordingBlocks, `Recording ${prev.length + 1}`)])
 		}
-		setRecordingBlocks([])
-	}, [recordingBlocks, recordings.length])
+	}, [recordingBlocks])
+	const handleReplayRecording = useCallback((recording: TerminalRecording) => { setOutputBlocks(recording.blocks) }, [])
 
-	const handleReplayRecording = useCallback((recording: TerminalRecording) => {
-		// Replace current output with recording blocks
-		setOutputBlocks(recording.blocks)
-		setTerminalOutput(recording.blocks.map((b) => b.content))
-	}, [])
+	useEffect(() => { setOutputBlocks(convertToBlocks(terminalOutput)) }, [terminalOutput])
+	useEffect(() => { if (isRecording) setRecordingBlocks((prev) => [...prev, ...outputBlocks.slice(prev.length)]) }, [outputBlocks, isRecording])
 
-	// ── Clear terminal ────────────────────────────────────────────────────
-	const handleClearTerminal = useCallback(() => {
-		setTerminalOutput([])
-	}, [])
-
-	// ── Copy terminal output ──────────────────────────────────────────────
-	const handleCopyTerminal = useCallback(() => {
-		const text = terminalOutput.join("\n")
-		navigator.clipboard
-			.writeText(text)
-			.then(() => {
-				setCopiedIndex(0)
-				setTimeout(() => setCopiedIndex(null), 2000)
-			})
-			.catch(() => {})
-	}, [terminalOutput])
-
-	// ── Terminal Brain handlers ───────────────────────────────────────────
-	const handleBrainSend = useCallback(async () => {
-		const query = brainInput.trim()
-		if (!query) return
-		setBrainLoading(true)
-		setBrainPlan([])
-		setBrainFeedback(null)
-		setBrainErrors([])
-		setBrainFixes([])
-		try {
-			const planResult = await brainApi<{
-				plan?: BrainPlanStep[]
-				steps?: BrainPlanStep[]
-				intent?: string
-				confidence?: number
-			}>("plan", { query })
-			const steps = planResult.plan || planResult.steps || []
-			setBrainPlan(steps)
-			setBrainTab("command")
-			let allOutput = ""
-			const allErrors: BrainError[] = []
-			const allFixes: BrainFix[] = []
-			for (const step of steps) {
-				const execResult = await brainApi<{
-					feedback?: BrainFeedback
-					output?: string
-					exitCode?: number
-					errors?: BrainError[]
-					fixes?: BrainFix[]
-				}>("execute", { command: step.command })
-				const fb = execResult.feedback || {
-					status: "done",
-					output: execResult.output || "",
-					exitCode: execResult.exitCode,
-					errors: execResult.errors,
-					fixes: execResult.fixes,
-				}
-				allOutput += fb.output + "\n"
-				if (fb.errors?.length) allErrors.push(...fb.errors)
-				if (fb.fixes?.length) allFixes.push(...fb.fixes)
-			}
-			setBrainFeedback({
-				status: allErrors.length > 0 ? "error" : "done",
-				output: allOutput.trim(),
-				errors: allErrors,
-				fixes: allFixes,
-			})
-			setBrainErrors(allErrors)
-			setBrainFixes(allFixes)
-			if (allErrors.length > 0) setBrainTab("errors")
-		} catch (err) {
-			setBrainFeedback({
-				status: "error",
-				output: `Error: ${err instanceof Error ? err.message : "Brain command failed"}`,
-			})
-		} finally {
-			setBrainLoading(false)
-			setBrainInput("")
-		}
-	}, [brainInput])
-
-	const handleBrainKeyDown = useCallback(
-		(e: React.KeyboardEvent) => {
-			if (e.key === "Enter" && !e.shiftKey) {
-				e.preventDefault()
-				handleBrainSend()
-			}
-		},
-		[handleBrainSend],
-	)
-
-	const handleApproveAction = useCallback(
-		async (index: number) => {
-			const approval = brainApprovals[index]
-			if (!approval) return
-			try {
-				const result = await brainApi<{ ok: boolean; output?: string }>("execute", {
-					command: approval.command || approval.action,
-				})
-				setBrainApprovals((prev) => prev.filter((_, i) => i !== index))
-				setBrainFeedback((prev) =>
-					prev
-						? {
-								...prev,
-								output:
-									(prev.output || "") +
-									"\n✅ Approved: " +
-									(approval.command || approval.action || "") +
-									"\n" +
-									(result.output || ""),
-							}
-						: prev,
-				)
-			} catch (err) {
-				setBrainFeedback((prev) =>
-					prev
-						? {
-								...prev,
-								output:
-									(prev.output || "") +
-									"\n❌ Failed: " +
-									(err instanceof Error ? err.message : "Approval execution failed"),
-							}
-						: prev,
-				)
-			}
-		},
-		[brainApprovals],
-	)
-
-	const handleRejectAction = useCallback((index: number) => {
-		setBrainApprovals((prev) => prev.filter((_, i) => i !== index))
-	}, [])
-
-	// ── Loading state ─────────────────────────────────────────────────────
 	if (loading) {
 		return (
-			<div className="flex items-center justify-center h-full bg-[#0a0e1a]">
+			<div className="flex h-full items-center justify-center bg-[#0a0d14]">
 				<div className="flex flex-col items-center gap-3">
 					<Loader2 size={24} className="text-violet-400 animate-spin" />
 					<span className="text-xs text-gray-500">Loading workspace...</span>
@@ -1446,928 +1146,291 @@ export default function IdeTerminalView() {
 		)
 	}
 
-	// ── Render ────────────────────────────────────────────────────────────
 	return (
-		<div className="flex flex-col h-full bg-[#0a0e1a] text-[#c8d0e0]">
-			{/* Drag & drop overlay */}
-			{dragOver && (
-				<div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0a0e1a]/80 border-2 border-dashed border-violet-500/50 pointer-events-none">
-					<div className="flex flex-col items-center gap-3 text-violet-400">
-						<UploadCloud size={48} />
-						<span className="text-lg font-semibold">Drop files to attach</span>
-					</div>
-				</div>
-			)}
-
-			{/* File search overlay */}
-			{showFileSearch && (
-				<div
-					className="fixed inset-0 z-50 flex items-start justify-center pt-24 bg-black/60"
-					onClick={() => setShowFileSearch(false)}>
-					<div
-						className="bg-[#0f1117] border border-[#1e2535] rounded-lg p-3 w-full max-w-md mx-4 shadow-2xl"
-						onClick={(e) => e.stopPropagation()}>
-						<div className="flex items-center gap-2 px-2 py-1 mb-2 border border-[#1e2535] rounded bg-[#0a0e1a]">
-							<Search size={14} className="text-gray-500" />
-							<input
-								ref={fileSearchRef}
-								type="text"
-								value={fileSearchQuery}
-								onChange={(e) => setFileSearchQuery(e.target.value)}
-								placeholder="Search files..."
-								className="flex-1 bg-transparent border-none outline-none text-xs text-[#e2e8f0] placeholder-gray-600"
-							/>
-						</div>
-						<div className="max-h-60 overflow-y-auto">
-							<FileTree
-								items={files}
-								onFileClick={(path, name) => {
-									handleFileClick(path, name)
-									setShowFileSearch(false)
-									setFileSearchQuery("")
-								}}
-								searchQuery={fileSearchQuery}
-							/>
-						</div>
-					</div>
-				</div>
-			)}
-
-			{/* Keyboard Shortcuts Modal */}
-			{showShortcuts && <KeyboardShortcutsModal onClose={() => setShowShortcuts(false)} />}
-
-			{/* Top bar */}
-			<header className="flex items-center justify-between px-4 py-2 border-b border-[#1e2535] bg-[#0a0e1a] shrink-0">
+		<div className="flex h-full flex-col bg-[#0a0d14] text-[13px]">
+			<header className="flex items-center justify-between border-b border-[#1e2535] bg-[#0f1117] px-3 py-1.5">
 				<div className="flex items-center gap-3">
-					<div className="flex items-center gap-2">
-						<Code2 size={16} className="text-violet-400" />
-						<span className="text-sm font-semibold text-[#e2e8f0]">{repoName}</span>
-					</div>
-					<span className="text-[10px] text-gray-600">|</span>
-					<div className="flex items-center gap-1.5 text-[10px] text-gray-500">
-						<GitBranch size={11} />
-						<span>{branch}</span>
-					</div>
-					<span className="text-[10px] text-gray-600">|</span>
-					<div className="flex items-center gap-2 text-[10px]">
-						<span
-							className={`inline-block w-1.5 h-1.5 rounded-full ${status.connected ? "bg-green-400" : "bg-red-400"}`}
-						/>
-						<span className="text-gray-500">{status.connected ? "Connected" : "Disconnected"}</span>
-						<span className="text-gray-600">CPU {status.cpu}</span>
-						<span className="text-gray-600">RAM {status.ram}</span>
-					</div>
+					<span className="text-xs font-semibold text-[#e2e8f0]">{repoName}</span>
+					<span className="flex items-center gap-1 text-[10px] text-gray-500"><GitBranch size={10} />{branch}</span>
+					<span className="flex items-center gap-1 text-[10px] text-gray-500"><Cpu size={10} />{status.cpu}</span>
+					<span className="flex items-center gap-1 text-[10px] text-gray-500"><Database size={10} />{status.ram}</span>
 				</div>
 				<div className="flex items-center gap-2">
-					<button
-						onClick={() => setShowShortcuts(true)}
-						className="flex items-center gap-1 px-2 py-1 text-[10px] text-gray-500 hover:text-gray-300 rounded hover:bg-[#1e2535] transition-colors"
-						title="Keyboard Shortcuts">
-						<Keyboard size={11} />
-						<span>Shortcuts</span>
-					</button>
-					<button
-						onClick={() => setShowFileSearch(true)}
-						className="flex items-center gap-1 px-2 py-1 text-[10px] text-gray-500 hover:text-gray-300 rounded hover:bg-[#1e2535] transition-colors"
-						title="Search files (Ctrl+P)">
-						<Search size={11} />
-						<span>Search</span>
-					</button>
-					<button className="flex items-center gap-1 px-2 py-1 text-[10px] text-gray-500 hover:text-gray-300 rounded hover:bg-[#1e2535] transition-colors">
-						<Settings size={11} />
-					</button>
+					<select value={activeMode} onChange={(e) => setActiveMode(e.target.value)} className="bg-[#1e2535] text-[10px] text-gray-300 border border-[#2a3344] rounded px-1.5 py-0.5 outline-none">
+						<option>Auto</option><option>Plan</option><option>Act</option><option>Review</option>
+					</select>
+					<span className={`inline-block w-1.5 h-1.5 rounded-full ${status.connected ? "bg-green-500" : "bg-red-500"}`} title={status.connected ? "Connected" : "Disconnected"} />
+					<button onClick={() => setShowShortcuts(true)} className="text-gray-500 hover:text-gray-300 transition-colors" title="Keyboard shortcuts"><Keyboard size={12} /></button>
 				</div>
 			</header>
 
-			{/* Main content */}
-			<section className="flex flex-1 min-h-0">
-				{/* Left sidebar: File tree */}
-				<aside className="w-56 shrink-0 border-r border-[#1e2535] bg-[#0a0e1a] overflow-y-auto flex flex-col">
-					<div className="flex items-center justify-between px-3 py-2 border-b border-[#1e2535]">
-						<span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Files</span>
-						<div className="flex items-center gap-1">
-							<button className="p-0.5 text-gray-500 hover:text-gray-300 rounded" title="Refresh files">
-								<RefreshCw size={11} />
-							</button>
-							<button className="p-0.5 text-gray-500 hover:text-gray-300 rounded" title="New file">
-								<Plus size={11} />
-							</button>
-						</div>
-					</div>
-					<div className="flex-1 overflow-y-auto py-1">
-						<FileTree items={files} onFileClick={handleFileClick} />
-					</div>
-				</aside>
-
-				{/* Center: Editor + Terminal + Chat */}
-				<main className="flex flex-col flex-1 min-w-0">
-					{/* Editor tabs */}
-					{openFiles.length > 0 && (
-						<div className="flex items-center border-b border-[#1e2535] bg-[#0a0e1a] overflow-x-auto shrink-0">
-							{openFiles.map((f) => (
-								<button
-									key={f.path}
-									onClick={() => setActiveFilePath(f.path)}
-									className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] border-r border-[#1e2535] transition-colors whitespace-nowrap ${activeFilePath === f.path ? "bg-[#1e2535] text-[#e2e8f0]" : "text-gray-500 hover:text-gray-300"}`}>
-									<FileText size={12} />
-									<span>{f.name}</span>
-									{f.modified && <span className="text-orange-400 text-[10px] font-bold">●</span>}
-									<button
-										onClick={(e) => {
-											e.stopPropagation()
-											setOpenFiles((prev) => prev.filter((x) => x.path !== f.path))
-											if (activeFilePath === f.path) setActiveFilePath(null)
-										}}
-										className="ml-1 text-gray-600 hover:text-gray-300">
-										<X size={10} />
-									</button>
-								</button>
-							))}
-						</div>
-					)}
-
-					{/* Editor area */}
-					{activeFilePath ? (
-						<div className="flex-1 overflow-hidden bg-[#0a0e1a]">
-							{(() => {
-								const file = openFiles.find((f) => f.path === activeFilePath)
-								if (!file) return null
-								return (
-									<textarea
-										value={file.content}
-										onChange={(e) => handleEditorContentChange(file.path, e.target.value)}
-										className="w-full h-full p-4 font-mono text-xs leading-relaxed bg-transparent text-[#e2e8f0] resize-none outline-none border-none"
-										spellCheck={false}
-									/>
-								)
-							})()}
-						</div>
-					) : (
-						<div className="flex-1 flex items-center justify-center bg-[#0a0e1a]">
-							<div className="text-center">
-								<Code2 size={32} className="mx-auto mb-2 text-gray-700" />
-								<p className="text-xs text-gray-600">
-									Select a file from the explorer to start editing
-								</p>
-							</div>
-						</div>
-					)}
-
-					{/* Pipeline bar */}
-					{pipeline.length > 0 && (
-						<div className="flex items-center gap-2 px-3 py-1.5 border-t border-b border-[#1e2535] bg-[#0f1117] overflow-x-auto shrink-0">
-							<span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mr-1">
-								Pipeline
-							</span>
-							{pipeline.map((s, i) => (
-								<div key={s.id} className="flex items-center gap-1.5">
-									{i > 0 && <ChevronRight size={10} className="text-gray-600" />}
-									<div
-										className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] ${s.status === "done" ? "bg-green-900/30 text-green-400" : s.status === "running" ? "bg-blue-900/30 text-blue-400" : s.status === "failed" ? "bg-red-900/30 text-red-400" : "bg-[#1e2535] text-gray-400"}`}>
-										<PipelineIcon status={s.status} />
-										<span>{s.label}</span>
-										{s.agent && <span className="text-[9px] text-gray-500">({s.agent})</span>}
-									</div>
-								</div>
-							))}
-						</div>
-					)}
-
-					{/* Terminal with Block-Based Output */}
-					<div
-						className="border-t border-[#1e2535] bg-[#0a0e1a] flex flex-col shrink-0"
-						style={{ height: "180px" }}>
-						<div className="flex items-center justify-between px-3 py-1 border-b border-[#1e2535] shrink-0">
-							<div className="flex items-center gap-2">
-								<Terminal size={12} className="text-gray-500" />
-								<span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
-									Terminal
-								</span>
-								{agentRunning && (
-									<span className="flex items-center gap-1 text-[10px] text-violet-400">
-										<Loader2 size={10} className="animate-spin" /> Running {activeAgent}...
-									</span>
-								)}
-								{/* Recording indicator */}
-								{isRecording && (
-									<span className="flex items-center gap-1 text-[10px] text-red-400">
-										<span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-										REC
-									</span>
-								)}
-							</div>
+			<div className="flex flex-1 overflow-hidden">
+				{showFilePanel && (
+					<aside className="w-52 border-r border-[#1e2535] bg-[#0f1117] flex flex-col shrink-0">
+						<div className="flex items-center justify-between px-3 py-1.5 border-b border-[#1e2535]">
+							<span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Explorer</span>
 							<div className="flex items-center gap-1">
-								{/* Recording controls */}
-								<button
-									onClick={isRecording ? handleStopRecording : handleStartRecording}
-									className={`p-1 rounded hover:bg-[#1e2535] transition-colors ${
-										isRecording ? "text-red-400" : "text-gray-500 hover:text-gray-300"
-									}`}
-									title={isRecording ? "Stop recording" : "Start recording"}>
-									{isRecording ? <StopCircle size={11} /> : <History size={11} />}
-								</button>
-								{/* Recordings list */}
-								{recordings.length > 0 && (
-									<>
-										<button
-											onClick={() => setShowRecordings(!showRecordings)}
-											className="p-1 text-gray-500 hover:text-gray-300 rounded hover:bg-[#1e2535] transition-colors"
-											title="View recordings">
-											<PlayCircle size={11} />
-										</button>
-										<span className="text-[9px] text-gray-600">{recordings.length}</span>
-									</>
-								)}
-								<button
-									onClick={handleCopyTerminal}
-									className="p-1 text-gray-500 hover:text-gray-300 rounded hover:bg-[#1e2535] transition-colors"
-									title="Copy terminal output">
-									{copiedIndex === 0 ? (
-										<Check size={11} className="text-green-400" />
-									) : (
-										<Copy size={11} />
-									)}
-								</button>
-								<button
-									onClick={handleClearTerminal}
-									className="p-1 text-gray-500 hover:text-gray-300 rounded hover:bg-[#1e2535] transition-colors"
-									title="Clear terminal (Ctrl+K)">
-									<Trash2 size={11} />
-								</button>
+								<button onClick={() => setShowFileSearch(true)} className="text-gray-500 hover:text-gray-300 transition-colors" title="Search files (Ctrl+P)"><FileSearch size={11} /></button>
+								<button onClick={() => setShowFilePanel(false)} className="text-gray-500 hover:text-gray-300 transition-colors" title="Close panel"><PanelLeftClose size={11} /></button>
 							</div>
 						</div>
-
-						{/* Block-Based Output */}
-						<div ref={terminalRef} className="flex-1 overflow-auto p-1 font-mono text-xs">
-							{outputBlocks.length === 0 ? (
-								<div className="p-2 text-gray-600 italic">No output yet. Type a command to start.</div>
-							) : (
-								outputBlocks.map((block) => {
-									const isCollapsed = collapsedBlocks.has(block.id)
-									const blockColors: Record<string, string> = {
-										command: "text-green-400 bg-green-900/10",
-										output: "text-gray-300",
-										error: "text-red-400 bg-red-900/10",
-										success: "text-green-300 bg-green-900/20",
-										info: "text-blue-300",
-										agent: "text-violet-400 bg-violet-900/10",
-										divider: "text-gray-600",
-									}
-									const blockColor = blockColors[block.type] || "text-gray-300"
-
-									return (
-										<div
-											key={block.id}
-											className={`group flex items-start gap-1 px-1 py-0.5 rounded hover:bg-[#1e2535]/50 transition-colors ${blockColor}`}>
-											{/* Collapse toggle for command/output blocks */}
-											{(block.type === "command" || block.type === "output") && (
-												<button
-													onClick={() => toggleBlockCollapse(block.id)}
-													className="opacity-0 group-hover:opacity-100 shrink-0 mt-0.5 text-gray-600 hover:text-gray-400 transition-all"
-													title={isCollapsed ? "Expand" : "Collapse"}>
-													{isCollapsed ? (
-														<ChevronRight size={10} />
-													) : (
-														<ChevronRight size={10} className="rotate-90" />
-													)}
-												</button>
-											)}
-											{/* Block type icon */}
-											{block.type === "command" && (
-												<span className="shrink-0 text-green-500">$</span>
-											)}
-											{block.type === "error" && <span className="shrink-0 text-red-500">✕</span>}
-											{block.type === "success" && (
-												<span className="shrink-0 text-green-400">✓</span>
-											)}
-											{block.type === "agent" && (
-												<span className="shrink-0 text-violet-400">◆</span>
-											)}
-											{block.type === "info" && (
-												<span className="shrink-0 text-blue-400">ℹ</span>
-											)}
-											{/* Block content */}
-											<span
-												className={`flex-1 whitespace-pre-wrap break-all leading-relaxed ${
-													isCollapsed ? "truncate opacity-50" : ""
-												}`}>
-												{isCollapsed && block.command
-													? block.command.slice(0, 60) + "..."
-													: block.content}
-											</span>
-											{/* Timestamp on hover */}
-											<span className="opacity-0 group-hover:opacity-40 text-[8px] text-gray-600 shrink-0 mt-0.5 transition-opacity">
-												{block.timestamp}
-											</span>
-										</div>
-									)
-								})
-							)}
+						{showFileSearch && (
+							<div className="px-2 py-1.5 border-b border-[#1e2535]">
+								<input ref={fileSearchRef} type="text" value={fileSearchQuery} onChange={(e) => setFileSearchQuery(e.target.value)} placeholder="Search files..." className="w-full bg-[#1e2535] text-[11px] text-gray-300 placeholder-gray-600 border border-[#2a3344] rounded px-2 py-1 outline-none" />
+							</div>
+						)}
+						<div className="flex-1 overflow-y-auto py-1">
+							<FileTree items={files} onFileClick={handleFileClick} searchQuery={fileSearchQuery} />
 						</div>
+					</aside>
+				)}
 
-						{/* Recordings dropdown */}
-						{showRecordings && recordings.length > 0 && (
-							<div className="absolute bottom-full left-0 right-0 mb-8 mx-2 bg-[#0f1117] border border-[#1e2535] rounded shadow-lg z-20 max-h-40 overflow-y-auto">
-								<div className="px-2 py-1 text-[10px] font-semibold text-gray-500 uppercase tracking-wider border-b border-[#1e2535]">
-									Terminal Recordings
-								</div>
-								{recordings.map((rec) => (
-									<button
-										key={rec.id}
-										onClick={() => {
-											handleReplayRecording(rec)
-											setShowRecordings(false)
-										}}
-										className="flex items-center gap-2 w-full px-3 py-1.5 text-[11px] text-left hover:bg-[#1e2535] transition-colors">
-										<PlayCircle size={12} className="text-green-400 shrink-0" />
-										<div className="flex-1 min-w-0">
-											<div className="text-gray-300 truncate">{rec.name}</div>
-											<div className="text-[9px] text-gray-600">
-												{rec.commandCount} commands · {rec.duration}
-											</div>
-										</div>
+				<div className="flex flex-1 flex-col min-w-0">
+					<div className="flex-1 overflow-hidden flex flex-col min-h-0">
+						{openFiles.length > 0 && (
+							<div className="flex items-center border-b border-[#1e2535] bg-[#0f1117] overflow-x-auto">
+								{openFiles.map((f) => (
+									<button key={f.path} onClick={() => setActiveFilePath(f.path)} className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] border-r border-[#1e2535] transition-colors whitespace-nowrap ${activeFilePath === f.path ? "bg-[#1a2030] text-[#e2e8f0] border-t-2 border-t-violet-500" : "text-gray-500 hover:text-gray-300"}`}>
+										<FileText size={11} />{f.name}{f.modified && <span className="text-orange-400 text-[9px]">●</span>}
 									</button>
 								))}
 							</div>
 						)}
-
-						{/* Terminal input with Smart Autocomplete */}
-						<div className="flex items-center gap-1 px-2 py-1 border-t border-[#1e2535] bg-[#0f1117] shrink-0 relative">
-							{agentRunning && <Loader2 size={10} className="text-violet-400 animate-spin shrink-0" />}
-							<span className="text-[10px] text-green-400 shrink-0">
-								{terminalMode === "agent" ? "🤖" : terminalMode === "skill" ? "✨" : "$"}
-							</span>
-							<input
-								ref={terminalInputRef}
-								type="text"
-								value={terminalInput}
-								onChange={handleTerminalInputChange}
-								onKeyDown={handleTerminalKeyDown}
-								placeholder={
-									terminalMode === "agent" ? "Type /command or @agent..." : "Type a command..."
-								}
-								className="flex-1 bg-transparent border-none outline-none text-xs text-[#e2e8f0] placeholder-gray-600 font-mono"
-								disabled={agentRunning}
-							/>
-							{/* Agent suggestions (for / and @ prefixes) */}
-							{showAgentSuggestions && (
-								<div className="absolute bottom-full left-0 right-0 mb-1 mx-2 bg-[#0f1117] border border-[#1e2535] rounded shadow-lg z-10">
-									{agentSuggestions.map((s) => {
-										const cmd = agentCommands[s]
-										return (
-											<button
-												key={s}
-												onClick={() => {
-													setTerminalInput(s + " ")
-													setShowAgentSuggestions(false)
-													terminalInputRef.current?.focus()
-												}}
-												className="flex items-center gap-2 w-full px-3 py-1.5 text-[11px] text-left hover:bg-[#1e2535] transition-colors">
-												<span className="text-violet-400 font-semibold">{s}</span>
-												{cmd && <span className="text-gray-500">— {cmd.description}</span>}
-											</button>
-										)
-									})}
+						<div className="flex-1 overflow-y-auto bg-[#0a0d14] p-4">
+							{activeFilePath ? (
+								<pre className="text-[12px] font-mono text-gray-300 leading-relaxed whitespace-pre-wrap">{openFiles.find((f) => f.path === activeFilePath)?.content || "// No content"}</pre>
+							) : (
+								<div className="flex h-full items-center justify-center">
+									<div className="text-center text-gray-600"><Code2 size={32} className="mx-auto mb-2 opacity-30" /><p className="text-xs">Select a file from the explorer to view its contents</p></div>
 								</div>
 							)}
-							{/* Smart autocomplete suggestions */}
+						</div>
+					</div>
+
+					{pipeline.length > 0 && (
+						<div className="flex items-center gap-2 border-t border-b border-[#1e2535] bg-[#0f1117] px-3 py-1 overflow-x-auto">
+							<span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider shrink-0">Pipeline</span>
+							{pipeline.map((step) => (
+								<div key={step.id} className="flex items-center gap-1 text-[10px] text-gray-400 shrink-0">
+									<PipelineIcon status={step.status} /><span>{step.label}</span>
+									{step.duration && <span className="text-gray-600">({step.duration})</span>}
+									{step.status === "running" && <Loader2 size={8} className="text-blue-400 animate-spin" />}
+								</div>
+							))}
+						</div>
+					)}
+
+					<div className="border-t border-[#1e2535] bg-[#0a0d14] flex flex-col" style={{ height: isTerminalMaximized ? "100%" : terminalHeight }}>
+						<div className="flex items-center justify-between px-3 py-1 bg-[#0f1117] border-b border-[#1e2535] shrink-0">
+							<div className="flex items-center gap-2">
+								<Terminal size={11} className="text-green-400" />
+								<span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Terminal</span>
+								{agentRunning && <span className="flex items-center gap-1 text-[10px] text-violet-400"><Loader2 size={8} className="animate-spin" />Running {activeAgent}...</span>}
+								{isRecording && <span className="flex items-center gap-1 text-[10px] text-red-400"><span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />Recording</span>}
+							</div>
+							<div className="flex items-center gap-1">
+								<button onClick={isRecording ? handleStopRecording : handleStartRecording} className={`p-0.5 rounded transition-colors ${isRecording ? "text-red-400 hover:text-red-300" : "text-gray-500 hover:text-gray-300"}`} title={isRecording ? "Stop recording" : "Start recording"}><Mic size={11} /></button>
+								{recordings.length > 0 && <button onClick={() => setShowRecordings(!showRecordings)} className="p-0.5 text-gray-500 hover:text-gray-300 transition-colors" title="View recordings"><History size={11} /></button>}
+								<button onClick={() => setIsTerminalMaximized(!isTerminalMaximized)} className="p-0.5 text-gray-500 hover:text-gray-300 transition-colors" title={isTerminalMaximized ? "Minimize" : "Maximize"}>{isTerminalMaximized ? <Minimize2 size={11} /> : <Maximize2 size={11} />}</button>
+							</div>
+						</div>
+
+						<div ref={terminalRef} className="flex-1 overflow-y-auto p-2 font-mono text-[12px] leading-relaxed">
+							{outputBlocks.map((block, idx) => (
+								<div key={block.id} className={`group flex items-start gap-1.5 py-0.5 ${block.type === "command" ? "text-green-400" : block.type === "error" ? "text-red-400" : block.type === "success" ? "text-green-500" : block.type === "agent" ? "text-violet-400" : block.type === "info" ? "text-blue-400" : block.type === "divider" ? "text-gray-700" : "text-gray-300"}`}>
+									<button onClick={() => toggleBlockCollapse(block.id)} className="text-gray-600 hover:text-gray-400 shrink-0 mt-0.5"><ChevronRight size={10} className={collapsedBlocks.has(block.id) ? "" : "rotate-90"} /></button>
+									<span className="flex-1 min-w-0">{block.type === "command" && <span className="text-gray-500 mr-1">$</span>}{block.content}</span>
+									<button onClick={() => handleCopyTerminal(idx, block.content)} className="opacity-0 group-hover:opacity-100 text-gray-600 hover:text-gray-400 transition-all shrink-0 mt-0.5" title="Copy line">{copiedIndex === idx ? <Check size={10} className="text-green-400" /> : <Copy size={10} />}</button>
+								</div>
+							))}
+						</div>
+
+						<div className="relative border-t border-[#1e2535] px-3 py-1.5 bg-[#0f1117]">
+							{showAgentSuggestions && agentSuggestions.length > 0 && (
+								<div className="absolute bottom-full left-3 mb-1 bg-[#1a2030] border border-[#2a3344] rounded shadow-xl overflow-hidden">
+									{agentSuggestions.map((s) => (
+										<button key={s} onClick={() => { setTerminalInput(s + " "); setShowAgentSuggestions(false) }} className="block w-full text-left px-3 py-1 text-[11px] text-gray-300 hover:bg-[#253045] transition-colors">{s}</button>
+									))}
+								</div>
+							)}
 							{showSmartSuggestions && smartSuggestions.length > 0 && (
-								<div className="absolute bottom-full left-0 right-0 mb-1 mx-2 bg-[#0f1117] border border-[#1e2535] rounded shadow-lg z-10">
+								<div className="absolute bottom-full left-3 mb-1 bg-[#1a2030] border border-[#2a3344] rounded shadow-xl overflow-hidden min-w-[200px]">
 									{smartSuggestions.map((s, idx) => (
-										<button
-											key={`${s.type}-${s.text}`}
-											onClick={() => {
-												setTerminalInput(s.text + " ")
-												setShowSmartSuggestions(false)
-												setSelectedSuggestionIndex(-1)
-												terminalInputRef.current?.focus()
-											}}
-											className={`flex items-center gap-2 w-full px-3 py-1.5 text-[11px] text-left transition-colors ${
-												idx === selectedSuggestionIndex
-													? "bg-[#1e2535] text-white"
-													: "hover:bg-[#1e2535]"
-											}`}>
-											<span
-												className={`text-[10px] font-semibold shrink-0 ${
-													s.type === "command"
-														? "text-green-400"
-														: s.type === "agent"
-															? "text-violet-400"
-															: s.type === "recent"
-																? "text-blue-400"
-																: s.type === "ai"
-																	? "text-yellow-400"
-																	: "text-gray-400"
-												}`}>
-												{s.type === "command"
-													? "$"
-													: s.type === "agent"
-														? "@"
-														: s.type === "recent"
-															? "↻"
-															: s.type === "ai"
-																? "✦"
-																: "•"}
-											</span>
-											<span className="flex-1 text-left">
-												<span className="text-gray-200">{s.text}</span>
-												<span className="ml-2 text-[9px] text-gray-500">{s.description}</span>
-											</span>
-											<span className="text-[8px] text-gray-600 uppercase">{s.type}</span>
+										<button key={s.text + idx} onClick={() => { setTerminalInput(s.text + " "); setShowSmartSuggestions(false); setSelectedSuggestionIndex(-1) }} className={`block w-full text-left px-3 py-1.5 text-[11px] transition-colors ${idx === selectedSuggestionIndex ? "bg-violet-500/20 text-violet-300" : "text-gray-300 hover:bg-[#253045]"}`}>
+											<span className="font-medium">{s.text}</span><span className="text-gray-500 ml-2">{s.description}</span>
 										</button>
 									))}
 								</div>
 							)}
+							<div className="flex items-center gap-2">
+								<span className="text-green-400 text-[11px] font-mono shrink-0">$</span>
+								<input ref={terminalInputRef} type="text" value={terminalInput} onChange={handleTerminalInputChange} onKeyDown={handleTerminalKeyDown} placeholder="Type a command or / for agents..." className="flex-1 bg-transparent text-[12px] text-gray-300 placeholder-gray-600 outline-none font-mono" autoFocus />
+							</div>
 						</div>
 					</div>
+				</div>
 
-					{/* Chat area */}
-					<div
-						className="border-t border-[#1e2535] bg-[#0a0e1a] flex flex-col shrink-0"
-						style={{ height: "200px" }}>
-						<div className="flex items-center justify-between px-3 py-1 border-b border-[#1e2535] shrink-0">
-							<div className="flex items-center gap-2">
-								<MessageSquare size={12} className="text-gray-500" />
-								<span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
-									Chat
-								</span>
-							</div>
-							<div className="flex items-center gap-1">
-								{["Auto", "Plan", "Code", "Debug", "Review", "Crawl"].map((mode) => (
-									<button
-										key={mode}
-										onClick={() => setActiveMode(mode)}
-										className={`px-1.5 py-0.5 text-[10px] rounded transition-colors ${activeMode === mode ? "bg-violet-600/30 text-violet-300" : "text-gray-500 hover:text-gray-300"}`}>
-										{mode}
-									</button>
-								))}
-							</div>
+				{showAiPanel && (
+					<aside className="w-80 border-l border-[#1e2535] bg-[#0f1117] flex flex-col shrink-0">
+						<div className="flex items-center justify-between px-3 py-1.5 border-b border-[#1e2535]">
+							<div className="flex items-center gap-2"><Brain size={12} className="text-violet-400" /><span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">AI Assistant</span></div>
+							<button onClick={() => setShowAiPanel(false)} className="text-gray-500 hover:text-gray-300 transition-colors" title="Close panel"><PanelRightClose size={11} /></button>
 						</div>
-						<div className="flex-1 overflow-y-auto px-3 py-2 space-y-2">
-							{messages.length === 0 && (
-								<div className="flex items-center justify-center h-full text-[11px] text-gray-600">
-									Start a conversation or use the terminal to execute commands
-								</div>
-							)}
-							{messages.map((m) => (
-								<div key={m.id} className="text-[11px]">
-									<div className="flex items-center gap-2 mb-0.5">
-										<span
-											className={`font-semibold ${m.role === "user" ? "text-blue-400" : m.role === "agent" ? "text-violet-400" : "text-gray-400"}`}>
-											{m.author}
-										</span>
-										{m.meta && <span className="text-[9px] text-gray-600">{m.meta}</span>}
-										<span className="text-[9px] text-gray-700 ml-auto">{m.time}</span>
-									</div>
-									<p className="text-gray-400 leading-relaxed whitespace-pre-wrap">{m.content}</p>
-									{m.attachments && m.attachments.length > 0 && (
-										<div className="flex flex-wrap gap-1 mt-1">
-											{m.attachments.map((a) => (
-												<span
-													key={a.id}
-													className="px-1.5 py-0.5 text-[9px] rounded bg-[#1e2535] text-gray-400">
-													{a.filename}
-												</span>
-											))}
-										</div>
+
+						<div className="flex border-b border-[#1e2535] bg-[#0a0d14]">
+							{["chat", "plan", "memory", "deploy"].map((tab) => (
+								<button key={tab} onClick={() => setAiTab(tab)} className={`flex-1 px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider transition-colors ${aiTab === tab ? "text-violet-400 border-b-2 border-violet-500 bg-[#1a2030]" : "text-gray-600 hover:text-gray-400"}`}>
+									{tab === "chat" && <MessageSquare size={11} className="inline mr-1" />}
+									{tab === "plan" && <GitBranch size={11} className="inline mr-1" />}
+									{tab === "memory" && <Database size={11} className="inline mr-1" />}
+									{tab === "deploy" && <Rocket size={11} className="inline mr-1" />}
+									{tab}
+								</button>
+							))}
+						</div>
+
+						{aiTab === "chat" && (
+							<>
+								<div className="flex-1 overflow-y-auto p-3 space-y-3">
+									{aiMessages.length === 0 && (
+										<div className="text-center text-gray-600 mt-8"><Bot size={24} className="mx-auto mb-2 opacity-30" /><p className="text-[11px]">Ask me anything about your code</p><p className="text-[10px] text-gray-700 mt-1">Use @agent to delegate tasks</p></div>
 									)}
+									{aiMessages.map((msg) => (
+										<div key={msg.id} className="space-y-1">
+											<div className="flex items-center justify-between">
+												<div className="flex items-center gap-1.5">
+													{msg.role === "user" ? <User size={10} className="text-blue-400" /> : <Bot size={10} className={msg.role === "agent" ? "text-violet-400" : "text-gray-500"} />}
+													<span className="text-[10px] font-medium text-gray-400">{msg.author}</span>
+													{msg.meta && <span className="text-[9px] text-gray-600">({msg.meta})</span>}
+												</div>
+												<span className="text-[9px] text-gray-700">{msg.time}</span>
+											</div>
+											<p className="text-[12px] text-gray-300 leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+											{msg.attachments && msg.attachments.length > 0 && (
+												<div className="flex flex-wrap gap-1 mt-1">{msg.attachments.map((att) => (<span key={att.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] bg-[#1e2535] text-gray-400 rounded"><Paperclip size={8} />{att.filename}</span>))}</div>
+											)}
+										</div>
+									))}
+									{aiSending && <div className="flex items-center gap-2 text-gray-500"><Loader2 size={10} className="animate-spin" /><span className="text-[10px]">Thinking...</span></div>}
+									<div ref={aiMessagesEndRef} />
+								</div>
+
+								{aiAttachments.length > 0 && (
+									<div className="flex flex-wrap gap-1 px-3 py-1.5 border-t border-[#1e2535] bg-[#0a0d14]">
+										{aiAttachments.map((att) => (
+											<span key={att.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] bg-[#1e2535] text-gray-400 rounded"><Paperclip size={8} />{att.filename}<button onClick={() => removeAttachment(att.id)} className="text-gray-600 hover:text-gray-400 ml-0.5"><X size={8} /></button></span>
+										))}
+									</div>
+								)}
+
+								<div className="border-t border-[#1e2535] px-3 py-2 bg-[#0a0d14]">
+									<div className="flex items-end gap-2">
+										<div className="flex-1 relative">
+											<textarea value={aiInput} onChange={(e) => setAiInput(e.target.value)} onKeyDown={handleAiKeyDown} placeholder="Ask AI or @agent for help..." rows={2} className="w-full bg-[#1e2535] text-[12px] text-gray-300 placeholder-gray-600 border border-[#2a3344] rounded px-2.5 py-1.5 outline-none resize-none" />
+										</div>
+										<button onClick={handleAiSend} disabled={aiSending || (!aiInput.trim() && aiAttachments.length === 0)} className="p-1.5 bg-violet-600 hover:bg-violet-500 disabled:bg-[#1e2535] disabled:text-gray-600 text-white rounded transition-colors" title="Send"><Send size={12} /></button>
+									</div>
+									<div className="flex items-center gap-2 mt-1.5">
+										<button onClick={() => fileInputRef.current?.click()} className="text-gray-600 hover:text-gray-400 transition-colors" title="Attach file"><Paperclip size={10} /></button>
+										<button onClick={() => imageInputRef.current?.click()} className="text-gray-600 hover:text-gray-400 transition-colors" title="Attach image"><Image size={10} /></button>
+										<input ref={fileInputRef} type="file" multiple onChange={handleFilesSelected} className="hidden" />
+										<input ref={imageInputRef} type="file" accept="image/*" multiple onChange={handleImagesSelected} className="hidden" />
+									</div>
+								</div>
+							</>
+						)}
+
+						{aiTab === "plan" && (
+							<div className="flex-1 overflow-y-auto p-3 space-y-3">
+								{brainLoading ? (
+									<div className="flex items-center justify-center py-8"><Loader2 size={16} className="text-violet-400 animate-spin" /></div>
+								) : brainPlan.length > 0 ? (
+									<><div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-2">Execution Plan</div>
+										{brainPlan.map((step, idx) => (
+											<div key={idx} className="flex items-start gap-2 text-[11px]">
+												<span className="text-gray-600 font-mono shrink-0">{idx + 1}.</span>
+												<div><code className="text-green-400 text-[10px]">{step.command}</code>{step.description && <p className="text-gray-500 mt-0.5">{step.description}</p>}</div>
+											</div>
+										))}
+									</>
+								) : (
+									<div className="text-center text-gray-600 mt-8"><GitBranch size={24} className="mx-auto mb-2 opacity-30" /><p className="text-[11px]">No active plan</p><p className="text-[10px] text-gray-700 mt-1">Ask the AI to create a plan</p></div>
+								)}
+								{brainFeedback && (
+									<div className="border-t border-[#1e2535] pt-3 mt-3">
+										<div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-2">Feedback</div>
+										<p className="text-[11px] text-gray-400">{brainFeedback.output}</p>
+									</div>
+								)}
+							</div>
+						)}
+
+						{aiTab === "memory" && (
+							<div className="flex-1 overflow-y-auto p-3 space-y-3">
+								{brainMemory ? (
+									<><div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-2">Session Stats</div>
+										<div className="grid grid-cols-2 gap-2">
+											<div className="bg-[#1a2030] rounded p-2"><div className="text-[18px] font-bold text-gray-300">{brainMemory.stats?.totalSessions ?? 0}</div><div className="text-[9px] text-gray-600">Sessions</div></div>
+											<div className="bg-[#1a2030] rounded p-2"><div className="text-[18px] font-bold text-gray-300">{brainMemory.stats?.totalCommands ?? 0}</div><div className="text-[9px] text-gray-600">Commands</div></div>
+											<div className="bg-[#1a2030] rounded p-2"><div className="text-[18px] font-bold text-gray-300">{brainMemory.stats?.totalErrors ?? 0}</div><div className="text-[9px] text-gray-600">Errors</div></div>
+											<div className="bg-[#1a2030] rounded p-2"><div className="text-[18px] font-bold text-gray-300">{brainMemory.stats?.successRate ? `${(brainMemory.stats.successRate * 100).toFixed(0)}%` : "0%"}</div><div className="text-[9px] text-gray-600">Success Rate</div></div>
+										</div>
+										{brainMemory.commands && brainMemory.commands.length > 0 && (
+											<><div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mt-3 mb-2">Recent Commands</div>
+												<div className="space-y-1">{brainMemory.commands.slice(0, 10).map((cmd, idx) => (
+													<div key={idx} className="flex items-center justify-between text-[10px]"><span className="text-gray-400 truncate font-mono">{cmd.command}</span><span className={`shrink-0 ml-2 ${cmd.status === "success" ? "text-green-500" : "text-red-500"}`}>{cmd.status}</span></div>
+												))}</div>
+											</>
+										)}
+									</>
+								) : (
+									<div className="text-center text-gray-600 mt-8"><Database size={24} className="mx-auto mb-2 opacity-30" /><p className="text-[11px]">No memory data available</p></div>
+								)}
+							</div>
+						)}
+
+						{aiTab === "deploy" && (
+							<div className="flex-1 overflow-y-auto p-3 space-y-3">
+								{brainDeployments.length > 0 ? (
+									<><div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-2">Recent Deployments</div>
+										{brainDeployments.map((dep, idx) => (
+											<div key={idx} className="flex items-center justify-between text-[11px] py-1 border-b border-[#1e2535] last:border-0">
+												<div className="flex items-center gap-2">
+													{dep.status === "success" ? <CheckCircle2 size={10} className="text-green-400" /> : dep.status === "failed" ? <XCircle size={10} className="text-red-400" /> : <Loader2 size={10} className="text-blue-400 animate-spin" />}
+													<span className="text-gray-300">{dep.version || "v1.0"}</span>
+												</div>
+												<span className="text-gray-600">{dep.timestamp || dep.time || ""}</span>
+											</div>
+										))}
+									</>
+								) : (
+									<div className="text-center text-gray-600 mt-8"><Rocket size={24} className="mx-auto mb-2 opacity-30" /><p className="text-[11px]">No deployments yet</p></div>
+								)}
+							</div>
+						)}
+					</aside>
+				)}
+			</div>
+
+			{showShortcuts && <KeyboardShortcutsModal onClose={() => setShowShortcuts(false)} />}
+			{showRecordings && recordings.length > 0 && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowRecordings(false)}>
+					<div className="bg-[#0f1117] border border-[#1e2535] rounded-lg p-4 w-full max-w-md mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+						<div className="flex items-center justify-between mb-3">
+							<div className="flex items-center gap-2"><History size={14} className="text-violet-400" /><span className="text-sm font-semibold text-[#e2e8f0]">Terminal Recordings</span></div>
+							<button onClick={() => setShowRecordings(false)} className="text-gray-500 hover:text-gray-300"><X size={14} /></button>
+						</div>
+						<div className="space-y-2 max-h-60 overflow-y-auto">
+							{recordings.map((rec) => (
+								<div key={rec.id} className="flex items-center justify-between p-2 bg-[#1a2030] rounded">
+									<div><div className="text-[11px] text-gray-300 font-medium">{rec.name}</div><div className="text-[9px] text-gray-600">{rec.commandCount} commands · {rec.duration}</div></div>
+									<button onClick={() => { handleReplayRecording(rec); setShowRecordings(false) }} className="text-[10px] text-violet-400 hover:text-violet-300 transition-colors">Replay</button>
 								</div>
 							))}
-							<div ref={messagesEndRef} />
-						</div>
-						<div className="border-t border-[#1e2535] bg-[#0f1117] px-3 py-2 shrink-0">
-							{attachments.length > 0 && (
-								<div className="flex flex-wrap gap-1 mb-1">
-									{attachments.map((a) => (
-										<span
-											key={a.id}
-											className="flex items-center gap-1 px-1.5 py-0.5 text-[9px] rounded bg-[#1e2535] text-gray-400">
-											<Paperclip size={9} />
-											{a.filename}
-											<button
-												onClick={() => removeAttachment(a.id)}
-												className="text-gray-600 hover:text-gray-300">
-												<X size={9} />
-											</button>
-										</span>
-									))}
-								</div>
-							)}
-							<div className="flex items-center gap-2">
-								<textarea
-									value={input}
-									onChange={(e) => setInput(e.target.value)}
-									onKeyDown={handleKeyDown}
-									placeholder="Type a message... (Ctrl+Enter to send)"
-									className="flex-1 bg-[#0a0e1a] border border-[#1e2535] rounded px-2 py-1 text-xs text-[#e2e8f0] placeholder-gray-600 resize-none outline-none focus:border-violet-500/50 transition-colors"
-									rows={1}
-								/>
-								<div className="flex items-center gap-1">
-									<button
-										onClick={handleFileAttach}
-										className="p-1 text-gray-500 hover:text-gray-300 rounded hover:bg-[#1e2535] transition-colors"
-										title="Attach file">
-										<Paperclip size={13} />
-									</button>
-									<button
-										onClick={handleImageAttach}
-										className="p-1 text-gray-500 hover:text-gray-300 rounded hover:bg-[#1e2535] transition-colors"
-										title="Attach image">
-										<Image size={13} />
-									</button>
-									<button
-										onClick={handleSend}
-										disabled={sending || (!input.trim() && attachments.length === 0)}
-										className="p-1 text-violet-400 hover:text-violet-300 rounded hover:bg-[#1e2535] transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
-										{sending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
-									</button>
-								</div>
-							</div>
 						</div>
 					</div>
-				</main>
-
-				{/* Right sidebar: Terminal Brain */}
-				<aside className="w-72 shrink-0 border-l border-[#1e2535] bg-[#0a0e1a] flex flex-col overflow-y-auto">
-					<div className="flex items-center border-b border-[#1e2535] bg-[#0f1117] overflow-x-auto shrink-0">
-						{[
-							{ id: "command", label: "🧠 AI", badge: 0 },
-							{ id: "errors", label: "❌ Errors", badge: brainErrors.length },
-							{ id: "fixplan", label: "🔧 Fix", badge: brainFixes.length },
-							{ id: "memory", label: "💾 Mem", badge: 0 },
-							{ id: "deploy", label: "🚀 Deploy", badge: 0 },
-							{ id: "approvals", label: "🔐 Approve", badge: brainApprovals.length },
-						].map((tab) => (
-							<button
-								key={tab.id}
-								onClick={() => setBrainTab(tab.id)}
-								className={`relative flex items-center gap-1 px-2 py-1.5 text-[10px] border-r border-[#1e2535] transition-colors whitespace-nowrap ${brainTab === tab.id ? "bg-[#1e2535] text-[#e2e8f0]" : "text-gray-500 hover:text-gray-300"}`}>
-								<span>{tab.label}</span>
-								{tab.badge > 0 && (
-									<span className="inline-flex items-center justify-center min-w-[14px] h-[14px] px-1 text-[9px] font-bold rounded-full bg-red-500/20 text-red-400">
-										{tab.badge}
-									</span>
-								)}
-							</button>
-						))}
-					</div>
-
-					{/* AI Command tab */}
-					{brainTab === "command" && (
-						<div className="flex flex-col flex-1 p-2 space-y-2">
-							<div className="flex items-center gap-1.5">
-								<Brain size={14} className="text-violet-400 shrink-0" />
-								<span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
-									AI Command
-								</span>
-							</div>
-							<div className="flex gap-1">
-								<input
-									type="text"
-									value={brainInput}
-									onChange={(e) => setBrainInput(e.target.value)}
-									onKeyDown={handleBrainKeyDown}
-									placeholder="Describe what to do..."
-									className="flex-1 bg-[#0f1117] border border-[#1e2535] rounded px-2 py-1 text-[11px] text-[#e2e8f0] placeholder-gray-600 outline-none focus:border-violet-500/50 transition-colors"
-									disabled={brainLoading}
-								/>
-								<button
-									onClick={handleBrainSend}
-									disabled={brainLoading || !brainInput.trim()}
-									className="px-2 py-1 bg-violet-600/30 text-violet-300 rounded text-[10px] hover:bg-violet-600/50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
-									{brainLoading ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} />}
-								</button>
-							</div>
-							{brainPlan.length > 0 && (
-								<div className="bg-[#0f1117] border border-[#1e2535] rounded p-2">
-									<span className="text-[9px] font-semibold text-gray-500 uppercase tracking-wider mb-1 block">
-										Plan
-									</span>
-									<div className="space-y-1">
-										{brainPlan.map((step, i) => (
-											<div key={i} className="flex items-start gap-1.5 text-[10px]">
-												<span className="text-violet-400 font-mono shrink-0 mt-0.5">
-													{i + 1}.
-												</span>
-												<div>
-													<code className="text-green-400 font-mono">{step.command}</code>
-													{step.description && (
-														<p className="text-gray-500 mt-0.5">{step.description}</p>
-													)}
-												</div>
-											</div>
-										))}
-									</div>
-								</div>
-							)}
-							{brainFeedback && (
-								<div className="flex-1 bg-[#0f1117] border border-[#1e2535] rounded p-2 overflow-y-auto">
-									<span className="text-[9px] font-semibold text-gray-500 uppercase tracking-wider mb-1 block">
-										Output
-									</span>
-									<pre className="font-mono text-[10px] leading-relaxed whitespace-pre-wrap break-all text-gray-400">
-										{brainFeedback.output}
-									</pre>
-								</div>
-							)}
-							{brainContext && (
-								<div className="bg-[#0f1117] border border-[#1e2535] rounded p-2">
-									<span className="text-[9px] font-semibold text-gray-500 uppercase tracking-wider mb-1 block">
-										Context
-									</span>
-									<div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px]">
-										{brainContext.framework && (
-											<>
-												<span className="text-gray-500">Framework</span>
-												<span className="text-gray-300 text-right">
-													{brainContext.framework}
-												</span>
-											</>
-										)}
-										{brainContext.packageManager && (
-											<>
-												<span className="text-gray-500">PM</span>
-												<span className="text-gray-300 text-right">
-													{brainContext.packageManager}
-												</span>
-											</>
-										)}
-										{brainContext.nodeVersion && (
-											<>
-												<span className="text-gray-500">Node</span>
-												<span className="text-gray-300 text-right">
-													{brainContext.nodeVersion}
-												</span>
-											</>
-										)}
-										{brainContext.port && (
-											<>
-												<span className="text-gray-500">Port</span>
-												<span className="text-gray-300 text-right">{brainContext.port}</span>
-											</>
-										)}
-										{brainContext.branch && (
-											<>
-												<span className="text-gray-500">Branch</span>
-												<span className="text-gray-300 text-right">{brainContext.branch}</span>
-											</>
-										)}
-										{brainContext.hasDocker !== undefined && (
-											<>
-												<span className="text-gray-500">Docker</span>
-												<span
-													className={`text-right ${brainContext.hasDocker ? "text-green-400" : "text-gray-600"}`}>
-													{brainContext.hasDocker ? "✓" : "✗"}
-												</span>
-											</>
-										)}
-										{brainContext.hasTypeScript !== undefined && (
-											<>
-												<span className="text-gray-500">TS</span>
-												<span
-													className={`text-right ${brainContext.hasTypeScript ? "text-green-400" : "text-gray-600"}`}>
-													{brainContext.hasTypeScript ? "✓" : "✗"}
-												</span>
-											</>
-										)}
-									</div>
-								</div>
-							)}
-						</div>
-					)}
-
-					{/* Errors tab */}
-					{brainTab === "errors" && (
-						<div className="flex flex-col flex-1 p-2 space-y-2">
-							<div className="flex items-center gap-1.5">
-								<Bug size={14} className="text-red-400 shrink-0" />
-								<span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
-									Error Analysis
-								</span>
-							</div>
-							{brainErrors.length === 0 ? (
-								<div className="flex items-center justify-center flex-1 text-[11px] text-gray-600">
-									No errors detected
-								</div>
-							) : (
-								<div className="flex-1 overflow-y-auto space-y-2">
-									{brainErrors.map((err, i) => (
-										<div key={i} className="bg-[#0f1117] border border-red-900/30 rounded p-2">
-											<div className="flex items-center gap-1.5 mb-1">
-												<span className="px-1 py-0.5 text-[9px] font-bold rounded bg-red-500/20 text-red-400 uppercase">
-													{err.type}
-												</span>
-												{err.confidence !== undefined && (
-													<span className="text-[9px] text-gray-500">
-														{Math.round(err.confidence * 100)}%
-													</span>
-												)}
-											</div>
-											<p className="text-[10px] text-gray-300 mb-1">{err.message}</p>
-											{err.rootCause && (
-												<p className="text-[9px] text-gray-500">Root: {err.rootCause}</p>
-											)}
-											{err.fix && (
-												<p className="text-[9px] text-green-400 mt-1">Fix: {err.fix}</p>
-											)}
-										</div>
-									))}
-								</div>
-							)}
-						</div>
-					)}
-
-					{/* Fix Plan tab */}
-					{brainTab === "fixplan" && (
-						<div className="flex flex-col flex-1 p-2 space-y-2">
-							<div className="flex items-center gap-1.5">
-								<Wand2 size={14} className="text-green-400 shrink-0" />
-								<span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
-									Fix Suggestions
-								</span>
-							</div>
-							{brainFixes.length === 0 ? (
-								<div className="flex items-center justify-center flex-1 text-[11px] text-gray-600">
-									No fixes suggested
-								</div>
-							) : (
-								<div className="flex-1 overflow-y-auto space-y-2">
-									{brainFixes.map((fix, i) => (
-										<div key={i} className="bg-[#0f1117] border border-green-900/30 rounded p-2">
-											{fix.title && (
-												<p className="text-[10px] font-semibold text-green-400 mb-1">
-													{fix.title}
-												</p>
-											)}
-											{fix.type && (
-												<span className="px-1 py-0.5 text-[9px] rounded bg-green-500/20 text-green-400">
-													{fix.type}
-												</span>
-											)}
-											{fix.description && (
-												<p className="text-[10px] text-gray-300 mt-1">{fix.description}</p>
-											)}
-											{fix.fix && (
-												<pre className="mt-1 p-1 bg-[#0a0e1a] rounded text-[9px] font-mono text-green-400/80 overflow-x-auto">
-													{fix.fix}
-												</pre>
-											)}
-											{fix.message && (
-												<p className="text-[10px] text-gray-400 mt-1">{fix.message}</p>
-											)}
-										</div>
-									))}
-								</div>
-							)}
-						</div>
-					)}
-
-					{/* Memory tab */}
-					{brainTab === "memory" && (
-						<div className="flex flex-col flex-1 p-2 space-y-2">
-							<div className="flex items-center gap-1.5">
-								<Database size={14} className="text-blue-400 shrink-0" />
-								<span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
-									Terminal Memory
-								</span>
-							</div>
-							{brainMemory?.stats ? (
-								<div className="grid grid-cols-2 gap-2">
-									<div className="bg-[#0f1117] border border-[#1e2535] rounded p-2 text-center">
-										<div className="text-lg font-bold text-violet-400">
-											{brainMemory.stats.totalSessions}
-										</div>
-										<div className="text-[9px] text-gray-500">Sessions</div>
-									</div>
-									<div className="bg-[#0f1117] border border-[#1e2535] rounded p-2 text-center">
-										<div className="text-lg font-bold text-blue-400">
-											{brainMemory.stats.totalCommands}
-										</div>
-										<div className="text-[9px] text-gray-500">Commands</div>
-									</div>
-									<div className="bg-[#0f1117] border border-[#1e2535] rounded p-2 text-center">
-										<div className="text-lg font-bold text-red-400">
-											{brainMemory.stats.totalErrors}
-										</div>
-										<div className="text-[9px] text-gray-500">Errors</div>
-									</div>
-									<div className="bg-[#0f1117] border border-[#1e2535] rounded p-2 text-center">
-										<div className="text-lg font-bold text-green-400">
-											{brainMemory.stats.successRate}%
-										</div>
-										<div className="text-[9px] text-gray-500">Success</div>
-									</div>
-								</div>
-							) : (
-								<div className="flex items-center justify-center flex-1 text-[11px] text-gray-600">
-									No memory data available
-								</div>
-							)}
-							{brainMemory?.commands && brainMemory.commands.length > 0 && (
-								<div className="flex-1 overflow-y-auto">
-									<span className="text-[9px] font-semibold text-gray-500 uppercase tracking-wider mb-1 block">
-										Recent Commands
-									</span>
-									<div className="space-y-1">
-										{brainMemory.commands.slice(0, 10).map((c, i) => (
-											<div key={i} className="flex items-center gap-1.5 text-[10px]">
-												<span
-													className={`w-1.5 h-1.5 rounded-full shrink-0 ${c.status === "done" ? "bg-green-400" : c.status === "error" ? "bg-red-400" : "bg-gray-600"}`}
-												/>
-												<code className="text-gray-300 font-mono truncate">{c.command}</code>
-												{c.timestamp && (
-													<span className="text-[8px] text-gray-600 ml-auto">
-														{c.timestamp}
-													</span>
-												)}
-											</div>
-										))}
-									</div>
-								</div>
-							)}
-						</div>
-					)}
-
-					{/* Deploy tab */}
-					{brainTab === "deploy" && (
-						<div className="flex flex-col flex-1 p-2 space-y-2">
-							<div className="flex items-center gap-1.5">
-								<Rocket size={14} className="text-orange-400 shrink-0" />
-								<span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
-									Deployments
-								</span>
-							</div>
-							{brainDeployments.length === 0 ? (
-								<div className="flex items-center justify-center flex-1 text-[11px] text-gray-600">
-									No deployments yet
-								</div>
-							) : (
-								<div className="flex-1 overflow-y-auto space-y-1">
-									{brainDeployments.map((d, i) => (
-										<div key={i} className="bg-[#0f1117] border border-[#1e2535] rounded p-2">
-											<div className="flex items-center gap-1.5 mb-1">
-												<span
-													className={`px-1 py-0.5 text-[9px] font-bold rounded ${d.status === "healthy" ? "bg-green-500/20 text-green-400" : d.status === "deploying" ? "bg-blue-500/20 text-blue-400" : "bg-red-500/20 text-red-400"}`}>
-													{d.status}
-												</span>
-												{d.version && (
-													<span className="text-[10px] text-gray-300">{d.version}</span>
-												)}
-											</div>
-											{d.agent && <p className="text-[9px] text-gray-500">Agent: {d.agent}</p>}
-											{(d.timestamp || d.time) && (
-												<p className="text-[9px] text-gray-600">{d.timestamp || d.time}</p>
-											)}
-										</div>
-									))}
-								</div>
-							)}
-						</div>
-					)}
-
-					{/* Approvals tab */}
-					{brainTab === "approvals" && (
-						<div className="flex flex-col flex-1 p-2 space-y-2">
-							<div className="flex items-center gap-1.5">
-								<Shield size={14} className="text-yellow-400 shrink-0" />
-								<span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
-									Pending Approvals
-								</span>
-							</div>
-							{brainApprovals.length === 0 ? (
-								<div className="flex items-center justify-center flex-1 text-[11px] text-gray-600">
-									No pending approvals
-								</div>
-							) : (
-								<div className="flex-1 overflow-y-auto space-y-2">
-									{brainApprovals.map((a, i) => (
-										<div key={i} className="bg-[#0f1117] border border-yellow-900/30 rounded p-2">
-											<p className="text-[10px] text-gray-300 mb-1">
-												{a.message || a.reason || "Approve this action?"}
-											</p>
-											<code className="text-[10px] text-green-400 font-mono block mb-2">
-												{a.command || a.action}
-											</code>
-											<div className="flex gap-1">
-												<button
-													onClick={() => handleApproveAction(i)}
-													className="flex-1 px-2 py-1 text-[9px] bg-green-600/30 text-green-400 rounded hover:bg-green-600/50 transition-colors">
-													Approve
-												</button>
-												<button
-													onClick={() => handleRejectAction(i)}
-													className="flex-1 px-2 py-1 text-[9px] bg-red-600/30 text-red-400 rounded hover:bg-red-600/50 transition-colors">
-													Reject
-												</button>
-											</div>
-										</div>
-									))}
-								</div>
-							)}
-						</div>
-					)}
-				</aside>
-			</section>
+				</div>
+			)}
 		</div>
 	)
 }
