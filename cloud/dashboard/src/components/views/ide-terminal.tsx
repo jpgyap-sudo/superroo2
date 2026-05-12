@@ -59,7 +59,6 @@ import {
 	PanelRight,
 	Maximize2,
 	Minimize2,
-	// New icons for IDE chat improvements
 	Github,
 	Globe,
 	FileCode,
@@ -86,7 +85,6 @@ import {
 	RotateCcw,
 	FolderGit2,
 	GitFork,
-	// Icons for 8 new functions
 	FilePlus2,
 	Terminal as TerminalIcon2,
 	Slash,
@@ -96,80 +94,27 @@ import {
 	Eye,
 	Columns,
 } from "lucide-react"
+import {
+	useIde,
+	type WorkspaceFile,
+	type PipelineStep,
+	type ChatMessage,
+	type OutputBlock,
+	type TerminalRecording,
+	type WorkspaceStatus,
+	type OpenFile,
+	type TerminalSession,
+	type ChatAttachment,
+	type RecentWorkspace,
+	type WorkspaceTask,
+} from "@/lib/ide-store"
 
-// ─── Types ────────────────────────────────────────────────────────────────
-
-interface WorkspaceFile {
-	path: string
-	name: string
-	kind: "file" | "folder"
-	modified?: boolean
-	children?: WorkspaceFile[]
-}
-
-interface PipelineStep {
-	id: string
-	label: string
-	status: "pending" | "running" | "done" | "approval" | "blocked" | "failed"
-	agent?: string
-	duration?: string
-}
-
-interface ChatAttachment {
-	id: string
-	filename: string
-	type: string
-	size: string
-}
-
-interface ChatMessage {
-	id: string
-	role: "user" | "assistant" | "agent"
-	author: string
-	meta?: string
-	time: string
-	content: string
-	attachments?: ChatAttachment[]
-}
-
-interface TerminalSession {
-	id: string
-	name: string
-	cwd: string
-	output: string[]
-}
-
-// ── Block-Based Output Types ──────────────────────────────────────────────
-
-interface OutputBlock {
-	id: string
-	type: "command" | "output" | "error" | "success" | "info" | "agent" | "divider"
-	content: string
-	command?: string
-	timestamp: string
-}
+// ── Types (local only) ────────────────────────────────────────────────────
 
 interface AutocompleteSuggestion {
 	text: string
 	description: string
 	type: "command" | "agent" | "recent" | "ai"
-}
-
-interface TerminalRecording {
-	id: string
-	name: string
-	blocks: OutputBlock[]
-	commandCount: number
-	duration: string
-	createdAt: string
-}
-
-interface WorkspaceStatus {
-	connected: boolean
-	docker: boolean
-	redis: boolean
-	cpu: string
-	ram: string
 }
 
 interface BrainPlanStep {
@@ -527,7 +472,9 @@ function renderMessageContent(content: string): React.ReactNode[] {
 
 		const language = match[1] || "text"
 		const code = match[2].trim()
-		const isShellLanguage = ["bash", "sh", "shell", "terminal", "cmd", "powershell", "docker", "zsh"].includes(language.toLowerCase())
+		const isShellLanguage = ["bash", "sh", "shell", "terminal", "cmd", "powershell", "docker", "zsh"].includes(
+			language.toLowerCase(),
+		)
 		nodes.push(
 			<div key={key++} className="my-2 rounded border border-[#1e2535] overflow-hidden">
 				<div className="flex items-center justify-between bg-[#1a2030] px-3 py-1 border-b border-[#1e2535]">
@@ -614,22 +561,37 @@ function renderInlineContent(text: string, baseKey: number): React.ReactNode[] {
 	return nodes
 }
 
-function renderTextWithLinks(text: string, key: number): React.ReactNode[] {
+/** Render inline markdown formatting: bold, italic, strikethrough, inline code, and links */
+function renderFormattedText(text: string, key: number): React.ReactNode[] {
 	const nodes: React.ReactNode[] = []
-	let localKey = key * 10000
+	let localKey = key * 100000
 
-	// Match file paths and URLs: /path/to/file.ext or https://...
-	const linkRegex = /(\/[a-zA-Z0-9_\-./]+[a-zA-Z0-9_]|[a-zA-Z]+:\/\/[^\s]+)/g
-	let linkMatch: RegExpExecArray | null
+	// Combined regex for inline formatting tokens (ordered by priority)
+	// Order: inline code > links > bold > italic > strikethrough
+	const inlineRegex =
+		/(`[^`]+`)|(\/[a-zA-Z0-9_\-./]+[a-zA-Z0-9_])|([a-zA-Z]+:\/\/[^\s]+)|(\*\*([^*]+)\*\*)|(__([^_]+)__)|(\*([^*]+)\*)|(_([^_]+)_)|(~~([^~]+)~~)/g
+
+	let match: RegExpExecArray | null
 	let lastIdx = 0
 
-	while ((linkMatch = linkRegex.exec(text)) !== null) {
-		if (linkMatch.index > lastIdx) {
-			nodes.push(<span key={localKey++}>{text.slice(lastIdx, linkMatch.index)}</span>)
+	while ((match = inlineRegex.exec(text)) !== null) {
+		// Plain text before this match
+		if (match.index > lastIdx) {
+			nodes.push(<span key={localKey++}>{text.slice(lastIdx, match.index)}</span>)
 		}
-		const url = linkMatch[1]
-		const isFilePath = url.startsWith("/") || url.startsWith("./") || url.startsWith("../")
-		if (isFilePath) {
+
+		if (match[1] !== undefined) {
+			// Inline code: `code`
+			nodes.push(
+				<code
+					key={localKey++}
+					className="px-1 py-0.5 text-[11px] font-mono bg-[#1a2030] text-green-300 rounded border border-[#1e2535]">
+					{match[1].slice(1, -1)}
+				</code>,
+			)
+		} else if (match[2] !== undefined) {
+			// File path link
+			const url = match[2]
 			nodes.push(
 				<button
 					key={localKey++}
@@ -640,7 +602,9 @@ function renderTextWithLinks(text: string, key: number): React.ReactNode[] {
 					{url}
 				</button>,
 			)
-		} else {
+		} else if (match[3] !== undefined) {
+			// URL link
+			const url = match[3]
 			nodes.push(
 				<a
 					key={localKey++}
@@ -652,12 +616,135 @@ function renderTextWithLinks(text: string, key: number): React.ReactNode[] {
 					{url}
 				</a>,
 			)
+		} else if (match[5] !== undefined) {
+			// Bold: **text**
+			nodes.push(
+				<strong key={localKey++} className="font-semibold text-gray-100">
+					{match[5]}
+				</strong>,
+			)
+		} else if (match[7] !== undefined) {
+			// Bold: __text__
+			nodes.push(
+				<strong key={localKey++} className="font-semibold text-gray-100">
+					{match[7]}
+				</strong>,
+			)
+		} else if (match[9] !== undefined) {
+			// Italic: *text*
+			nodes.push(
+				<em key={localKey++} className="italic text-gray-300">
+					{match[9]}
+				</em>,
+			)
+		} else if (match[11] !== undefined) {
+			// Italic: _text_
+			nodes.push(
+				<em key={localKey++} className="italic text-gray-300">
+					{match[11]}
+				</em>,
+			)
+		} else if (match[13] !== undefined) {
+			// Strikethrough: ~~text~~
+			nodes.push(
+				<del key={localKey++} className="line-through text-gray-500">
+					{match[13]}
+				</del>,
+			)
 		}
-		lastIdx = linkMatch.index + linkMatch[0].length
+
+		lastIdx = match.index + match[0].length
 	}
 
 	if (lastIdx < text.length) {
 		nodes.push(<span key={localKey++}>{text.slice(lastIdx)}</span>)
+	}
+
+	return nodes
+}
+
+function renderTextWithLinks(text: string, key: number): React.ReactNode[] {
+	// Split text into lines to handle block-level formatting (lists, blockquotes, headings)
+	const lines = text.split("\n")
+	const nodes: React.ReactNode[] = []
+	let localKey = key * 10000
+
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i]
+		const trimmed = line.trim()
+
+		// Empty line — spacing
+		if (!trimmed) {
+			nodes.push(<div key={localKey++} className="h-1" />)
+			continue
+		}
+
+		// Heading: ### text
+		const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/)
+		if (headingMatch) {
+			const level = headingMatch[1].length
+			const headingText = headingMatch[2]
+			const sizeClass =
+				level === 1
+					? "text-sm font-bold text-gray-100"
+					: level === 2
+						? "text-[13px] font-bold text-gray-100"
+						: level === 3
+							? "text-[12px] font-semibold text-gray-200"
+							: "text-[11px] font-semibold text-gray-300"
+			nodes.push(
+				<div key={localKey++} className={`${sizeClass} mt-2 mb-1`}>
+					{renderFormattedText(headingText, localKey)}
+				</div>,
+			)
+			continue
+		}
+
+		// Blockquote: > text
+		if (trimmed.startsWith("> ")) {
+			const quoteText = trimmed.slice(2)
+			nodes.push(
+				<div
+					key={localKey++}
+					className="border-l-2 border-violet-500/40 pl-3 py-0.5 my-1 text-gray-400 italic text-[11px]">
+					{renderFormattedText(quoteText, localKey)}
+				</div>,
+			)
+			continue
+		}
+
+		// Unordered list: - item or * item
+		const ulMatch = trimmed.match(/^[-*]\s+(.+)$/)
+		if (ulMatch) {
+			nodes.push(
+				<div key={localKey++} className="flex items-start gap-2 my-0.5">
+					<span className="text-gray-500 mt-0.5 shrink-0">•</span>
+					<span className="text-gray-300 text-[12px]">{renderFormattedText(ulMatch[1], localKey)}</span>
+				</div>,
+			)
+			continue
+		}
+
+		// Ordered list: 1. item
+		const olMatch = trimmed.match(/^(\d+)\.\s+(.+)$/)
+		if (olMatch) {
+			nodes.push(
+				<div key={localKey++} className="flex items-start gap-2 my-0.5">
+					<span className="text-gray-500 text-[10px] font-mono mt-0.5 shrink-0 w-4 text-right">
+						{olMatch[1]}.
+					</span>
+					<span className="text-gray-300 text-[12px]">{renderFormattedText(olMatch[2], localKey)}</span>
+				</div>,
+			)
+			continue
+		}
+
+		// Regular paragraph line
+		nodes.push(
+			<div key={localKey++} className="text-gray-300 text-[12px] leading-relaxed">
+				{renderFormattedText(line, localKey)}
+			</div>,
+		)
 	}
 
 	return nodes
@@ -683,71 +770,85 @@ function handleRunInTerminalFromBlock(code: string) {
 // ── Main Component ────────────────────────────────────────────────────────
 
 export default function IdeTerminalView() {
-	const [terminalInput, setTerminalInput] = useState("")
-	const [terminalOutput, setTerminalOutput] = useState<string[]>([
-		"Welcome to SuperRoo IDE Terminal",
-		"Type a command to get started...",
-		"",
-		"╔══════════════════════════════════════════════╗",
-		"║  Agent Mode: Prefix commands with / or @    ║",
-		"║  /help — Show all agent commands            ║",
-		"║  /skills — List available skills            ║",
-		"║  /deploy — Deploy the project               ║",
-		"║  /orchestrate — Break down complex tasks    ║",
-		"║  @coder <task> — Delegate to Coder agent    ║",
-		"╚══════════════════════════════════════════════╝",
-		"",
-	])
-	const [pipeline, setPipeline] = useState<PipelineStep[]>([])
-	const [files, setFiles] = useState<WorkspaceFile[]>([])
-	const [openFiles, setOpenFiles] = useState<
-		{ path: string; name: string; content: string; language: string; modified?: boolean }[]
-	>([])
-	const [activeFilePath, setActiveFilePath] = useState<string | null>(null)
-	const [status, setStatus] = useState<WorkspaceStatus>({
-		connected: true,
-		docker: false,
-		redis: false,
-		cpu: "0%",
-		ram: "0MB",
-	})
+	// ── Global state from store (persisted across tab switches) ──────────
+	const { state, dispatch } = useIde()
+	const {
+		aiMessages,
+		aiInput,
+		aiSending,
+		aiAttachments,
+		aiTab,
+		proactiveSuggestions,
+		terminalInput,
+		terminalOutput,
+		outputBlocks,
+		collapsedBlocks,
+		recentCommands,
+		recordings,
+		isRecording,
+		recordingBlocks,
+		showRecordings,
+		files,
+		openFiles,
+		activeFilePath,
+		fileSearchQuery,
+		showFileSearch,
+		pipeline,
+		status,
+		repoName,
+		branch,
+		loading,
+		showFilePanel,
+		showAiPanel,
+		terminalHeight,
+		isTerminalMaximized,
+		showShortcuts,
+		showImportGithub,
+		showOpenWorkspace,
+		showDiffView,
+		showSlashCommands,
+		showAgentSuggestions,
+		showSmartSuggestions,
+		showInlineAiButton,
+		showQuickActions,
+		recentWorkspaces,
+		workspaceTasks,
+		_hydrated,
+	} = state
+
+	// ── Local-only state (not persisted) ─────────────────────────────────
 	const [activeMode, setActiveMode] = useState("Auto")
-	const [loading, setLoading] = useState(true)
-	const [repoName, setRepoName] = useState("superroo2")
-	const [branch, setBranch] = useState("auto-improvement")
-	// ── Agent/Skill awareness state ──────────────────────────────────────
 	const [terminalMode, setTerminalMode] = useState<"shell" | "agent" | "skill">("shell")
 	const [activeAgent, setActiveAgent] = useState<string | null>(null)
 	const [agentRunning, setAgentRunning] = useState(false)
 	const [agentSuggestions, setAgentSuggestions] = useState<string[]>([])
-	const [showAgentSuggestions, setShowAgentSuggestions] = useState(false)
-	// ── File search ──────────────────────────────────────────────────────
-	const [fileSearchQuery, setFileSearchQuery] = useState("")
-	const [showFileSearch, setShowFileSearch] = useState(false)
-	const fileSearchRef = useRef<HTMLInputElement>(null)
-	// ── Keyboard shortcuts modal ─────────────────────────────────────────
-	const [showShortcuts, setShowShortcuts] = useState(false)
-	// ── UNIFIED AI Panel (replaces old Chat + Brain) ─────────────────────
-	const [aiInput, setAiInput] = useState("")
-	const [aiMessages, setAiMessages] = useState<ChatMessage[]>([])
-	const [aiSending, setAiSending] = useState(false)
-	const [aiAttachments, setAiAttachments] = useState<ChatAttachment[]>([])
-	const [aiTab, setAiTab] = useState<string>("chat")
-
-	// ── AI Input change handler with slash command detection ──────────────
-	const handleAiInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-		const val = e.target.value
-		setAiInput(val)
-		// Function 3: Show slash commands dropdown when typing /
-		if (val.startsWith("/")) {
-			const cmd = val.split(" ")[0].toLowerCase()
-			setSlashCommandFilter(cmd)
-			const hasMatch = slashCommandsList.some((sc) => sc.command.startsWith(cmd))
-			setShowSlashCommands(hasMatch)
-		} else {
-			setShowSlashCommands(false)
-		}
-	}, [])
+	const [dragOver, setDragOver] = useState(false)
+	const dragCounter = useRef(0)
+	const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
+	const wsRef = useRef<WebSocket | null>(null)
+	const [wsConnected, setWsConnected] = useState(false)
+	const [wsReconnecting, setWsReconnecting] = useState(false)
+	const [currentFilePath, setCurrentFilePath] = useState<string>("")
+	const [currentFileContent, setCurrentFileContent] = useState<string>("")
+	const [currentFileLanguage, setCurrentFileLanguage] = useState<string>("text")
+	const [currentFileSelection, setCurrentFileSelection] = useState<string>("")
+	const [importGithubUrl, setImportGithubUrl] = useState("")
+	const [importGithubBranch, setImportGithubBranch] = useState("main")
+	const [importGithubLoading, setImportGithubLoading] = useState(false)
+	const [importGithubError, setImportGithubError] = useState("")
+	const [openWorkspacePath, setOpenWorkspacePath] = useState("")
+	const [openWorkspaceLoading, setOpenWorkspaceLoading] = useState(false)
+	const [openWorkspaceError, setOpenWorkspaceError] = useState("")
+	const [smartSuggestions, setSmartSuggestions] = useState<AutocompleteSuggestion[]>([])
+	const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1)
+	const [diffData, setDiffData] = useState<{
+		path: string
+		changes: Array<{ line: number; old: string; new: string }>
+		totalChanges: number
+	} | null>(null)
+	const [inlineSelectionPos, setInlineSelectionPos] = useState<{ top: number; left: number } | null>(null)
+	const inlineEditorRef = useRef<HTMLTextAreaElement>(null)
+	const [slashCommandFilter, setSlashCommandFilter] = useState("")
 	const [brainPlan, setBrainPlan] = useState<BrainPlanStep[]>([])
 	const [brainFeedback, setBrainFeedback] = useState<BrainFeedback | null>(null)
 	const [brainErrors, setBrainErrors] = useState<BrainError[]>([])
@@ -757,77 +858,17 @@ export default function IdeTerminalView() {
 	const [brainApprovals, setBrainApprovals] = useState<BrainApproval[]>([])
 	const [brainContext, setBrainContext] = useState<ProjectContext | null>(null)
 	const [brainLoading, setBrainLoading] = useState(false)
-	// ── Panel visibility toggles ─────────────────────────────────────────
-	const [showFilePanel, setShowFilePanel] = useState(true)
-	const [showAiPanel, setShowAiPanel] = useState(true)
-	const [terminalHeight, setTerminalHeight] = useState(180)
-	const [isTerminalMaximized, setIsTerminalMaximized] = useState(false)
-	// ── Drag & drop ──────────────────────────────────────────────────────
-	const [dragOver, setDragOver] = useState(false)
-	const dragCounter = useRef(0)
-	// ── Copy feedback ────────────────────────────────────────────────────
-	const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
-	// ── WebSocket Chat state ─────────────────────────────────────────────
-	const wsRef = useRef<WebSocket | null>(null)
-	const [wsConnected, setWsConnected] = useState(false)
-	const [wsReconnecting, setWsReconnecting] = useState(false)
-	const [proactiveSuggestions, setProactiveSuggestions] = useState<string[]>([])
-	const [currentFilePath, setCurrentFilePath] = useState<string>("")
-	const [currentFileContent, setCurrentFileContent] = useState<string>("")
-	const [currentFileLanguage, setCurrentFileLanguage] = useState<string>("text")
-	const [currentFileSelection, setCurrentFileSelection] = useState<string>("")
-	// ── Recent Workspaces (persisted in localStorage) ────────────────────
-	const [recentWorkspaces, setRecentWorkspaces] = useState<{ name: string; path: string; lastOpened: string }[]>(
-		() => {
-			if (typeof window === "undefined") return []
-			try {
-				const stored = localStorage.getItem("superroo-recent-workspaces")
-				return stored ? JSON.parse(stored) : []
-			} catch {
-				return []
-			}
-		},
-	)
-	// ── Workspace Tasks (persisted in localStorage) ──────────────────────
-	const [workspaceTasks, setWorkspaceTasks] = useState<
-		{ id: string; title: string; status: "pending" | "done" | "failed"; createdAt: string }[]
-	>(() => {
-		if (typeof window === "undefined") return []
-		try {
-			const stored = localStorage.getItem("superroo-workspace-tasks")
-			return stored ? JSON.parse(stored) : []
-		} catch {
-			return []
-		}
-	})
-	// ── Import GitHub modal ──────────────────────────────────────────────
-	const [showImportGithub, setShowImportGithub] = useState(false)
-	const [importGithubUrl, setImportGithubUrl] = useState("")
-	const [importGithubBranch, setImportGithubBranch] = useState("main")
-	const [importGithubLoading, setImportGithubLoading] = useState(false)
-	const [importGithubError, setImportGithubError] = useState("")
-	// ── Open/New Workspace modal ─────────────────────────────────────────
-	const [showOpenWorkspace, setShowOpenWorkspace] = useState(false)
-	const [openWorkspacePath, setOpenWorkspacePath] = useState("")
-	const [openWorkspaceLoading, setOpenWorkspaceLoading] = useState(false)
-	const [openWorkspaceError, setOpenWorkspaceError] = useState("")
-	// ── Block-Based Output state ─────────────────────────────────────────
-	const [outputBlocks, setOutputBlocks] = useState<OutputBlock[]>(() => convertToBlocks(terminalOutput))
-	const [collapsedBlocks, setCollapsedBlocks] = useState<Set<string>>(new Set())
-	// ── Smart Autocomplete state ─────────────────────────────────────────
-	const [smartSuggestions, setSmartSuggestions] = useState<AutocompleteSuggestion[]>([])
-	const [showSmartSuggestions, setShowSmartSuggestions] = useState(false)
-	const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1)
-	const [recentCommands, setRecentCommands] = useState<string[]>([])
-	// ── Terminal Recording state ─────────────────────────────────────────
-	const [recordings, setRecordings] = useState<TerminalRecording[]>([])
-	const [isRecording, setIsRecording] = useState(false)
-	const [showRecordings, setShowRecordings] = useState(false)
-	const [recordingBlocks, setRecordingBlocks] = useState<OutputBlock[]>([])
+	const [showRecentTasks, setShowRecentTasks] = useState(false)
 
-	// ── Slash Commands state ──────────────────────────────────────────────
-	const [showSlashCommands, setShowSlashCommands] = useState(false)
-	const [slashCommandFilter, setSlashCommandFilter] = useState("")
+	const fileInputRef = useRef<HTMLInputElement>(null)
+	const imageInputRef = useRef<HTMLInputElement>(null)
+	const aiMessagesEndRef = useRef<HTMLDivElement>(null)
+	const terminalRef = useRef<HTMLDivElement>(null)
+	const terminalInputRef = useRef<HTMLInputElement>(null)
+	const terminalResizeRef = useRef<HTMLDivElement>(null)
+	const textareaRef = useRef<HTMLTextAreaElement>(null)
+	const fileSearchRef = useRef<HTMLInputElement>(null)
+
 	const slashCommandsList = [
 		{ command: "/fix", description: "Fix errors in the current file", icon: "Bug" },
 		{ command: "/explain", description: "Explain the selected code", icon: "MessageCircle" },
@@ -838,23 +879,23 @@ export default function IdeTerminalView() {
 		{ command: "/docs", description: "Generate documentation", icon: "BookOpen" },
 		{ command: "/review", description: "Review code for issues", icon: "Search" },
 	]
-	// ── Diff View state ──────────────────────────────────────────────────
-	const [showDiffView, setShowDiffView] = useState(false)
-	const [diffData, setDiffData] = useState<{ path: string; changes: Array<{ line: number; old: string; new: string }>; totalChanges: number } | null>(null)
-	// ── Quick Action state ────────────────────────────────────────────────
-	const [showQuickActions, setShowQuickActions] = useState<string | null>(null) // message id
-	// ── Inline Selection state ────────────────────────────────────────────
-	const [showInlineAiButton, setShowInlineAiButton] = useState(false)
-	const [inlineSelectionPos, setInlineSelectionPos] = useState<{ top: number; left: number } | null>(null)
-	const inlineEditorRef = useRef<HTMLTextAreaElement>(null)
 
-	const fileInputRef = useRef<HTMLInputElement>(null)
-	const imageInputRef = useRef<HTMLInputElement>(null)
-	const aiMessagesEndRef = useRef<HTMLDivElement>(null)
-	const terminalRef = useRef<HTMLDivElement>(null)
-	const terminalInputRef = useRef<HTMLInputElement>(null)
-	const terminalResizeRef = useRef<HTMLDivElement>(null)
-	const textareaRef = useRef<HTMLTextAreaElement>(null)
+	// ── AI Input change handler with slash command detection ──────────────
+	const handleAiInputChange = useCallback(
+		(e: React.ChangeEvent<HTMLTextAreaElement>) => {
+			const val = e.target.value
+			dispatch({ type: "SET_AI_INPUT", payload: val })
+			if (val.startsWith("/")) {
+				const cmd = val.split(" ")[0].toLowerCase()
+				setSlashCommandFilter(cmd)
+				const hasMatch = slashCommandsList.some((sc) => sc.command.startsWith(cmd))
+				dispatch({ type: "SET_SHOW_SLASH_COMMANDS", payload: hasMatch })
+			} else {
+				dispatch({ type: "SET_SHOW_SLASH_COMMANDS", payload: false })
+			}
+		},
+		[dispatch],
+	)
 
 	// ── Agent command definitions ────────────────────────────────────────
 	const agentCommands: Record<string, { agent: string; description: string; icon: string }> = {
@@ -921,16 +962,19 @@ export default function IdeTerminalView() {
 					chatMessages: ChatMessage[]
 					status: WorkspaceStatus
 				}>("/workspace")
-				if (data.repoName) setRepoName(data.repoName)
-				if (data.branch) setBranch(data.branch)
-				if (data.files?.length) setFiles(data.files)
-				if (data.pipeline?.length) setPipeline(data.pipeline)
-				if (data.chatMessages?.length) {
-					setAiMessages(data.chatMessages)
-				}
-				if (data.status) setStatus(data.status)
-				if (data.terminalSessions?.length) {
-					setTerminalOutput(data.terminalSessions[0].output)
+				// Only set data if not already hydrated from localStorage
+				if (!_hydrated) {
+					if (data.repoName) dispatch({ type: "SET_REPO_NAME", payload: data.repoName })
+					if (data.branch) dispatch({ type: "SET_BRANCH", payload: data.branch })
+					if (data.files?.length) dispatch({ type: "SET_FILES", payload: data.files })
+					if (data.pipeline?.length) dispatch({ type: "SET_PIPELINE", payload: data.pipeline })
+					if (data.chatMessages?.length) {
+						dispatch({ type: "SET_AI_MESSAGES", payload: data.chatMessages })
+					}
+					if (data.status) dispatch({ type: "SET_STATUS", payload: data.status })
+					if (data.terminalSessions?.length) {
+						dispatch({ type: "SET_TERMINAL_OUTPUT", payload: data.terminalSessions[0].output })
+					}
 				}
 				// Load Terminal Brain context
 				try {
@@ -945,11 +989,11 @@ export default function IdeTerminalView() {
 			} catch (err) {
 				console.error("Failed to load workspace:", err)
 			} finally {
-				setLoading(false)
+				dispatch({ type: "SET_LOADING", payload: false })
 			}
 		}
 		load()
-	}, [])
+	}, [_hydrated, dispatch])
 
 	// ── Auto-scroll AI messages ──────────────────────────────────────────
 	useEffect(() => {
@@ -968,23 +1012,23 @@ export default function IdeTerminalView() {
 		function handleGlobalKeyDown(e: KeyboardEvent) {
 			if (e.ctrlKey && e.key === "`") {
 				e.preventDefault()
-				setIsTerminalMaximized((prev) => !prev)
+				dispatch({ type: "SET_IS_TERMINAL_MAXIMIZED", payload: !isTerminalMaximized })
 			}
 			if (e.ctrlKey && e.key === "p") {
 				e.preventDefault()
-				setShowFileSearch(true)
+				dispatch({ type: "SET_SHOW_FILE_SEARCH", payload: true })
 				setTimeout(() => fileSearchRef.current?.focus(), 50)
 			}
 			if (e.key === "Escape") {
-				setShowFileSearch(false)
-				setShowShortcuts(false)
-				setShowAgentSuggestions(false)
-				setShowSmartSuggestions(false)
+				dispatch({ type: "SET_SHOW_FILE_SEARCH", payload: false })
+				dispatch({ type: "SET_SHOW_SHORTCUTS", payload: false })
+				dispatch({ type: "SET_SHOW_AGENT_SUGGESTIONS", payload: false })
+				dispatch({ type: "SET_SHOW_SMART_SUGGESTIONS", payload: false })
 			}
 		}
 		window.addEventListener("keydown", handleGlobalKeyDown)
 		return () => window.removeEventListener("keydown", handleGlobalKeyDown)
-	}, [])
+	}, [isTerminalMaximized, dispatch])
 
 	// ── WebSocket Connection for Real-Time Chat ────────────────────────────
 	useEffect(() => {
@@ -1019,7 +1063,7 @@ export default function IdeTerminalView() {
 								break
 							case "pong":
 								break
-							case "assistant-start":
+							case "assistant-start": {
 								// Create placeholder message for streaming
 								const assistantId = data.id
 								const placeholder: ChatMessage = {
@@ -1030,59 +1074,53 @@ export default function IdeTerminalView() {
 									time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
 									content: "",
 								}
-								setAiMessages((prev) => [...prev, placeholder])
+								dispatch({ type: "ADD_AI_MESSAGE", payload: placeholder })
 								break
-							case "token":
-								setAiMessages((prev) => {
-									const last = prev[prev.length - 1]
-									if (last && last.meta === "streaming...") {
-										return prev.map((m) =>
-											m.id === last.id ? { ...m, content: m.content + data.text } : m,
-										)
-									}
-									return prev
-								})
+							}
+							case "token": {
+								// Use functional update via reading current state
+								const lastMsg = aiMessages[aiMessages.length - 1]
+								if (lastMsg && lastMsg.meta === "streaming...") {
+									dispatch({
+										type: "UPDATE_LAST_AI_MESSAGE",
+										payload: { content: lastMsg.content + data.text },
+									})
+								}
 								break
+							}
 							case "done":
-								setAiMessages((prev) =>
-									prev.map((m) =>
-										m.id === data.id
-											? {
-													...m,
-													content: data.reply || m.content,
-													author: data.provider || "AI",
-													meta: `${data.model || ""} · ws`,
-												}
-											: m,
-									),
-								)
-								setAiSending(false)
+								dispatch({
+									type: "UPDATE_LAST_AI_MESSAGE",
+									payload: {
+										content: data.reply || undefined,
+										author: data.provider || "AI",
+										meta: `${data.model || ""} · ws`,
+									},
+								})
+								dispatch({ type: "SET_AI_SENDING", payload: false })
 								break
 							case "suggestions":
 								if (Array.isArray(data.suggestions)) {
-									setProactiveSuggestions(data.suggestions)
+									dispatch({ type: "SET_PROACTIVE_SUGGESTIONS", payload: data.suggestions })
 								}
 								break
 							case "error":
-								setAiMessages((prev) =>
-									prev.map((m) =>
-										m.meta === "streaming..."
-											? {
-													...m,
-													content: `Error: ${data.message}`,
-													author: "System",
-													meta: "error",
-												}
-											: m,
-									),
-								)
-								setAiSending(false)
+								dispatch({
+									type: "UPDATE_LAST_AI_MESSAGE",
+									payload: {
+										content: `Error: ${data.message}`,
+										author: "System",
+										meta: "error",
+									},
+								})
+								dispatch({ type: "SET_AI_SENDING", payload: false })
 								break
 							case "cancelled":
-								setAiMessages((prev) =>
-									prev.map((m) => (m.meta === "streaming..." ? { ...m, meta: "cancelled" } : m)),
-								)
-								setAiSending(false)
+								dispatch({
+									type: "UPDATE_LAST_AI_MESSAGE",
+									payload: { meta: "cancelled" },
+								})
+								dispatch({ type: "SET_AI_SENDING", payload: false })
 								break
 							case "typing":
 								// Could show typing indicator
@@ -1121,44 +1159,7 @@ export default function IdeTerminalView() {
 			}
 			wsRef.current = null
 		}
-	}, [])
-
-	// ── Persist recent workspaces to localStorage ─────────────────────────
-	useEffect(() => {
-		try {
-			localStorage.setItem("superroo-recent-workspaces", JSON.stringify(recentWorkspaces))
-		} catch {}
-	}, [recentWorkspaces])
-
-	// ── Persist workspace tasks to localStorage ───────────────────────────
-	useEffect(() => {
-		try {
-			localStorage.setItem("superroo-workspace-tasks", JSON.stringify(workspaceTasks))
-		} catch {}
-	}, [workspaceTasks])
-
-	// ── Persist chat messages to localStorage ──────────────────────────────
-	// Function 4: Chat History Persistence
-	useEffect(() => {
-		try {
-			if (aiMessages.length > 0) {
-				localStorage.setItem("superroo-ai-messages", JSON.stringify(aiMessages.slice(-50)))
-			}
-		} catch {}
-	}, [aiMessages])
-
-	// Restore chat messages from localStorage on mount
-	useEffect(() => {
-		try {
-			const stored = localStorage.getItem("superroo-ai-messages")
-			if (stored) {
-				const parsed = JSON.parse(stored)
-				if (Array.isArray(parsed) && parsed.length > 0) {
-					setAiMessages(parsed)
-				}
-			}
-		} catch {}
-	}, [])
+	}, [aiMessages, dispatch])
 
 	// ── OpenClaw data fetching ────────────────────────────────────────────
 	// Fetch orchestrator status for the Plan tab
@@ -1287,17 +1288,16 @@ export default function IdeTerminalView() {
 			dragCounter.current = 0
 			setDragOver(false)
 			if (e.dataTransfer?.files) {
+				const newAtts: ChatAttachment[] = []
 				for (const file of Array.from(e.dataTransfer.files)) {
-					setAiAttachments((prev) => [
-						...prev,
-						{
-							id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-							filename: file.name,
-							type: file.type || "unknown",
-							size: `${(file.size / 1024).toFixed(1)}KB`,
-						},
-					])
+					newAtts.push({
+						id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+						filename: file.name,
+						type: file.type || "unknown",
+						size: `${(file.size / 1024).toFixed(1)}KB`,
+					})
 				}
+				dispatch({ type: "SET_AI_ATTACHMENTS", payload: [...aiAttachments, ...newAtts] })
 			}
 		}
 		window.addEventListener("dragenter", handleDragEnter)
@@ -1308,49 +1308,46 @@ export default function IdeTerminalView() {
 			window.removeEventListener("dragleave", handleDragLeave)
 			window.removeEventListener("drop", handleDrop)
 		}
-	}, [])
+	}, [aiAttachments, dispatch])
 
 	// ── Paste handler ─────────────────────────────────────────────────────
-	// Handles both:
-	//   1. Image paste → AI attachments (for the AI chat textarea)
-	//   2. Text paste → terminal input (for the terminal command input)
 	useEffect(() => {
 		function handlePaste(e: ClipboardEvent) {
 			const items = e.clipboardData?.items
 			const textData = e.clipboardData?.getData("text")
 			if (!items) return
 
-			// Determine which element is focused
 			const activeEl = document.activeElement
 
 			// ── Case 1: Terminal input is focused → paste text into terminal ──
 			if (activeEl && activeEl === terminalInputRef.current && textData) {
 				e.preventDefault()
-				setTerminalInput((prev) => prev + textData)
+				dispatch({ type: "SET_TERMINAL_INPUT", payload: terminalInput + textData })
 				return
 			}
 
 			// ── Case 2: AI textarea is focused → handle image attachments ──
+			const newAtts: ChatAttachment[] = []
 			for (const item of Array.from(items)) {
 				if (item.type.startsWith("image/")) {
 					const file = item.getAsFile()
 					if (file) {
-						setAiAttachments((prev) => [
-							...prev,
-							{
-								id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-								filename: `pasted-${Date.now()}.${item.type.split("/")[1] || "png"}`,
-								type: item.type,
-								size: `${(file.size / 1024).toFixed(1)}KB`,
-							},
-						])
+						newAtts.push({
+							id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+							filename: `pasted-${Date.now()}.${item.type.split("/")[1] || "png"}`,
+							type: item.type,
+							size: `${(file.size / 1024).toFixed(1)}KB`,
+						})
 					}
 				}
+			}
+			if (newAtts.length > 0) {
+				dispatch({ type: "SET_AI_ATTACHMENTS", payload: [...aiAttachments, ...newAtts] })
 			}
 		}
 		window.addEventListener("paste", handlePaste)
 		return () => window.removeEventListener("paste", handlePaste)
-	}, [])
+	}, [terminalInput, aiAttachments, dispatch])
 
 	// ── Slash command handlers ────────────────────────────────────────────
 	const slashCommandHandlers: Record<string, string> = {
@@ -1391,20 +1388,168 @@ export default function IdeTerminalView() {
 			role: "user",
 			author: "You",
 			time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-			content: slashCommandUsed ? `${slashCommandUsed} ${aiInput.trim().slice(slashCommandUsed.length).trim()}` : (text || "Sent files"),
+			content: slashCommandUsed
+				? `${slashCommandUsed} ${aiInput.trim().slice(slashCommandUsed.length).trim()}`
+				: text || "Sent files",
 			attachments: aiAttachments.length > 0 ? [...aiAttachments] : undefined,
 		}
 
-		setAiMessages((prev) => [...prev, userMsg])
-		setAiInput("")
-		setAiAttachments([])
-		setAiSending(true)
-		setProactiveSuggestions([])
-		setShowSlashCommands(false)
+		dispatch({ type: "ADD_AI_MESSAGE", payload: userMsg })
+		dispatch({ type: "SET_AI_INPUT", payload: "" })
+		dispatch({ type: "SET_AI_ATTACHMENTS", payload: [] })
+		dispatch({ type: "SET_AI_SENDING", payload: true })
+		dispatch({ type: "SET_PROACTIVE_SUGGESTIONS", payload: [] })
+		dispatch({ type: "SET_SHOW_SLASH_COMMANDS", payload: false })
+
+		// ── Build rich context for the AI ──────────────────────────────
+		// 1. Current (active) file with full content
+		let currentFile = undefined
+		if (activeFilePath) {
+			const openFile = openFiles.find((f) => f.path === activeFilePath)
+			if (openFile) {
+				currentFile = {
+					path: openFile.path,
+					content: openFile.content,
+					language: openFile.language,
+					selection: currentFileSelection || undefined,
+				}
+			}
+		}
+
+		// 2. All open files (file names + paths, truncated content)
+		const allOpenFiles = openFiles.map((f) => ({
+			path: f.path,
+			name: f.name,
+			language: f.language,
+			modified: f.modified,
+			content: f.path === activeFilePath ? undefined : f.content.slice(0, 2000),
+		}))
+
+		// 3. Workspace file tree (file names only, for structure awareness)
+		const workspaceFiles = files.map((f) => ({
+			name: f.name,
+			path: f.path,
+			kind: f.kind,
+		}))
+
+		// 4. Recent terminal output for context (last 30 lines)
+		const terminalContext = terminalOutput.slice(-30)
+
+		// 5. Recent conversation history (last 6 messages for continuity)
+		const recentHistory = aiMessages.slice(-6).map((m) => ({
+			role: m.role,
+			author: m.author,
+			content: m.content.length > 500 ? m.content.slice(0, 500) + "..." : m.content,
+		}))
+
+		// 6. Pending workspace tasks
+		const pendingTasks = workspaceTasks.filter((t) => t.status === "pending").map((t) => t.title)
+
+		// ── Build a human-readable context summary for the user ─────────
+		const contextParts: string[] = []
+		if (repoName) contextParts.push(`**Workspace:** ${repoName}${branch ? ` (${branch})` : ""}`)
+		if (currentFile) contextParts.push(`**Active file:** \`${currentFile.path}\``)
+		if (allOpenFiles.length > 0) {
+			const fileList = allOpenFiles.map((f) => `\`${f.path}\``).join(", ")
+			contextParts.push(`**Open files (${allOpenFiles.length}):** ${fileList}`)
+		}
+		if (workspaceFiles.length > 0) {
+			const folderCount = workspaceFiles.filter((f) => f.kind === "folder").length
+			const fileCount = workspaceFiles.filter((f) => f.kind === "file").length
+			contextParts.push(`**Workspace structure:** ${folderCount} folders, ${fileCount} files`)
+		}
+		if (terminalContext.length > 0) {
+			contextParts.push(`**Terminal output:** ${terminalContext.length} recent lines available`)
+		}
+		if (recentHistory.length > 0) {
+			contextParts.push(`**Conversation history:** ${recentHistory.length} previous messages`)
+		}
+		if (pendingTasks.length > 0) {
+			contextParts.push(`**Pending tasks:** ${pendingTasks.join(", ")}`)
+		}
+		if (currentFileSelection) {
+			contextParts.push(`**Selection:** ${currentFileSelection.length} chars selected in active file`)
+		}
+		if (aiAttachments.length > 0) {
+			contextParts.push(`**Attachments:** ${aiAttachments.length} file(s)/image(s) attached`)
+		}
+
+		const contextSummary =
+			contextParts.length > 0 ? `📋 **Context sent to AI**\n\n${contextParts.join("\n")}\n\n---` : null
+
+		// Add context summary as a system message so the user sees what the AI knows
+		if (contextSummary) {
+			dispatch({
+				type: "ADD_AI_MESSAGE",
+				payload: {
+					id: `ctx-${Date.now()}`,
+					role: "system",
+					author: "Context",
+					time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+					content: contextSummary,
+				},
+			})
+		}
+
+		// ── System instruction for AI context awareness ────────────────
+		const contextInstruction = `You are an AI coding assistant in a Cloud IDE. Before answering, analyze the context provided below and:
+
+1. **Summarize** what you understand about the user's current workspace, open files, and task
+2. **If anything is unclear** — ask a specific confirmatory question (e.g., "Which file should I modify?", "Do you want me to fix the bug in X or improve Y?")
+3. **If context is sufficient** — proceed directly with your answer
+
+Context summary:
+- Workspace: ${repoName || "unknown"}${branch ? ` (branch: ${branch})` : ""}
+- Active file: ${currentFile ? currentFile.path : "none"}
+- Open files: ${allOpenFiles.length} file(s)
+- Workspace structure: ${workspaceFiles.filter((f) => f.kind === "folder").length} folders, ${workspaceFiles.filter((f) => f.kind === "file").length} files
+- Terminal output: ${terminalContext.length} recent lines
+- Conversation history: ${recentHistory.length} previous messages
+- Pending tasks: ${pendingTasks.length} task(s)
+- Selection: ${currentFileSelection ? `${currentFileSelection.length} chars` : "none"}
+
+User message: ${text}`
 
 		// If WebSocket is connected, use it for real-time streaming
 		if (wsRef.current?.readyState === WebSocket.OPEN) {
-			// Get current file context from open files
+			// Send via WebSocket — the assistant-start/token/done events
+			// are handled by the WebSocket onmessage handler above
+			wsRef.current.send(
+				JSON.stringify({
+					type: "chat",
+					text: contextInstruction,
+					currentFile,
+					allOpenFiles,
+					workspaceFiles,
+					terminalOutput: terminalContext,
+					conversationHistory: recentHistory,
+					pendingTasks,
+					repoName,
+					branch,
+					provider: typeof window !== "undefined" ? localStorage.getItem("superroo-chat-provider") : null,
+				}),
+			)
+
+			// Add a workspace task to memory
+			if (text.length > 10) {
+				const taskTitle = text.length > 60 ? text.substring(0, 60) + "..." : text
+				const newTask: WorkspaceTask = {
+					id: `task-${Date.now()}`,
+					title: taskTitle,
+					status: "pending",
+					createdAt: new Date().toISOString(),
+				}
+				dispatch({ type: "SET_WORKSPACE_TASKS", payload: [newTask, ...workspaceTasks.slice(0, 49)] })
+			}
+
+			return
+		}
+
+		// Fallback: if WebSocket not connected, use HTTP POST
+		try {
+			const storedProvider = typeof window !== "undefined" ? localStorage.getItem("superroo-chat-provider") : null
+
+			// Build the same rich context as the WebSocket path
 			let currentFile = undefined
 			if (activeFilePath) {
 				const openFile = openFiles.find((f) => f.path === activeFilePath)
@@ -1417,43 +1562,33 @@ export default function IdeTerminalView() {
 					}
 				}
 			}
+			const allOpenFiles = openFiles.map((f) => ({
+				path: f.path,
+				name: f.name,
+				language: f.language,
+				modified: f.modified,
+				content: f.path === activeFilePath ? undefined : f.content.slice(0, 2000),
+			}))
+			const workspaceFiles = files.map((f) => ({ name: f.name, path: f.path, kind: f.kind }))
+			const terminalContext = terminalOutput.slice(-30)
+			const recentHistory = aiMessages.slice(-6).map((m) => ({
+				role: m.role,
+				author: m.author,
+				content: m.content.length > 500 ? m.content.slice(0, 500) + "..." : m.content,
+			}))
+			const pendingTasks = workspaceTasks.filter((t) => t.status === "pending").map((t) => t.title)
 
-			// Get recent terminal output for context
-			const terminalContext = terminalOutput.slice(-20)
-
-			// Send via WebSocket — the assistant-start/token/done events
-			// are handled by the WebSocket onmessage handler above
-			wsRef.current.send(
-				JSON.stringify({
-					type: "chat",
-					text,
-					currentFile,
-					terminalOutput: terminalContext,
-					provider: typeof window !== "undefined" ? localStorage.getItem("superroo-chat-provider") : null,
-				}),
-			)
-
-			// Add a workspace task to memory
-			if (text.length > 10) {
-				const taskTitle = text.length > 60 ? text.substring(0, 60) + "..." : text
-				setWorkspaceTasks((prev) => [
-					{
-						id: `task-${Date.now()}`,
-						title: taskTitle,
-						status: "pending",
-						createdAt: new Date().toISOString(),
-					},
-					...prev.slice(0, 49),
-				])
+			const body: Record<string, unknown> = {
+				message: contextInstruction,
+				currentFile,
+				allOpenFiles,
+				workspaceFiles,
+				terminalOutput: terminalContext,
+				conversationHistory: recentHistory,
+				pendingTasks,
+				repoName,
+				branch,
 			}
-
-			return
-		}
-
-		// Fallback: if WebSocket not connected, use HTTP POST
-		try {
-			const storedProvider = typeof window !== "undefined" ? localStorage.getItem("superroo-chat-provider") : null
-			const body: Record<string, unknown> = { message: text }
 			if (storedProvider && storedProvider !== "auto") {
 				body.provider = storedProvider
 			}
@@ -1478,57 +1613,61 @@ export default function IdeTerminalView() {
 			if (result.orchestratorTaskId) metaParts.push(`task:${result.orchestratorTaskId.substring(0, 8)}`)
 			if (result.hermesContextUsed) metaParts.push("🧠")
 
-			setAiMessages((prev) => {
-				const last = prev[prev.length - 1]
-				if (last && last.meta === "streaming...") {
-					return prev.map((m) =>
-						m.id === last.id
-							? { ...m, content: replyText, author: result.provider || "AI", meta: metaParts.join(" · ") }
-							: m,
-					)
-				}
-				return [
-					...prev,
-					{
+			// Update the last message (streaming placeholder) or add a new one
+			const lastMsg = aiMessages[aiMessages.length - 1]
+			if (lastMsg && lastMsg.meta === "streaming...") {
+				dispatch({
+					type: "UPDATE_LAST_AI_MESSAGE",
+					payload: {
+						content: replyText,
+						author: result.provider || "AI",
+						meta: metaParts.join(" · "),
+					},
+				})
+			} else {
+				dispatch({
+					type: "ADD_AI_MESSAGE",
+					payload: {
 						id: `msg-${Date.now() + 1}`,
-						role: "agent" as const,
+						role: "agent",
 						author: result.provider || "AI",
 						meta: metaParts.join(" · "),
 						time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
 						content: replyText,
 					},
-				]
-			})
+				})
+			}
 
 			if (result.orchestratorTaskId) {
 				fetchOrchestratorStatus()
 			}
 		} catch (err) {
-			setAiMessages((prev) => {
-				const last = prev[prev.length - 1]
-				if (last && last.meta === "streaming...") {
-					return prev.map((m) =>
-						m.id === last.id
-							? {
-									...m,
-									content: `Error: ${err instanceof Error ? err.message : "Failed"}`,
-									author: "System",
-								}
-							: m,
-					)
-				}
-				return prev
-			})
+			const lastMsg = aiMessages[aiMessages.length - 1]
+			if (lastMsg && lastMsg.meta === "streaming...") {
+				dispatch({
+					type: "UPDATE_LAST_AI_MESSAGE",
+					payload: {
+						content: `Error: ${err instanceof Error ? err.message : "Failed"}`,
+						author: "System",
+					},
+				})
+			}
 		}
-		setAiSending(false)
+		dispatch({ type: "SET_AI_SENDING", payload: false })
 	}, [
 		aiInput,
 		aiAttachments,
 		activeFilePath,
 		openFiles,
+		files,
 		currentFileSelection,
 		terminalOutput,
 		fetchOrchestratorStatus,
+		aiMessages,
+		workspaceTasks,
+		repoName,
+		branch,
+		dispatch,
 	])
 
 	const handleAiKeyDown = useCallback(
@@ -1538,22 +1677,22 @@ export default function IdeTerminalView() {
 				e.preventDefault()
 				const filtered = slashCommandsList.filter((sc) => sc.command.startsWith(slashCommandFilter || "/"))
 				if (filtered.length > 0) {
-					setAiInput(filtered[0].command + " ")
-					setShowSlashCommands(false)
+					dispatch({ type: "SET_AI_INPUT", payload: filtered[0].command + " " })
+					dispatch({ type: "SET_SHOW_SLASH_COMMANDS", payload: false })
 				}
 				return
 			}
 			if (e.key === "Escape") {
-				setShowSlashCommands(false)
+				dispatch({ type: "SET_SHOW_SLASH_COMMANDS", payload: false })
 				return
 			}
 			if (e.key === "Enter" && !e.shiftKey) {
 				e.preventDefault()
-				setShowSlashCommands(false)
+				dispatch({ type: "SET_SHOW_SLASH_COMMANDS", payload: false })
 				handleAiSend()
 			}
 		},
-		[handleAiSend, showSlashCommands, slashCommandFilter],
+		[handleAiSend, showSlashCommands, slashCommandFilter, dispatch],
 	)
 
 	// ── Terminal command handlers ─────────────────────────────────────────
@@ -1561,11 +1700,11 @@ export default function IdeTerminalView() {
 		const cmd = terminalInput.trim()
 		if (!cmd) return
 
-		setTerminalOutput((prev) => [...prev, `$ ${cmd}`])
-		setTerminalInput("")
-		setRecentCommands((prev) => {
-			const next = [cmd, ...prev.filter((c) => c !== cmd)]
-			return next.slice(0, 20)
+		dispatch({ type: "APPEND_TERMINAL_OUTPUT", payload: [`$ ${cmd}`] })
+		dispatch({ type: "SET_TERMINAL_INPUT", payload: "" })
+		dispatch({
+			type: "SET_RECENT_COMMANDS",
+			payload: [cmd, ...recentCommands.filter((c) => c !== cmd)].slice(0, 20),
 		})
 
 		if (isAgentCommand(cmd)) {
@@ -1583,16 +1722,16 @@ export default function IdeTerminalView() {
 					},
 				)
 				if (result.output) {
-					setTerminalOutput((prev) => [...prev, ...result.output!])
+					dispatch({ type: "APPEND_TERMINAL_OUTPUT", payload: result.output })
 				}
 				if (result.error) {
-					setTerminalOutput((prev) => [...prev, `✕ ${result.error}`])
+					dispatch({ type: "APPEND_TERMINAL_OUTPUT", payload: [`✕ ${result.error}`] })
 				}
 			} catch (err) {
-				setTerminalOutput((prev) => [
-					...prev,
-					`✕ Command failed: ${err instanceof Error ? err.message : "Unknown error"}`,
-				])
+				dispatch({
+					type: "APPEND_TERMINAL_OUTPUT",
+					payload: [`✕ Command failed: ${err instanceof Error ? err.message : "Unknown error"}`],
+				})
 			} finally {
 				setAgentRunning(false)
 				setActiveAgent(null)
@@ -1609,19 +1748,19 @@ export default function IdeTerminalView() {
 					},
 				)
 				if (result.output) {
-					setTerminalOutput((prev) => [...prev, ...result.output!])
+					dispatch({ type: "APPEND_TERMINAL_OUTPUT", payload: result.output })
 				}
 				if (result.error) {
-					setTerminalOutput((prev) => [...prev, `✕ ${result.error}`])
+					dispatch({ type: "APPEND_TERMINAL_OUTPUT", payload: [`✕ ${result.error}`] })
 				}
 			} catch (err) {
-				setTerminalOutput((prev) => [
-					...prev,
-					`✕ Command failed: ${err instanceof Error ? err.message : "Unknown error"}`,
-				])
+				dispatch({
+					type: "APPEND_TERMINAL_OUTPUT",
+					payload: [`✕ Command failed: ${err instanceof Error ? err.message : "Unknown error"}`],
+				})
 			}
 		}
-	}, [terminalInput])
+	}, [terminalInput, recentCommands, dispatch])
 
 	const handleTerminalKeyDown = useCallback(
 		(e: React.KeyboardEvent) => {
@@ -1634,8 +1773,8 @@ export default function IdeTerminalView() {
 				const idx = selectedSuggestionIndex >= 0 ? selectedSuggestionIndex : 0
 				const suggestion = smartSuggestions[idx]
 				if (suggestion) {
-					setTerminalInput(suggestion.text + " ")
-					setShowSmartSuggestions(false)
+					dispatch({ type: "SET_TERMINAL_INPUT", payload: suggestion.text + " " })
+					dispatch({ type: "SET_SHOW_SMART_SUGGESTIONS", payload: false })
 					setSelectedSuggestionIndex(-1)
 				}
 			}
@@ -1648,94 +1787,107 @@ export default function IdeTerminalView() {
 				setSelectedSuggestionIndex((prev) => Math.min(smartSuggestions.length - 1, prev + 1))
 			}
 		},
-		[handleTerminalCommand, showSmartSuggestions, smartSuggestions, selectedSuggestionIndex],
+		[handleTerminalCommand, showSmartSuggestions, smartSuggestions, selectedSuggestionIndex, dispatch],
 	)
 
 	const handleTerminalInputChange = useCallback(
 		(e: React.ChangeEvent<HTMLInputElement>) => {
 			const val = e.target.value
-			setTerminalInput(val)
+			dispatch({ type: "SET_TERMINAL_INPUT", payload: val })
 
 			if (val.startsWith("/") || val.startsWith("@")) {
 				const suggestions = getAgentSuggestions(val)
 				setAgentSuggestions(suggestions)
-				setShowAgentSuggestions(suggestions.length > 0)
-				setShowSmartSuggestions(false)
+				dispatch({ type: "SET_SHOW_AGENT_SUGGESTIONS", payload: suggestions.length > 0 })
+				dispatch({ type: "SET_SHOW_SMART_SUGGESTIONS", payload: false })
 			} else if (val.length >= 2) {
 				const smart = getSmartSuggestions(val, recentCommands, agentCommands)
 				setSmartSuggestions(smart)
-				setShowSmartSuggestions(smart.length > 0)
-				setShowAgentSuggestions(false)
+				dispatch({ type: "SET_SHOW_SMART_SUGGESTIONS", payload: smart.length > 0 })
+				dispatch({ type: "SET_SHOW_AGENT_SUGGESTIONS", payload: false })
 				setSelectedSuggestionIndex(-1)
 			} else {
-				setShowAgentSuggestions(false)
-				setShowSmartSuggestions(false)
+				dispatch({ type: "SET_SHOW_AGENT_SUGGESTIONS", payload: false })
+				dispatch({ type: "SET_SHOW_SMART_SUGGESTIONS", payload: false })
 				setSelectedSuggestionIndex(-1)
 			}
 		},
-		[recentCommands],
+		[recentCommands, dispatch],
 	)
 
 	const handleFileClick = useCallback(
 		(path: string, name: string) => {
 			if (!openFiles.find((f) => f.path === path)) {
-				setOpenFiles((prev) => [
-					...prev,
-					{ path, name, content: `// ${name}\n\n// Loading...`, language: "text", modified: false },
-				])
+				dispatch({
+					type: "SET_OPEN_FILES",
+					payload: [
+						...openFiles,
+						{ path, name, content: `// ${name}\n\n// Loading...`, language: "text", modified: false },
+					],
+				})
 			}
-			setActiveFilePath(path)
+			dispatch({ type: "SET_ACTIVE_FILE_PATH", payload: path })
 		},
-		[openFiles],
+		[openFiles, dispatch],
 	)
 
-	const handleFilesSelected = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-		const files = e.target.files
-		if (!files) return
-		for (const file of Array.from(files)) {
-			setAiAttachments((prev) => [
-				...prev,
-				{
+	const handleFilesSelected = useCallback(
+		(e: React.ChangeEvent<HTMLInputElement>) => {
+			const files = e.target.files
+			if (!files) return
+			const newAttachments: ChatAttachment[] = []
+			for (const file of Array.from(files)) {
+				newAttachments.push({
 					id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
 					filename: file.name,
 					type: file.type || "unknown",
 					size: `${(file.size / 1024).toFixed(1)}KB`,
-				},
-			])
-		}
-		e.target.value = ""
-	}, [])
+				})
+			}
+			dispatch({ type: "SET_AI_ATTACHMENTS", payload: [...aiAttachments, ...newAttachments] })
+			e.target.value = ""
+		},
+		[aiAttachments, dispatch],
+	)
 
-	const handleImagesSelected = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-		const files = e.target.files
-		if (!files) return
-		for (const file of Array.from(files)) {
-			setAiAttachments((prev) => [
-				...prev,
-				{
+	const handleImagesSelected = useCallback(
+		(e: React.ChangeEvent<HTMLInputElement>) => {
+			const files = e.target.files
+			if (!files) return
+			const newAttachments: ChatAttachment[] = []
+			for (const file of Array.from(files)) {
+				newAttachments.push({
 					id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
 					filename: file.name,
 					type: file.type || "image/png",
 					size: `${(file.size / 1024).toFixed(1)}KB`,
-				},
-			])
-		}
-		e.target.value = ""
-	}, [])
+				})
+			}
+			dispatch({ type: "SET_AI_ATTACHMENTS", payload: [...aiAttachments, ...newAttachments] })
+			e.target.value = ""
+		},
+		[aiAttachments, dispatch],
+	)
 
-	const removeAttachment = useCallback((id: string) => {
-		setAiAttachments((prev) => prev.filter((a) => a.id !== id))
-	}, [])
+	const removeAttachment = useCallback(
+		(id: string) => {
+			dispatch({ type: "SET_AI_ATTACHMENTS", payload: aiAttachments.filter((a) => a.id !== id) })
+		},
+		[aiAttachments, dispatch],
+	)
 
 	// ── Function 2: Run-in-Terminal handler ────────────────────────────────
-	const handleRunInTerminal = useCallback((code: string) => {
-		// Set the terminal input to the command and focus it
-		setTerminalInput(code)
-		// Focus the terminal input after a short delay to let React render
-		setTimeout(() => {
-			terminalInputRef.current?.focus()
-		}, 50)
-	}, [])
+	const handleRunInTerminal = useCallback(
+		(code: string) => {
+			// Set the terminal input to the command and focus it
+			dispatch({ type: "SET_TERMINAL_INPUT", payload: code })
+			// Focus the terminal input after a short delay to let React render
+			setTimeout(() => {
+				terminalInputRef.current?.focus()
+			}, 50)
+		},
+		[dispatch],
+	)
 
 	// ── Set up module-level refs for rich content rendering callbacks ──────
 	useEffect(() => {
@@ -1790,15 +1942,20 @@ export default function IdeTerminalView() {
 						const oldContent = existing.content || ""
 						// Save diff data for Function 7
 						try {
-							const diffResult = await api<{ ok: boolean; changes: Array<{ line: number; old: string; new: string }>; totalChanges: number }>(
-								"/ide-workspace/file/diff",
-								{
-									method: "POST",
-									body: JSON.stringify({ oldContent, newContent: code }),
-								},
-							)
+							const diffResult = await api<{
+								ok: boolean
+								changes: Array<{ line: number; old: string; new: string }>
+								totalChanges: number
+							}>("/ide-workspace/file/diff", {
+								method: "POST",
+								body: JSON.stringify({ oldContent, newContent: code }),
+							})
 							if (diffResult.ok && diffResult.totalChanges > 0) {
-								setDiffData({ path: detectedPath, changes: diffResult.changes, totalChanges: diffResult.totalChanges })
+								setDiffData({
+									path: detectedPath,
+									changes: diffResult.changes,
+									totalChanges: diffResult.totalChanges,
+								})
 							}
 						} catch {}
 					}
@@ -1820,16 +1977,21 @@ export default function IdeTerminalView() {
 
 				// Open the file in the editor
 				const name = detectedPath.split("/").pop() || detectedPath
-				setOpenFiles((prev) => {
-					const existing = prev.find((f) => f.path === detectedPath)
-					if (existing) {
-						return prev.map((f) =>
+				const existing = openFiles.find((f) => f.path === detectedPath)
+				if (existing) {
+					dispatch({
+						type: "SET_OPEN_FILES",
+						payload: openFiles.map((f) =>
 							f.path === detectedPath ? { ...f, content: code, modified: true } : f,
-						)
-					}
-					return [...prev, { path: detectedPath, name, content: code, language, modified: true }]
-				})
-				setActiveFilePath(detectedPath)
+						),
+					})
+				} else {
+					dispatch({
+						type: "SET_OPEN_FILES",
+						payload: [...openFiles, { path: detectedPath, name, content: code, language, modified: true }],
+					})
+				}
+				dispatch({ type: "SET_ACTIVE_FILE_PATH", payload: detectedPath })
 				return
 			}
 
@@ -1839,21 +2001,29 @@ export default function IdeTerminalView() {
 				const oldFile = openFiles.find((f) => f.path === activeFilePath)
 				if (oldFile) {
 					try {
-						const diffResult = await api<{ ok: boolean; changes: Array<{ line: number; old: string; new: string }>; totalChanges: number }>(
-							"/ide-workspace/file/diff",
-							{
-								method: "POST",
-								body: JSON.stringify({ oldContent: oldFile.content, newContent: code }),
-							},
-						)
+						const diffResult = await api<{
+							ok: boolean
+							changes: Array<{ line: number; old: string; new: string }>
+							totalChanges: number
+						}>("/ide-workspace/file/diff", {
+							method: "POST",
+							body: JSON.stringify({ oldContent: oldFile.content, newContent: code }),
+						})
 						if (diffResult.ok && diffResult.totalChanges > 0) {
-							setDiffData({ path: activeFilePath, changes: diffResult.changes, totalChanges: diffResult.totalChanges })
+							setDiffData({
+								path: activeFilePath,
+								changes: diffResult.changes,
+								totalChanges: diffResult.totalChanges,
+							})
 						}
 					} catch {}
 				}
-				setOpenFiles((prev) =>
-					prev.map((f) => (f.path === activeFilePath ? { ...f, content: code, modified: true } : f)),
-				)
+				dispatch({
+					type: "SET_OPEN_FILES",
+					payload: openFiles.map((f) =>
+						f.path === activeFilePath ? { ...f, content: code, modified: true } : f,
+					),
+				})
 				api("/ide-workspace/file/save", {
 					method: "POST",
 					body: JSON.stringify({ path: activeFilePath, content: code }),
@@ -1869,11 +2039,14 @@ export default function IdeTerminalView() {
 								: "txt"
 				const filename = `untitled.${ext}`
 				const path = `/tmp/${filename}`
-				setOpenFiles((prev) => [...prev, { path, name: filename, content: code, language, modified: true }])
-				setActiveFilePath(path)
+				dispatch({
+					type: "SET_OPEN_FILES",
+					payload: [...openFiles, { path, name: filename, content: code, language, modified: true }],
+				})
+				dispatch({ type: "SET_ACTIVE_FILE_PATH", payload: path })
 			}
 		},
-		[activeFilePath, openFiles],
+		[activeFilePath, openFiles, dispatch],
 	)
 
 	// ── Handle file link click from rich content ──────────────────────────
@@ -1881,14 +2054,17 @@ export default function IdeTerminalView() {
 		(path: string) => {
 			const name = path.split("/").pop() || path
 			if (!openFiles.find((f) => f.path === path)) {
-				setOpenFiles((prev) => [
-					...prev,
-					{ path, name, content: `// ${name}\n\n// Loading...`, language: "text", modified: false },
-				])
+				dispatch({
+					type: "SET_OPEN_FILES",
+					payload: [
+						...openFiles,
+						{ path, name, content: `// ${name}\n\n// Loading...`, language: "text", modified: false },
+					],
+				})
 			}
-			setActiveFilePath(path)
+			dispatch({ type: "SET_ACTIVE_FILE_PATH", payload: path })
 		},
-		[openFiles],
+		[openFiles, dispatch],
 	)
 
 	// ── Import GitHub repo ────────────────────────────────────────────────
@@ -1914,22 +2090,23 @@ export default function IdeTerminalView() {
 				}),
 			})
 			if (result.ok) {
-				if (result.repoName) setRepoName(result.repoName)
-				if (result.branch) setBranch(result.branch)
-				if (result.files) setFiles(result.files)
-				setShowImportGithub(false)
+				if (result.repoName) dispatch({ type: "SET_REPO_NAME", payload: result.repoName })
+				if (result.branch) dispatch({ type: "SET_BRANCH", payload: result.branch })
+				if (result.files) dispatch({ type: "SET_FILES", payload: result.files })
+				dispatch({ type: "SET_SHOW_IMPORT_GITHUB", payload: false })
 				setImportGithubUrl("")
 				setImportGithubBranch("main")
-				setRecentWorkspaces((prev) => {
-					const filtered = prev.filter((w) => w.path !== result.repoName)
-					return [
+				const filtered = recentWorkspaces.filter((w) => w.path !== result.repoName)
+				dispatch({
+					type: "SET_RECENT_WORKSPACES",
+					payload: [
 						{
 							name: result.repoName || "imported-repo",
 							path: result.repoName || "imported-repo",
 							lastOpened: new Date().toISOString(),
 						},
 						...filtered.slice(0, 9),
-					]
+					],
 				})
 			} else {
 				setImportGithubError(result.error || "Import failed")
@@ -1939,7 +2116,7 @@ export default function IdeTerminalView() {
 		} finally {
 			setImportGithubLoading(false)
 		}
-	}, [importGithubUrl, importGithubBranch])
+	}, [importGithubUrl, importGithubBranch, recentWorkspaces, dispatch])
 
 	// ── Open/switch workspace ─────────────────────────────────────────────
 	const handleOpenWorkspace = useCallback(
@@ -1963,18 +2140,19 @@ export default function IdeTerminalView() {
 					body: JSON.stringify({ path: targetPath }),
 				})
 				if (result.ok) {
-					if (result.repoName) setRepoName(result.repoName)
-					if (result.branch) setBranch(result.branch)
-					if (result.files) setFiles(result.files)
-					setShowOpenWorkspace(false)
+					if (result.repoName) dispatch({ type: "SET_REPO_NAME", payload: result.repoName })
+					if (result.branch) dispatch({ type: "SET_BRANCH", payload: result.branch })
+					if (result.files) dispatch({ type: "SET_FILES", payload: result.files })
+					dispatch({ type: "SET_SHOW_OPEN_WORKSPACE", payload: false })
 					setOpenWorkspacePath("")
 					const name = result.repoName || targetPath.split("/").pop() || targetPath
-					setRecentWorkspaces((prev) => {
-						const filtered = prev.filter((w) => w.path !== targetPath)
-						return [
+					const filtered = recentWorkspaces.filter((w) => w.path !== targetPath)
+					dispatch({
+						type: "SET_RECENT_WORKSPACES",
+						payload: [
 							{ name, path: targetPath, lastOpened: new Date().toISOString() },
 							...filtered.slice(0, 9),
-						]
+						],
 					})
 				} else {
 					setOpenWorkspaceError(result.error || "Failed to open workspace")
@@ -1985,7 +2163,7 @@ export default function IdeTerminalView() {
 				setOpenWorkspaceLoading(false)
 			}
 		},
-		[openWorkspacePath],
+		[openWorkspacePath, recentWorkspaces, dispatch],
 	)
 
 	const handleTerminalResizeMouseDown = useCallback(
@@ -1994,7 +2172,10 @@ export default function IdeTerminalView() {
 			const startY = e.clientY
 			const startHeight = terminalHeight
 			function onMouseMove(ev: MouseEvent) {
-				setTerminalHeight(Math.max(80, Math.min(600, startHeight + (ev.clientY - startY))))
+				dispatch({
+					type: "SET_TERMINAL_HEIGHT",
+					payload: Math.max(80, Math.min(600, startHeight + (ev.clientY - startY))),
+				})
 			}
 			function onMouseUp() {
 				window.removeEventListener("mousemove", onMouseMove)
@@ -2003,44 +2184,56 @@ export default function IdeTerminalView() {
 			window.addEventListener("mousemove", onMouseMove)
 			window.addEventListener("mouseup", onMouseUp)
 		},
-		[terminalHeight],
+		[terminalHeight, dispatch],
 	)
 
 	const handleCopyTerminal = useCallback((index: number, content: string) => {
 		navigator.clipboard.writeText(content).catch(() => {})
 		setCopiedIndex(index)
 		setTimeout(() => setCopiedIndex(null), 1500)
-	}, [])
+	}, []) // copiedIndex is local-only state
 
-	const toggleBlockCollapse = useCallback((id: string) => {
-		setCollapsedBlocks((prev) => {
-			const next = new Set(prev)
+	const toggleBlockCollapse = useCallback(
+		(id: string) => {
+			const next = new Set(collapsedBlocks)
 			if (next.has(id)) next.delete(id)
 			else next.add(id)
-			return next
-		})
-	}, [])
+			dispatch({ type: "SET_COLLAPSED_BLOCKS", payload: next })
+		},
+		[collapsedBlocks, dispatch],
+	)
 
 	const handleStartRecording = useCallback(() => {
-		setIsRecording(true)
-		setRecordingBlocks([])
-	}, [])
+		dispatch({ type: "SET_IS_RECORDING", payload: true })
+		dispatch({ type: "SET_RECORDING_BLOCKS", payload: [] })
+	}, [dispatch])
 	const handleStopRecording = useCallback(() => {
-		setIsRecording(false)
+		dispatch({ type: "SET_IS_RECORDING", payload: false })
 		if (recordingBlocks.length > 0) {
-			setRecordings((prev) => [...prev, createRecording(recordingBlocks, `Recording ${prev.length + 1}`)])
+			dispatch({
+				type: "SET_RECORDINGS",
+				payload: [...recordings, createRecording(recordingBlocks, `Recording ${recordings.length + 1}`)],
+			})
 		}
-	}, [recordingBlocks])
-	const handleReplayRecording = useCallback((recording: TerminalRecording) => {
-		setOutputBlocks(recording.blocks)
-	}, [])
+	}, [recordingBlocks, recordings, dispatch])
+	const handleReplayRecording = useCallback(
+		(recording: TerminalRecording) => {
+			dispatch({ type: "SET_OUTPUT_BLOCKS", payload: recording.blocks })
+		},
+		[dispatch],
+	)
 
 	useEffect(() => {
-		setOutputBlocks(convertToBlocks(terminalOutput))
-	}, [terminalOutput])
+		dispatch({ type: "SET_OUTPUT_BLOCKS", payload: convertToBlocks(terminalOutput) })
+	}, [terminalOutput, dispatch])
 	useEffect(() => {
-		if (isRecording) setRecordingBlocks((prev) => [...prev, ...outputBlocks.slice(prev.length)])
-	}, [outputBlocks, isRecording])
+		if (isRecording) {
+			dispatch({
+				type: "SET_RECORDING_BLOCKS",
+				payload: [...recordingBlocks, ...outputBlocks.slice(recordingBlocks.length)],
+			})
+		}
+	}, [outputBlocks, isRecording, recordingBlocks, dispatch])
 
 	if (loading) {
 		return (
@@ -2074,7 +2267,7 @@ export default function IdeTerminalView() {
 				<div className="flex items-center gap-1.5">
 					{/* Import GitHub */}
 					<button
-						onClick={() => setShowImportGithub(true)}
+						onClick={() => dispatch({ type: "SET_SHOW_IMPORT_GITHUB", payload: true })}
 						className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-gray-500 hover:text-gray-300 hover:bg-[#1e2535] rounded transition-colors"
 						title="Import GitHub repository">
 						<Github size={11} />
@@ -2082,7 +2275,7 @@ export default function IdeTerminalView() {
 					</button>
 					{/* Open Workspace */}
 					<button
-						onClick={() => setShowOpenWorkspace(true)}
+						onClick={() => dispatch({ type: "SET_SHOW_OPEN_WORKSPACE", payload: true })}
 						className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-gray-500 hover:text-gray-300 hover:bg-[#1e2535] rounded transition-colors"
 						title="Open or switch workspace">
 						<FolderOpen size={11} />
@@ -2176,7 +2369,7 @@ export default function IdeTerminalView() {
 						}
 					/>
 					<button
-						onClick={() => setShowShortcuts(true)}
+						onClick={() => dispatch({ type: "SET_SHOW_SHORTCUTS", payload: true })}
 						className="text-gray-500 hover:text-gray-300 transition-colors"
 						title="Keyboard shortcuts">
 						<Keyboard size={12} />
@@ -2193,13 +2386,13 @@ export default function IdeTerminalView() {
 							</span>
 							<div className="flex items-center gap-1">
 								<button
-									onClick={() => setShowFileSearch(true)}
+									onClick={() => dispatch({ type: "SET_SHOW_FILE_SEARCH", payload: true })}
 									className="text-gray-500 hover:text-gray-300 transition-colors"
 									title="Search files (Ctrl+P)">
 									<FileSearch size={11} />
 								</button>
 								<button
-									onClick={() => setShowFilePanel(false)}
+									onClick={() => dispatch({ type: "SET_SHOW_FILE_PANEL", payload: false })}
 									className="text-gray-500 hover:text-gray-300 transition-colors"
 									title="Close panel">
 									<PanelLeftClose size={11} />
@@ -2212,7 +2405,9 @@ export default function IdeTerminalView() {
 									ref={fileSearchRef}
 									type="text"
 									value={fileSearchQuery}
-									onChange={(e) => setFileSearchQuery(e.target.value)}
+									onChange={(e) =>
+										dispatch({ type: "SET_FILE_SEARCH_QUERY", payload: e.target.value })
+									}
 									placeholder="Search files..."
 									className="w-full bg-[#1e2535] text-[11px] text-gray-300 placeholder-gray-600 border border-[#2a3344] rounded px-2 py-1 outline-none"
 								/>
@@ -2231,7 +2426,7 @@ export default function IdeTerminalView() {
 								{openFiles.map((f) => (
 									<button
 										key={f.path}
-										onClick={() => setActiveFilePath(f.path)}
+										onClick={() => dispatch({ type: "SET_ACTIVE_FILE_PATH", payload: f.path })}
 										className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] border-r border-[#1e2535] transition-colors whitespace-nowrap ${activeFilePath === f.path ? "bg-[#1a2030] text-[#e2e8f0] border-t-2 border-t-violet-500" : "text-gray-500 hover:text-gray-300"}`}>
 										<FileText size={11} />
 										{f.name}
@@ -2255,9 +2450,9 @@ export default function IdeTerminalView() {
 												top: Math.min(e.clientY, rect.bottom - 40),
 												left: Math.max(e.clientX - 40, rect.left + 10),
 											})
-											setShowInlineAiButton(true)
+											dispatch({ type: "SET_SHOW_INLINE_AI_BUTTON", payload: true })
 										} else {
-											setShowInlineAiButton(false)
+											dispatch({ type: "SET_SHOW_INLINE_AI_BUTTON", payload: false })
 											setCurrentFileSelection("")
 										}
 									}}>
@@ -2325,14 +2520,18 @@ export default function IdeTerminalView() {
 								</button>
 								{recordings.length > 0 && (
 									<button
-										onClick={() => setShowRecordings(!showRecordings)}
+										onClick={() =>
+											dispatch({ type: "SET_SHOW_RECORDINGS", payload: !showRecordings })
+										}
 										className="p-0.5 text-gray-500 hover:text-gray-300 transition-colors"
 										title="View recordings">
 										<History size={11} />
 									</button>
 								)}
 								<button
-									onClick={() => setIsTerminalMaximized(!isTerminalMaximized)}
+									onClick={() =>
+										dispatch({ type: "SET_IS_TERMINAL_MAXIMIZED", payload: !isTerminalMaximized })
+									}
 									className="p-0.5 text-gray-500 hover:text-gray-300 transition-colors"
 									title={isTerminalMaximized ? "Minimize" : "Maximize"}>
 									{isTerminalMaximized ? <Minimize2 size={11} /> : <Maximize2 size={11} />}
@@ -2380,8 +2579,8 @@ export default function IdeTerminalView() {
 										<button
 											key={s}
 											onClick={() => {
-												setTerminalInput(s + " ")
-												setShowAgentSuggestions(false)
+												dispatch({ type: "SET_TERMINAL_INPUT", payload: s + " " })
+												dispatch({ type: "SET_SHOW_AGENT_SUGGESTIONS", payload: false })
 											}}
 											className="block w-full text-left px-3 py-1 text-[11px] text-gray-300 hover:bg-[#253045] transition-colors">
 											{s}
@@ -2395,8 +2594,8 @@ export default function IdeTerminalView() {
 										<button
 											key={s.text + idx}
 											onClick={() => {
-												setTerminalInput(s.text + " ")
-												setShowSmartSuggestions(false)
+												dispatch({ type: "SET_TERMINAL_INPUT", payload: s.text + " " })
+												dispatch({ type: "SET_SHOW_SMART_SUGGESTIONS", payload: false })
 												setSelectedSuggestionIndex(-1)
 											}}
 											className={`block w-full text-left px-3 py-1.5 text-[11px] transition-colors ${idx === selectedSuggestionIndex ? "bg-violet-500/20 text-violet-300" : "text-gray-300 hover:bg-[#253045]"}`}>
@@ -2433,7 +2632,7 @@ export default function IdeTerminalView() {
 								</span>
 							</div>
 							<button
-								onClick={() => setShowAiPanel(false)}
+								onClick={() => dispatch({ type: "SET_SHOW_AI_PANEL", payload: false })}
 								className="text-gray-500 hover:text-gray-300 transition-colors"
 								title="Close panel">
 								<PanelRightClose size={11} />
@@ -2444,7 +2643,7 @@ export default function IdeTerminalView() {
 							{["chat", "plan", "memory", "deploy"].map((tab) => (
 								<button
 									key={tab}
-									onClick={() => setAiTab(tab)}
+									onClick={() => dispatch({ type: "SET_AI_TAB", payload: tab })}
 									className={`flex-1 px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider transition-colors ${aiTab === tab ? "text-violet-400 border-b-2 border-violet-500 bg-[#1a2030]" : "text-gray-600 hover:text-gray-400"}`}>
 									{tab === "chat" && <MessageSquare size={11} className="inline mr-1" />}
 									{tab === "plan" && <GitBranch size={11} className="inline mr-1" />}
@@ -2514,9 +2713,13 @@ export default function IdeTerminalView() {
 																<button
 																	onClick={() => {
 																		codeBlocks.forEach((block) => {
-																			const langMatch = block.match(/```(\w*)\n?([\s\S]*?)```/)
+																			const langMatch =
+																				block.match(/```(\w*)\n?([\s\S]*?)```/)
 																			if (langMatch) {
-																				handleApplyCode(langMatch[2].trim(), langMatch[1] || "text")
+																				handleApplyCode(
+																					langMatch[2].trim(),
+																					langMatch[1] || "text",
+																				)
 																			}
 																		})
 																	}}
@@ -2530,12 +2733,17 @@ export default function IdeTerminalView() {
 														return null
 													})()}
 													{(() => {
-														const shellBlocks = msg.content.match(/```(bash|sh|shell|terminal|cmd|powershell|docker|zsh)\n?[\s\S]*?```/g)
+														const shellBlocks = msg.content.match(
+															/```(bash|sh|shell|terminal|cmd|powershell|docker|zsh)\n?[\s\S]*?```/g,
+														)
 														if (shellBlocks && shellBlocks.length > 0) {
 															return (
 																<button
 																	onClick={() => {
-																		const firstMatch = shellBlocks[0].match(/```\w+\n?([\s\S]*?)```/)
+																		const firstMatch =
+																			shellBlocks[0].match(
+																				/```\w+\n?([\s\S]*?)```/,
+																			)
 																		if (firstMatch) {
 																			handleRunInTerminal(firstMatch[1].trim())
 																		}
@@ -2573,8 +2781,7 @@ export default function IdeTerminalView() {
 												<button
 													key={idx}
 													onClick={() => {
-														setAiInput(s)
-														setAiInput((prev) => prev + " ")
+														dispatch({ type: "SET_AI_INPUT", payload: s + " " })
 													}}
 													className="text-[10px] px-2 py-1 bg-[#1e2535] text-gray-400 rounded-full border border-[#2a3344] hover:border-violet-500 hover:text-violet-300 transition-colors">
 													{s}
@@ -2612,23 +2819,98 @@ export default function IdeTerminalView() {
 								<div className="border-t border-[#1e2535] px-3 py-2 bg-[#0a0d14]">
 									<div className="flex items-end gap-2">
 										<div className="flex-1 relative">
+											{/* Recent Tasks dropdown — click to load last task context */}
+											{workspaceTasks.length > 0 && (
+												<div className="absolute bottom-full left-0 mb-1 z-20">
+													<div className="relative group">
+														<button
+															onClick={() => setShowRecentTasks(!showRecentTasks)}
+															className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-gray-500 hover:text-gray-300 hover:bg-[#1e2535] rounded transition-colors"
+															title="Recent tasks">
+															<ListTodo size={10} />
+															<span>Recent Tasks</span>
+														</button>
+														{showRecentTasks && (
+															<div className="absolute bottom-full left-0 mb-1 w-72 bg-[#1a2030] border border-[#2a3344] rounded shadow-xl overflow-hidden max-h-60 overflow-y-auto">
+																<div className="p-1.5 border-b border-[#1e2535] sticky top-0 bg-[#1a2030]">
+																	<span className="text-[9px] text-gray-500 uppercase tracking-wider font-semibold">
+																		Recent Tasks ({workspaceTasks.length})
+																	</span>
+																</div>
+																{workspaceTasks.slice(0, 20).map((t) => (
+																	<button
+																		key={t.id}
+																		onClick={() => {
+																			dispatch({
+																				type: "SET_AI_INPUT",
+																				payload: `Continue task: ${t.title}\n\nStatus: ${t.status}`,
+																			})
+																			setShowRecentTasks(false)
+																			textareaRef?.current?.focus()
+																		}}
+																		className="block w-full text-left px-2.5 py-1.5 text-[11px] border-b border-[#1e2535]/50 last:border-0 hover:bg-[#253045] transition-colors">
+																		<div className="flex items-center gap-2">
+																			{t.status === "done" ? (
+																				<CheckSquare
+																					size={10}
+																					className="text-green-400 shrink-0"
+																				/>
+																			) : t.status === "failed" ? (
+																				<XCircle
+																					size={10}
+																					className="text-red-400 shrink-0"
+																				/>
+																			) : (
+																				<Square
+																					size={10}
+																					className="text-yellow-400 shrink-0"
+																				/>
+																			)}
+																			<span className="truncate text-gray-300">
+																				{t.title}
+																			</span>
+																		</div>
+																		{t.title && (
+																			<div className="text-[9px] text-gray-600 mt-0.5 pl-5 truncate">
+																				{t.title}
+																			</div>
+																		)}
+																	</button>
+																))}
+															</div>
+														)}
+													</div>
+												</div>
+											)}
 											{/* Function 3: Slash commands dropdown */}
 											{showSlashCommands && (
 												<div className="absolute bottom-full left-0 right-0 mb-1 bg-[#0f1117] border border-[#1e2535] rounded shadow-xl max-h-48 overflow-y-auto z-10">
 													{slashCommandsList
-														.filter((sc) => sc.command.startsWith(slashCommandFilter || "/"))
+														.filter((sc) =>
+															sc.command.startsWith(slashCommandFilter || "/"),
+														)
 														.map((sc) => (
 															<button
 																key={sc.command}
 																onClick={() => {
-																	setAiInput(sc.command + " ")
-																	setShowSlashCommands(false)
+																	dispatch({
+																		type: "SET_AI_INPUT",
+																		payload: sc.command + " ",
+																	})
+																	dispatch({
+																		type: "SET_SHOW_SLASH_COMMANDS",
+																		payload: false,
+																	})
 																	textareaRef?.current?.focus()
 																}}
 																className="w-full flex items-center gap-2 px-2.5 py-1.5 text-[11px] text-left hover:bg-[#1e2535] transition-colors">
 																<Slash size={11} className="text-violet-400 shrink-0" />
-																<span className="text-violet-300 font-medium">{sc.command}</span>
-																<span className="text-gray-500 ml-1">{sc.description}</span>
+																<span className="text-violet-300 font-medium">
+																	{sc.command}
+																</span>
+																<span className="text-gray-500 ml-1">
+																	{sc.description}
+																</span>
 															</button>
 														))}
 												</div>
@@ -2829,11 +3111,13 @@ export default function IdeTerminalView() {
 				)}
 			</div>
 
-			{showShortcuts && <KeyboardShortcutsModal onClose={() => setShowShortcuts(false)} />}
+			{showShortcuts && (
+				<KeyboardShortcutsModal onClose={() => dispatch({ type: "SET_SHOW_SHORTCUTS", payload: false })} />
+			)}
 			{showRecordings && recordings.length > 0 && (
 				<div
 					className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-					onClick={() => setShowRecordings(false)}>
+					onClick={() => dispatch({ type: "SET_SHOW_RECORDINGS", payload: false })}>
 					<div
 						className="bg-[#0f1117] border border-[#1e2535] rounded-lg p-4 w-full max-w-md mx-4 shadow-2xl"
 						onClick={(e) => e.stopPropagation()}>
@@ -2843,7 +3127,7 @@ export default function IdeTerminalView() {
 								<span className="text-sm font-semibold text-[#e2e8f0]">Terminal Recordings</span>
 							</div>
 							<button
-								onClick={() => setShowRecordings(false)}
+								onClick={() => dispatch({ type: "SET_SHOW_RECORDINGS", payload: false })}
 								className="text-gray-500 hover:text-gray-300">
 								<X size={14} />
 							</button>
@@ -2862,7 +3146,7 @@ export default function IdeTerminalView() {
 									<button
 										onClick={() => {
 											handleReplayRecording(rec)
-											setShowRecordings(false)
+											dispatch({ type: "SET_SHOW_RECORDINGS", payload: false })
 										}}
 										className="text-[10px] text-violet-400 hover:text-violet-300 transition-colors">
 										Replay
@@ -2878,7 +3162,7 @@ export default function IdeTerminalView() {
 			{showImportGithub && (
 				<div
 					className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-					onClick={() => setShowImportGithub(false)}>
+					onClick={() => dispatch({ type: "SET_SHOW_IMPORT_GITHUB", payload: false })}>
 					<div
 						className="bg-[#0f1117] border border-[#1e2535] rounded-lg p-5 w-full max-w-md mx-4 shadow-2xl"
 						onClick={(e) => e.stopPropagation()}>
@@ -2888,7 +3172,7 @@ export default function IdeTerminalView() {
 								<span className="text-sm font-semibold text-[#e2e8f0]">Import GitHub Repository</span>
 							</div>
 							<button
-								onClick={() => setShowImportGithub(false)}
+								onClick={() => dispatch({ type: "SET_SHOW_IMPORT_GITHUB", payload: false })}
 								className="text-gray-500 hover:text-gray-300">
 								<X size={14} />
 							</button>
@@ -2943,7 +3227,7 @@ export default function IdeTerminalView() {
 			{showOpenWorkspace && (
 				<div
 					className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-					onClick={() => setShowOpenWorkspace(false)}>
+					onClick={() => dispatch({ type: "SET_SHOW_OPEN_WORKSPACE", payload: false })}>
 					<div
 						className="bg-[#0f1117] border border-[#1e2535] rounded-lg p-5 w-full max-w-md mx-4 shadow-2xl"
 						onClick={(e) => e.stopPropagation()}>
@@ -2953,7 +3237,7 @@ export default function IdeTerminalView() {
 								<span className="text-sm font-semibold text-[#e2e8f0]">Open Workspace</span>
 							</div>
 							<button
-								onClick={() => setShowOpenWorkspace(false)}
+								onClick={() => dispatch({ type: "SET_SHOW_OPEN_WORKSPACE", payload: false })}
 								className="text-gray-500 hover:text-gray-300">
 								<X size={14} />
 							</button>
@@ -3017,23 +3301,21 @@ export default function IdeTerminalView() {
 			{showDiffView && diffData && (
 				<div
 					className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-					onClick={() => setShowDiffView(false)}>
+					onClick={() => dispatch({ type: "SET_SHOW_DIFF_VIEW", payload: false })}>
 					<div
 						className="bg-[#0f1117] border border-[#1e2535] rounded-lg p-4 w-full max-w-2xl mx-4 shadow-2xl max-h-[80vh] flex flex-col"
 						onClick={(e) => e.stopPropagation()}>
 						<div className="flex items-center justify-between mb-3">
 							<div className="flex items-center gap-2">
 								<Diff size={14} className="text-violet-400" />
-								<span className="text-sm font-semibold text-[#e2e8f0]">
-									Changes: {diffData.path}
-								</span>
+								<span className="text-sm font-semibold text-[#e2e8f0]">Changes: {diffData.path}</span>
 							</div>
 							<div className="flex items-center gap-2">
 								<span className="text-[10px] text-gray-500">
 									{diffData.totalChanges} change{diffData.totalChanges !== 1 ? "s" : ""}
 								</span>
 								<button
-									onClick={() => setShowDiffView(false)}
+									onClick={() => dispatch({ type: "SET_SHOW_DIFF_VIEW", payload: false })}
 									className="text-gray-500 hover:text-gray-300">
 									<X size={14} />
 								</button>
@@ -3073,8 +3355,11 @@ export default function IdeTerminalView() {
 					<button
 						onClick={() => {
 							if (currentFileSelection) {
-								setAiInput(`Explain this code:\n\`\`\`\n${currentFileSelection.slice(0, 2000)}\n\`\`\``)
-								setShowInlineAiButton(false)
+								dispatch({
+									type: "SET_AI_INPUT",
+									payload: `Explain this code:\n\`\`\`\n${currentFileSelection.slice(0, 2000)}\n\`\`\``,
+								})
+								dispatch({ type: "SET_SHOW_INLINE_AI_BUTTON", payload: false })
 								// Focus the AI input
 								setTimeout(() => textareaRef.current?.focus(), 50)
 							}
