@@ -31,7 +31,7 @@ COPY apps/cli/package.json ./apps/cli/package.json
 COPY packages/command-runner/package.json ./packages/command-runner/package.json
 
 # Install ALL dependencies (including devDependencies for build)
-RUN pnpm install --frozen-lockfile --no-optional 2>&1
+RUN pnpm install --no-frozen-lockfile --no-optional 2>&1
 
 # ---- Stage 2: Build / compile ----
 FROM node:20.19.2-slim AS builder
