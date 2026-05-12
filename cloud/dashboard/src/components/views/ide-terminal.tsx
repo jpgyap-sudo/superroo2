@@ -1050,7 +1050,13 @@ export default function IdeTerminalView() {
 		function connect() {
 			try {
 				const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
-				const wsUrl = `${protocol}//${window.location.host}/api/ws/chat?session=default`
+				const SESSION_KEY = "superroo-chat-session"
+				let sessionId = localStorage.getItem(SESSION_KEY)
+				if (!sessionId) {
+					sessionId = `session-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+					localStorage.setItem(SESSION_KEY, sessionId)
+				}
+				const wsUrl = `${protocol}//${window.location.host}/api/ws/chat?session=${encodeURIComponent(sessionId)}`
 				ws = new WebSocket(wsUrl)
 				wsRef.current = ws
 
@@ -1375,6 +1381,16 @@ export default function IdeTerminalView() {
 
 	// ── UNIFIED AI Chat Send (WebSocket) ──────────────────────────────────
 	const handleAiSend = useCallback(async () => {
+		const SESSION_KEY = "superroo-chat-session"
+		let sessionId = ""
+		if (typeof window !== "undefined") {
+			sessionId = localStorage.getItem(SESSION_KEY) || ""
+			if (!sessionId) {
+				sessionId = `session-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+				localStorage.setItem(SESSION_KEY, sessionId)
+			}
+		}
+
 		let text = aiInput.trim()
 		if (!text && aiAttachments.length === 0) return
 
@@ -1503,25 +1519,6 @@ export default function IdeTerminalView() {
 			})
 		}
 
-		// ── System instruction for AI context awareness ────────────────
-		const contextInstruction = `You are an AI coding assistant in a Cloud IDE. Before answering, analyze the context provided below and:
-
-1. **Summarize** what you understand about the user's current workspace, open files, and task
-2. **If anything is unclear** — ask a specific confirmatory question (e.g., "Which file should I modify?", "Do you want me to fix the bug in X or improve Y?")
-3. **If context is sufficient** — proceed directly with your answer
-
-Context summary:
-- Workspace: ${repoName || "unknown"}${branch ? ` (branch: ${branch})` : ""}
-- Active file: ${currentFile ? currentFile.path : "none"}
-- Open files: ${allOpenFiles.length} file(s)
-- Workspace structure: ${workspaceFiles.filter((f) => f.kind === "folder").length} folders, ${workspaceFiles.filter((f) => f.kind === "file").length} files
-- Terminal output: ${terminalContext.length} recent lines
-- Conversation history: ${recentHistory.length} previous messages
-- Pending tasks: ${pendingTasks.length} task(s)
-- Selection: ${currentFileSelection ? `${currentFileSelection.length} chars` : "none"}
-
-User message: ${text}`
-
 		// If WebSocket is connected, use it for real-time streaming
 		if (wsRef.current?.readyState === WebSocket.OPEN) {
 			// Send via WebSocket — the assistant-start/token/done events
@@ -1529,15 +1526,16 @@ User message: ${text}`
 			wsRef.current.send(
 				JSON.stringify({
 					type: "chat",
-					text: contextInstruction,
+					text: text, // ✅ raw user message — not a wrapped contextInstruction
+					context: {
+						repoName,
+						branch,
+					},
 					currentFile,
 					allOpenFiles,
 					workspaceFiles,
 					terminalOutput: terminalContext,
-					conversationHistory: recentHistory,
 					pendingTasks,
-					repoName,
-					branch,
 					provider: typeof window !== "undefined" ? localStorage.getItem("superroo-chat-provider") : null,
 				}),
 			)
@@ -1591,7 +1589,7 @@ User message: ${text}`
 			const pendingTasks = workspaceTasks.filter((t) => t.status === "pending").map((t) => t.title)
 
 			const body: Record<string, unknown> = {
-				message: contextInstruction,
+				message: text, // ✅ raw user message
 				currentFile,
 				allOpenFiles,
 				workspaceFiles,
@@ -1615,6 +1613,10 @@ User message: ${text}`
 				hermesContextUsed?: boolean
 			}>("/ide-workspace/chat", {
 				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-session-id": sessionId,
+				},
 				body: JSON.stringify(body),
 			})
 

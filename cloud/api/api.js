@@ -50,22 +50,30 @@ const {
 const { federatedMerge, mergeLocalAndCloud } = require("../orchestrator/ml/FederatedMerge")
 const { fromLocal, fromCloud, toLocal, toCloud, UNIFIED_DIMENSIONS } = require("../orchestrator/ml/FeatureMapper")
 
-async function loadWorkspaceStore() {
+async function loadWorkspaceStore(sessionId = "default") {
 	try {
-		const raw = await fs.readFile(WORKSPACE_STORE_PATH, "utf8")
+		const filePath =
+			sessionId === "default"
+				? WORKSPACE_STORE_PATH
+				: path.join(path.dirname(WORKSPACE_STORE_PATH), `ide-workspace-${sessionId}.json`)
+		const raw = await fs.readFile(filePath, "utf8")
 		return JSON.parse(raw)
 	} catch {
 		return null
 	}
 }
 
-async function saveWorkspaceStore(data) {
+async function saveWorkspaceStore(data, sessionId = "default") {
 	try {
-		await fs.mkdir(path.dirname(WORKSPACE_STORE_PATH), { recursive: true })
+		const filePath =
+			sessionId === "default"
+				? WORKSPACE_STORE_PATH
+				: path.join(path.dirname(WORKSPACE_STORE_PATH), `ide-workspace-${sessionId}.json`)
+		await fs.mkdir(path.dirname(filePath), { recursive: true })
 		// Atomic write: write to temp then rename
-		const tmp = WORKSPACE_STORE_PATH + ".tmp"
+		const tmp = filePath + ".tmp"
 		await fs.writeFile(tmp, JSON.stringify(data, null, 2), "utf8")
-		await fs.rename(tmp, WORKSPACE_STORE_PATH)
+		await fs.rename(tmp, filePath)
 	} catch (err) {
 		console.error("[workspace-store] Failed to save:", err.message)
 	}
@@ -1127,6 +1135,30 @@ const wss = new WebSocketServer({ noServer: true })
 // Track connected chat clients by workspace session
 const chatClients = new Map() // sessionId -> Set<WebSocket>
 
+// Track per-session chat context (isolated from global singleton)
+const chatSessions = new Map() // sessionId -> context object
+
+async function getChatSession(sessionId, workspaceDir = "") {
+	if (!chatSessions.has(sessionId)) {
+		const saved = await loadWorkspaceStore(sessionId)
+		if (saved && saved.chatMessages) {
+			chatSessions.set(sessionId, saved)
+		} else {
+			const seed = global.__ideWorkspace || {}
+			chatSessions.set(sessionId, {
+				repoName: seed.repoName || "superroo2",
+				branch: seed.branch || "main",
+				workspaceDir: workspaceDir || seed.workspaceDir || "/opt/superroo2",
+				chatMessages: [],
+				pipeline: seed.pipeline ? [...seed.pipeline] : [],
+				terminalSessions: seed.terminalSessions ? JSON.parse(JSON.stringify(seed.terminalSessions)) : [],
+				activeTerminal: seed.activeTerminal || null,
+			})
+		}
+	}
+	return chatSessions.get(sessionId)
+}
+
 wss.on("connection", (ws, req) => {
 	const urlObj = new URL(req.url, "http://localhost")
 	const sessionId = urlObj.searchParams.get("session") || "default"
@@ -1196,19 +1228,25 @@ async function handleWsChatMessage(ws, sessionId, msg, workspaceDir) {
 	const text = (msg.text || "").trim()
 	if (!text) return
 
-	// Get workspace context
-	const wsCtx = global.__ideWorkspace || {}
+	// ── Per-session context (isolated from global singleton) ─────────────
+	const session = await getChatSession(sessionId, workspaceDir)
 
-	// Store user message
-	wsCtx.chatMessages = wsCtx.chatMessages || []
-	wsCtx.chatMessages.push({
+	// ── Update workspace context from client ─────────────────────────────
+	if (msg.context) {
+		if (msg.context.repoName) session.repoName = msg.context.repoName
+		if (msg.context.branch) session.branch = msg.context.branch
+		if (msg.context.workspaceDir) session.workspaceDir = msg.context.workspaceDir
+	}
+
+	// Store user message (raw text only — not a wrapped contextInstruction)
+	session.chatMessages.push({
 		id: `msg-${Date.now()}`,
 		role: "user",
 		author: "You",
 		time: new Date().toLocaleTimeString(),
 		content: text,
 	})
-	saveWorkspaceStore(wsCtx)
+	saveWorkspaceStore(session, sessionId)
 
 	// Send typing indicator
 	ws.send(JSON.stringify({ type: "typing", status: true }))
@@ -1237,20 +1275,11 @@ async function handleWsChatMessage(ws, sessionId, msg, workspaceDir) {
 	const contextParts = [
 		`You are SuperRoo, an expert AI coding assistant running in the Cloud Dashboard IDE Terminal.`,
 		`You are a REAL-TIME partner — respond token by token, proactively suggest next steps.`,
-		`The current workspace is "${wsCtx.repoName || "unknown"}" on branch "${wsCtx.branch || "main"}".`,
-		`The workspace directory is: ${wsCtx.workspaceDir || "/opt/superroo2"}`,
+		`The current workspace is "${session.repoName || "unknown"}" on branch "${session.branch || "main"}".`,
+		`The workspace directory is: ${session.workspaceDir || "/opt/superroo2"}`,
 	]
 
-	// 1. Full conversation history (last 20 messages)
-	if (wsCtx.chatMessages.length > 1) {
-		const history = wsCtx.chatMessages
-			.slice(-20, -1)
-			.map((m) => `${m.author}: ${m.content.slice(0, 500)}`)
-			.join("\n")
-		contextParts.push(`## Conversation History\n${history}`)
-	}
-
-	// 2. Current open file context (if provided by client)
+	// 1. Current open file context (if provided by client)
 	if (msg.currentFile) {
 		contextParts.push(
 			`## Current File\nFile: ${msg.currentFile.path}\n\`\`\`${msg.currentFile.language || "text"}\n${(msg.currentFile.content || "").slice(0, 3000)}\n\`\`\``,
@@ -1262,13 +1291,36 @@ async function handleWsChatMessage(ws, sessionId, msg, workspaceDir) {
 		}
 	}
 
-	// 3. Terminal context (last 20 lines of terminal output)
+	// 2. Open files context
+	if (msg.allOpenFiles && msg.allOpenFiles.length > 0) {
+		const filesInfo = msg.allOpenFiles.map((f) => `- ${f.path}${f.modified ? " (modified)" : ""}`).join("\n")
+		contextParts.push(`## Open Files\n${filesInfo}`)
+	}
+
+	// 3. Workspace structure
+	if (msg.workspaceFiles && msg.workspaceFiles.length > 0) {
+		contextParts.push(`## Workspace Structure\n${msg.workspaceFiles.length} items in workspace`)
+	}
+
+	// 4. Terminal context (last 20 lines of terminal output)
 	if (msg.terminalOutput && msg.terminalOutput.length > 0) {
 		const lastLines = msg.terminalOutput.slice(-20).join("\n")
 		contextParts.push(`## Recent Terminal Output\n\`\`\`\n${lastLines}\n\`\`\``)
 	}
 
-	// 4. HermesClaw memory recall
+	// 5. Clean conversation history (last 20 messages)
+	const cleanHistory = session.chatMessages.filter(
+		(m) => m.role === "user" || m.role === "agent" || m.role === "assistant",
+	)
+	if (cleanHistory.length > 1) {
+		const history = cleanHistory
+			.slice(-20, -1)
+			.map((m) => `${m.author}: ${m.content.slice(0, 500)}`)
+			.join("\n")
+		contextParts.push(`## Conversation History\n${history}`)
+	}
+
+	// 6. HermesClaw memory recall
 	let hermesContext = ""
 	if (orchestrator && orchestrator.hermesClaw) {
 		try {
@@ -1282,7 +1334,7 @@ async function handleWsChatMessage(ws, sessionId, msg, workspaceDir) {
 		}
 	}
 
-	// 5. Behavior rules — make the AI feel like VS Code's chat: reconstruct intent, give solutions, offer integration
+	// 7. Behavior rules
 	contextParts.push(`## Behavior Rules
 ### Message Reconstruction
 - Before answering, silently reconstruct what the user is asking. If they say "this", "that", "it", or refer to something without context, look at the conversation history to understand what they mean.
@@ -1335,7 +1387,7 @@ async function handleWsChatMessage(ws, sessionId, msg, workspaceDir) {
 				model: provider.model,
 				messages: [
 					{ role: "system", content: systemPrompt },
-					...wsCtx.chatMessages.slice(-10, -1).map((m) => ({
+					...cleanHistory.slice(-10, -1).map((m) => ({
 						role: m.role === "user" ? "user" : "assistant",
 						content: m.content,
 					})),
@@ -1409,7 +1461,7 @@ async function handleWsChatMessage(ws, sessionId, msg, workspaceDir) {
 		)
 
 		// Store the full reply
-		wsCtx.chatMessages.push({
+		session.chatMessages.push({
 			id: assistantId,
 			role: "agent",
 			author: provider.providerId,
@@ -1417,7 +1469,7 @@ async function handleWsChatMessage(ws, sessionId, msg, workspaceDir) {
 			time: new Date().toLocaleTimeString(),
 			content: fullReply,
 		})
-		saveWorkspaceStore(wsCtx)
+		saveWorkspaceStore(session, sessionId)
 
 		// Fire-and-forget Hermes lesson extraction
 		if (orchestrator && orchestrator.hermesClaw) {
@@ -1492,6 +1544,7 @@ async function handleWsChatMessage(ws, sessionId, msg, workspaceDir) {
 	}
 }
 
+const server = http.createServer(async (req, res) => {
 	const url = req.url || ""
 	const method = req.method || "GET"
 
@@ -3639,16 +3692,18 @@ async function handleWsChatMessage(ws, sessionId, msg, workspaceDir) {
 			const msg = data?.message || ""
 			const requestedProvider = data?.provider || null
 			const requestedModel = data?.model || null
+			const sessionId = req.headers["x-session-id"] || "default"
+			const chatSession = await getChatSession(sessionId)
 
 			// Store user message
-			ws.chatMessages.push({
+			chatSession.chatMessages.push({
 				id: `msg-${Date.now()}`,
 				role: "user",
 				author: "You",
 				time: new Date().toLocaleTimeString(),
 				content: msg,
 			})
-			saveWorkspaceStore(global.__ideWorkspace) // persist chat
+			saveWorkspaceStore(chatSession, sessionId) // persist chat
 
 			// ── OpenClaw intent classification ──────────────────────────────
 			// Build providers array for the classifier (same format askAI uses)
@@ -3712,14 +3767,14 @@ async function handleWsChatMessage(ws, sessionId, msg, workspaceDir) {
 			if (!provider) {
 				const noProviderMsg =
 					"No AI provider is configured and connected. Please go to the API Keys page to add and test a provider API key (e.g., DeepSeek, OpenAI, or Anthropic). After saving the key, click 'Test' to verify the connection."
-				ws.chatMessages.push({
+				chatSession.chatMessages.push({
 					id: `msg-${Date.now() + 1}`,
 					role: "agent",
 					author: "System",
 					time: new Date().toLocaleTimeString(),
 					content: noProviderMsg,
 				})
-				saveWorkspaceStore(global.__ideWorkspace) // persist chat
+				saveWorkspaceStore(chatSession, sessionId) // persist chat
 				sendJson(res, 200, {
 					ok: true,
 					message: "No AI provider available",
@@ -3805,10 +3860,15 @@ async function handleWsChatMessage(ws, sessionId, msg, workspaceDir) {
 					`You are SuperRoo, an expert AI coding assistant running in the Cloud Dashboard IDE Terminal.`,
 					`You have access to the OpenClaw orchestrator system with multi-agent capabilities.`,
 				]
-				contextParts.push(`The current workspace is "${ws.repoName}" on branch "${ws.branch}".`)
-				contextParts.push(`The workspace directory is: ${ws.workspaceDir}`)
-				if (ws.chatMessages.length > 2) {
-					const recent = ws.chatMessages
+				contextParts.push(
+					`The current workspace is "${chatSession.repoName}" on branch "${chatSession.branch}".`,
+				)
+				contextParts.push(`The workspace directory is: ${chatSession.workspaceDir}`)
+				const cleanChatHistory = chatSession.chatMessages.filter(
+					(m) => m.role === "user" || m.role === "agent" || m.role === "assistant",
+				)
+				if (cleanChatHistory.length > 2) {
+					const recent = cleanChatHistory
 						.slice(-4, -1)
 						.map((m) => `${m.author}: ${m.content.slice(0, 200)}`)
 						.join("\n")
@@ -3831,12 +3891,17 @@ async function handleWsChatMessage(ws, sessionId, msg, workspaceDir) {
 				const systemPrompt = contextParts.join("\n")
 
 				// Step 4: Call LLM with enriched context
+				const historyMessages = cleanChatHistory.slice(-10, -1).map((m) => ({
+					role: m.role === "user" ? "user" : "assistant",
+					content: m.content,
+				}))
 				const reply = await callChatCompletion(provider.apiBaseUrl, provider.apiKey, provider.model, [
 					{ role: "system", content: systemPrompt },
+					...historyMessages,
 					{ role: "user", content: msg },
 				])
 
-				ws.chatMessages.push({
+				chatSession.chatMessages.push({
 					id: `msg-${Date.now() + 1}`,
 					role: "agent",
 					author: provider.providerId,
@@ -3847,13 +3912,13 @@ async function handleWsChatMessage(ws, sessionId, msg, workspaceDir) {
 
 				// Mark pipeline step as done after successful response
 				if (routing.pipelineStep) {
-					ws.pipeline = ws.pipeline.map((s) => ({
+					chatSession.pipeline = chatSession.pipeline.map((s) => ({
 						...s,
 						status: s.id === routing.pipelineStep ? "done" : s.status,
 					}))
 				}
 
-				saveWorkspaceStore(global.__ideWorkspace) // persist chat + pipeline
+				saveWorkspaceStore(chatSession, sessionId) // persist chat + pipeline
 
 				// Step 5: Fire-and-forget HermesClaw lesson extraction (learn from every interaction)
 				if (orchestrator && orchestrator.hermesClaw) {
@@ -3890,14 +3955,14 @@ async function handleWsChatMessage(ws, sessionId, msg, workspaceDir) {
 				})
 			} catch (err) {
 				console.error(`[api] Chat error with ${provider.providerId}:`, err.message)
-				ws.chatMessages.push({
+				chatSession.chatMessages.push({
 					id: `msg-${Date.now() + 1}`,
 					role: "assistant",
 					author: "System",
 					time: new Date().toLocaleTimeString(),
 					content: `AI request failed: ${err.message}`,
 				})
-				saveWorkspaceStore(global.__ideWorkspace) // persist chat
+				saveWorkspaceStore(chatSession, sessionId) // persist chat
 				sendJson(res, 200, {
 					ok: true,
 					message: "AI call failed",
@@ -3937,15 +4002,18 @@ async function handleWsChatMessage(ws, sessionId, msg, workspaceDir) {
 				res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
 			}
 
+			const sessionId = req.headers["x-session-id"] || "default"
+			const chatSession = await getChatSession(sessionId)
+
 			// Store user message
-			ws.chatMessages.push({
+			chatSession.chatMessages.push({
 				id: `msg-${Date.now()}`,
 				role: "user",
 				author: "You",
 				time: new Date().toLocaleTimeString(),
 				content: msg,
 			})
-			saveWorkspaceStore(global.__ideWorkspace)
+			saveWorkspaceStore(chatSession, sessionId)
 
 			// Send initial event
 			sendSSE("start", { message: "Processing..." })
@@ -3983,11 +4051,14 @@ async function handleWsChatMessage(ws, sessionId, msg, workspaceDir) {
 				const contextParts = [
 					`You are SuperRoo, an expert AI coding assistant running in the Cloud Dashboard IDE Terminal.`,
 					`You have access to the OpenClaw orchestrator system with multi-agent capabilities.`,
-					`The current workspace is "${ws.repoName}" on branch "${ws.branch}".`,
-					`The workspace directory is: ${ws.workspaceDir}`,
+					`The current workspace is "${chatSession.repoName}" on branch "${chatSession.branch}".`,
+					`The workspace directory is: ${chatSession.workspaceDir}`,
 				]
-				if (ws.chatMessages.length > 2) {
-					const recent = ws.chatMessages
+				const cleanStreamHistory = chatSession.chatMessages.filter(
+					(m) => m.role === "user" || m.role === "agent" || m.role === "assistant",
+				)
+				if (cleanStreamHistory.length > 2) {
+					const recent = cleanStreamHistory
 						.slice(-4, -1)
 						.map((m) => `${m.author}: ${m.content.slice(0, 200)}`)
 						.join("\n")
@@ -4000,6 +4071,10 @@ async function handleWsChatMessage(ws, sessionId, msg, workspaceDir) {
 
 				// Step 3: Stream the LLM response
 				const apiUrl = `${provider.apiBaseUrl.replace(/\/+$/, "")}/chat/completions`
+				const historyMessages = cleanStreamHistory.slice(-10, -1).map((m) => ({
+					role: m.role === "user" ? "user" : "assistant",
+					content: m.content,
+				}))
 				const streamRes = await fetch(apiUrl, {
 					method: "POST",
 					headers: {
@@ -4010,6 +4085,7 @@ async function handleWsChatMessage(ws, sessionId, msg, workspaceDir) {
 						model: provider.model,
 						messages: [
 							{ role: "system", content: systemPrompt },
+							...historyMessages,
 							{ role: "user", content: msg },
 						],
 						max_tokens: 4096,
@@ -4063,7 +4139,7 @@ async function handleWsChatMessage(ws, sessionId, msg, workspaceDir) {
 				sendSSE("done", { reply: fullReply, provider: provider.providerId, model: provider.model })
 
 				// Store the full reply
-				ws.chatMessages.push({
+				chatSession.chatMessages.push({
 					id: `msg-${Date.now() + 1}`,
 					role: "agent",
 					author: provider.providerId,
@@ -4071,7 +4147,7 @@ async function handleWsChatMessage(ws, sessionId, msg, workspaceDir) {
 					time: new Date().toLocaleTimeString(),
 					content: fullReply,
 				})
-				saveWorkspaceStore(global.__ideWorkspace)
+				saveWorkspaceStore(chatSession, sessionId)
 
 				// Fire-and-forget Hermes lesson extraction
 				if (orchestrator && orchestrator.hermesClaw) {
