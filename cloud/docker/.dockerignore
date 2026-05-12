@@ -1,0 +1,49 @@
+# Git
+.git
+.gitignore
+.gitattributes
+.git-blame-ignore-revs
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Next.js
+.next/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Docker
+docker-compose*.yml
+.dockerignore
+
+# Logs
+cloud/logs/
+*.log
+
+# Data (persistent volumes)
+cloud/orchestrator/data/
+cloud/data/
+cloud/mini-ide/uploads/
+
+# Build artifacts
+dist/
+build/
+*.tsbuildinfo
+
+# pnpm
+pnpm-lock.yaml
+pnpm-workspace.yaml

@@ -59,6 +59,33 @@ import {
 	PanelRight,
 	Maximize2,
 	Minimize2,
+	// New icons for IDE chat improvements
+	Github,
+	Globe,
+	FileCode,
+	ExternalLink,
+	FolderOpen,
+	BookOpen,
+	ListTodo,
+	Workflow,
+	GitPullRequest,
+	GitMerge,
+	Code,
+	Terminal as TerminalIcon,
+	FileJson,
+	FileType,
+	Link,
+	Download,
+	CheckSquare,
+	Square,
+	ArrowRight,
+	MessageCircle,
+	Lightbulb as LightbulbIcon,
+	Star,
+	Clock3,
+	RotateCcw,
+	FolderGit2,
+	GitFork,
 } from "lucide-react"
 
 // ─── Types ────────────────────────────────────────────────────────────────
@@ -350,7 +377,13 @@ function parseOutputLine(line: string, index: number): OutputBlock {
 	const ts = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
 
 	if (trimmed.startsWith("$ ")) {
-		return { id: `block-${index}`, type: "command", content: trimmed.slice(2), command: trimmed.slice(2), timestamp: ts }
+		return {
+			id: `block-${index}`,
+			type: "command",
+			content: trimmed.slice(2),
+			command: trimmed.slice(2),
+			timestamp: ts,
+		}
 	}
 	if (trimmed.startsWith("✕") || trimmed.toLowerCase().includes("error:")) {
 		return { id: `block-${index}`, type: "error", content: trimmed, timestamp: ts }
@@ -364,7 +397,13 @@ function parseOutputLine(line: string, index: number): OutputBlock {
 	if (trimmed.startsWith("ℹ")) {
 		return { id: `block-${index}`, type: "info", content: trimmed, timestamp: ts }
 	}
-	if (trimmed === "" || trimmed.startsWith("─") || trimmed.startsWith("╔") || trimmed.startsWith("╚") || trimmed.startsWith("║")) {
+	if (
+		trimmed === "" ||
+		trimmed.startsWith("─") ||
+		trimmed.startsWith("╔") ||
+		trimmed.startsWith("╚") ||
+		trimmed.startsWith("║")
+	) {
 		return { id: `block-${index}`, type: "divider", content: trimmed, timestamp: ts }
 	}
 	return { id: `block-${index}`, type: "output", content: trimmed, timestamp: ts }
@@ -457,6 +496,165 @@ function createRecording(blocks: OutputBlock[], name: string): TerminalRecording
 	}
 }
 
+// ── Rich Content Rendering ──────────────────────────────────────────────
+
+function renderMessageContent(content: string): React.ReactNode[] {
+	if (!content) return [<span key="empty" />]
+
+	const nodes: React.ReactNode[] = []
+	let key = 0
+
+	// Match code blocks first (```language\n...\n```)
+	const codeBlockRegex = /```(\w*)\n?([\s\S]*?)```/g
+	let lastIndex = 0
+	let match: RegExpExecArray | null
+
+	while ((match = codeBlockRegex.exec(content)) !== null) {
+		// Text before this code block
+		if (match.index > lastIndex) {
+			const textBefore = content.slice(lastIndex, match.index)
+			nodes.push(...renderInlineContent(textBefore, key++))
+		}
+
+		const language = match[1] || "text"
+		const code = match[2].trim()
+		nodes.push(
+			<div key={key++} className="my-2 rounded border border-[#1e2535] overflow-hidden">
+				<div className="flex items-center justify-between bg-[#1a2030] px-3 py-1 border-b border-[#1e2535]">
+					<span className="text-[10px] text-gray-500 font-mono">{language}</span>
+					<div className="flex items-center gap-1">
+						<button
+							onClick={() => navigator.clipboard.writeText(code).catch(() => {})}
+							className="flex items-center gap-1 px-1.5 py-0.5 text-[9px] text-gray-500 hover:text-gray-300 hover:bg-[#253045] rounded transition-colors"
+							title="Copy code">
+							<Copy size={9} />
+							Copy
+						</button>
+						<button
+							onClick={() => handleApplyCodeFromBlock(code, language)}
+							className="flex items-center gap-1 px-1.5 py-0.5 text-[9px] text-violet-400 hover:text-violet-300 hover:bg-[#253045] rounded transition-colors"
+							title="Apply code to file">
+							<Code size={9} />
+							Apply
+						</button>
+					</div>
+				</div>
+				<pre className="p-3 text-[11px] font-mono text-gray-300 overflow-x-auto leading-relaxed bg-[#0a0d14]">
+					<code>{code}</code>
+				</pre>
+			</div>,
+		)
+
+		lastIndex = match.index + match[0].length
+	}
+
+	// Remaining text after last code block
+	if (lastIndex < content.length) {
+		const textAfter = content.slice(lastIndex)
+		nodes.push(...renderInlineContent(textAfter, key++))
+	}
+
+	return nodes
+}
+
+function renderInlineContent(text: string, baseKey: number): React.ReactNode[] {
+	const nodes: React.ReactNode[] = []
+	let key = baseKey * 1000
+
+	// Match inline images: ![alt](url)
+	const imgRegex = /!\[([^\]]*)\]\(([^)]+)\)/g
+	let imgMatch: RegExpExecArray | null
+	let lastIdx = 0
+
+	while ((imgMatch = imgRegex.exec(text)) !== null) {
+		if (imgMatch.index > lastIdx) {
+			nodes.push(...renderTextWithLinks(text.slice(lastIdx, imgMatch.index), key++))
+		}
+		const alt = imgMatch[1]
+		const src = imgMatch[2]
+		nodes.push(
+			<img
+				key={key++}
+				src={src}
+				alt={alt}
+				className="max-w-full h-auto rounded my-1 border border-[#1e2535]"
+				loading="lazy"
+				onError={(e) => {
+					;(e.target as HTMLImageElement).style.display = "none"
+				}}
+			/>,
+		)
+		lastIdx = imgMatch.index + imgMatch[0].length
+	}
+
+	if (lastIdx < text.length) {
+		nodes.push(...renderTextWithLinks(text.slice(lastIdx), key++))
+	}
+
+	return nodes
+}
+
+function renderTextWithLinks(text: string, key: number): React.ReactNode[] {
+	const nodes: React.ReactNode[] = []
+	let localKey = key * 10000
+
+	// Match file paths and URLs: /path/to/file.ext or https://...
+	const linkRegex = /(\/[a-zA-Z0-9_\-./]+[a-zA-Z0-9_]|[a-zA-Z]+:\/\/[^\s]+)/g
+	let linkMatch: RegExpExecArray | null
+	let lastIdx = 0
+
+	while ((linkMatch = linkRegex.exec(text)) !== null) {
+		if (linkMatch.index > lastIdx) {
+			nodes.push(<span key={localKey++}>{text.slice(lastIdx, linkMatch.index)}</span>)
+		}
+		const url = linkMatch[1]
+		const isFilePath = url.startsWith("/") || url.startsWith("./") || url.startsWith("../")
+		if (isFilePath) {
+			nodes.push(
+				<button
+					key={localKey++}
+					onClick={() => handleFileLinkClick(url)}
+					className="inline-flex items-center gap-0.5 text-violet-400 hover:text-violet-300 underline underline-offset-2 decoration-violet-500/30 text-[11px] font-mono"
+					title={`Open ${url}`}>
+					<FileCode size={9} />
+					{url}
+				</button>,
+			)
+		} else {
+			nodes.push(
+				<a
+					key={localKey++}
+					href={url}
+					target="_blank"
+					rel="noopener noreferrer"
+					className="inline-flex items-center gap-0.5 text-blue-400 hover:text-blue-300 underline underline-offset-2 decoration-blue-500/30 text-[11px]">
+					<ExternalLink size={9} />
+					{url}
+				</a>,
+			)
+		}
+		lastIdx = linkMatch.index + linkMatch[0].length
+	}
+
+	if (lastIdx < text.length) {
+		nodes.push(<span key={localKey++}>{text.slice(lastIdx)}</span>)
+	}
+
+	return nodes
+}
+
+// Module-level refs so renderMessageContent can use callbacks from the component
+let _handleApplyCodeFromBlock: ((code: string, language: string) => void) | null = null
+let _handleFileLinkClick: ((path: string) => void) | null = null
+
+function handleApplyCodeFromBlock(code: string, language: string) {
+	if (_handleApplyCodeFromBlock) _handleApplyCodeFromBlock(code, language)
+}
+
+function handleFileLinkClick(path: string) {
+	if (_handleFileLinkClick) _handleFileLinkClick(path)
+}
+
 // ── Main Component ────────────────────────────────────────────────────────
 
 export default function IdeTerminalView() {
@@ -529,6 +727,50 @@ export default function IdeTerminalView() {
 	const dragCounter = useRef(0)
 	// ── Copy feedback ────────────────────────────────────────────────────
 	const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
+	// ── WebSocket Chat state ─────────────────────────────────────────────
+	const wsRef = useRef<WebSocket | null>(null)
+	const [wsConnected, setWsConnected] = useState(false)
+	const [wsReconnecting, setWsReconnecting] = useState(false)
+	const [proactiveSuggestions, setProactiveSuggestions] = useState<string[]>([])
+	const [currentFilePath, setCurrentFilePath] = useState<string>("")
+	const [currentFileContent, setCurrentFileContent] = useState<string>("")
+	const [currentFileLanguage, setCurrentFileLanguage] = useState<string>("text")
+	const [currentFileSelection, setCurrentFileSelection] = useState<string>("")
+	// ── Recent Workspaces (persisted in localStorage) ────────────────────
+	const [recentWorkspaces, setRecentWorkspaces] = useState<{ name: string; path: string; lastOpened: string }[]>(
+		() => {
+			if (typeof window === "undefined") return []
+			try {
+				const stored = localStorage.getItem("superroo-recent-workspaces")
+				return stored ? JSON.parse(stored) : []
+			} catch {
+				return []
+			}
+		},
+	)
+	// ── Workspace Tasks (persisted in localStorage) ──────────────────────
+	const [workspaceTasks, setWorkspaceTasks] = useState<
+		{ id: string; title: string; status: "pending" | "done" | "failed"; createdAt: string }[]
+	>(() => {
+		if (typeof window === "undefined") return []
+		try {
+			const stored = localStorage.getItem("superroo-workspace-tasks")
+			return stored ? JSON.parse(stored) : []
+		} catch {
+			return []
+		}
+	})
+	// ── Import GitHub modal ──────────────────────────────────────────────
+	const [showImportGithub, setShowImportGithub] = useState(false)
+	const [importGithubUrl, setImportGithubUrl] = useState("")
+	const [importGithubBranch, setImportGithubBranch] = useState("main")
+	const [importGithubLoading, setImportGithubLoading] = useState(false)
+	const [importGithubError, setImportGithubError] = useState("")
+	// ── Open/New Workspace modal ─────────────────────────────────────────
+	const [showOpenWorkspace, setShowOpenWorkspace] = useState(false)
+	const [openWorkspacePath, setOpenWorkspacePath] = useState("")
+	const [openWorkspaceLoading, setOpenWorkspaceLoading] = useState(false)
+	const [openWorkspaceError, setOpenWorkspaceError] = useState("")
 	// ── Block-Based Output state ─────────────────────────────────────────
 	const [outputBlocks, setOutputBlocks] = useState<OutputBlock[]>(() => convertToBlocks(terminalOutput))
 	const [collapsedBlocks, setCollapsedBlocks] = useState<Set<string>>(new Set())
@@ -679,6 +921,157 @@ export default function IdeTerminalView() {
 		window.addEventListener("keydown", handleGlobalKeyDown)
 		return () => window.removeEventListener("keydown", handleGlobalKeyDown)
 	}, [])
+
+	// ── WebSocket Connection for Real-Time Chat ────────────────────────────
+	useEffect(() => {
+		let ws: WebSocket | null = null
+		let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+
+		function connect() {
+			try {
+				const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
+				const wsUrl = `${protocol}//${window.location.host}/api/ws/chat?session=default`
+				ws = new WebSocket(wsUrl)
+				wsRef.current = ws
+
+				ws.onopen = () => {
+					setWsConnected(true)
+					setWsReconnecting(false)
+					// Send ping every 30s to keep alive
+					const pingInterval = setInterval(() => {
+						if (wsRef.current?.readyState === WebSocket.OPEN) {
+							wsRef.current.send(JSON.stringify({ type: "ping" }))
+						}
+					}, 30000)
+					if (ws) ws.addEventListener("close", () => clearInterval(pingInterval))
+				}
+
+				ws.onmessage = (event) => {
+					try {
+						const data = JSON.parse(event.data)
+						switch (data.type) {
+							case "connected":
+								console.log("[ws-chat] Connected:", data.sessionId)
+								break
+							case "pong":
+								break
+							case "assistant-start":
+								// Create placeholder message for streaming
+								const assistantId = data.id
+								const placeholder: ChatMessage = {
+									id: assistantId,
+									role: "agent",
+									author: "AI",
+									meta: "streaming...",
+									time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+									content: "",
+								}
+								setAiMessages((prev) => [...prev, placeholder])
+								break
+							case "token":
+								setAiMessages((prev) => {
+									const last = prev[prev.length - 1]
+									if (last && last.meta === "streaming...") {
+										return prev.map((m) =>
+											m.id === last.id ? { ...m, content: m.content + data.text } : m,
+										)
+									}
+									return prev
+								})
+								break
+							case "done":
+								setAiMessages((prev) =>
+									prev.map((m) =>
+										m.id === data.id
+											? {
+													...m,
+													content: data.reply || m.content,
+													author: data.provider || "AI",
+													meta: `${data.model || ""} · ws`,
+												}
+											: m,
+									),
+								)
+								setAiSending(false)
+								break
+							case "suggestions":
+								if (Array.isArray(data.suggestions)) {
+									setProactiveSuggestions(data.suggestions)
+								}
+								break
+							case "error":
+								setAiMessages((prev) =>
+									prev.map((m) =>
+										m.meta === "streaming..."
+											? {
+													...m,
+													content: `Error: ${data.message}`,
+													author: "System",
+													meta: "error",
+												}
+											: m,
+									),
+								)
+								setAiSending(false)
+								break
+							case "cancelled":
+								setAiMessages((prev) =>
+									prev.map((m) => (m.meta === "streaming..." ? { ...m, meta: "cancelled" } : m)),
+								)
+								setAiSending(false)
+								break
+							case "typing":
+								// Could show typing indicator
+								break
+						}
+					} catch (err) {
+						console.error("[ws-chat] Parse error:", err)
+					}
+				}
+
+				ws.onclose = () => {
+					setWsConnected(false)
+					// Auto-reconnect after 3s
+					reconnectTimer = setTimeout(() => {
+						setWsReconnecting(true)
+						connect()
+					}, 3000)
+				}
+
+				ws.onerror = () => {
+					// onclose will fire after onerror
+				}
+			} catch (err) {
+				console.error("[ws-chat] Connection error:", err)
+				setWsConnected(false)
+			}
+		}
+
+		connect()
+
+		return () => {
+			if (reconnectTimer) clearTimeout(reconnectTimer)
+			if (ws) {
+				ws.onclose = null // prevent reconnect on unmount
+				ws.close()
+			}
+			wsRef.current = null
+		}
+	}, [])
+
+	// ── Persist recent workspaces to localStorage ─────────────────────────
+	useEffect(() => {
+		try {
+			localStorage.setItem("superroo-recent-workspaces", JSON.stringify(recentWorkspaces))
+		} catch {}
+	}, [recentWorkspaces])
+
+	// ── Persist workspace tasks to localStorage ───────────────────────────
+	useEffect(() => {
+		try {
+			localStorage.setItem("superroo-workspace-tasks", JSON.stringify(workspaceTasks))
+		} catch {}
+	}, [workspaceTasks])
 
 	// ── OpenClaw data fetching ────────────────────────────────────────────
 	// Fetch orchestrator status for the Plan tab
@@ -872,7 +1265,7 @@ export default function IdeTerminalView() {
 		return () => window.removeEventListener("paste", handlePaste)
 	}, [])
 
-	// ── UNIFIED AI Chat Send ──────────────────────────────────────────────
+	// ── UNIFIED AI Chat Send (WebSocket) ──────────────────────────────────
 	const handleAiSend = useCallback(async () => {
 		const text = aiInput.trim()
 		if (!text && aiAttachments.length === 0) return
@@ -890,25 +1283,69 @@ export default function IdeTerminalView() {
 		setAiInput("")
 		setAiAttachments([])
 		setAiSending(true)
+		setProactiveSuggestions([])
 
-		try {
-			const body: Record<string, unknown> = { message: text }
-			if (aiAttachments.length > 0) {
-				body.attachments = aiAttachments.map((a) => ({ filename: a.filename, type: a.type, size: a.size }))
+		// If WebSocket is connected, use it for real-time streaming
+		if (wsRef.current?.readyState === WebSocket.OPEN) {
+			// Get current file context from open files
+			let currentFile = undefined
+			if (activeFilePath) {
+				const openFile = openFiles.find((f) => f.path === activeFilePath)
+				if (openFile) {
+					currentFile = {
+						path: openFile.path,
+						content: openFile.content,
+						language: openFile.language,
+						selection: currentFileSelection || undefined,
+					}
+				}
 			}
+
+			// Get recent terminal output for context
+			const terminalContext = terminalOutput.slice(-20)
+
+			// Send via WebSocket — the assistant-start/token/done events
+			// are handled by the WebSocket onmessage handler above
+			wsRef.current.send(
+				JSON.stringify({
+					type: "chat",
+					text,
+					currentFile,
+					terminalOutput: terminalContext,
+					provider: typeof window !== "undefined" ? localStorage.getItem("superroo-chat-provider") : null,
+				}),
+			)
+
+			// Add a workspace task to memory
+			if (text.length > 10) {
+				const taskTitle = text.length > 60 ? text.substring(0, 60) + "..." : text
+				setWorkspaceTasks((prev) => [
+					{
+						id: `task-${Date.now()}`,
+						title: taskTitle,
+						status: "pending",
+						createdAt: new Date().toISOString(),
+					},
+					...prev.slice(0, 49),
+				])
+			}
+
+			return
+		}
+
+		// Fallback: if WebSocket not connected, use HTTP POST
+		try {
 			const storedProvider = typeof window !== "undefined" ? localStorage.getItem("superroo-chat-provider") : null
+			const body: Record<string, unknown> = { message: text }
 			if (storedProvider && storedProvider !== "auto") {
 				body.provider = storedProvider
 			}
-
 			const result = await api<{
 				ok: boolean
-				message?: string
 				reply?: string
 				provider?: string
 				model?: string
 				intent?: string
-				intentConfidence?: number
 				agent?: string
 				orchestratorTaskId?: string | null
 				hermesContextUsed?: boolean
@@ -917,44 +1354,65 @@ export default function IdeTerminalView() {
 				body: JSON.stringify(body),
 			})
 
-			const replyText = result.reply || result.message || "Message received. Processing your request..."
-			const intentLabel = result.intent || "chat"
-			const confidence = result.intentConfidence ? `${(result.intentConfidence * 100).toFixed(0)}%` : ""
+			const replyText = result.reply || "Message received."
 			const agentName = result.agent || "chat"
-			const providerName = result.provider || "AI"
 			const metaParts = [agentName]
-			if (confidence) metaParts.push(`conf ${confidence}`)
 			if (result.model) metaParts.push(result.model)
 			if (result.orchestratorTaskId) metaParts.push(`task:${result.orchestratorTaskId.substring(0, 8)}`)
 			if (result.hermesContextUsed) metaParts.push("🧠")
 
-			const assistantMsg: ChatMessage = {
-				id: `msg-${Date.now() + 1}`,
-				role: "agent",
-				author: providerName,
-				meta: metaParts.join(" · "),
-				time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-				content: replyText,
-			}
-			setAiMessages((prev) => [...prev, assistantMsg])
+			setAiMessages((prev) => {
+				const last = prev[prev.length - 1]
+				if (last && last.meta === "streaming...") {
+					return prev.map((m) =>
+						m.id === last.id
+							? { ...m, content: replyText, author: result.provider || "AI", meta: metaParts.join(" · ") }
+							: m,
+					)
+				}
+				return [
+					...prev,
+					{
+						id: `msg-${Date.now() + 1}`,
+						role: "agent" as const,
+						author: result.provider || "AI",
+						meta: metaParts.join(" · "),
+						time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+						content: replyText,
+					},
+				]
+			})
 
-			// If orchestrator task was created, refresh the Plan tab data
 			if (result.orchestratorTaskId) {
 				fetchOrchestratorStatus()
 			}
 		} catch (err) {
-			const errorMsg: ChatMessage = {
-				id: `msg-${Date.now() + 1}`,
-				role: "assistant",
-				author: "System",
-				time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-				content: `Error: ${err instanceof Error ? err.message : "Failed to send message"}`,
-			}
-			setAiMessages((prev) => [...prev, errorMsg])
-		} finally {
-			setAiSending(false)
+			setAiMessages((prev) => {
+				const last = prev[prev.length - 1]
+				if (last && last.meta === "streaming...") {
+					return prev.map((m) =>
+						m.id === last.id
+							? {
+									...m,
+									content: `Error: ${err instanceof Error ? err.message : "Failed"}`,
+									author: "System",
+								}
+							: m,
+					)
+				}
+				return prev
+			})
 		}
-	}, [aiInput, aiAttachments])
+		setAiSending(false)
+	}, [
+		aiInput,
+		aiAttachments,
+		activeFilePath,
+		openFiles,
+		currentFileSelection,
+		terminalOutput,
+		fetchOrchestratorStatus,
+	])
 
 	const handleAiKeyDown = useCallback(
 		(e: React.KeyboardEvent) => {
@@ -985,10 +1443,13 @@ export default function IdeTerminalView() {
 			setTerminalMode("agent")
 
 			try {
-				const result = await api<{ ok: boolean; output?: string[]; error?: string }>("/ide-workspace/terminal", {
-					method: "POST",
-					body: JSON.stringify({ command: cmd }),
-				})
+				const result = await api<{ ok: boolean; output?: string[]; error?: string }>(
+					"/ide-workspace/terminal",
+					{
+						method: "POST",
+						body: JSON.stringify({ command: cmd }),
+					},
+				)
 				if (result.output) {
 					setTerminalOutput((prev) => [...prev, ...result.output!])
 				}
@@ -996,7 +1457,10 @@ export default function IdeTerminalView() {
 					setTerminalOutput((prev) => [...prev, `✕ ${result.error}`])
 				}
 			} catch (err) {
-				setTerminalOutput((prev) => [...prev, `✕ Command failed: ${err instanceof Error ? err.message : "Unknown error"}`])
+				setTerminalOutput((prev) => [
+					...prev,
+					`✕ Command failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+				])
 			} finally {
 				setAgentRunning(false)
 				setActiveAgent(null)
@@ -1005,10 +1469,13 @@ export default function IdeTerminalView() {
 		} else {
 			// Shell command — execute via API
 			try {
-				const result = await api<{ ok: boolean; output?: string[]; error?: string }>("/ide-workspace/terminal", {
-					method: "POST",
-					body: JSON.stringify({ command: cmd }),
-				})
+				const result = await api<{ ok: boolean; output?: string[]; error?: string }>(
+					"/ide-workspace/terminal",
+					{
+						method: "POST",
+						body: JSON.stringify({ command: cmd }),
+					},
+				)
 				if (result.output) {
 					setTerminalOutput((prev) => [...prev, ...result.output!])
 				}
@@ -1016,7 +1483,10 @@ export default function IdeTerminalView() {
 					setTerminalOutput((prev) => [...prev, `✕ ${result.error}`])
 				}
 			} catch (err) {
-				setTerminalOutput((prev) => [...prev, `✕ Command failed: ${err instanceof Error ? err.message : "Unknown error"}`])
+				setTerminalOutput((prev) => [
+					...prev,
+					`✕ Command failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+				])
 			}
 		}
 	}, [terminalInput])
@@ -1074,18 +1544,32 @@ export default function IdeTerminalView() {
 		[recentCommands],
 	)
 
-	const handleFileClick = useCallback((path: string, name: string) => {
-		if (!openFiles.find((f) => f.path === path)) {
-			setOpenFiles((prev) => [...prev, { path, name, content: `// ${name}\n\n// Loading...`, language: "text", modified: false }])
-		}
-		setActiveFilePath(path)
-	}, [openFiles])
+	const handleFileClick = useCallback(
+		(path: string, name: string) => {
+			if (!openFiles.find((f) => f.path === path)) {
+				setOpenFiles((prev) => [
+					...prev,
+					{ path, name, content: `// ${name}\n\n// Loading...`, language: "text", modified: false },
+				])
+			}
+			setActiveFilePath(path)
+		},
+		[openFiles],
+	)
 
 	const handleFilesSelected = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
 		const files = e.target.files
 		if (!files) return
 		for (const file of Array.from(files)) {
-			setAiAttachments((prev) => [...prev, { id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, filename: file.name, type: file.type || "unknown", size: `${(file.size / 1024).toFixed(1)}KB` }])
+			setAiAttachments((prev) => [
+				...prev,
+				{
+					id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+					filename: file.name,
+					type: file.type || "unknown",
+					size: `${(file.size / 1024).toFixed(1)}KB`,
+				},
+			])
 		}
 		e.target.value = ""
 	}, [])
@@ -1094,7 +1578,15 @@ export default function IdeTerminalView() {
 		const files = e.target.files
 		if (!files) return
 		for (const file of Array.from(files)) {
-			setAiAttachments((prev) => [...prev, { id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, filename: file.name, type: file.type || "image/png", size: `${(file.size / 1024).toFixed(1)}KB` }])
+			setAiAttachments((prev) => [
+				...prev,
+				{
+					id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+					filename: file.name,
+					type: file.type || "image/png",
+					size: `${(file.size / 1024).toFixed(1)}KB`,
+				},
+			])
 		}
 		e.target.value = ""
 	}, [])
@@ -1103,15 +1595,170 @@ export default function IdeTerminalView() {
 		setAiAttachments((prev) => prev.filter((a) => a.id !== id))
 	}, [])
 
-	const handleTerminalResizeMouseDown = useCallback((e: React.MouseEvent) => {
-		e.preventDefault()
-		const startY = e.clientY
-		const startHeight = terminalHeight
-		function onMouseMove(ev: MouseEvent) { setTerminalHeight(Math.max(80, Math.min(600, startHeight + (ev.clientY - startY)))) }
-		function onMouseUp() { window.removeEventListener("mousemove", onMouseMove); window.removeEventListener("mouseup", onMouseUp) }
-		window.addEventListener("mousemove", onMouseMove)
-		window.addEventListener("mouseup", onMouseUp)
-	}, [terminalHeight])
+	// ── Set up module-level refs for rich content rendering callbacks ──────
+	useEffect(() => {
+		_handleApplyCodeFromBlock = handleApplyCode
+		_handleFileLinkClick = handleFileLinkClickFromContent
+	})
+
+	// ── Apply code from a code block ──────────────────────────────────────
+	const handleApplyCode = useCallback(
+		(code: string, language: string) => {
+			if (activeFilePath) {
+				setOpenFiles((prev) =>
+					prev.map((f) => (f.path === activeFilePath ? { ...f, content: code, modified: true } : f)),
+				)
+				api("/ide-workspace/file/write", {
+					method: "POST",
+					body: JSON.stringify({ path: activeFilePath, content: code }),
+				}).catch(() => {})
+			} else {
+				const ext =
+					language === "typescript"
+						? "ts"
+						: language === "javascript"
+							? "js"
+							: language === "python"
+								? "py"
+								: "txt"
+				const filename = `untitled.${ext}`
+				const path = `/tmp/${filename}`
+				setOpenFiles((prev) => [...prev, { path, name: filename, content: code, language, modified: true }])
+				setActiveFilePath(path)
+			}
+		},
+		[activeFilePath],
+	)
+
+	// ── Handle file link click from rich content ──────────────────────────
+	const handleFileLinkClickFromContent = useCallback(
+		(path: string) => {
+			const name = path.split("/").pop() || path
+			if (!openFiles.find((f) => f.path === path)) {
+				setOpenFiles((prev) => [
+					...prev,
+					{ path, name, content: `// ${name}\n\n// Loading...`, language: "text", modified: false },
+				])
+			}
+			setActiveFilePath(path)
+		},
+		[openFiles],
+	)
+
+	// ── Import GitHub repo ────────────────────────────────────────────────
+	const handleImportGithub = useCallback(async () => {
+		if (!importGithubUrl.trim()) {
+			setImportGithubError("Please enter a GitHub repository URL")
+			return
+		}
+		setImportGithubLoading(true)
+		setImportGithubError("")
+		try {
+			const result = await api<{
+				ok: boolean
+				repoName?: string
+				branch?: string
+				files?: WorkspaceFile[]
+				error?: string
+			}>("/ide-workspace/workspace/import-github", {
+				method: "POST",
+				body: JSON.stringify({
+					repoUrl: importGithubUrl.trim(),
+					branch: importGithubBranch.trim() || "main",
+				}),
+			})
+			if (result.ok) {
+				if (result.repoName) setRepoName(result.repoName)
+				if (result.branch) setBranch(result.branch)
+				if (result.files) setFiles(result.files)
+				setShowImportGithub(false)
+				setImportGithubUrl("")
+				setImportGithubBranch("main")
+				setRecentWorkspaces((prev) => {
+					const filtered = prev.filter((w) => w.path !== result.repoName)
+					return [
+						{
+							name: result.repoName || "imported-repo",
+							path: result.repoName || "imported-repo",
+							lastOpened: new Date().toISOString(),
+						},
+						...filtered.slice(0, 9),
+					]
+				})
+			} else {
+				setImportGithubError(result.error || "Import failed")
+			}
+		} catch (err) {
+			setImportGithubError(err instanceof Error ? err.message : "Import failed")
+		} finally {
+			setImportGithubLoading(false)
+		}
+	}, [importGithubUrl, importGithubBranch])
+
+	// ── Open/switch workspace ─────────────────────────────────────────────
+	const handleOpenWorkspace = useCallback(
+		async (path?: string) => {
+			const targetPath = path || openWorkspacePath.trim()
+			if (!targetPath) {
+				setOpenWorkspaceError("Please enter a workspace path")
+				return
+			}
+			setOpenWorkspaceLoading(true)
+			setOpenWorkspaceError("")
+			try {
+				const result = await api<{
+					ok: boolean
+					repoName?: string
+					branch?: string
+					files?: WorkspaceFile[]
+					error?: string
+				}>("/ide-workspace/workspace/open", {
+					method: "POST",
+					body: JSON.stringify({ path: targetPath }),
+				})
+				if (result.ok) {
+					if (result.repoName) setRepoName(result.repoName)
+					if (result.branch) setBranch(result.branch)
+					if (result.files) setFiles(result.files)
+					setShowOpenWorkspace(false)
+					setOpenWorkspacePath("")
+					const name = result.repoName || targetPath.split("/").pop() || targetPath
+					setRecentWorkspaces((prev) => {
+						const filtered = prev.filter((w) => w.path !== targetPath)
+						return [
+							{ name, path: targetPath, lastOpened: new Date().toISOString() },
+							...filtered.slice(0, 9),
+						]
+					})
+				} else {
+					setOpenWorkspaceError(result.error || "Failed to open workspace")
+				}
+			} catch (err) {
+				setOpenWorkspaceError(err instanceof Error ? err.message : "Failed to open workspace")
+			} finally {
+				setOpenWorkspaceLoading(false)
+			}
+		},
+		[openWorkspacePath],
+	)
+
+	const handleTerminalResizeMouseDown = useCallback(
+		(e: React.MouseEvent) => {
+			e.preventDefault()
+			const startY = e.clientY
+			const startHeight = terminalHeight
+			function onMouseMove(ev: MouseEvent) {
+				setTerminalHeight(Math.max(80, Math.min(600, startHeight + (ev.clientY - startY))))
+			}
+			function onMouseUp() {
+				window.removeEventListener("mousemove", onMouseMove)
+				window.removeEventListener("mouseup", onMouseUp)
+			}
+			window.addEventListener("mousemove", onMouseMove)
+			window.addEventListener("mouseup", onMouseUp)
+		},
+		[terminalHeight],
+	)
 
 	const handleCopyTerminal = useCallback((index: number, content: string) => {
 		navigator.clipboard.writeText(content).catch(() => {})
@@ -1120,20 +1767,34 @@ export default function IdeTerminalView() {
 	}, [])
 
 	const toggleBlockCollapse = useCallback((id: string) => {
-		setCollapsedBlocks((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next })
+		setCollapsedBlocks((prev) => {
+			const next = new Set(prev)
+			if (next.has(id)) next.delete(id)
+			else next.add(id)
+			return next
+		})
 	}, [])
 
-	const handleStartRecording = useCallback(() => { setIsRecording(true); setRecordingBlocks([]) }, [])
+	const handleStartRecording = useCallback(() => {
+		setIsRecording(true)
+		setRecordingBlocks([])
+	}, [])
 	const handleStopRecording = useCallback(() => {
 		setIsRecording(false)
 		if (recordingBlocks.length > 0) {
 			setRecordings((prev) => [...prev, createRecording(recordingBlocks, `Recording ${prev.length + 1}`)])
 		}
 	}, [recordingBlocks])
-	const handleReplayRecording = useCallback((recording: TerminalRecording) => { setOutputBlocks(recording.blocks) }, [])
+	const handleReplayRecording = useCallback((recording: TerminalRecording) => {
+		setOutputBlocks(recording.blocks)
+	}, [])
 
-	useEffect(() => { setOutputBlocks(convertToBlocks(terminalOutput)) }, [terminalOutput])
-	useEffect(() => { if (isRecording) setRecordingBlocks((prev) => [...prev, ...outputBlocks.slice(prev.length)]) }, [outputBlocks, isRecording])
+	useEffect(() => {
+		setOutputBlocks(convertToBlocks(terminalOutput))
+	}, [terminalOutput])
+	useEffect(() => {
+		if (isRecording) setRecordingBlocks((prev) => [...prev, ...outputBlocks.slice(prev.length)])
+	}, [outputBlocks, isRecording])
 
 	if (loading) {
 		return (
@@ -1151,16 +1812,129 @@ export default function IdeTerminalView() {
 			<header className="flex items-center justify-between border-b border-[#1e2535] bg-[#0f1117] px-3 py-1.5">
 				<div className="flex items-center gap-3">
 					<span className="text-xs font-semibold text-[#e2e8f0]">{repoName}</span>
-					<span className="flex items-center gap-1 text-[10px] text-gray-500"><GitBranch size={10} />{branch}</span>
-					<span className="flex items-center gap-1 text-[10px] text-gray-500"><Cpu size={10} />{status.cpu}</span>
-					<span className="flex items-center gap-1 text-[10px] text-gray-500"><Database size={10} />{status.ram}</span>
+					<span className="flex items-center gap-1 text-[10px] text-gray-500">
+						<GitBranch size={10} />
+						{branch}
+					</span>
+					<span className="flex items-center gap-1 text-[10px] text-gray-500">
+						<Cpu size={10} />
+						{status.cpu}
+					</span>
+					<span className="flex items-center gap-1 text-[10px] text-gray-500">
+						<Database size={10} />
+						{status.ram}
+					</span>
 				</div>
-				<div className="flex items-center gap-2">
-					<select value={activeMode} onChange={(e) => setActiveMode(e.target.value)} className="bg-[#1e2535] text-[10px] text-gray-300 border border-[#2a3344] rounded px-1.5 py-0.5 outline-none">
-						<option>Auto</option><option>Plan</option><option>Act</option><option>Review</option>
+				<div className="flex items-center gap-1.5">
+					{/* Import GitHub */}
+					<button
+						onClick={() => setShowImportGithub(true)}
+						className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-gray-500 hover:text-gray-300 hover:bg-[#1e2535] rounded transition-colors"
+						title="Import GitHub repository">
+						<Github size={11} />
+						<span className="hidden sm:inline">Import</span>
+					</button>
+					{/* Open Workspace */}
+					<button
+						onClick={() => setShowOpenWorkspace(true)}
+						className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-gray-500 hover:text-gray-300 hover:bg-[#1e2535] rounded transition-colors"
+						title="Open or switch workspace">
+						<FolderOpen size={11} />
+						<span className="hidden sm:inline">Workspace</span>
+					</button>
+					{/* Recent Workspaces dropdown */}
+					{recentWorkspaces.length > 0 && (
+						<div className="relative group">
+							<button
+								className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-gray-500 hover:text-gray-300 hover:bg-[#1e2535] rounded transition-colors"
+								title="Recent workspaces">
+								<Clock3 size={11} />
+								<span className="hidden sm:inline">Recent</span>
+							</button>
+							<div className="absolute right-0 top-full mt-1 w-56 bg-[#1a2030] border border-[#2a3344] rounded shadow-xl overflow-hidden hidden group-hover:block z-50">
+								<div className="p-1.5 border-b border-[#1e2535]">
+									<span className="text-[9px] text-gray-500 uppercase tracking-wider font-semibold">
+										Recent Workspaces
+									</span>
+								</div>
+								{recentWorkspaces.map((w) => (
+									<button
+										key={w.path}
+										onClick={() => handleOpenWorkspace(w.path)}
+										className="block w-full text-left px-2.5 py-1.5 text-[11px] text-gray-300 hover:bg-[#253045] transition-colors">
+										<div className="flex items-center gap-1.5">
+											<FolderGit2 size={10} className="text-blue-400 shrink-0" />
+											<span className="truncate">{w.name}</span>
+										</div>
+										<div className="text-[9px] text-gray-600 mt-0.5 pl-5">
+											{new Date(w.lastOpened).toLocaleDateString()}
+										</div>
+									</button>
+								))}
+							</div>
+						</div>
+					)}
+					{/* Workspace Tasks dropdown */}
+					{workspaceTasks.length > 0 && (
+						<div className="relative group">
+							<button
+								className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-gray-500 hover:text-gray-300 hover:bg-[#1e2535] rounded transition-colors"
+								title="Workspace tasks">
+								<ListTodo size={11} />
+								<span className="hidden sm:inline">
+									Tasks ({workspaceTasks.filter((t) => t.status === "pending").length})
+								</span>
+							</button>
+							<div className="absolute right-0 top-full mt-1 w-64 bg-[#1a2030] border border-[#2a3344] rounded shadow-xl overflow-hidden hidden group-hover:block z-50 max-h-60 overflow-y-auto">
+								<div className="p-1.5 border-b border-[#1e2535] sticky top-0 bg-[#1a2030]">
+									<span className="text-[9px] text-gray-500 uppercase tracking-wider font-semibold">
+										Workspace Tasks
+									</span>
+								</div>
+								{workspaceTasks.slice(0, 15).map((t) => (
+									<div
+										key={t.id}
+										className="flex items-center gap-2 px-2.5 py-1.5 text-[11px] border-b border-[#1e2535]/50 last:border-0">
+										{t.status === "done" ? (
+											<CheckSquare size={10} className="text-green-400 shrink-0" />
+										) : t.status === "failed" ? (
+											<XCircle size={10} className="text-red-400 shrink-0" />
+										) : (
+											<Square size={10} className="text-yellow-400 shrink-0" />
+										)}
+										<span className="truncate text-gray-300">{t.title}</span>
+									</div>
+								))}
+							</div>
+						</div>
+					)}
+					<div className="w-px h-4 bg-[#1e2535] mx-1" />
+					<select
+						value={activeMode}
+						onChange={(e) => setActiveMode(e.target.value)}
+						className="bg-[#1e2535] text-[10px] text-gray-300 border border-[#2a3344] rounded px-1.5 py-0.5 outline-none">
+						<option>Auto</option>
+						<option>Plan</option>
+						<option>Act</option>
+						<option>Review</option>
 					</select>
-					<span className={`inline-block w-1.5 h-1.5 rounded-full ${status.connected ? "bg-green-500" : "bg-red-500"}`} title={status.connected ? "Connected" : "Disconnected"} />
-					<button onClick={() => setShowShortcuts(true)} className="text-gray-500 hover:text-gray-300 transition-colors" title="Keyboard shortcuts"><Keyboard size={12} /></button>
+					{/* WebSocket connection indicator */}
+					<span
+						className={`inline-block w-1.5 h-1.5 rounded-full ${wsConnected ? "bg-green-500" : wsReconnecting ? "bg-yellow-500" : "bg-red-500"}`}
+						title={
+							wsConnected
+								? "WebSocket Connected"
+								: wsReconnecting
+									? "Reconnecting..."
+									: "WebSocket Disconnected"
+						}
+					/>
+					<button
+						onClick={() => setShowShortcuts(true)}
+						className="text-gray-500 hover:text-gray-300 transition-colors"
+						title="Keyboard shortcuts">
+						<Keyboard size={12} />
+					</button>
 				</div>
 			</header>
 
@@ -1168,15 +1942,34 @@ export default function IdeTerminalView() {
 				{showFilePanel && (
 					<aside className="w-52 border-r border-[#1e2535] bg-[#0f1117] flex flex-col shrink-0">
 						<div className="flex items-center justify-between px-3 py-1.5 border-b border-[#1e2535]">
-							<span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Explorer</span>
+							<span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+								Explorer
+							</span>
 							<div className="flex items-center gap-1">
-								<button onClick={() => setShowFileSearch(true)} className="text-gray-500 hover:text-gray-300 transition-colors" title="Search files (Ctrl+P)"><FileSearch size={11} /></button>
-								<button onClick={() => setShowFilePanel(false)} className="text-gray-500 hover:text-gray-300 transition-colors" title="Close panel"><PanelLeftClose size={11} /></button>
+								<button
+									onClick={() => setShowFileSearch(true)}
+									className="text-gray-500 hover:text-gray-300 transition-colors"
+									title="Search files (Ctrl+P)">
+									<FileSearch size={11} />
+								</button>
+								<button
+									onClick={() => setShowFilePanel(false)}
+									className="text-gray-500 hover:text-gray-300 transition-colors"
+									title="Close panel">
+									<PanelLeftClose size={11} />
+								</button>
 							</div>
 						</div>
 						{showFileSearch && (
 							<div className="px-2 py-1.5 border-b border-[#1e2535]">
-								<input ref={fileSearchRef} type="text" value={fileSearchQuery} onChange={(e) => setFileSearchQuery(e.target.value)} placeholder="Search files..." className="w-full bg-[#1e2535] text-[11px] text-gray-300 placeholder-gray-600 border border-[#2a3344] rounded px-2 py-1 outline-none" />
+								<input
+									ref={fileSearchRef}
+									type="text"
+									value={fileSearchQuery}
+									onChange={(e) => setFileSearchQuery(e.target.value)}
+									placeholder="Search files..."
+									className="w-full bg-[#1e2535] text-[11px] text-gray-300 placeholder-gray-600 border border-[#2a3344] rounded px-2 py-1 outline-none"
+								/>
 							</div>
 						)}
 						<div className="flex-1 overflow-y-auto py-1">
@@ -1190,18 +1983,28 @@ export default function IdeTerminalView() {
 						{openFiles.length > 0 && (
 							<div className="flex items-center border-b border-[#1e2535] bg-[#0f1117] overflow-x-auto">
 								{openFiles.map((f) => (
-									<button key={f.path} onClick={() => setActiveFilePath(f.path)} className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] border-r border-[#1e2535] transition-colors whitespace-nowrap ${activeFilePath === f.path ? "bg-[#1a2030] text-[#e2e8f0] border-t-2 border-t-violet-500" : "text-gray-500 hover:text-gray-300"}`}>
-										<FileText size={11} />{f.name}{f.modified && <span className="text-orange-400 text-[9px]">●</span>}
+									<button
+										key={f.path}
+										onClick={() => setActiveFilePath(f.path)}
+										className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] border-r border-[#1e2535] transition-colors whitespace-nowrap ${activeFilePath === f.path ? "bg-[#1a2030] text-[#e2e8f0] border-t-2 border-t-violet-500" : "text-gray-500 hover:text-gray-300"}`}>
+										<FileText size={11} />
+										{f.name}
+										{f.modified && <span className="text-orange-400 text-[9px]">●</span>}
 									</button>
 								))}
 							</div>
 						)}
 						<div className="flex-1 overflow-y-auto bg-[#0a0d14] p-4">
 							{activeFilePath ? (
-								<pre className="text-[12px] font-mono text-gray-300 leading-relaxed whitespace-pre-wrap">{openFiles.find((f) => f.path === activeFilePath)?.content || "// No content"}</pre>
+								<pre className="text-[12px] font-mono text-gray-300 leading-relaxed whitespace-pre-wrap">
+									{openFiles.find((f) => f.path === activeFilePath)?.content || "// No content"}
+								</pre>
 							) : (
 								<div className="flex h-full items-center justify-center">
-									<div className="text-center text-gray-600"><Code2 size={32} className="mx-auto mb-2 opacity-30" /><p className="text-xs">Select a file from the explorer to view its contents</p></div>
+									<div className="text-center text-gray-600">
+										<Code2 size={32} className="mx-auto mb-2 opacity-30" />
+										<p className="text-xs">Select a file from the explorer to view its contents</p>
+									</div>
 								</div>
 							)}
 						</div>
@@ -1209,38 +2012,99 @@ export default function IdeTerminalView() {
 
 					{pipeline.length > 0 && (
 						<div className="flex items-center gap-2 border-t border-b border-[#1e2535] bg-[#0f1117] px-3 py-1 overflow-x-auto">
-							<span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider shrink-0">Pipeline</span>
+							<span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider shrink-0">
+								Pipeline
+							</span>
 							{pipeline.map((step) => (
-								<div key={step.id} className="flex items-center gap-1 text-[10px] text-gray-400 shrink-0">
-									<PipelineIcon status={step.status} /><span>{step.label}</span>
+								<div
+									key={step.id}
+									className="flex items-center gap-1 text-[10px] text-gray-400 shrink-0">
+									<PipelineIcon status={step.status} />
+									<span>{step.label}</span>
 									{step.duration && <span className="text-gray-600">({step.duration})</span>}
-									{step.status === "running" && <Loader2 size={8} className="text-blue-400 animate-spin" />}
+									{step.status === "running" && (
+										<Loader2 size={8} className="text-blue-400 animate-spin" />
+									)}
 								</div>
 							))}
 						</div>
 					)}
 
-					<div className="border-t border-[#1e2535] bg-[#0a0d14] flex flex-col" style={{ height: isTerminalMaximized ? "100%" : terminalHeight }}>
+					<div
+						className="border-t border-[#1e2535] bg-[#0a0d14] flex flex-col"
+						style={{ height: isTerminalMaximized ? "100%" : terminalHeight }}>
 						<div className="flex items-center justify-between px-3 py-1 bg-[#0f1117] border-b border-[#1e2535] shrink-0">
 							<div className="flex items-center gap-2">
 								<Terminal size={11} className="text-green-400" />
-								<span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Terminal</span>
-								{agentRunning && <span className="flex items-center gap-1 text-[10px] text-violet-400"><Loader2 size={8} className="animate-spin" />Running {activeAgent}...</span>}
-								{isRecording && <span className="flex items-center gap-1 text-[10px] text-red-400"><span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />Recording</span>}
+								<span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+									Terminal
+								</span>
+								{agentRunning && (
+									<span className="flex items-center gap-1 text-[10px] text-violet-400">
+										<Loader2 size={8} className="animate-spin" />
+										Running {activeAgent}...
+									</span>
+								)}
+								{isRecording && (
+									<span className="flex items-center gap-1 text-[10px] text-red-400">
+										<span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+										Recording
+									</span>
+								)}
 							</div>
 							<div className="flex items-center gap-1">
-								<button onClick={isRecording ? handleStopRecording : handleStartRecording} className={`p-0.5 rounded transition-colors ${isRecording ? "text-red-400 hover:text-red-300" : "text-gray-500 hover:text-gray-300"}`} title={isRecording ? "Stop recording" : "Start recording"}><Mic size={11} /></button>
-								{recordings.length > 0 && <button onClick={() => setShowRecordings(!showRecordings)} className="p-0.5 text-gray-500 hover:text-gray-300 transition-colors" title="View recordings"><History size={11} /></button>}
-								<button onClick={() => setIsTerminalMaximized(!isTerminalMaximized)} className="p-0.5 text-gray-500 hover:text-gray-300 transition-colors" title={isTerminalMaximized ? "Minimize" : "Maximize"}>{isTerminalMaximized ? <Minimize2 size={11} /> : <Maximize2 size={11} />}</button>
+								<button
+									onClick={isRecording ? handleStopRecording : handleStartRecording}
+									className={`p-0.5 rounded transition-colors ${isRecording ? "text-red-400 hover:text-red-300" : "text-gray-500 hover:text-gray-300"}`}
+									title={isRecording ? "Stop recording" : "Start recording"}>
+									<Mic size={11} />
+								</button>
+								{recordings.length > 0 && (
+									<button
+										onClick={() => setShowRecordings(!showRecordings)}
+										className="p-0.5 text-gray-500 hover:text-gray-300 transition-colors"
+										title="View recordings">
+										<History size={11} />
+									</button>
+								)}
+								<button
+									onClick={() => setIsTerminalMaximized(!isTerminalMaximized)}
+									className="p-0.5 text-gray-500 hover:text-gray-300 transition-colors"
+									title={isTerminalMaximized ? "Minimize" : "Maximize"}>
+									{isTerminalMaximized ? <Minimize2 size={11} /> : <Maximize2 size={11} />}
+								</button>
 							</div>
 						</div>
 
-						<div ref={terminalRef} className="flex-1 overflow-y-auto p-2 font-mono text-[12px] leading-relaxed">
+						<div
+							ref={terminalRef}
+							className="flex-1 overflow-y-auto p-2 font-mono text-[12px] leading-relaxed">
 							{outputBlocks.map((block, idx) => (
-								<div key={block.id} className={`group flex items-start gap-1.5 py-0.5 ${block.type === "command" ? "text-green-400" : block.type === "error" ? "text-red-400" : block.type === "success" ? "text-green-500" : block.type === "agent" ? "text-violet-400" : block.type === "info" ? "text-blue-400" : block.type === "divider" ? "text-gray-700" : "text-gray-300"}`}>
-									<button onClick={() => toggleBlockCollapse(block.id)} className="text-gray-600 hover:text-gray-400 shrink-0 mt-0.5"><ChevronRight size={10} className={collapsedBlocks.has(block.id) ? "" : "rotate-90"} /></button>
-									<span className="flex-1 min-w-0">{block.type === "command" && <span className="text-gray-500 mr-1">$</span>}{block.content}</span>
-									<button onClick={() => handleCopyTerminal(idx, block.content)} className="opacity-0 group-hover:opacity-100 text-gray-600 hover:text-gray-400 transition-all shrink-0 mt-0.5" title="Copy line">{copiedIndex === idx ? <Check size={10} className="text-green-400" /> : <Copy size={10} />}</button>
+								<div
+									key={block.id}
+									className={`group flex items-start gap-1.5 py-0.5 ${block.type === "command" ? "text-green-400" : block.type === "error" ? "text-red-400" : block.type === "success" ? "text-green-500" : block.type === "agent" ? "text-violet-400" : block.type === "info" ? "text-blue-400" : block.type === "divider" ? "text-gray-700" : "text-gray-300"}`}>
+									<button
+										onClick={() => toggleBlockCollapse(block.id)}
+										className="text-gray-600 hover:text-gray-400 shrink-0 mt-0.5">
+										<ChevronRight
+											size={10}
+											className={collapsedBlocks.has(block.id) ? "" : "rotate-90"}
+										/>
+									</button>
+									<span className="flex-1 min-w-0">
+										{block.type === "command" && <span className="text-gray-500 mr-1">$</span>}
+										{block.content}
+									</span>
+									<button
+										onClick={() => handleCopyTerminal(idx, block.content)}
+										className="opacity-0 group-hover:opacity-100 text-gray-600 hover:text-gray-400 transition-all shrink-0 mt-0.5"
+										title="Copy line">
+										{copiedIndex === idx ? (
+											<Check size={10} className="text-green-400" />
+										) : (
+											<Copy size={10} />
+										)}
+									</button>
 								</div>
 							))}
 						</div>
@@ -1249,22 +2113,47 @@ export default function IdeTerminalView() {
 							{showAgentSuggestions && agentSuggestions.length > 0 && (
 								<div className="absolute bottom-full left-3 mb-1 bg-[#1a2030] border border-[#2a3344] rounded shadow-xl overflow-hidden">
 									{agentSuggestions.map((s) => (
-										<button key={s} onClick={() => { setTerminalInput(s + " "); setShowAgentSuggestions(false) }} className="block w-full text-left px-3 py-1 text-[11px] text-gray-300 hover:bg-[#253045] transition-colors">{s}</button>
+										<button
+											key={s}
+											onClick={() => {
+												setTerminalInput(s + " ")
+												setShowAgentSuggestions(false)
+											}}
+											className="block w-full text-left px-3 py-1 text-[11px] text-gray-300 hover:bg-[#253045] transition-colors">
+											{s}
+										</button>
 									))}
 								</div>
 							)}
 							{showSmartSuggestions && smartSuggestions.length > 0 && (
 								<div className="absolute bottom-full left-3 mb-1 bg-[#1a2030] border border-[#2a3344] rounded shadow-xl overflow-hidden min-w-[200px]">
 									{smartSuggestions.map((s, idx) => (
-										<button key={s.text + idx} onClick={() => { setTerminalInput(s.text + " "); setShowSmartSuggestions(false); setSelectedSuggestionIndex(-1) }} className={`block w-full text-left px-3 py-1.5 text-[11px] transition-colors ${idx === selectedSuggestionIndex ? "bg-violet-500/20 text-violet-300" : "text-gray-300 hover:bg-[#253045]"}`}>
-											<span className="font-medium">{s.text}</span><span className="text-gray-500 ml-2">{s.description}</span>
+										<button
+											key={s.text + idx}
+											onClick={() => {
+												setTerminalInput(s.text + " ")
+												setShowSmartSuggestions(false)
+												setSelectedSuggestionIndex(-1)
+											}}
+											className={`block w-full text-left px-3 py-1.5 text-[11px] transition-colors ${idx === selectedSuggestionIndex ? "bg-violet-500/20 text-violet-300" : "text-gray-300 hover:bg-[#253045]"}`}>
+											<span className="font-medium">{s.text}</span>
+											<span className="text-gray-500 ml-2">{s.description}</span>
 										</button>
 									))}
 								</div>
 							)}
 							<div className="flex items-center gap-2">
 								<span className="text-green-400 text-[11px] font-mono shrink-0">$</span>
-								<input ref={terminalInputRef} type="text" value={terminalInput} onChange={handleTerminalInputChange} onKeyDown={handleTerminalKeyDown} placeholder="Type a command or / for agents..." className="flex-1 bg-transparent text-[12px] text-gray-300 placeholder-gray-600 outline-none font-mono" autoFocus />
+								<input
+									ref={terminalInputRef}
+									type="text"
+									value={terminalInput}
+									onChange={handleTerminalInputChange}
+									onKeyDown={handleTerminalKeyDown}
+									placeholder="Type a command or / for agents..."
+									className="flex-1 bg-transparent text-[12px] text-gray-300 placeholder-gray-600 outline-none font-mono"
+									autoFocus
+								/>
 							</div>
 						</div>
 					</div>
@@ -1273,13 +2162,26 @@ export default function IdeTerminalView() {
 				{showAiPanel && (
 					<aside className="w-80 border-l border-[#1e2535] bg-[#0f1117] flex flex-col shrink-0">
 						<div className="flex items-center justify-between px-3 py-1.5 border-b border-[#1e2535]">
-							<div className="flex items-center gap-2"><Brain size={12} className="text-violet-400" /><span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">AI Assistant</span></div>
-							<button onClick={() => setShowAiPanel(false)} className="text-gray-500 hover:text-gray-300 transition-colors" title="Close panel"><PanelRightClose size={11} /></button>
+							<div className="flex items-center gap-2">
+								<Brain size={12} className="text-violet-400" />
+								<span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+									AI Assistant
+								</span>
+							</div>
+							<button
+								onClick={() => setShowAiPanel(false)}
+								className="text-gray-500 hover:text-gray-300 transition-colors"
+								title="Close panel">
+								<PanelRightClose size={11} />
+							</button>
 						</div>
 
 						<div className="flex border-b border-[#1e2535] bg-[#0a0d14]">
 							{["chat", "plan", "memory", "deploy"].map((tab) => (
-								<button key={tab} onClick={() => setAiTab(tab)} className={`flex-1 px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider transition-colors ${aiTab === tab ? "text-violet-400 border-b-2 border-violet-500 bg-[#1a2030]" : "text-gray-600 hover:text-gray-400"}`}>
+								<button
+									key={tab}
+									onClick={() => setAiTab(tab)}
+									className={`flex-1 px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider transition-colors ${aiTab === tab ? "text-violet-400 border-b-2 border-violet-500 bg-[#1a2030]" : "text-gray-600 hover:text-gray-400"}`}>
 									{tab === "chat" && <MessageSquare size={11} className="inline mr-1" />}
 									{tab === "plan" && <GitBranch size={11} className="inline mr-1" />}
 									{tab === "memory" && <Database size={11} className="inline mr-1" />}
@@ -1293,32 +2195,95 @@ export default function IdeTerminalView() {
 							<>
 								<div className="flex-1 overflow-y-auto p-3 space-y-3">
 									{aiMessages.length === 0 && (
-										<div className="text-center text-gray-600 mt-8"><Bot size={24} className="mx-auto mb-2 opacity-30" /><p className="text-[11px]">Ask me anything about your code</p><p className="text-[10px] text-gray-700 mt-1">Use @agent to delegate tasks</p></div>
+										<div className="text-center text-gray-600 mt-8">
+											<Bot size={24} className="mx-auto mb-2 opacity-30" />
+											<p className="text-[11px]">Ask me anything about your code</p>
+											<p className="text-[10px] text-gray-700 mt-1">
+												Use @agent to delegate tasks
+											</p>
+										</div>
 									)}
 									{aiMessages.map((msg) => (
 										<div key={msg.id} className="space-y-1">
 											<div className="flex items-center justify-between">
 												<div className="flex items-center gap-1.5">
-													{msg.role === "user" ? <User size={10} className="text-blue-400" /> : <Bot size={10} className={msg.role === "agent" ? "text-violet-400" : "text-gray-500"} />}
-													<span className="text-[10px] font-medium text-gray-400">{msg.author}</span>
-													{msg.meta && <span className="text-[9px] text-gray-600">({msg.meta})</span>}
+													{msg.role === "user" ? (
+														<User size={10} className="text-blue-400" />
+													) : (
+														<Bot
+															size={10}
+															className={
+																msg.role === "agent"
+																	? "text-violet-400"
+																	: "text-gray-500"
+															}
+														/>
+													)}
+													<span className="text-[10px] font-medium text-gray-400">
+														{msg.author}
+													</span>
+													{msg.meta && (
+														<span className="text-[9px] text-gray-600">({msg.meta})</span>
+													)}
 												</div>
 												<span className="text-[9px] text-gray-700">{msg.time}</span>
 											</div>
-											<p className="text-[12px] text-gray-300 leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+											<div className="text-[12px] text-gray-300 leading-relaxed">
+												{renderMessageContent(msg.content)}
+											</div>
 											{msg.attachments && msg.attachments.length > 0 && (
-												<div className="flex flex-wrap gap-1 mt-1">{msg.attachments.map((att) => (<span key={att.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] bg-[#1e2535] text-gray-400 rounded"><Paperclip size={8} />{att.filename}</span>))}</div>
+												<div className="flex flex-wrap gap-1 mt-1">
+													{msg.attachments.map((att) => (
+														<span
+															key={att.id}
+															className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] bg-[#1e2535] text-gray-400 rounded">
+															<Paperclip size={8} />
+															{att.filename}
+														</span>
+													))}
+												</div>
 											)}
 										</div>
 									))}
-									{aiSending && <div className="flex items-center gap-2 text-gray-500"><Loader2 size={10} className="animate-spin" /><span className="text-[10px]">Thinking...</span></div>}
+									{/* Proactive Suggestions */}
+									{proactiveSuggestions.length > 0 && (
+										<div className="flex flex-wrap gap-1.5 px-1">
+											{proactiveSuggestions.map((s, idx) => (
+												<button
+													key={idx}
+													onClick={() => {
+														setAiInput(s)
+														setAiInput((prev) => prev + " ")
+													}}
+													className="text-[10px] px-2 py-1 bg-[#1e2535] text-gray-400 rounded-full border border-[#2a3344] hover:border-violet-500 hover:text-violet-300 transition-colors">
+													{s}
+												</button>
+											))}
+										</div>
+									)}
+									{aiSending && (
+										<div className="flex items-center gap-2 text-gray-500">
+											<Loader2 size={10} className="animate-spin" />
+											<span className="text-[10px]">Thinking...</span>
+										</div>
+									)}
 									<div ref={aiMessagesEndRef} />
 								</div>
 
 								{aiAttachments.length > 0 && (
 									<div className="flex flex-wrap gap-1 px-3 py-1.5 border-t border-[#1e2535] bg-[#0a0d14]">
 										{aiAttachments.map((att) => (
-											<span key={att.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] bg-[#1e2535] text-gray-400 rounded"><Paperclip size={8} />{att.filename}<button onClick={() => removeAttachment(att.id)} className="text-gray-600 hover:text-gray-400 ml-0.5"><X size={8} /></button></span>
+											<span
+												key={att.id}
+												className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] bg-[#1e2535] text-gray-400 rounded">
+												<Paperclip size={8} />
+												{att.filename}
+												<button
+													onClick={() => removeAttachment(att.id)}
+													className="text-gray-600 hover:text-gray-400 ml-0.5">
+													<X size={8} />
+												</button>
+											</span>
 										))}
 									</div>
 								)}
@@ -1326,15 +2291,51 @@ export default function IdeTerminalView() {
 								<div className="border-t border-[#1e2535] px-3 py-2 bg-[#0a0d14]">
 									<div className="flex items-end gap-2">
 										<div className="flex-1 relative">
-											<textarea value={aiInput} onChange={(e) => setAiInput(e.target.value)} onKeyDown={handleAiKeyDown} placeholder="Ask AI or @agent for help..." rows={2} className="w-full bg-[#1e2535] text-[12px] text-gray-300 placeholder-gray-600 border border-[#2a3344] rounded px-2.5 py-1.5 outline-none resize-none" />
+											<textarea
+												value={aiInput}
+												onChange={(e) => setAiInput(e.target.value)}
+												onKeyDown={handleAiKeyDown}
+												placeholder="Ask AI or @agent for help..."
+												rows={2}
+												className="w-full bg-[#1e2535] text-[12px] text-gray-300 placeholder-gray-600 border border-[#2a3344] rounded px-2.5 py-1.5 outline-none resize-none"
+											/>
 										</div>
-										<button onClick={handleAiSend} disabled={aiSending || (!aiInput.trim() && aiAttachments.length === 0)} className="p-1.5 bg-violet-600 hover:bg-violet-500 disabled:bg-[#1e2535] disabled:text-gray-600 text-white rounded transition-colors" title="Send"><Send size={12} /></button>
+										<button
+											onClick={handleAiSend}
+											disabled={aiSending || (!aiInput.trim() && aiAttachments.length === 0)}
+											className="p-1.5 bg-violet-600 hover:bg-violet-500 disabled:bg-[#1e2535] disabled:text-gray-600 text-white rounded transition-colors"
+											title="Send">
+											<Send size={12} />
+										</button>
 									</div>
 									<div className="flex items-center gap-2 mt-1.5">
-										<button onClick={() => fileInputRef.current?.click()} className="text-gray-600 hover:text-gray-400 transition-colors" title="Attach file"><Paperclip size={10} /></button>
-										<button onClick={() => imageInputRef.current?.click()} className="text-gray-600 hover:text-gray-400 transition-colors" title="Attach image"><Image size={10} /></button>
-										<input ref={fileInputRef} type="file" multiple onChange={handleFilesSelected} className="hidden" />
-										<input ref={imageInputRef} type="file" accept="image/*" multiple onChange={handleImagesSelected} className="hidden" />
+										<button
+											onClick={() => fileInputRef.current?.click()}
+											className="text-gray-600 hover:text-gray-400 transition-colors"
+											title="Attach file">
+											<Paperclip size={10} />
+										</button>
+										<button
+											onClick={() => imageInputRef.current?.click()}
+											className="text-gray-600 hover:text-gray-400 transition-colors"
+											title="Attach image">
+											<Image size={10} />
+										</button>
+										<input
+											ref={fileInputRef}
+											type="file"
+											multiple
+											onChange={handleFilesSelected}
+											className="hidden"
+										/>
+										<input
+											ref={imageInputRef}
+											type="file"
+											accept="image/*"
+											multiple
+											onChange={handleImagesSelected}
+											className="hidden"
+										/>
 									</div>
 								</div>
 							</>
@@ -1343,22 +2344,38 @@ export default function IdeTerminalView() {
 						{aiTab === "plan" && (
 							<div className="flex-1 overflow-y-auto p-3 space-y-3">
 								{brainLoading ? (
-									<div className="flex items-center justify-center py-8"><Loader2 size={16} className="text-violet-400 animate-spin" /></div>
+									<div className="flex items-center justify-center py-8">
+										<Loader2 size={16} className="text-violet-400 animate-spin" />
+									</div>
 								) : brainPlan.length > 0 ? (
-									<><div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-2">Execution Plan</div>
+									<>
+										<div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-2">
+											Execution Plan
+										</div>
 										{brainPlan.map((step, idx) => (
 											<div key={idx} className="flex items-start gap-2 text-[11px]">
 												<span className="text-gray-600 font-mono shrink-0">{idx + 1}.</span>
-												<div><code className="text-green-400 text-[10px]">{step.command}</code>{step.description && <p className="text-gray-500 mt-0.5">{step.description}</p>}</div>
+												<div>
+													<code className="text-green-400 text-[10px]">{step.command}</code>
+													{step.description && (
+														<p className="text-gray-500 mt-0.5">{step.description}</p>
+													)}
+												</div>
 											</div>
 										))}
 									</>
 								) : (
-									<div className="text-center text-gray-600 mt-8"><GitBranch size={24} className="mx-auto mb-2 opacity-30" /><p className="text-[11px]">No active plan</p><p className="text-[10px] text-gray-700 mt-1">Ask the AI to create a plan</p></div>
+									<div className="text-center text-gray-600 mt-8">
+										<GitBranch size={24} className="mx-auto mb-2 opacity-30" />
+										<p className="text-[11px]">No active plan</p>
+										<p className="text-[10px] text-gray-700 mt-1">Ask the AI to create a plan</p>
+									</div>
 								)}
 								{brainFeedback && (
 									<div className="border-t border-[#1e2535] pt-3 mt-3">
-										<div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-2">Feedback</div>
+										<div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-2">
+											Feedback
+										</div>
 										<p className="text-[11px] text-gray-400">{brainFeedback.output}</p>
 									</div>
 								)}
@@ -1368,23 +2385,66 @@ export default function IdeTerminalView() {
 						{aiTab === "memory" && (
 							<div className="flex-1 overflow-y-auto p-3 space-y-3">
 								{brainMemory ? (
-									<><div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-2">Session Stats</div>
+									<>
+										<div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-2">
+											Session Stats
+										</div>
 										<div className="grid grid-cols-2 gap-2">
-											<div className="bg-[#1a2030] rounded p-2"><div className="text-[18px] font-bold text-gray-300">{brainMemory.stats?.totalSessions ?? 0}</div><div className="text-[9px] text-gray-600">Sessions</div></div>
-											<div className="bg-[#1a2030] rounded p-2"><div className="text-[18px] font-bold text-gray-300">{brainMemory.stats?.totalCommands ?? 0}</div><div className="text-[9px] text-gray-600">Commands</div></div>
-											<div className="bg-[#1a2030] rounded p-2"><div className="text-[18px] font-bold text-gray-300">{brainMemory.stats?.totalErrors ?? 0}</div><div className="text-[9px] text-gray-600">Errors</div></div>
-											<div className="bg-[#1a2030] rounded p-2"><div className="text-[18px] font-bold text-gray-300">{brainMemory.stats?.successRate ? `${(brainMemory.stats.successRate * 100).toFixed(0)}%` : "0%"}</div><div className="text-[9px] text-gray-600">Success Rate</div></div>
+											<div className="bg-[#1a2030] rounded p-2">
+												<div className="text-[18px] font-bold text-gray-300">
+													{brainMemory.stats?.totalSessions ?? 0}
+												</div>
+												<div className="text-[9px] text-gray-600">Sessions</div>
+											</div>
+											<div className="bg-[#1a2030] rounded p-2">
+												<div className="text-[18px] font-bold text-gray-300">
+													{brainMemory.stats?.totalCommands ?? 0}
+												</div>
+												<div className="text-[9px] text-gray-600">Commands</div>
+											</div>
+											<div className="bg-[#1a2030] rounded p-2">
+												<div className="text-[18px] font-bold text-gray-300">
+													{brainMemory.stats?.totalErrors ?? 0}
+												</div>
+												<div className="text-[9px] text-gray-600">Errors</div>
+											</div>
+											<div className="bg-[#1a2030] rounded p-2">
+												<div className="text-[18px] font-bold text-gray-300">
+													{brainMemory.stats?.successRate
+														? `${(brainMemory.stats.successRate * 100).toFixed(0)}%`
+														: "0%"}
+												</div>
+												<div className="text-[9px] text-gray-600">Success Rate</div>
+											</div>
 										</div>
 										{brainMemory.commands && brainMemory.commands.length > 0 && (
-											<><div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mt-3 mb-2">Recent Commands</div>
-												<div className="space-y-1">{brainMemory.commands.slice(0, 10).map((cmd, idx) => (
-													<div key={idx} className="flex items-center justify-between text-[10px]"><span className="text-gray-400 truncate font-mono">{cmd.command}</span><span className={`shrink-0 ml-2 ${cmd.status === "success" ? "text-green-500" : "text-red-500"}`}>{cmd.status}</span></div>
-												))}</div>
+											<>
+												<div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mt-3 mb-2">
+													Recent Commands
+												</div>
+												<div className="space-y-1">
+													{brainMemory.commands.slice(0, 10).map((cmd, idx) => (
+														<div
+															key={idx}
+															className="flex items-center justify-between text-[10px]">
+															<span className="text-gray-400 truncate font-mono">
+																{cmd.command}
+															</span>
+															<span
+																className={`shrink-0 ml-2 ${cmd.status === "success" ? "text-green-500" : "text-red-500"}`}>
+																{cmd.status}
+															</span>
+														</div>
+													))}
+												</div>
 											</>
 										)}
 									</>
 								) : (
-									<div className="text-center text-gray-600 mt-8"><Database size={24} className="mx-auto mb-2 opacity-30" /><p className="text-[11px]">No memory data available</p></div>
+									<div className="text-center text-gray-600 mt-8">
+										<Database size={24} className="mx-auto mb-2 opacity-30" />
+										<p className="text-[11px]">No memory data available</p>
+									</div>
 								)}
 							</div>
 						)}
@@ -1392,11 +2452,22 @@ export default function IdeTerminalView() {
 						{aiTab === "deploy" && (
 							<div className="flex-1 overflow-y-auto p-3 space-y-3">
 								{brainDeployments.length > 0 ? (
-									<><div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-2">Recent Deployments</div>
+									<>
+										<div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-2">
+											Recent Deployments
+										</div>
 										{brainDeployments.map((dep, idx) => (
-											<div key={idx} className="flex items-center justify-between text-[11px] py-1 border-b border-[#1e2535] last:border-0">
+											<div
+												key={idx}
+												className="flex items-center justify-between text-[11px] py-1 border-b border-[#1e2535] last:border-0">
 												<div className="flex items-center gap-2">
-													{dep.status === "success" ? <CheckCircle2 size={10} className="text-green-400" /> : dep.status === "failed" ? <XCircle size={10} className="text-red-400" /> : <Loader2 size={10} className="text-blue-400 animate-spin" />}
+													{dep.status === "success" ? (
+														<CheckCircle2 size={10} className="text-green-400" />
+													) : dep.status === "failed" ? (
+														<XCircle size={10} className="text-red-400" />
+													) : (
+														<Loader2 size={10} className="text-blue-400 animate-spin" />
+													)}
 													<span className="text-gray-300">{dep.version || "v1.0"}</span>
 												</div>
 												<span className="text-gray-600">{dep.timestamp || dep.time || ""}</span>
@@ -1404,7 +2475,10 @@ export default function IdeTerminalView() {
 										))}
 									</>
 								) : (
-									<div className="text-center text-gray-600 mt-8"><Rocket size={24} className="mx-auto mb-2 opacity-30" /><p className="text-[11px]">No deployments yet</p></div>
+									<div className="text-center text-gray-600 mt-8">
+										<Rocket size={24} className="mx-auto mb-2 opacity-30" />
+										<p className="text-[11px]">No deployments yet</p>
+									</div>
 								)}
 							</div>
 						)}
@@ -1414,19 +2488,183 @@ export default function IdeTerminalView() {
 
 			{showShortcuts && <KeyboardShortcutsModal onClose={() => setShowShortcuts(false)} />}
 			{showRecordings && recordings.length > 0 && (
-				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowRecordings(false)}>
-					<div className="bg-[#0f1117] border border-[#1e2535] rounded-lg p-4 w-full max-w-md mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+				<div
+					className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+					onClick={() => setShowRecordings(false)}>
+					<div
+						className="bg-[#0f1117] border border-[#1e2535] rounded-lg p-4 w-full max-w-md mx-4 shadow-2xl"
+						onClick={(e) => e.stopPropagation()}>
 						<div className="flex items-center justify-between mb-3">
-							<div className="flex items-center gap-2"><History size={14} className="text-violet-400" /><span className="text-sm font-semibold text-[#e2e8f0]">Terminal Recordings</span></div>
-							<button onClick={() => setShowRecordings(false)} className="text-gray-500 hover:text-gray-300"><X size={14} /></button>
+							<div className="flex items-center gap-2">
+								<History size={14} className="text-violet-400" />
+								<span className="text-sm font-semibold text-[#e2e8f0]">Terminal Recordings</span>
+							</div>
+							<button
+								onClick={() => setShowRecordings(false)}
+								className="text-gray-500 hover:text-gray-300">
+								<X size={14} />
+							</button>
 						</div>
 						<div className="space-y-2 max-h-60 overflow-y-auto">
 							{recordings.map((rec) => (
-								<div key={rec.id} className="flex items-center justify-between p-2 bg-[#1a2030] rounded">
-									<div><div className="text-[11px] text-gray-300 font-medium">{rec.name}</div><div className="text-[9px] text-gray-600">{rec.commandCount} commands · {rec.duration}</div></div>
-									<button onClick={() => { handleReplayRecording(rec); setShowRecordings(false) }} className="text-[10px] text-violet-400 hover:text-violet-300 transition-colors">Replay</button>
+								<div
+									key={rec.id}
+									className="flex items-center justify-between p-2 bg-[#1a2030] rounded">
+									<div>
+										<div className="text-[11px] text-gray-300 font-medium">{rec.name}</div>
+										<div className="text-[9px] text-gray-600">
+											{rec.commandCount} commands · {rec.duration}
+										</div>
+									</div>
+									<button
+										onClick={() => {
+											handleReplayRecording(rec)
+											setShowRecordings(false)
+										}}
+										className="text-[10px] text-violet-400 hover:text-violet-300 transition-colors">
+										Replay
+									</button>
 								</div>
 							))}
+						</div>
+					</div>
+				</div>
+			)}
+
+			{/* ── Import GitHub Modal ─────────────────────────────────────────────── */}
+			{showImportGithub && (
+				<div
+					className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+					onClick={() => setShowImportGithub(false)}>
+					<div
+						className="bg-[#0f1117] border border-[#1e2535] rounded-lg p-5 w-full max-w-md mx-4 shadow-2xl"
+						onClick={(e) => e.stopPropagation()}>
+						<div className="flex items-center justify-between mb-4">
+							<div className="flex items-center gap-2">
+								<Github size={16} className="text-violet-400" />
+								<span className="text-sm font-semibold text-[#e2e8f0]">Import GitHub Repository</span>
+							</div>
+							<button
+								onClick={() => setShowImportGithub(false)}
+								className="text-gray-500 hover:text-gray-300">
+								<X size={14} />
+							</button>
+						</div>
+						<div className="space-y-3">
+							<div>
+								<label className="text-[10px] text-gray-500 font-medium uppercase tracking-wider">
+									Repository URL
+								</label>
+								<input
+									type="text"
+									value={importGithubUrl}
+									onChange={(e) => setImportGithubUrl(e.target.value)}
+									placeholder="https://github.com/user/repo"
+									className="w-full bg-[#1a2030] text-[12px] text-gray-300 placeholder-gray-600 border border-[#2a3344] rounded px-2.5 py-1.5 mt-1 outline-none focus:border-violet-500"
+								/>
+							</div>
+							<div>
+								<label className="text-[10px] text-gray-500 font-medium uppercase tracking-wider">
+									Branch
+								</label>
+								<input
+									type="text"
+									value={importGithubBranch}
+									onChange={(e) => setImportGithubBranch(e.target.value)}
+									placeholder="main"
+									className="w-full bg-[#1a2030] text-[12px] text-gray-300 placeholder-gray-600 border border-[#2a3344] rounded px-2.5 py-1.5 mt-1 outline-none focus:border-violet-500"
+								/>
+							</div>
+							{importGithubError && (
+								<div className="text-[10px] text-red-400 bg-red-400/10 border border-red-400/20 rounded px-2 py-1.5">
+									{importGithubError}
+								</div>
+							)}
+							<button
+								onClick={handleImportGithub}
+								disabled={importGithubLoading || !importGithubUrl.trim()}
+								className="w-full py-1.5 bg-violet-600 hover:bg-violet-500 disabled:bg-[#1e2535] disabled:text-gray-600 text-white text-[12px] rounded transition-colors flex items-center justify-center gap-2">
+								{importGithubLoading ? (
+									<Loader2 size={12} className="animate-spin" />
+								) : (
+									<Github size={12} />
+								)}
+								{importGithubLoading ? "Importing..." : "Import Repository"}
+							</button>
+						</div>
+					</div>
+				</div>
+			)}
+
+			{/* ── Open/New Workspace Modal ────────────────────────────────────────── */}
+			{showOpenWorkspace && (
+				<div
+					className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+					onClick={() => setShowOpenWorkspace(false)}>
+					<div
+						className="bg-[#0f1117] border border-[#1e2535] rounded-lg p-5 w-full max-w-md mx-4 shadow-2xl"
+						onClick={(e) => e.stopPropagation()}>
+						<div className="flex items-center justify-between mb-4">
+							<div className="flex items-center gap-2">
+								<FolderOpen size={16} className="text-violet-400" />
+								<span className="text-sm font-semibold text-[#e2e8f0]">Open Workspace</span>
+							</div>
+							<button
+								onClick={() => setShowOpenWorkspace(false)}
+								className="text-gray-500 hover:text-gray-300">
+								<X size={14} />
+							</button>
+						</div>
+						<div className="space-y-3">
+							<div>
+								<label className="text-[10px] text-gray-500 font-medium uppercase tracking-wider">
+									Workspace Path
+								</label>
+								<input
+									type="text"
+									value={openWorkspacePath}
+									onChange={(e) => setOpenWorkspacePath(e.target.value)}
+									placeholder="/home/user/projects/my-app"
+									className="w-full bg-[#1a2030] text-[12px] text-gray-300 placeholder-gray-600 border border-[#2a3344] rounded px-2.5 py-1.5 mt-1 outline-none focus:border-violet-500"
+								/>
+							</div>
+							{recentWorkspaces.length > 0 && (
+								<>
+									<div className="text-[10px] text-gray-500 font-medium uppercase tracking-wider">
+										Recent Workspaces
+									</div>
+									<div className="space-y-1 max-h-32 overflow-y-auto">
+										{recentWorkspaces.map((w, idx) => (
+											<button
+												key={idx}
+												onClick={() => handleOpenWorkspace(w.path)}
+												className="w-full flex items-center gap-2 px-2 py-1.5 bg-[#1a2030] hover:bg-[#1e2535] rounded text-left transition-colors">
+												<FolderGit2 size={12} className="text-gray-500 shrink-0" />
+												<div className="min-w-0">
+													<div className="text-[11px] text-gray-300 truncate">{w.name}</div>
+													<div className="text-[9px] text-gray-600 truncate">{w.path}</div>
+												</div>
+											</button>
+										))}
+									</div>
+								</>
+							)}
+							{openWorkspaceError && (
+								<div className="text-[10px] text-red-400 bg-red-400/10 border border-red-400/20 rounded px-2 py-1.5">
+									{openWorkspaceError}
+								</div>
+							)}
+							<button
+								onClick={() => handleOpenWorkspace()}
+								disabled={openWorkspaceLoading || !openWorkspacePath.trim()}
+								className="w-full py-1.5 bg-violet-600 hover:bg-violet-500 disabled:bg-[#1e2535] disabled:text-gray-600 text-white text-[12px] rounded transition-colors flex items-center justify-center gap-2">
+								{openWorkspaceLoading ? (
+									<Loader2 size={12} className="animate-spin" />
+								) : (
+									<FolderOpen size={12} />
+								)}
+								{openWorkspaceLoading ? "Opening..." : "Open Workspace"}
+							</button>
 						</div>
 					</div>
 				</div>

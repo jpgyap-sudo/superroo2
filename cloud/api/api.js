@@ -18,6 +18,7 @@ const { promisify } = require("util")
 const fs = require("fs").promises
 const fsSync = require("fs")
 const path = require("path")
+const { WebSocketServer } = require("ws")
 
 // ── Cloud Orchestrator ────────────────────────────────────────────────────────
 
@@ -319,6 +320,8 @@ let orchestrator = null
 let tgOrchestratorBridge = null
 /** @type {AutonomousLoop|null} */
 let autonomousLoop = null
+/** @type {CommissioningLoop|null} */
+let commissioningLoop = null
 
 async function initOrchestrator() {
 	try {
@@ -354,7 +357,18 @@ async function initOrchestrator() {
 		const { CrawlerAgent } = safeRequire("../orchestrator/modules/CrawlerAgent")
 		const { DeployOrchestrator } = safeRequire("../orchestrator/modules/DeployOrchestrator")
 		const { FileImporter } = safeRequire("../orchestrator/modules/FileImporter")
-		const { getCpuUsagePercent, getRamUsagePercent, getResourceSample, onResourceGuardEvent, waitForCpuBelow, runGuardedAgentLoop, GuardedLoopError, autonomousController, onAutonomousControllerEvent, runControlledAutonomousTask } = safeRequire("../orchestrator/modules/CPUGuard")
+		const {
+			getCpuUsagePercent,
+			getRamUsagePercent,
+			getResourceSample,
+			onResourceGuardEvent,
+			waitForCpuBelow,
+			runGuardedAgentLoop,
+			GuardedLoopError,
+			autonomousController,
+			onAutonomousControllerEvent,
+			runControlledAutonomousTask,
+		} = safeRequire("../orchestrator/modules/CPUGuard")
 
 		orchestrator.registerSafetyManager(
 			new SafetyManager({
@@ -422,6 +436,9 @@ async function initOrchestrator() {
 		})
 		await hermesClaw.init()
 		orchestrator.registerHermesClaw(hermesClaw)
+
+		// ── Expose orchestrator globally for Telegram bot HermesClaw access ──
+		global.__orchestrator = orchestrator
 
 		// ── Set provider resolver for LLM-based multi-agent breakdown ────
 		orchestrator.setProviderResolver(resolveProviderForTask, callChatCompletion)
@@ -1100,6 +1117,377 @@ function formatRelativeTime(ts) {
 	const months = Math.floor(days / 30)
 	return `${months}mo ago`
 }
+
+// ── WebSocket Server for Real-Time Chat ──────────────────────────────────────
+// Upgrades HTTP connections to WebSocket for bidirectional streaming chat.
+// The dashboard connects via ws://host/api/ws/chat and receives token-by-token
+// streaming, typing indicators, and proactive suggestions.
+const wss = new WebSocketServer({ noServer: true })
+
+// Track connected chat clients by workspace session
+const chatClients = new Map() // sessionId -> Set<WebSocket>
+
+wss.on("connection", (ws, req) => {
+	const urlObj = new URL(req.url, "http://localhost")
+	const sessionId = urlObj.searchParams.get("session") || "default"
+	const workspaceDir = urlObj.searchParams.get("dir") || ""
+
+	if (!chatClients.has(sessionId)) {
+		chatClients.set(sessionId, new Set())
+	}
+	chatClients.get(sessionId).add(ws)
+
+	writeApiLog("info", "ws-chat", `WebSocket client connected: session=${sessionId}`, { sessionId })
+
+	// Send connection confirmation
+	ws.send(JSON.stringify({ type: "connected", sessionId }))
+
+	ws.on("message", async (raw) => {
+		try {
+			const msg = JSON.parse(raw.toString())
+
+			if (msg.type === "ping") {
+				ws.send(JSON.stringify({ type: "pong" }))
+				return
+			}
+
+			if (msg.type === "chat") {
+				await handleWsChatMessage(ws, sessionId, msg, workspaceDir)
+			}
+
+			if (msg.type === "cancel") {
+				// Signal the streaming handler to abort
+				const abortController = activeStreams.get(sessionId)
+				if (abortController) {
+					abortController.abort()
+					activeStreams.delete(sessionId)
+				}
+			}
+		} catch (err) {
+			writeApiLog("error", "ws-chat", "Message parse error", { error: err.message })
+			ws.send(JSON.stringify({ type: "error", message: "Invalid message format" }))
+		}
+	})
+
+	ws.on("close", () => {
+		const clients = chatClients.get(sessionId)
+		if (clients) {
+			clients.delete(ws)
+			if (clients.size === 0) chatClients.delete(sessionId)
+		}
+		// Cancel any active stream for this session
+		const abortController = activeStreams.get(sessionId)
+		if (abortController) {
+			abortController.abort()
+			activeStreams.delete(sessionId)
+		}
+	})
+
+	ws.on("error", (err) => {
+		writeApiLog("error", "ws-chat", "WebSocket error", { error: err.message })
+	})
+})
+
+// Track active streaming controllers for cancellation
+const activeStreams = new Map()
+
+// ── WebSocket Chat Message Handler ───────────────────────────────────────────
+async function handleWsChatMessage(ws, sessionId, msg, workspaceDir) {
+	const text = (msg.text || "").trim()
+	if (!text) return
+
+	// Get workspace context
+	const wsCtx = global.__ideWorkspace || {}
+
+	// Store user message
+	wsCtx.chatMessages = wsCtx.chatMessages || []
+	wsCtx.chatMessages.push({
+		id: `msg-${Date.now()}`,
+		role: "user",
+		author: "You",
+		time: new Date().toLocaleTimeString(),
+		content: text,
+	})
+	saveWorkspaceStore(wsCtx)
+
+	// Send typing indicator
+	ws.send(JSON.stringify({ type: "typing", status: true }))
+
+	// ── Resolve AI provider ──────────────────────────────────────────────
+	let provider = null
+	if (msg.provider) {
+		provider = resolveProviderById(msg.provider, msg.model || null)
+	}
+	if (!provider) {
+		provider = resolveProviderForTask("coder")
+	}
+
+	if (!provider) {
+		ws.send(
+			JSON.stringify({
+				type: "error",
+				message: "No AI provider configured. Add an API key in Settings.",
+			}),
+		)
+		ws.send(JSON.stringify({ type: "typing", status: false }))
+		return
+	}
+
+	// ── Build rich context ───────────────────────────────────────────────
+	const contextParts = [
+		`You are SuperRoo, an expert AI coding assistant running in the Cloud Dashboard IDE Terminal.`,
+		`You are a REAL-TIME partner — respond token by token, proactively suggest next steps.`,
+		`The current workspace is "${wsCtx.repoName || "unknown"}" on branch "${wsCtx.branch || "main"}".`,
+		`The workspace directory is: ${wsCtx.workspaceDir || "/opt/superroo2"}`,
+	]
+
+	// 1. Full conversation history (last 20 messages)
+	if (wsCtx.chatMessages.length > 1) {
+		const history = wsCtx.chatMessages
+			.slice(-20, -1)
+			.map((m) => `${m.author}: ${m.content.slice(0, 500)}`)
+			.join("\n")
+		contextParts.push(`## Conversation History\n${history}`)
+	}
+
+	// 2. Current open file context (if provided by client)
+	if (msg.currentFile) {
+		contextParts.push(
+			`## Current File\nFile: ${msg.currentFile.path}\n\`\`\`${msg.currentFile.language || "text"}\n${(msg.currentFile.content || "").slice(0, 3000)}\n\`\`\``,
+		)
+		if (msg.currentFile.selection) {
+			contextParts.push(
+				`## Selected Code\n\`\`\`${msg.currentFile.language || "text"}\n${msg.currentFile.selection}\n\`\`\``,
+			)
+		}
+	}
+
+	// 3. Terminal context (last 20 lines of terminal output)
+	if (msg.terminalOutput && msg.terminalOutput.length > 0) {
+		const lastLines = msg.terminalOutput.slice(-20).join("\n")
+		contextParts.push(`## Recent Terminal Output\n\`\`\`\n${lastLines}\n\`\`\``)
+	}
+
+	// 4. HermesClaw memory recall
+	let hermesContext = ""
+	if (orchestrator && orchestrator.hermesClaw) {
+		try {
+			const recallResult = await orchestrator.hermesClaw.recallContext(text, 5)
+			if (recallResult && recallResult.output) {
+				hermesContext = recallResult.output
+				contextParts.push(`## Relevant Past Context\n${hermesContext.substring(0, 2000)}`)
+			}
+		} catch (hermesErr) {
+			// Silently fail
+		}
+	}
+
+	// 5. Proactive suggestions instruction
+	contextParts.push(`## Behavior Rules
+- Respond conversationally and naturally, like a senior developer pair programming with the user.
+- After providing code or an answer, ALWAYS suggest 1-2 next steps the user might want to take.
+- If the user shows an error, proactively suggest the fix.
+- Format code blocks with \`\`\`language for syntax highlighting.
+- When suggesting file changes, include the file path as a comment.`)
+
+	const systemPrompt = contextParts.join("\n\n")
+
+	// ── Create assistant placeholder ─────────────────────────────────────
+	const assistantId = `msg-${Date.now() + 1}`
+	ws.send(
+		JSON.stringify({
+			type: "assistant-start",
+			id: assistantId,
+		}),
+	)
+
+	// ── Stream the LLM response ──────────────────────────────────────────
+	const abortController = new AbortController()
+	activeStreams.set(sessionId, abortController)
+
+	try {
+		const apiUrl = `${provider.apiBaseUrl.replace(/\/+$/, "")}/chat/completions`
+		const streamRes = await fetch(apiUrl, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${provider.apiKey}`,
+			},
+			body: JSON.stringify({
+				model: provider.model,
+				messages: [
+					{ role: "system", content: systemPrompt },
+					...wsCtx.chatMessages.slice(-10, -1).map((m) => ({
+						role: m.role === "user" ? "user" : "assistant",
+						content: m.content,
+					})),
+					{ role: "user", content: text },
+				],
+				max_tokens: 8192,
+				temperature: 0.7,
+				stream: true,
+			}),
+			signal: abortController.signal,
+		})
+
+		if (!streamRes.ok) {
+			const errBody = await streamRes.text().catch(() => "")
+			ws.send(
+				JSON.stringify({
+					type: "error",
+					message: `AI API error ${streamRes.status}: ${errBody.slice(0, 200)}`,
+				}),
+			)
+			ws.send(JSON.stringify({ type: "typing", status: false }))
+			return
+		}
+
+		const reader = streamRes.body.getReader()
+		const decoder = new TextDecoder()
+		let fullReply = ""
+		let buffer = ""
+		let tokenCount = 0
+
+		while (true) {
+			const { done, value } = await reader.read()
+			if (done) break
+
+			buffer += decoder.decode(value, { stream: true })
+			const lines = buffer.split("\n")
+			buffer = lines.pop() || ""
+
+			for (const line of lines) {
+				const trimmed = line.trim()
+				if (!trimmed || !trimmed.startsWith("data: ")) continue
+				const jsonStr = trimmed.slice(6)
+				if (jsonStr === "[DONE]") continue
+
+				try {
+					const chunk = JSON.parse(jsonStr)
+					const delta = chunk.choices?.[0]?.delta?.content || ""
+					if (delta) {
+						fullReply += delta
+						tokenCount++
+						// Send token every 1-2 chars for smooth streaming
+						ws.send(JSON.stringify({ type: "token", text: delta }))
+					}
+				} catch {
+					// Skip malformed chunks
+				}
+			}
+		}
+
+		// Send completion
+		ws.send(JSON.stringify({ type: "typing", status: false }))
+		ws.send(
+			JSON.stringify({
+				type: "done",
+				id: assistantId,
+				reply: fullReply,
+				provider: provider.providerId,
+				model: provider.model,
+				tokenCount,
+			}),
+		)
+
+		// Store the full reply
+		wsCtx.chatMessages.push({
+			id: assistantId,
+			role: "agent",
+			author: provider.providerId,
+			meta: `${provider.model} · ws-stream`,
+			time: new Date().toLocaleTimeString(),
+			content: fullReply,
+		})
+		saveWorkspaceStore(wsCtx)
+
+		// Fire-and-forget Hermes lesson extraction
+		if (orchestrator && orchestrator.hermesClaw) {
+			orchestrator.hermesClaw
+				.extractLessons({
+					taskId: `ide-ws-${Date.now()}`,
+					goal: text.substring(0, 500),
+					phases: [{ number: 1, phase: "chat", result: "completed" }],
+					finalStatus: "completed",
+					error: null,
+				})
+				.catch(() => {})
+		}
+
+		// ── Proactive suggestions ────────────────────────────────────────
+		// After every response, suggest 1-2 next steps based on context
+		try {
+			const suggestionPrompt = [
+				`Based on this conversation, suggest 1-2 very short next steps the user might want to take.`,
+				`Format as a JSON array of strings, each max 60 chars.`,
+				`Examples: ["Run npm test", "Check the API logs", "Deploy to production"]`,
+				`User said: "${text.slice(0, 200)}"`,
+				`Assistant replied: "${fullReply.slice(0, 300)}"`,
+			].join("\n")
+
+			const suggestionRes = await fetch(apiUrl, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${provider.apiKey}`,
+				},
+				body: JSON.stringify({
+					model: provider.model,
+					messages: [{ role: "user", content: suggestionPrompt }],
+					max_tokens: 200,
+					temperature: 0.3,
+				}),
+				signal: AbortSignal.timeout(5000),
+			})
+
+			if (suggestionRes.ok) {
+				const suggestionData = await suggestionRes.json()
+				const suggestionText = suggestionData.choices?.[0]?.message?.content || ""
+				try {
+					const suggestions = JSON.parse(suggestionText.replace(/```json|```/g, "").trim())
+					if (Array.isArray(suggestions) && suggestions.length > 0) {
+						ws.send(
+							JSON.stringify({
+								type: "suggestions",
+								suggestions: suggestions.slice(0, 3),
+							}),
+						)
+					}
+				} catch {
+					// Not valid JSON, skip suggestions
+				}
+			}
+		} catch {
+			// Suggestions are best-effort
+		}
+	} catch (err) {
+		if (err.name === "AbortError") {
+			ws.send(JSON.stringify({ type: "cancelled", message: "Stream cancelled by user" }))
+		} else {
+			writeApiLog("error", "ws-chat", "Stream error", { error: err.message })
+			ws.send(JSON.stringify({ type: "error", message: err.message }))
+		}
+		ws.send(JSON.stringify({ type: "typing", status: false }))
+	} finally {
+		activeStreams.delete(sessionId)
+	}
+}
+
+// ── WebSocket Upgrade Handler ────────────────────────────────────────────────
+// Intercept HTTP upgrade requests for /api/ws/chat path
+server.on("upgrade", (request, socket, head) => {
+	const url = request.url || ""
+	// Normalize: handle both /api/ws/chat and /ws/chat
+	const normalizedUrl = url.startsWith("/api") ? url.slice(4) : url
+
+	if (normalizedUrl.startsWith("/ws/chat")) {
+		wss.handleUpgrade(request, socket, head, (ws) => {
+			wss.emit("connection", ws, request)
+		})
+	} else {
+		socket.destroy()
+	}
+})
 
 const server = http.createServer(async (req, res) => {
 	const url = req.url || ""
@@ -2400,6 +2788,10 @@ const server = http.createServer(async (req, res) => {
 				agent: "autonomous",
 				description: "Run autonomous coding, debugging, testing, and deployment loop",
 			},
+			"/commissioning": {
+				agent: "commissioner",
+				description: "Run full-stack commissioning — verify ALL features work as a real user (14 phases)",
+			},
 			"/debug": { agent: "debugger", description: "Start a debug session" },
 			"/test": { agent: "tester", description: "Run tests" },
 			"/crawl": { agent: "crawler", description: "Run crawler agent" },
@@ -2423,6 +2815,9 @@ const server = http.createServer(async (req, res) => {
 		const SKILL_COMMANDS = {
 			"auto-deployer": { description: "Self-retrying SSH deploy agent" },
 			autonomous: { description: "Self-directed coding, debugging, testing & deployment loop" },
+			"commissioning-agent": {
+				description: "Full-stack commissioning — verify ALL features work as a real user (14 phases)",
+			},
 			"debug-team": { description: "Autonomous multi-agent debugging system" },
 			"digitalocean-vps": { description: "Deploy and manage DigitalOcean Droplets" },
 			"e2e-test": { description: "Run comprehensive end-to-end tests" },
@@ -2522,6 +2917,11 @@ const server = http.createServer(async (req, res) => {
 					crawler: { agent: "crawler", taskType: "crawl", description: "Crawler agent" },
 					healer: { agent: "self-healing", taskType: "coder", description: "Self-healing agent" },
 					pm: { agent: "pm", taskType: "coder", description: "Product manager agent" },
+					commissioner: {
+						agent: "commissioner",
+						taskType: "coder",
+						description: "Commissioning agent — runs full-stack QA verification (14 phases)",
+					},
 					orchestrator: {
 						agent: "orchestrator",
 						taskType: "coder",
@@ -2883,6 +3283,96 @@ const server = http.createServer(async (req, res) => {
 					return {
 						agent: "orchestrator",
 						output: [`Orchestrator error: ${err.message}`],
+					}
+				}
+			}
+
+			// ── Commissioning agent (CommissioningLoop-powered 14-phase QA) ──
+			if (agentCmd.agent === "commissioner") {
+				if (!orchestrator) {
+					return {
+						agent: "commissioner",
+						output: [
+							"Cloud Orchestrator is not initialized.",
+							"Check server logs for initialization errors.",
+						],
+					}
+				}
+
+				try {
+					// If already running, show status
+					if (commissioningLoop && commissioningLoop.getStatus().running) {
+						const status = commissioningLoop.getStatus()
+						return {
+							agent: "commissioner",
+							output: [
+								"╔══════════════════════════════════════════════╗",
+								"║     Commissioning — Already Running          ║",
+								"╚══════════════════════════════════════════════╝",
+								`Job ID: ${status.jobId}`,
+								`Current phase: ${status.currentPhase}/${status.totalPhases} (${status.phaseName})`,
+								`Elapsed: ${status.elapsed}`,
+								`Completed phases: ${status.completedPhases}`,
+								`Failed phases: ${status.failedPhases}`,
+								"",
+								"Use /commissioning status to refresh.",
+								"Use /commissioning stop to stop the current run.",
+							],
+						}
+					}
+
+					// Start new commissioning run
+					commissioningLoop = new (require("../orchestrator/modules/CommissioningLoop").CommissioningLoop)({
+						orchestrator,
+						workspaceRoot: process.cwd(),
+						containerFirst: true,
+						phaseTimeoutMs: 10 * 60 * 1000,
+					})
+
+					// Start in background — don't block the terminal
+					const jobId = `commission-${Date.now()}`
+					commissioningLoop.start({ jobId }).catch((err) => {
+						writeApiLog("error", "commissioning-agent", `Commissioning failed: ${err.message}`, {
+							error: err.message,
+						})
+					})
+
+					return {
+						agent: "commissioner",
+						output: [
+							"╔══════════════════════════════════════════════╗",
+							"║     Commissioning Started (14 Phases)        ║",
+							"╚══════════════════════════════════════════════╝",
+							`Job ID: ${jobId}`,
+							"",
+							"Phases:",
+							"  Phase 1  — Repository & Architecture Inspection",
+							"  Phase 2  — Dependency & Environment Validation",
+							"  Phase 3  — Application Boot Verification",
+							"  Phase 4  — Real User UI Testing (Playwright)",
+							"  Phase 5  — API & Backend Verification",
+							"  Phase 6  — Database Validation",
+							"  Phase 7  — Integration & External Service Verification",
+							"  Phase 8  — Queue, Worker & Background Job Testing",
+							"  Phase 9  — File Upload & Storage Testing",
+							"  Phase 10 — Security & Auth Validation",
+							"  Phase 11 — Performance & Stability Testing",
+							"  Phase 12 — Autonomous Debugging & Recovery",
+							"  Phase 13 — Deployment Readiness Verification",
+							"  Phase 14 — Final Commissioning Report",
+							"",
+							"All test suites run inside Docker containers for safety.",
+							"",
+							"Commands:",
+							"  /commissioning status — Check progress",
+							"  /commissioning stop   — Stop the run",
+							"  /commissioning report — View final report",
+						],
+					}
+				} catch (err) {
+					return {
+						agent: "commissioner",
+						output: [`Commissioning error: ${err.message}`],
 					}
 				}
 			}
@@ -3257,7 +3747,8 @@ const server = http.createServer(async (req, res) => {
 
 				// Step 2: Route complex tasks through orchestrator, simple chat stays as LLM call
 				const isComplexTask =
-					intentKind !== "chat" && intentConfidence >= 0.5 &&
+					intentKind !== "chat" &&
+					intentConfidence >= 0.5 &&
 					["debug_plan", "run_tests", "deploy", "shell", "create_branch", "create_pr"].includes(intentKind)
 
 				if (isComplexTask && orchestrator) {
@@ -3332,9 +3823,7 @@ const server = http.createServer(async (req, res) => {
 					)
 				}
 				if (orchestratorResult) {
-					contextParts.push(
-						`Orchestrator task result:\n${orchestratorResult.substring(0, 2000)}`,
-					)
+					contextParts.push(`Orchestrator task result:\n${orchestratorResult.substring(0, 2000)}`)
 				}
 
 				const systemPrompt = contextParts.join("\n")
@@ -3417,6 +3906,262 @@ const server = http.createServer(async (req, res) => {
 					intent: intentKind,
 				})
 			}
+			return
+		}
+
+		// GET /ide-workspace/chat/stream — SSE streaming chat (VS Code-like real-time response)
+		if (method === "GET" && normalizedUrl.startsWith("/ide-workspace/chat/stream")) {
+			const urlObj = new URL(req.url, "http://localhost")
+			const msg = urlObj.searchParams.get("message") || ""
+			const requestedProvider = urlObj.searchParams.get("provider") || null
+			const requestedModel = urlObj.searchParams.get("model") || null
+
+			if (!msg) {
+				res.writeHead(400, { "Content-Type": "application/json" })
+				res.end(JSON.stringify({ ok: false, error: "Missing message parameter" }))
+				return
+			}
+
+			// Set SSE headers
+			res.writeHead(200, {
+				"Content-Type": "text/event-stream",
+				"Cache-Control": "no-cache",
+				Connection: "keep-alive",
+				"X-Accel-Buffering": "no",
+			})
+
+			// Helper to send SSE event
+			const sendSSE = (event, data) => {
+				res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+			}
+
+			// Store user message
+			ws.chatMessages.push({
+				id: `msg-${Date.now()}`,
+				role: "user",
+				author: "You",
+				time: new Date().toLocaleTimeString(),
+				content: msg,
+			})
+			saveWorkspaceStore(global.__ideWorkspace)
+
+			// Send initial event
+			sendSSE("start", { message: "Processing..." })
+
+			// ── Resolve AI provider ────────────────────────────────────────
+			let provider = null
+			if (requestedProvider) {
+				provider = resolveProviderById(requestedProvider, requestedModel)
+			}
+			if (!provider) {
+				provider = resolveProviderForTask("coder")
+			}
+
+			if (!provider) {
+				sendSSE("error", { message: "No AI provider configured. Add an API key in Settings." })
+				res.end()
+				return
+			}
+
+			try {
+				// Step 1: HermesClaw context recall
+				let hermesContext = ""
+				if (orchestrator && orchestrator.hermesClaw) {
+					try {
+						const recallResult = await orchestrator.hermesClaw.recallContext(msg, 3)
+						if (recallResult && recallResult.output) {
+							hermesContext = recallResult.output
+						}
+					} catch (hermesErr) {
+						console.error("[ide-chat-stream] Hermes recall error:", hermesErr.message)
+					}
+				}
+
+				// Step 2: Build system prompt
+				const contextParts = [
+					`You are SuperRoo, an expert AI coding assistant running in the Cloud Dashboard IDE Terminal.`,
+					`You have access to the OpenClaw orchestrator system with multi-agent capabilities.`,
+					`The current workspace is "${ws.repoName}" on branch "${ws.branch}".`,
+					`The workspace directory is: ${ws.workspaceDir}`,
+				]
+				if (ws.chatMessages.length > 2) {
+					const recent = ws.chatMessages
+						.slice(-4, -1)
+						.map((m) => `${m.author}: ${m.content.slice(0, 200)}`)
+						.join("\n")
+					contextParts.push(`Recent conversation:\n${recent}`)
+				}
+				if (hermesContext) {
+					contextParts.push(`Relevant context from past sessions:\n${hermesContext.substring(0, 1500)}`)
+				}
+				const systemPrompt = contextParts.join("\n")
+
+				// Step 3: Stream the LLM response
+				const apiUrl = `${provider.apiBaseUrl.replace(/\/+$/, "")}/chat/completions`
+				const streamRes = await fetch(apiUrl, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${provider.apiKey}`,
+					},
+					body: JSON.stringify({
+						model: provider.model,
+						messages: [
+							{ role: "system", content: systemPrompt },
+							{ role: "user", content: msg },
+						],
+						max_tokens: 4096,
+						temperature: 0.7,
+						stream: true,
+					}),
+					signal: AbortSignal.timeout(120_000),
+				})
+
+				if (!streamRes.ok) {
+					const errBody = await streamRes.text().catch(() => "")
+					sendSSE("error", { message: `AI API error ${streamRes.status}: ${errBody.slice(0, 200)}` })
+					res.end()
+					return
+				}
+
+				// Read the stream
+				const reader = streamRes.body.getReader()
+				const decoder = new TextDecoder()
+				let fullReply = ""
+				let buffer = ""
+
+				while (true) {
+					const { done, value } = await reader.read()
+					if (done) break
+
+					buffer += decoder.decode(value, { stream: true })
+					const lines = buffer.split("\n")
+					buffer = lines.pop() || ""
+
+					for (const line of lines) {
+						const trimmed = line.trim()
+						if (!trimmed || !trimmed.startsWith("data: ")) continue
+						const jsonStr = trimmed.slice(6)
+						if (jsonStr === "[DONE]") continue
+
+						try {
+							const chunk = JSON.parse(jsonStr)
+							const delta = chunk.choices?.[0]?.delta?.content || ""
+							if (delta) {
+								fullReply += delta
+								sendSSE("token", { token: delta })
+							}
+						} catch {
+							// Skip malformed chunks
+						}
+					}
+				}
+
+				// Send completion event
+				sendSSE("done", { reply: fullReply, provider: provider.providerId, model: provider.model })
+
+				// Store the full reply
+				ws.chatMessages.push({
+					id: `msg-${Date.now() + 1}`,
+					role: "agent",
+					author: provider.providerId,
+					meta: `${provider.model} · stream`,
+					time: new Date().toLocaleTimeString(),
+					content: fullReply,
+				})
+				saveWorkspaceStore(global.__ideWorkspace)
+
+				// Fire-and-forget Hermes lesson extraction
+				if (orchestrator && orchestrator.hermesClaw) {
+					orchestrator.hermesClaw
+						.extractLessons({
+							taskId: `ide-stream-${Date.now()}`,
+							goal: msg.substring(0, 500),
+							phases: [{ number: 1, phase: "chat", result: "completed" }],
+							finalStatus: "completed",
+							error: null,
+						})
+						.catch(() => {})
+				}
+			} catch (err) {
+				console.error("[ide-chat-stream] Error:", err.message)
+				sendSSE("error", { message: err.message })
+			}
+
+			res.end()
+			return
+		}
+
+		// POST /ide-workspace/terminal/exec — execute a shell command on the VPS
+		if (method === "POST" && normalizedUrl.startsWith("/ide-workspace/terminal/exec")) {
+			const data = await parseBody(req)
+			const command = data?.command || ""
+			const cwd = data?.cwd || ws.workspaceDir || "/opt/superroo2"
+
+			if (!command) {
+				sendJson(res, 400, { ok: false, error: "Missing command" })
+				return
+			}
+
+			try {
+				const result = await execAsync(command, {
+					cwd,
+					timeout: 30000,
+					maxBuffer: 1024 * 1024,
+				})
+				sendJson(res, 200, {
+					ok: true,
+					stdout: result.stdout || "",
+					stderr: result.stderr || "",
+					exitCode: result.exitCode || 0,
+				})
+			} catch (err) {
+				sendJson(res, 200, {
+					ok: true,
+					stdout: err.stdout || "",
+					stderr: err.stderr || err.message,
+					exitCode: err.code || 1,
+				})
+			}
+			return
+		}
+
+		// POST /ide-workspace/diff — compute diff between two strings
+		if (method === "POST" && normalizedUrl.startsWith("/ide-workspace/diff")) {
+			const data = await parseBody(req)
+			const original = data?.original || ""
+			const modified = data?.modified || ""
+
+			if (!original && !modified) {
+				sendJson(res, 400, { ok: false, error: "Missing original or modified content" })
+				return
+			}
+
+			const origLines = original.split("\n")
+			const modLines = modified.split("\n")
+			const maxLen = Math.max(origLines.length, modLines.length)
+			const changes = []
+
+			for (let i = 0; i < maxLen; i++) {
+				const o = origLines[i] || ""
+				const m = modLines[i] || ""
+				if (o !== m) {
+					changes.push({
+						line: i + 1,
+						original: o,
+						modified: m,
+						type: o && m ? "modified" : o ? "removed" : "added",
+					})
+				}
+			}
+
+			sendJson(res, 200, {
+				ok: true,
+				changes,
+				totalChanges: changes.length,
+				originalLines: origLines.length,
+				modifiedLines: modLines.length,
+			})
 			return
 		}
 
@@ -5818,6 +6563,76 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// ── Commissioning Loop Endpoints ─────────────────────────────────────────
+
+		// POST /commissioning/start — Start the 14-phase commissioning verification
+		if (method === "POST" && (url === "/commissioning/start" || normalizedUrl === "/commissioning/start")) {
+			try {
+				const body = await parseBody(req)
+
+				if (!orchestrator) {
+					sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
+					return
+				}
+
+				// If already running, return current status
+				if (commissioningLoop && commissioningLoop.getStatus().running) {
+					const status = commissioningLoop.getStatus()
+					sendJson(res, 200, { success: true, message: "Commissioning already running", status })
+					return
+				}
+
+				commissioningLoop = new (require("../orchestrator/modules/CommissioningLoop").CommissioningLoop)({
+					orchestrator,
+					workspaceRoot: process.cwd(),
+					containerFirst: body.containerFirst !== false,
+					phaseTimeoutMs: body.phaseTimeoutMs || 10 * 60 * 1000,
+				})
+
+				const result = await commissioningLoop.start({ jobId: `commission-${Date.now()}` })
+				sendJson(res, result.success ? 200 : 400, result)
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /commissioning/status/:jobId — Get commissioning status
+		if (
+			method === "GET" &&
+			(url.startsWith("/commissioning/status/") || normalizedUrl.startsWith("/commissioning/status/"))
+		) {
+			try {
+				if (!commissioningLoop) {
+					sendJson(res, 404, { success: false, error: "No commissioning has been started" })
+					return
+				}
+				const status = commissioningLoop.getStatus()
+				sendJson(res, 200, { success: true, status })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /commissioning/stop/:jobId — Stop the commissioning loop
+		if (
+			method === "POST" &&
+			(url.startsWith("/commissioning/stop/") || normalizedUrl.startsWith("/commissioning/stop/"))
+		) {
+			try {
+				if (!commissioningLoop) {
+					sendJson(res, 404, { success: false, error: "No commissioning is running" })
+					return
+				}
+				const result = await commissioningLoop.stop()
+				sendJson(res, 200, result)
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
 		sendJson(res, 404, { error: "not_found", detail: `No route for ${method} ${url}` })
 	} catch (err) {
 		console.error(`[api] Error handling ${method} ${url}:`, err.message)
@@ -5885,14 +6700,22 @@ function listenWithRetry(serverInstance, port, maxRetries = 20, baseDelay = 2000
 			serverInstance.once("error", (err) => {
 				if (err.code === "EADDRINUSE" && retryCount < maxRetries) {
 					const delay = baseDelay * Math.pow(2, retryCount)
-					console.log(`[api] Port ${port} in use — retrying in ${delay}ms (attempt ${retryCount + 1}/${maxRetries})`)
-					writeApiLog("warn", "cloud-api", `Port ${port} in use, retrying`, { port, retry: retryCount + 1, delay })
+					console.log(
+						`[api] Port ${port} in use — retrying in ${delay}ms (attempt ${retryCount + 1}/${maxRetries})`,
+					)
+					writeApiLog("warn", "cloud-api", `Port ${port} in use, retrying`, {
+						port,
+						retry: retryCount + 1,
+						delay,
+					})
 					// Try to kill the stale process holding the port
 					if (retryCount >= 3) {
 						try {
 							require("child_process").execSync(`fuser -k ${port}/tcp 2>/dev/null`, { timeout: 3000 })
 							console.log(`[api] Attempted to kill stale process on port ${port}`)
-						} catch (_) { /* ignore */ }
+						} catch (_) {
+							/* ignore */
+						}
 					}
 					setTimeout(() => attempt(retryCount + 1), delay)
 				} else {

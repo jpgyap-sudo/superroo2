@@ -924,6 +924,11 @@ async function logChatExchange(chatId, role, content, metadata) {
  * Includes the Telegram Agent role definition for read-only support/consultation.
  * @returns {string} The system prompt
  */
+/**
+ * Builds the base system prompt for the Telegram AI assistant.
+ * This is the static knowledge base — dynamic context (workspace state,
+ * orchestrator status, HermesClaw memory) is appended at call time.
+ */
 function buildSystemPrompt() {
 	return (
 		"You are OpenClaw — the SuperRoo Telegram AI Agent. You are the smartest, most capable AI in the SuperRoo system. " +
@@ -938,7 +943,9 @@ function buildSystemPrompt() {
 		"- Research topics and provide structured, professional analysis\n" +
 		"- Maintain conversation context — remember what was discussed earlier in this conversation\n" +
 		"- Route coding/debugging/deploy/testing tasks to specialist agents\n" +
-		"- Learn from conversations to improve future responses\n\n" +
+		"- Learn from conversations to improve future responses\n" +
+		"- **Proactive suggestions**: After answering, suggest 2-3 follow-up actions the user might want to take\n" +
+		"- **Context-aware**: You know what the user was just working on and can reference it naturally\n\n" +
 		"## Conversation Flow Guidelines\n" +
 		"- You have access to the FULL conversation history. Read it carefully before responding.\n" +
 		'- Reference previous messages naturally: "As you mentioned earlier...", "Following up on your previous question about...", "Building on what we discussed..."\n' +
@@ -946,7 +953,16 @@ function buildSystemPrompt() {
 		"- Maintain continuity: if you gave advice in a previous message, refer back to it when the user follows up.\n" +
 		"- Ask clarifying questions if the user's intent is ambiguous, but first check if the answer is in the conversation history.\n" +
 		"- When the user asks about a task that was just created (coding, debugging, deploy), acknowledge it and provide status.\n" +
-		"- Be conversational and natural — don't restart the conversation from scratch each time.\n\n" +
+		"- Be conversational and natural — don't restart the conversation from scratch each time.\n" +
+		"- **Summarize context**: If the conversation is long, briefly summarize what was discussed before answering.\n" +
+		"- **Proactive follow-ups**: At the end of your response, suggest 2-3 relevant next steps or questions the user might want to explore.\n\n" +
+		"## Response Format\n" +
+		"- Use Telegram markdown: *bold*, `code`, ```code blocks```, _italic_\n" +
+		"- Structure long responses with headings and bullet points for readability\n" +
+		"- When showing code, always use ```language blocks with syntax highlighting\n" +
+		"- Use emojis sparingly but meaningfully: 🛠️ for fixes, 🚀 for deploys, 🔍 for debugging, 📊 for stats\n" +
+		"- Keep responses concise — Telegram is a chat platform, not a document\n" +
+		"- If the answer is long, provide a summary first then offer to expand\n\n" +
 		"## SuperRoo System Architecture\n\n" +
 		"The SuperRoo system is organized into 19 core modules:\n\n" +
 		"### 1. Orchestrator\n" +
@@ -1081,17 +1097,74 @@ function buildSystemPrompt() {
  * @param {number} [chatId] - Optional chat ID for conversation context
  * @returns {string} AI response
  */
-async function askAI(message, providers, chatId) {
+/**
+ * Enhanced AI assistant with HermesClaw memory recall, conversation context,
+ * ML learning, and proactive suggestion capabilities.
+ *
+ * Key improvements over the basic version:
+ * 1. HermesClaw context recall — injects relevant past experiences into the prompt
+ * 2. Smart context injection — workspace state, recent errors, active tasks
+ * 3. Proactive suggestions — appends 2-3 follow-up suggestions to every response
+ * 4. Conversation summarization — keeps context manageable by summarizing long histories
+ *
+ * @param {string} message - The user's message
+ * @param {Array} providers - Array of AI provider configs
+ * @param {number} [chatId] - Optional chat ID for conversation context
+ * @param {object} [options] - Optional settings
+ * @param {boolean} [options.includeSuggestions=true] - Whether to append proactive suggestions
+ * @returns {string} AI response
+ */
+async function askAI(message, providers, chatId, options) {
+	if (!options) options = {}
+	var includeSuggestions = options.includeSuggestions !== false
+
 	// Build messages array with conversation context if chatId is provided
 	var messages = []
 
-	// System prompt with full knowledge
+	// ── Step 1: Build dynamic system prompt with smart context ──────────
+	var systemPrompt = buildSystemPrompt()
+
+	// Append smart context (workspace state, recent errors, active tasks)
+	if (chatId !== undefined && chatId !== null) {
+		var smartCtx = buildSmartContextPrompt(chatId)
+		if (smartCtx) {
+			systemPrompt += "\n\n## Current Session Context\n" + smartCtx
+		}
+
+		// Add conversation summary if history is long
+		var context = getConversationContext(chatId)
+		if (context.length > 10) {
+			var summary = buildConversationSummary(chatId, 10)
+			if (summary) {
+				systemPrompt += "\n\n## Recent Conversation Summary\n" + summary
+			}
+		}
+	}
+
+	// ── Step 2: HermesClaw memory recall ───────────────────────────────
+	// Inject relevant past experiences from HermesClaw's memory store
+	var hermesContext = ""
+	try {
+		// Access orchestrator via global reference (set during init in api.js)
+		var orchestrator = global.__orchestrator
+		if (orchestrator && orchestrator.hermesClaw) {
+			var recallResult = await orchestrator.hermesClaw.recallContext(message, 3)
+			if (recallResult && recallResult.output) {
+				hermesContext = recallResult.output.substring(0, 1000)
+				systemPrompt += "\n\n## Relevant Past Experience (from HermesClaw memory)\n" + hermesContext
+			}
+		}
+	} catch (hermesErr) {
+		// Non-blocking — HermesClaw is advisory
+		console.log("[telegram] HermesClaw context recall failed (non-fatal):", hermesErr.message)
+	}
+
 	messages.push({
 		role: "system",
-		content: buildSystemPrompt(),
+		content: systemPrompt,
 	})
 
-	// Add conversation history if chatId is provided
+	// ── Step 3: Add conversation history ────────────────────────────────
 	if (chatId !== undefined && chatId !== null) {
 		var context = getConversationContext(chatId)
 		for (var ci = 0; ci < context.length; ci++) {
@@ -1102,10 +1175,10 @@ async function askAI(message, providers, chatId) {
 		}
 	}
 
-	// Add current user message
+	// ── Step 4: Add current user message ────────────────────────────────
 	messages.push({ role: "user", content: message })
 
-	// Try each provider in order
+	// ── Step 5: Try each provider in order ──────────────────────────────
 	for (var i = 0; i < providers.length; i++) {
 		var provider = providers[i]
 		if (!provider.apiKey) continue
@@ -1143,7 +1216,48 @@ async function askAI(message, providers, chatId) {
 			var data = await res.json()
 			var reply = data.choices[0].message.content || "(no response)"
 
-			// Record to conversation context
+			// ── Step 6: Append proactive suggestions ──────────────────────
+			// Ask the AI to generate follow-up suggestions as part of the response
+			if (includeSuggestions && chatId !== undefined && chatId !== null) {
+				var suggestionPrompt = [
+					{
+						role: "system",
+						content:
+							"Based on the conversation above, suggest 2-3 short follow-up actions the user might want to take. " +
+							"Format as a bullet list with each item being a complete command or question the user could send. " +
+							"Keep each suggestion under 60 characters. Prefix with '💡 '.",
+					},
+					{ role: "user", content: "Suggest follow-ups for: " + message },
+				]
+				try {
+					var suggestionRes = await fetch(url, {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							Authorization: "Bearer " + provider.apiKey,
+						},
+						body: JSON.stringify({
+							model: provider.model,
+							messages: suggestionPrompt,
+							max_tokens: 200,
+							temperature: 0.5,
+						}),
+						signal: AbortSignal.timeout(10_000),
+					})
+					if (suggestionRes.ok) {
+						var suggestionData = await suggestionRes.json()
+						var suggestions = suggestionData.choices[0].message.content || ""
+						if (suggestions) {
+							reply += "\n\n" + suggestions
+						}
+					}
+				} catch (suggestionErr) {
+					// Non-fatal — don't break the response
+					console.log("[telegram] Failed to generate suggestions:", suggestionErr.message)
+				}
+			}
+
+			// ── Step 7: Record to conversation context ────────────────────
 			if (chatId !== undefined && chatId !== null) {
 				addToConversationContext(chatId, "user", message)
 				addToConversationContext(chatId, "assistant", reply)
@@ -1169,6 +1283,35 @@ async function askAI(message, providers, chatId) {
 			} catch (learnErr) {
 				// Non-fatal — don't break the response
 				console.error("[telegram] Failed to record learner interaction:", learnErr.message)
+			}
+
+			// ── Step 8: Fire-and-forget HermesClaw lesson extraction ──────
+			try {
+				var orch = global.__orchestrator
+				if (orch && orch.hermesClaw) {
+					orch.hermesClaw
+						.extractLessons({
+							phases: [
+								{
+									name: "telegram-conversation",
+									description: "Telegram chat with user",
+									output: reply.substring(0, 500),
+								},
+							],
+							success: true,
+							context: {
+								source: "telegram",
+								chatId: chatId,
+								message: message.substring(0, 200),
+							},
+						})
+						.catch(function (extractErr) {
+							console.log("[telegram] HermesClaw lesson extraction failed:", extractErr.message)
+						})
+				}
+			} catch (extractErr) {
+				// Non-fatal
+				console.log("[telegram] HermesClaw lesson extraction error:", extractErr.message)
 			}
 
 			return reply

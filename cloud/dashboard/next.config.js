@@ -7,7 +7,9 @@ const nextConfig = {
 		return [
 			{
 				source: "/api/:path*",
-				destination: "http://localhost:8787/:path*",
+				// Use NEXT_PUBLIC_API_URL env var for Docker networking (superroo-api:8787)
+				// Falls back to localhost:8787 for PM2/host mode
+				destination: `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8787"}/:path*`,
 			},
 		]
 	},

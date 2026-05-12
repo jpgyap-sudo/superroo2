@@ -25,6 +25,7 @@ const { CrawlerAgent } = require("./modules/CrawlerAgent")
 const { DeployOrchestrator } = require("./modules/DeployOrchestrator")
 const { FileImporter } = require("./modules/FileImporter")
 const { AutonomousLoop } = require("./modules/AutonomousLoop")
+const { CommissioningLoop } = require("./modules/CommissioningLoop")
 const {
 	getCpuUsagePercent,
 	getRamUsagePercent,
@@ -58,6 +59,7 @@ module.exports = {
 	DeployOrchestrator,
 	FileImporter,
 	AutonomousLoop,
+	CommissioningLoop,
 	// CPU Guard exports
 	getCpuUsagePercent,
 	getRamUsagePercent,

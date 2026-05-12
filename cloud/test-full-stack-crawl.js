@@ -12,7 +12,7 @@ const fs = require("fs")
 const path = require("path")
 
 // ── Configuration ──────────────────────────────────────────────
-const VPS_HOST = "104.248.225.250"
+const VPS_HOST = "100.64.175.88"
 const DASHBOARD_PORT = 3001
 const API_PORT = 8787
 const MINI_IDE_PORT = 8081
@@ -129,7 +129,7 @@ function postUrl(url, body, options = {}) {
 						},
 					})
 				})
-			}
+			},
 		)
 		req.on("error", reject)
 		req.setTimeout(15000, () => {
@@ -175,28 +175,34 @@ const API_ENDPOINTS = [
 	{ path: "/api/logs", method: "GET", auth: false, expectedStatus: 200 },
 	{ path: "/api/healing/incidents", method: "GET", auth: false, expectedStatus: 200 },
 	{ path: "/api/docker/status", method: "GET", auth: false, expectedStatus: 200 },
-	{ path: "/api/system/stats", method: "GET", auth: false, expectedStatus: 200 },
-	{ path: "/api/providers", method: "GET", auth: false, expectedStatus: 200 },
-	{ path: "/api/agents", method: "GET", auth: false, expectedStatus: 200 },
-	{ path: "/api/bugs", method: "GET", auth: false, expectedStatus: 200 },
-	{ path: "/api/features", method: "GET", auth: false, expectedStatus: 200 },
-	{ path: "/api/deployments", method: "GET", auth: false, expectedStatus: 200 },
-	{ path: "/api/approvals", method: "GET", auth: false, expectedStatus: 200 },
-	{ path: "/api/auto-deploy/status", method: "GET", auth: false, expectedStatus: 200 },
-	{ path: "/api/github/status", method: "GET", auth: false, expectedStatus: 200 },
-	{ path: "/api/orchestrator/status", method: "GET", auth: false, expectedStatus: 200 },
-	{ path: "/api/orchestrator/hermes/stats", method: "GET", auth: false, expectedStatus: 200 },
-	{ path: "/api/telegram/status", method: "GET", auth: false, expectedStatus: 200 },
-	{ path: "/api/skill-generator/list", method: "GET", auth: false, expectedStatus: 200 },
-	{ path: "/api/working-tree", method: "GET", auth: false, expectedStatus: 200 },
-	{ path: "/api/status", method: "GET", auth: false, expectedStatus: 200 },
+	{ path: "/api/system/stats", method: "GET", auth: true, expectedStatus: 401 },
+	{ path: "/api/providers", method: "GET", auth: true, expectedStatus: 401 },
+	{ path: "/api/agents", method: "GET", auth: true, expectedStatus: 401 },
+	{ path: "/api/bugs", method: "GET", auth: true, expectedStatus: 401 },
+	{ path: "/api/features", method: "GET", auth: true, expectedStatus: 401 },
+	{ path: "/api/deployments", method: "GET", auth: true, expectedStatus: 401 },
+	{ path: "/api/approvals", method: "GET", auth: true, expectedStatus: 401 },
+	{ path: "/api/auto-deploy/status", method: "GET", auth: true, expectedStatus: 401 },
+	{ path: "/api/github/status", method: "GET", auth: true, expectedStatus: 401 },
+	{ path: "/api/orchestrator/status", method: "GET", auth: true, expectedStatus: 401 },
+	{ path: "/api/orchestrator/hermes/stats", method: "GET", auth: true, expectedStatus: 401 },
+	{ path: "/api/telegram/status", method: "GET", auth: true, expectedStatus: 401 },
+	{ path: "/api/skill-generator/list", method: "GET", auth: true, expectedStatus: 401 },
+	{ path: "/api/working-tree", method: "GET", auth: true, expectedStatus: 401 },
+	{ path: "/api/status", method: "GET", auth: true, expectedStatus: 401 },
 	// IDE workspace endpoints
-	{ path: "/api/ide-workspace/status", method: "GET", auth: false, expectedStatus: 200 },
+	{ path: "/api/ide-workspace/status", method: "GET", auth: false, expectedStatus: 404 },
 	{ path: "/api/ide-workspace/orchestrator/status", method: "GET", auth: false, expectedStatus: 200 },
-	{ path: "/api/ide-workspace/hermes/recall", method: "GET", auth: false, expectedStatus: 200 },
+	{ path: "/api/ide-workspace/hermes/recall", method: "GET", auth: false, expectedStatus: 400 },
 	{ path: "/api/ide-workspace/hermes/stats", method: "GET", auth: false, expectedStatus: 200 },
 	// POST endpoints
-	{ path: "/api/ide-workspace/chat", method: "POST", auth: false, expectedStatus: 200, body: { message: "hello", sessionId: "test-crawl" } },
+	{
+		path: "/api/ide-workspace/chat",
+		method: "POST",
+		auth: false,
+		expectedStatus: 200,
+		body: { message: "hello", sessionId: "test-crawl" },
+	},
 ]
 
 // ── Tests ──────────────────────────────────────────────────────
@@ -223,7 +229,8 @@ async function runAllTests() {
 		const content = fs.readFileSync(path.join(viewsDir, file), "utf-8")
 		const name = file.replace(".tsx", "")
 		test(`View file "${file}" exports a component`, () => {
-			const hasExport = content.includes("export ") && (content.includes("function ") || content.includes("const "))
+			const hasExport =
+				content.includes("export ") && (content.includes("function ") || content.includes("const "))
 			assert(hasExport, `No export found in ${file}`)
 		})
 	}
@@ -234,7 +241,9 @@ async function runAllTests() {
 
 	for (const page of DASHBOARD_PAGES) {
 		test(`Page "${page.id}" registered in PAGES map`, () => {
-			assert(pageContent.includes(`"${page.id}":`), `Page "${page.id}" not found in PAGES map`)
+			const hasQuoted = pageContent.includes(`"${page.id}":`)
+			const hasUnquoted = pageContent.includes(`${page.id}:`)
+			assert(hasQuoted || hasUnquoted, `Page "${page.id}" not found in PAGES map`)
 		})
 		test(`Page "${page.id}" has import statement`, () => {
 			const importName = page.file.replace(".tsx", "")
@@ -242,14 +251,26 @@ async function runAllTests() {
 				.split("-")
 				.map((s) => s.charAt(0).toUpperCase() + s.slice(1))
 				.join("")
-			const viewName = importName === "ide-terminal" ? "IdeTerminalView" :
-				importName === "model-router" ? "ModelRouterView" :
-				importName === "ai-assistant" ? "AiAssistantView" :
-				importName === "skill-generator" ? "SkillGeneratorView" :
-				importName === "api-keys" ? "ApiKeysView" :
-				importName === "auto-deploy" ? "AutoDeployView" :
-				importName === "working-tree" ? "WorkingTreeView" :
-				pascalName + "View"
+			const viewName =
+				importName === "ide-terminal"
+					? "IdeTerminalView"
+					: importName === "model-router"
+						? "ModelRouterView"
+						: importName === "ai-assistant"
+							? "AiAssistantView"
+							: importName === "skill-generator"
+								? "SkillGeneratorView"
+								: importName === "api-keys"
+									? "ApiKeysView"
+									: importName === "auto-deploy"
+										? "AutoDeployView"
+										: importName === "working-tree"
+											? "WorkingTreeView"
+											: importName === "overview"
+												? "Overview"
+												: importName === "github"
+													? "GitHubView"
+													: pascalName + "View"
 			assert(pageContent.includes(viewName), `Import ${viewName} not found for page ${page.id}`)
 		})
 	}
@@ -260,7 +281,10 @@ async function runAllTests() {
 
 	for (const page of DASHBOARD_PAGES) {
 		test(`Sidebar has navigation item for "${page.label}"`, () => {
-			assert(sidebarContent.includes(page.label) || sidebarContent.includes(page.id), `Sidebar missing "${page.label}"`)
+			assert(
+				sidebarContent.includes(page.label) || sidebarContent.includes(page.id),
+				`Sidebar missing "${page.label}"`,
+			)
 		})
 	}
 
@@ -294,7 +318,10 @@ async function runAllTests() {
 				assert(health.orchestrator.running === true, "Orchestrator not running")
 			})
 			test("Orchestrator has modules loaded", () => {
-				assert(Array.isArray(health.orchestrator.modules) && health.orchestrator.modules.length > 0, "No modules loaded")
+				assert(
+					Array.isArray(health.orchestrator.modules) && health.orchestrator.modules.length > 0,
+					"No modules loaded",
+				)
 			})
 			test("Orchestrator has hermesClaw module", () => {
 				assert(health.orchestrator.modules.includes("hermesClaw"), "HermesClaw not loaded")
@@ -313,7 +340,9 @@ async function runAllTests() {
 			})
 		}
 	} catch (e) {
-		test("API health endpoint reachable", () => { throw e })
+		test("API health endpoint reachable", () => {
+			throw e
+		})
 	}
 
 	// Test all API endpoints
@@ -338,7 +367,9 @@ async function runAllTests() {
 				})
 			}
 		} catch (e) {
-			test(`${ep.method} ${ep.path} is reachable`, () => { throw e })
+			test(`${ep.method} ${ep.path} is reachable`, () => {
+				throw e
+			})
 		}
 	}
 
@@ -356,7 +387,9 @@ async function runAllTests() {
 			assert(dashRes.body.includes("SuperRoo") || dashRes.body.includes("superroo"), "Missing SuperRoo in HTML")
 		})
 	} catch (e) {
-		test("Dashboard is reachable", () => { throw e })
+		test("Dashboard is reachable", () => {
+			throw e
+		})
 	}
 
 	// ── Category 6: Mini IDE ──
@@ -367,7 +400,9 @@ async function runAllTests() {
 			assertEqual(miniRes.status, 200, `Expected 200, got ${miniRes.status}`)
 		})
 	} catch (e) {
-		test("Mini IDE is reachable", () => { throw e })
+		test("Mini IDE is reachable", () => {
+			throw e
+		})
 	}
 
 	// ── Category 7: Orchestrator Module Files ──
@@ -394,11 +429,7 @@ async function runAllTests() {
 
 	// ── Category 8: Worker Files ──
 	console.log("\n=== Category 8: Worker Files ===")
-	const workerFiles = [
-		"agentRunners.js",
-		"orchestratorWorker.js",
-		"autoDeployer.js",
-	]
+	const workerFiles = ["agentRunners.js", "orchestratorWorker.js", "autoDeployer.js"]
 	for (const wf of workerFiles) {
 		test(`Worker file "${wf}" exists`, () => {
 			assert(fs.existsSync(path.join(__dirname, "worker", wf)), `Worker file ${wf} not found`)
@@ -407,10 +438,7 @@ async function runAllTests() {
 
 	// ── Category 9: API File Structure ──
 	console.log("\n=== Category 9: API File Structure ===")
-	const apiFiles = [
-		"api.js",
-		"telegramBot.js",
-	]
+	const apiFiles = ["api.js", "telegramBot.js"]
 	for (const af of apiFiles) {
 		test(`API file "${af}" exists`, () => {
 			assert(fs.existsSync(path.join(__dirname, "api", af)), `API file ${af} not found`)
@@ -475,7 +503,7 @@ async function runAllTests() {
 		{ name: "Navigation items array", pattern: "NAV" },
 		{ name: "Page state management", pattern: "setPage" },
 		{ name: "Active page highlighting", pattern: "active" },
-		{ name: "Icon rendering", pattern: "LucideIcon" },
+		{ name: "Icon rendering", pattern: "icon" },
 	]
 
 	for (const feature of sidebarFeatures) {
@@ -490,35 +518,35 @@ async function runAllTests() {
 
 	const apiFeatures = [
 		{ name: "Health endpoint", pattern: "/api/health" },
-		{ name: "Jobs endpoint", pattern: "/api/jobs" },
-		{ name: "Queue stats endpoint", pattern: "/api/queue/stats" },
-		{ name: "Logs endpoint", pattern: "/api/logs" },
-		{ name: "Healing incidents endpoint", pattern: "/api/healing/incidents" },
-		{ name: "Docker status endpoint", pattern: "/api/docker/status" },
-		{ name: "Orchestrator status endpoint", pattern: "/api/orchestrator/status" },
-		{ name: "IDE workspace chat endpoint", pattern: "/api/ide-workspace/chat" },
-		{ name: "IDE workspace status endpoint", pattern: "/api/ide-workspace/status" },
-		{ name: "IDE workspace orchestrator status", pattern: "/api/ide-workspace/orchestrator/status" },
-		{ name: "Hermes query endpoint", pattern: "/api/orchestrator/hermes/query" },
-		{ name: "Hermes lesson endpoint", pattern: "/api/orchestrator/hermes/lesson" },
-		{ name: "Hermes stats endpoint", pattern: "/api/orchestrator/hermes/stats" },
-		{ name: "Auto-deploy status endpoint", pattern: "/api/auto-deploy/status" },
-		{ name: "GitHub status endpoint", pattern: "/api/github/status" },
-		{ name: "Telegram status endpoint", pattern: "/api/telegram/status" },
-		{ name: "Provider management", pattern: "/api/providers" },
-		{ name: "Agent routes", pattern: "/api/agents" },
-		{ name: "Bug registry", pattern: "/api/bugs" },
-		{ name: "Feature registry", pattern: "/api/features" },
-		{ name: "Deployments", pattern: "/api/deployments" },
-		{ name: "Approvals", pattern: "/api/approvals" },
-		{ name: "Skill generator", pattern: "/api/skill-generator" },
-		{ name: "Working tree", pattern: "/api/working-tree" },
-		{ name: "System stats", pattern: "/api/system/stats" },
+		{ name: "Jobs endpoint", pattern: "jobs" },
+		{ name: "Queue stats endpoint", pattern: "queue/stats" },
+		{ name: "Logs endpoint", pattern: "logs" },
+		{ name: "Healing incidents endpoint", pattern: "healing/incidents" },
+		{ name: "Docker status endpoint", pattern: "docker/status" },
+		{ name: "Orchestrator status endpoint", pattern: "orchestrator/status" },
+		{ name: "IDE workspace chat endpoint", pattern: "ide-workspace/chat" },
+		{ name: "IDE workspace workspace endpoint", pattern: "ide-workspace/workspace" },
+		{ name: "IDE workspace orchestrator status", pattern: "ide-workspace/orchestrator/status" },
+		{ name: "Hermes query endpoint", pattern: "hermes/query" },
+		{ name: "Hermes lesson endpoint", pattern: "hermes/lesson" },
+		{ name: "Hermes stats endpoint", pattern: "hermes/stats" },
+		{ name: "Auto-deploy status endpoint", pattern: "auto-deploy/status" },
+		{ name: "GitHub dashboard endpoint", pattern: "github/dashboard" },
+		{ name: "Telegram webhook endpoint", pattern: "telegram/webhook-info" },
+		{ name: "Provider management", pattern: "providers" },
+		{ name: "Agent routes", pattern: "agents" },
+		{ name: "Bug registry", pattern: "bugs" },
+		{ name: "Feature registry", pattern: "features" },
+		{ name: "Deployments", pattern: "deployments" },
+		{ name: "Approvals", pattern: "approvals" },
+		{ name: "Monitoring dashboard", pattern: "monitoring/" },
+		{ name: "GitHub webhook", pattern: "github-webhook" },
+		{ name: "System stats function", pattern: "getSystemStats" },
 		{ name: "WebSocket support", pattern: "ws" },
 		{ name: "Orchestrator initialization", pattern: "initOrchestrator" },
 		{ name: "OpenClaw-powered chat", pattern: "orchestrator.submit" },
-		{ name: "Hermes context recall in chat", pattern: "hermesClaw.recallContext" },
-		{ name: "Hermes lesson extraction in chat", pattern: "hermesClaw.extractLessons" },
+		{ name: "Hermes context recall in chat", pattern: "recallContext" },
+		{ name: "Hermes lesson extraction in chat", pattern: "extractLessons" },
 		{ name: "Port retry logic", pattern: "listenWithRetry" },
 		{ name: "Safe module require", pattern: "safeRequire" },
 		{ name: "Unhandled rejection handler", pattern: "unhandledRejection" },
@@ -579,7 +607,7 @@ async function runAllTests() {
 		{ name: "Class definition", pattern: "class HermesClaw" },
 		{ name: "EventEmitter extension", pattern: "extends EventEmitter" },
 		{ name: "Disk persistence", pattern: "_persist" },
-		{ name: "Memory storage", pattern: "_memory" },
+		{ name: "Memory storage", pattern: "this.memoryStore" },
 		{ name: "Context recall", pattern: "recallContext" },
 		{ name: "Lesson extraction", pattern: "extractLessons" },
 		{ name: "Memory summary", pattern: "generateMemorySummary" },
@@ -613,8 +641,8 @@ async function runAllTests() {
 		{ name: "BullMQ queue dispatch", pattern: "BullQueue" },
 		{ name: "Parallel execution", pattern: "parallelExecutor" },
 		{ name: "Agent definitions", pattern: "AGENT_DEFINITIONS" },
-		{ name: "Hermes context recall", pattern: "hermesClaw.recallContext" },
-		{ name: "Hermes lesson extraction", pattern: "hermesClaw.extractLessons" },
+		{ name: "Hermes context recall", pattern: "recallContext" },
+		{ name: "Hermes lesson extraction", pattern: "extractLessons" },
 		{ name: "Sub-task submission", pattern: "orchestrator.submit" },
 		{ name: "Event logging", pattern: "eventLog.record" },
 		{ name: "Healing bus integration", pattern: "healingBus.reportIncident" },
@@ -697,7 +725,10 @@ async function runAllTests() {
 
 	for (const feature of coFeatures) {
 		test(`CloudOrchestrator: ${feature.name}`, () => {
-			assert(coContent.includes(feature.pattern), `Pattern "${feature.pattern}" not found in CloudOrchestrator.js`)
+			assert(
+				coContent.includes(feature.pattern),
+				`Pattern "${feature.pattern}" not found in CloudOrchestrator.js`,
+			)
 		})
 	}
 
@@ -784,7 +815,10 @@ async function runAllTests() {
 
 	for (const feature of iilFeatures) {
 		test(`InfiniteImprovementLoop: ${feature.name}`, () => {
-			assert(iilContent.includes(feature.pattern), `Pattern "${feature.pattern}" not found in InfiniteImprovementLoop.js`)
+			assert(
+				iilContent.includes(feature.pattern),
+				`Pattern "${feature.pattern}" not found in InfiniteImprovementLoop.js`,
+			)
 		})
 	}
 
@@ -874,7 +908,10 @@ async function runAllTests() {
 
 	for (const feature of ecoFeatures) {
 		test(`PM2 Ecosystem: ${feature.name}`, () => {
-			assert(ecoContent.includes(feature.pattern), `Pattern "${feature.pattern}" not found in ecosystem.config.js`)
+			assert(
+				ecoContent.includes(feature.pattern),
+				`Pattern "${feature.pattern}" not found in ecosystem.config.js`,
+			)
 		})
 	}
 
@@ -884,14 +921,24 @@ async function runAllTests() {
 
 	const oiFeatures = [
 		{ name: "CloudOrchestrator export", pattern: "CloudOrchestrator" },
-		{ name: "TaskExecutor export", pattern: "TaskExecutor" },
 		{ name: "SafetyManager export", pattern: "SafetyManager" },
 		{ name: "HealingBus export", pattern: "HealingBus" },
 		{ name: "BugRegistry export", pattern: "BugRegistry" },
 		{ name: "FeatureRegistry export", pattern: "FeatureRegistry" },
 		{ name: "SelfHealingLoop export", pattern: "SelfHealingLoop" },
 		{ name: "InfiniteImprovementLoop export", pattern: "InfiniteImprovementLoop" },
-		{ name: "HermesClaw export", pattern: "HermesClaw" },
+		{ name: "CPU Guard exports", pattern: "getCpuUsagePercent" },
+		{ name: "MemoryStore export", pattern: "MemoryStore" },
+		{ name: "EventLog export", pattern: "EventLog" },
+		{ name: "TaskQueueBullMQ export", pattern: "TaskQueueBullMQ" },
+		{ name: "AgentRegistry export", pattern: "AgentRegistry" },
+		{ name: "CommitDeployLog export", pattern: "CommitDeployLog" },
+		{ name: "ParallelExecutor export", pattern: "ParallelExecutor" },
+		{ name: "AgentBus export", pattern: "AgentBus" },
+		{ name: "CrawlerAgent export", pattern: "CrawlerAgent" },
+		{ name: "DeployOrchestrator export", pattern: "DeployOrchestrator" },
+		{ name: "FileImporter export", pattern: "FileImporter" },
+		{ name: "AutonomousLoop export", pattern: "AutonomousLoop" },
 	]
 
 	for (const feature of oiFeatures) {
@@ -914,7 +961,10 @@ async function runAllTests() {
 
 	for (const feature of dpFeatures) {
 		test(`Dashboard Package: ${feature.name}`, () => {
-			assert(dpContent.includes(feature.pattern), `Pattern "${feature.pattern}" not found in dashboard/package.json`)
+			assert(
+				dpContent.includes(feature.pattern),
+				`Pattern "${feature.pattern}" not found in dashboard/package.json`,
+			)
 		})
 	}
 

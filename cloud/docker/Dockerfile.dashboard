@@ -1,0 +1,37 @@
+# SuperRoo Dashboard Container
+# Multi-stage build: build Next.js standalone, then serve from minimal runtime
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Copy package files
+COPY cloud/dashboard/package.json cloud/dashboard/package-lock.json* ./
+RUN if [ -f package-lock.json ]; then npm ci --ignore-scripts; else npm install --ignore-scripts; fi
+
+# Copy all dashboard source
+COPY cloud/dashboard/ ./
+
+# Build Next.js standalone
+RUN npm run build
+
+# ── Runtime stage ──────────────────────────────────────────────────────────────
+FROM node:20-alpine AS runtime
+
+RUN apk add --no-cache curl
+
+WORKDIR /app
+
+# Copy standalone output from builder
+COPY --from=builder /app/.next/standalone/ ./
+COPY --from=builder /app/.next/static/ ./.next/static/
+COPY --from=builder /app/public/ ./public/
+
+EXPOSE 3001
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:3001 || exit 1
+
+ENV NODE_ENV=production
+ENV PORT=3001
+
+CMD ["node", "server.js"]
