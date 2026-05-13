@@ -4,11 +4,113 @@
  * Visual task management board that replaces /code, /diff, /approve, /status commands.
  * Shows tasks as interactive cards with status indicators and action buttons.
  * Supports task creation, detail view, approval, diff viewing, and retry.
+ *
+ * Task Sources (merged for display):
+ *   1. Local in-memory tasks (telegramBot.userTasks) — created via Telegram /code
+ *   2. Orchestrator TaskQueue (SQLite) — tasks from VS Code, auto-deploy, etc.
  */
 
 // ─── Configuration ──────────────────────────────────────────────────────────
 
 const DASHBOARD_URL = "https://dev.abcx124.xyz"
+
+// ─── Orchestrator Task Fetcher ──────────────────────────────────────────────
+
+/**
+ * Fetch tasks from the orchestrator's TaskQueue via the bridge.
+ * Returns an array of normalized task objects, or empty array on failure.
+ * @param {object} orchestratorBridge
+ * @param {number|string} chatId
+ * @returns {Promise<Array>}
+ */
+async function fetchOrchestratorTasks(orchestratorBridge, chatId) {
+	if (!orchestratorBridge || typeof orchestratorBridge.listTasks !== "function") {
+		return []
+	}
+	try {
+		const result = await orchestratorBridge.listTasks(chatId, 100)
+		if (Array.isArray(result)) {
+			return result.map(normalizeOrchestratorTask)
+		}
+		if (result && Array.isArray(result.tasks)) {
+			return result.tasks.map(normalizeOrchestratorTask)
+		}
+		return []
+	} catch (err) {
+		console.error("[telegram-task-board] fetchOrchestratorTasks error:", err.message)
+		return []
+	}
+}
+
+/**
+ * Normalize an orchestrator task to match the local task format.
+ */
+function normalizeOrchestratorTask(t) {
+	return {
+		id: t.id || t.tgTaskId || t.metadata?.taskId || "unknown",
+		instruction: t.instruction || t.task || t.description || t.metadata?.instruction || "",
+		task: t.task || t.instruction || t.description || "",
+		status: mapOrchestratorStatus(t.status),
+		agent: t.agent || t.agentType || t.metadata?.agentType || "orchestrator",
+		changedFiles: t.result?.changedFiles || t.changedFiles || 0,
+		linesAdded: t.result?.linesAdded || t.linesAdded || 0,
+		created_at: t.created_at || t.createdAt || t.metadata?.createdAt,
+		completed_at: t.completed_at || t.completedAt,
+		result: t.result || null,
+		error: t.error || null,
+		branchName: t.branchName || t.metadata?.branchName || "",
+		_source: "orchestrator",
+	}
+}
+
+/**
+ * Map orchestrator status to local status.
+ */
+function mapOrchestratorStatus(status) {
+	const map = {
+		pending: "pending",
+		queued: "pending",
+		waiting: "pending",
+		running: "running",
+		active: "running",
+		in_progress: "in_progress",
+		completed: "completed",
+		done: "done",
+		failed: "failed",
+		cancelled: "cancelled",
+		approved: "approved",
+		rejected: "rejected",
+		review: "review",
+	}
+	return map[status] || "pending"
+}
+
+/**
+ * Merge local tasks with orchestrator tasks, deduplicating by ID.
+ * Orchestrator tasks take precedence for same ID (they have fresher status).
+ */
+function mergeTasks(localTasks, orchestratorTasks) {
+	const merged = []
+	const seen = new Set()
+
+	// Add orchestrator tasks first (they take precedence)
+	for (const t of orchestratorTasks) {
+		if (t.id && !seen.has(t.id)) {
+			seen.add(t.id)
+			merged.push(t)
+		}
+	}
+
+	// Add local tasks that aren't already in the list
+	for (const t of localTasks) {
+		if (t.id && !seen.has(t.id)) {
+			seen.add(t.id)
+			merged.push(t)
+		}
+	}
+
+	return merged
+}
 
 // ─── API Helpers ────────────────────────────────────────────────────────────
 
@@ -120,7 +222,12 @@ function getStatusColor(status) {
 /**
  * Show the task board — a list of all active tasks with status indicators.
  */
-async function showTaskBoard(botToken, chatId, messageId, tasks, activeProject) {
+async function showTaskBoard(botToken, chatId, messageId, tasks, activeProject, orchestratorBridge) {
+	// Fetch orchestrator tasks and merge with local tasks for full visibility
+	const orchestratorTasks = await fetchOrchestratorTasks(orchestratorBridge, chatId)
+	const mergedTasks = mergeTasks(tasks || [], orchestratorTasks)
+	tasks = mergedTasks
+
 	let text = "*📋 Task Board*\n\n"
 
 	if (activeProject) {
@@ -436,7 +543,8 @@ async function handleTaskBoardCallback(botToken, callbackQuery, context) {
 			// Show task board
 			const tasks = (context && context.tasks) || []
 			const activeProject = (context && context.activeProject) || null
-			await showTaskBoard(botToken, chatId, messageId, tasks, activeProject)
+			const orchestratorBridge = (context && context.orchestratorBridge) || null
+			await showTaskBoard(botToken, chatId, messageId, tasks, activeProject, orchestratorBridge)
 			return { handled: true, action, taskId }
 
 		case "detail":
@@ -455,7 +563,14 @@ async function handleTaskBoardCallback(botToken, callbackQuery, context) {
 					context && context.orchestratorBridge,
 				)
 			} else {
-				await showTaskBoard(botToken, chatId, messageId, allTasks, context && context.activeProject)
+				await showTaskBoard(
+					botToken,
+					chatId,
+					messageId,
+					allTasks,
+					context && context.activeProject,
+					context && context.orchestratorBridge,
+				)
 			}
 			return { handled: true, action, taskId }
 

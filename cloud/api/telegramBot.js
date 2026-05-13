@@ -42,6 +42,7 @@ const tgEndpoints = require("./tgEndpoints")
 const telegramMenu = require("./telegramMenu")
 const telegramProjectBrowser = require("./telegramProjectBrowser")
 const telegramTaskBoard = require("./telegramTaskBoard")
+const telegramAgentManager = require("./telegramAgentManager")
 
 // Terminal Brain integration — loaded lazily to avoid crash if packages aren't built
 let _terminalBrainAvailable = false
@@ -2361,18 +2362,24 @@ async function handleWorkspace(botToken, chatId, telegramUserId) {
  * Handles /agents - shows available agents and their status.
  */
 async function handleAgents(botToken, chatId) {
-	await sendMessage(
-		botToken,
-		chatId,
-		"*Available Agents*\n\n" +
-			"1. *Coder* — Code generation & implementation\n" +
-			"2. *Debugger* — Bug investigation & root cause analysis\n" +
-			"3. *Tester* — Test execution & quality gates\n" +
-			"4. *Deploy Checker* — Deployment verification\n" +
-			"5. *PM Agent* — Product management & feature tracking\n\n" +
-			"Use `/code <instruction>` to assign a task to the Coder agent.\n" +
-			"Use `/status` to check agent activity.",
-	)
+	// Route to the interactive Agent Manager
+	try {
+		await telegramAgentManager.showAgentManager(botToken, chatId)
+	} catch (err) {
+		console.warn("[telegram] Agent Manager unavailable, falling back to static list:", err.message)
+		await sendMessage(
+			botToken,
+			chatId,
+			"*Available Agents*\n\n" +
+				"1. *Coder* — Code generation & implementation\n" +
+				"2. *Debugger* — Bug investigation & root cause analysis\n" +
+				"3. *Tester* — Test execution & quality gates\n" +
+				"4. *Deploy Checker* — Deployment verification\n" +
+				"5. *PM Agent* — Product management & feature tracking\n\n" +
+				"Use `/code <instruction>` to assign a task to the Coder agent.\n" +
+				"Use `/status` to check agent activity.",
+		)
+	}
 }
 
 /**
@@ -4799,13 +4806,20 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 			// ─── Task Board Callbacks ───────────────────────────────────────────
 			if (cqData.startsWith("taskboard:")) {
 				logTelegramUsage("callback:taskboard", cqChatId, cqUserId, { data: cqData })
-				var tbResult = await telegramTaskBoard.handleTaskBoardCallback(
-					botToken,
-					cqChatId,
-					cqMessageId,
-					cqData,
-					userTasks,
-				)
+				// Build a proper callbackQuery object matching Telegram's format
+				const tbCallbackQuery = {
+					message: { chat: { id: cqChatId }, message_id: cqMessageId },
+					data: cqData,
+					id: cq.id,
+				}
+				// Build context with tasks, activeProject, queue, and orchestratorBridge
+				const tbContext = {
+					tasks: userTasks.get(cqChatId) || [],
+					activeProject: null,
+					queue: queue,
+					orchestratorBridge: orchestratorBridge,
+				}
+				var tbResult = await telegramTaskBoard.handleTaskBoardCallback(botToken, tbCallbackQuery, tbContext)
 				if (!tbResult.handled) {
 					// Route unhandled task board actions to existing handlers
 					var tbAction = tbResult.action
@@ -4830,8 +4844,39 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 						// Show new task creation menu
 						await telegramMenu.showNewTaskMenu(botToken, cqChatId, cqMessageId)
 					} else if (tbAction === "refresh_tasks") {
-						// Refresh task board — re-show with updated data
-						await telegramTaskBoard.showTaskBoard(botToken, cqChatId, cqMessageId, userTasks)
+						// Refresh task board — re-show with updated data (including orchestrator tasks)
+						const refreshedTasks = userTasks.get(cqChatId) || []
+						await telegramTaskBoard.showTaskBoard(
+							botToken,
+							cqChatId,
+							cqMessageId,
+							refreshedTasks,
+							null,
+							orchestratorBridge,
+						)
+					}
+				}
+				return
+			}
+
+			// ─── Agent Manager Callbacks ─────────────────────────────────────────
+			if (cqData.startsWith("agentmgr:")) {
+				logTelegramUsage("callback:agentmgr", cqChatId, cqUserId, { data: cqData })
+				var agentResult = await telegramAgentManager.handleAgentManagerCallback(botToken, {
+					message: { chat: { id: cqChatId }, message_id: cqMessageId },
+					data: cqData,
+					id: cq.id,
+				})
+				if (!agentResult.handled) {
+					// Route unhandled agent actions to existing handlers
+					var agAction = agentResult.action
+					var agData = agentResult.data
+					if (agAction === "agent_run" && agData) {
+						await handleCode(botToken, cqChatId, ["--agent", agData], queue, orchestratorBridge)
+					} else if (agAction === "agent_debug" && agData) {
+						await handleBrain(botToken, cqChatId, ["debug", "--agent", agData], providers || [])
+					} else if (agAction === "agent_status") {
+						await handleStatus(botToken, cqChatId, [], queue)
 					}
 				}
 				return
