@@ -386,6 +386,41 @@ Three recurring bug patterns identified and documented in `BUG_FIX_LOG.md`:
     - Git fork bomb → reinstalled Git 2.49.0
     - Git repo corruption → reset to valid parent commit
 
+### Step 8: Commit
+
+- **Commit SHA**: `99cf63fb0`
+- **Title**: `refactor: consolidate safeJsonParse into shared utility + update autonomous reports`
+- **Files changed**: 9 files, 288 insertions(+), 103 deletions(-)
+- **Features affected**: bug-registry, task-queue, feature-registry, memory-store, healing-bus
+- **Recorded in**: CommitDeployLog ✅
+
+### Step 9: Deploy
+
+- **Target**: VPS (Tailscale `100.64.175.88`)
+- **Branch**: `feat/pgvector-rag-skill`
+- **Build**: Next.js production build — compiled successfully ✅
+- **PM2 restart**: All 5 services restarted successfully ✅
+    - superroo-api (PID 1240230)
+    - superroo-worker (PID 1240238)
+    - superroo-dashboard (PID 1240250)
+    - superroo-mini-ide (PID 1240266)
+    - superroo-auto-deployer (PID 1240272)
+- **Recorded in**: CommitDeployLog ✅
+
+### Step 10: Health Check
+
+All services healthy:
+
+| Service   | Port | HTTP Status         | Details                                        |
+| --------- | ---- | ------------------- | ---------------------------------------------- |
+| API       | 8787 | 200                 | 18 modules loaded, orchestrator in `safe` mode |
+| Dashboard | 3001 | 200                 | Next.js serving (0.007s)                       |
+| Mini-IDE  | 3002 | 200                 | Active (0.007s)                                |
+| Worker    | 3003 | 404 (expected)      | Running                                        |
+| Disk      | —    | 76% used (20G free) | Healthy                                        |
+| Memory    | —    | 2.0Gi/3.8Gi         | Healthy                                        |
+| Uptime    | —    | 2 days 5:29         | Stable                                         |
+
 ### Next Steps
 
 1. ✅ ~~Fix Node.js installation~~ — DONE
@@ -397,6 +432,6 @@ Three recurring bug patterns identified and documented in `BUG_FIX_LOG.md`:
 7. ✅ ~~Step 5: Improve Code Quality~~ — DONE
 8. ✅ ~~Step 6: Pattern Learning Loop~~ — DONE
 9. ✅ ~~Step 7: Dashboard updates~~ — DONE
-10. ⬜ Step 8: Commit
-11. ⬜ Step 9: Deploy
-12. ⬜ Step 10: Health Check
+10. ✅ ~~Step 8: Commit~~ — DONE
+11. ✅ ~~Step 9: Deploy~~ — DONE
+12. ✅ ~~Step 10: Health Check~~ — DONE

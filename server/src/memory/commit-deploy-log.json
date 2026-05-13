@@ -1,6 +1,28 @@
 {
 	"commits": [
 		{
+			"id": "commit_safejsonparse_001",
+			"commitSha": "99cf63fb0",
+			"agent": "code",
+			"type": "refactor",
+			"title": "refactor: consolidate safeJsonParse into shared utility",
+			"description": "Extracted 5 duplicate safeJsonParse implementations into shared utility. Updated BugRegistry, TaskQueue, FeatureRegistry, MemoryStore, HealingBus. All 612 SuperRoo tests pass.",
+			"filesChanged": [
+				"src/super-roo/utils/safeJsonParse.ts",
+				"src/super-roo/utils/index.ts",
+				"src/super-roo/bugs/BugRegistry.ts",
+				"src/super-roo/queue/TaskQueue.ts",
+				"src/super-roo/features/FeatureRegistry.ts",
+				"src/super-roo/memory/MemoryStore.ts",
+				"src/super-roo/healing/HealingBus.ts",
+				"AUTONOMOUS_IMPROVEMENT_REPORT.md",
+				"BUG_FIX_LOG.md"
+			],
+			"featuresAffected": ["bug-registry", "task-queue", "feature-registry", "memory-store", "healing-bus"],
+			"bugsFixed": ["code-duplication-safejsonparse"],
+			"timestamp": "2026-05-13T16:05:12.410Z"
+		},
+		{
 			"id": "commit_ml_bidirectional_sync_001",
 			"commitSha": "03fcd5ff3a96274c08ccb7da940856af60024791",
 			"agent": "code",
