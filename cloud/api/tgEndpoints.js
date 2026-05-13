@@ -128,7 +128,7 @@ async function readLogs(target, lines) {
 	if (!target || target === "all") {
 		// Read PM2 logs for all workers
 		try {
-			const pm2Logs = await run("pm2 jlist --nostream")
+			const pm2Logs = await run("pm2 jlist")
 			const processes = JSON.parse(pm2Logs.stdout)
 			for (const proc of processes) {
 				const procName = proc.name
