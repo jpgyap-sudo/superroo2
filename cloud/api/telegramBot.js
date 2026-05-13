@@ -38,6 +38,11 @@ const telegramPolicy = require("./telegramPolicy")
 const telegramEngineer = require("./telegramEngineer")
 const tgEndpoints = require("./tgEndpoints")
 
+// Smart Menu System — GUI-driven navigation replacing slash commands
+const telegramMenu = require("./telegramMenu")
+const telegramProjectBrowser = require("./telegramProjectBrowser")
+const telegramTaskBoard = require("./telegramTaskBoard")
+
 // Terminal Brain integration — loaded lazily to avoid crash if packages aren't built
 let _terminalBrainAvailable = false
 try {
@@ -62,7 +67,18 @@ const BOT_USERNAME = "superroo_bot"
 const BOSS_USERNAME = "jpgy888"
 
 /** Commands that don't require an active Telegram session */
-const PUBLIC_COMMANDS = ["/start", "/login", "/help", "/about", "/debug", "/logs", "/tests", "/restart", "/aceteam"]
+const PUBLIC_COMMANDS = [
+	"/start",
+	"/menu",
+	"/login",
+	"/help",
+	"/about",
+	"/debug",
+	"/logs",
+	"/tests",
+	"/restart",
+	"/aceteam",
+]
 
 /** Mini App URL for login */
 const MINI_APP_URL = "https://dev.abcx124.xyz/telegram-miniapp"
@@ -4716,6 +4732,111 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 		await answerCallbackQuery(botToken, cq.id)
 
 		try {
+			// ─── Smart Menu System Callbacks ────────────────────────────────────
+			// Handle menu navigation (main menu, sub-menus, back navigation)
+			if (telegramMenu.isMenuCallback(cqData)) {
+				logTelegramUsage("callback:menu", cqChatId, cqUserId, { data: cqData })
+				await telegramMenu.handleMenuCallback(botToken, cqChatId, cqMessageId, cqData, {
+					auth: auth,
+					telegramUserId: cqUserId,
+					telegramNotifier: telegramNotifier,
+					telegramProjectBrowser: telegramProjectBrowser,
+					telegramTaskBoard: telegramTaskBoard,
+					handleProjects: handleProjects,
+					handleStatus: handleStatus,
+					handleDeploy: handleDeploy,
+					handleLogs: handleLogs,
+					handleBrain: handleBrain,
+					handleSettings: handleSettings,
+					handleAgents: handleAgents,
+					handleHelp: handleHelp,
+					handleSession: handleSession,
+					handleLogin: handleLogin,
+					handleMiniIde: handleMiniIde,
+					handleWorkspace: handleWorkspace,
+					handleCode: handleCode,
+					handleDiff: handleDiff,
+					handleApprove: handleApprove,
+					handleTest: handleTest,
+					queue: queue,
+					providers: providers,
+					orchestratorBridge: orchestratorBridge,
+				})
+				return
+			}
+
+			// ─── Project Browser Callbacks ──────────────────────────────────────
+			if (cqData.startsWith("browser:")) {
+				logTelegramUsage("callback:browser", cqChatId, cqUserId, { data: cqData })
+				var browserResult = await telegramProjectBrowser.handleProjectBrowserCallback(
+					botToken,
+					cqChatId,
+					cqMessageId,
+					cqData,
+					auth,
+				)
+				if (!browserResult.handled) {
+					// Route unhandled browser actions to existing handlers
+					var bAction = browserResult.action
+					var bProjectId = browserResult.projectId
+					if (bAction === "task" && bProjectId) {
+						await handleCode(botToken, cqChatId, ["--project", bProjectId], queue, orchestratorBridge)
+					} else if (bAction === "status" && bProjectId) {
+						await handleStatus(botToken, cqChatId, ["--project", bProjectId], queue)
+					} else if (bAction === "deploy" && bProjectId) {
+						await handleDeploy(botToken, cqChatId, ["--project", bProjectId], queue, orchestratorBridge)
+					} else if (bAction === "logs" && bProjectId) {
+						await handleLogs(botToken, cqChatId, ["--project", bProjectId])
+					} else if (bAction === "tests" && bProjectId) {
+						await handleTest(botToken, cqChatId, ["--project", bProjectId], queue)
+					} else if (bAction === "brain" && bProjectId) {
+						await handleBrain(botToken, cqChatId, ["--project", bProjectId], providers || [])
+					}
+				}
+				return
+			}
+
+			// ─── Task Board Callbacks ───────────────────────────────────────────
+			if (cqData.startsWith("taskboard:")) {
+				logTelegramUsage("callback:taskboard", cqChatId, cqUserId, { data: cqData })
+				var tbResult = await telegramTaskBoard.handleTaskBoardCallback(
+					botToken,
+					cqChatId,
+					cqMessageId,
+					cqData,
+					userTasks,
+				)
+				if (!tbResult.handled) {
+					// Route unhandled task board actions to existing handlers
+					var tbAction = tbResult.action
+					var tbTaskId = tbResult.taskId
+					if (tbAction === "status" && tbTaskId) {
+						await handleStatus(botToken, cqChatId, [tbTaskId], queue)
+					} else if (tbAction === "diff" && tbTaskId) {
+						await handleDiff(botToken, cqChatId, [tbTaskId])
+					} else if (tbAction === "approve" && tbTaskId) {
+						await handleApprove(botToken, cqChatId, [tbTaskId])
+					} else if (tbAction === "retry" && tbTaskId) {
+						await handleCode(botToken, cqChatId, ["--retry", tbTaskId], queue, orchestratorBridge)
+					} else if (tbAction === "cancel" && tbTaskId) {
+						await sendMessage(botToken, cqChatId, "*Cancelling task* " + tbTaskId + "...")
+					} else if (tbAction === "logs" && tbTaskId) {
+						await handleLogs(botToken, cqChatId, [tbTaskId])
+					} else if (tbAction === "deploy" && tbTaskId) {
+						await handleDeploy(botToken, cqChatId, [tbTaskId], queue, orchestratorBridge)
+					} else if (tbAction === "debug" && tbTaskId) {
+						await handleBrain(botToken, cqChatId, ["analyze", tbTaskId], providers || [])
+					} else if (tbAction === "new_task") {
+						// Show new task creation menu
+						await telegramMenu.showNewTaskMenu(botToken, cqChatId, cqMessageId)
+					} else if (tbAction === "refresh_tasks") {
+						// Refresh task board — re-show with updated data
+						await telegramTaskBoard.showTaskBoard(botToken, cqChatId, cqMessageId, userTasks)
+					}
+				}
+				return
+			}
+
 			// Handle project selection
 			if (cqData.startsWith("project:")) {
 				var projectId = cqData.slice(8)
@@ -5198,22 +5319,12 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 	try {
 		if (command === "/start") {
 			logTelegramUsage("/start", chatId, telegramUserId)
-			await sendMessage(
-				botToken,
-				chatId,
-				"*OpenClaw* 🤖\n\nWelcome to SuperRoo Cloud! I'm OpenClaw, your AI assistant.\n\n" +
-					"*Get Started:*\n" +
-					"1. Use `/login` to authenticate with your SuperRoo Cloud account\n" +
-					"2. Use `/projects` to view and select a project\n" +
-					"3. Just type naturally — I'll understand what you need!\n\n" +
-					"*Examples:*\n" +
-					"• *\"What's the status of my project?\"* — I'll check your workspace\n" +
-					'• *"Fix the login bug"* — I\'ll create a coding task\n' +
-					'• *"Deploy the latest changes"* — I\'ll handle deployment\n' +
-					'• *"Should I use PostgreSQL or MongoDB?"* — Consultant research & analysis\n' +
-					'• *"Show me my projects"* — I\'ll list your projects\n\n' +
-					"Just talk to me like a smart assistant! 🚀",
-			)
+			// Show the interactive main menu with buttons
+			await telegramMenu.showMainMenu(botToken, chatId)
+		} else if (command === "/menu") {
+			logTelegramUsage("/menu", chatId, telegramUserId)
+			// Return to the main menu
+			await telegramMenu.showMainMenu(botToken, chatId)
 		} else if (command === "/login") {
 			logTelegramUsage("/login", chatId, telegramUserId)
 			await handleLogin(botToken, chatId, telegramUserId, isGroup)
@@ -5483,4 +5594,8 @@ module.exports = {
 	tgEndpoints,
 	// Terminal Brain
 	handleBrain,
+	// Smart Menu System (GUI-driven navigation)
+	telegramMenu,
+	telegramProjectBrowser,
+	telegramTaskBoard,
 }

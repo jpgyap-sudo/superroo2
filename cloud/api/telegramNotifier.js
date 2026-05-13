@@ -19,6 +19,7 @@
 // Configuration
 // ---------------------------------------------------------------------------
 const TELEGRAM_API_BASE = "https://api.telegram.org/bot"
+const DASHBOARD_URL = "https://dev.abcx124.xyz"
 
 // ---------------------------------------------------------------------------
 // Notification State
@@ -191,9 +192,7 @@ async function sendTaskStarted(botToken, chatId, taskId, instruction, agentType)
 		`*Instruction:* ${instruction.slice(0, 200)}${instruction.length > 200 ? "..." : ""}\n\n` +
 		`_Processing... I'll notify you when it's done._`
 
-	const buttons = [[
-		{ text: "⏳ Check Status", callback_data: `notify:status:${taskId}` },
-	]]
+	const buttons = [[{ text: "⏳ Check Status", callback_data: `notify:status:${taskId}` }]]
 
 	return await sendInlineKeyboard(botToken, chatId, text, buttons)
 }
@@ -232,6 +231,9 @@ async function sendTaskComplete(botToken, chatId, taskId, instruction, result) {
 		{ text: "❌ Reject", callback_data: `notify:reject:${taskId}` },
 	])
 
+	// Cloud IDE integration — open task in the cloud dashboard
+	buttons.push([{ text: "☁️ Open in Cloud IDE", url: DASHBOARD_URL + "/ide?task=" + taskId }])
+
 	return await sendInlineKeyboard(botToken, chatId, text, buttons)
 }
 
@@ -251,6 +253,7 @@ async function sendTaskFailed(botToken, chatId, taskId, instruction, error) {
 			{ text: "🔄 Retry", callback_data: `notify:retry:${taskId}` },
 			{ text: "📋 View Logs", callback_data: `notify:logs:${taskId}` },
 		],
+		[{ text: "☁️ Open in Cloud IDE", url: DASHBOARD_URL + "/ide?task=" + taskId }],
 	]
 
 	return await sendInlineKeyboard(botToken, chatId, text, buttons)
@@ -291,6 +294,7 @@ async function sendApprovalRequest(botToken, chatId, taskId, instruction, diffIn
 			{ text: "❌ Reject", callback_data: `notify:reject:${taskId}` },
 			{ text: "💬 Comment", callback_data: `notify:comment:${taskId}` },
 		],
+		[{ text: "☁️ Open in Cloud IDE", url: DASHBOARD_URL + "/ide?task=" + taskId }],
 	]
 
 	return await sendInlineKeyboard(botToken, chatId, text, buttons)
@@ -301,7 +305,12 @@ async function sendApprovalRequest(botToken, chatId, taskId, instruction, diffIn
 // ---------------------------------------------------------------------------
 async function sendDeployNotification(botToken, chatId, taskId, instruction, deployInfo) {
 	const statusEmoji = deployInfo.status === "success" ? "🚀" : deployInfo.status === "failed" ? "❌" : "🔄"
-	const statusText = deployInfo.status === "success" ? "Deployed Successfully" : deployInfo.status === "failed" ? "Deploy Failed" : "Deploying..."
+	const statusText =
+		deployInfo.status === "success"
+			? "Deployed Successfully"
+			: deployInfo.status === "failed"
+				? "Deploy Failed"
+				: "Deploying..."
 
 	const text =
 		`${statusEmoji} *${statusText}*\n\n` +
@@ -315,13 +324,15 @@ async function sendDeployNotification(botToken, chatId, taskId, instruction, dep
 	if (deployInfo.status === "success") {
 		buttons.push([
 			{ text: "🌐 Open Dashboard", url: deployInfo.url || "https://dev.abcx124.xyz" },
-			{ text: "📊 View Logs", callback_data: `notify:logs:${taskId}` },
+			{ text: "☁️ Open in Cloud IDE", url: "https://dev.abcx124.xyz" },
 		])
+		buttons.push([{ text: "📊 View Logs", callback_data: `notify:logs:${taskId}` }])
 	} else if (deployInfo.status === "failed") {
 		buttons.push([
 			{ text: "🔄 Retry Deploy", callback_data: `notify:retry:${taskId}` },
-			{ text: "📋 View Logs", callback_data: `notify:logs:${taskId}` },
+			{ text: "☁️ Open in Cloud IDE", url: "https://dev.abcx124.xyz" },
 		])
+		buttons.push([{ text: "📋 View Logs", callback_data: `notify:logs:${taskId}` }])
 	}
 
 	return await sendInlineKeyboard(botToken, chatId, text, buttons)
@@ -374,9 +385,7 @@ async function sendPlanPreview(botToken, chatId, taskId, instruction, planDetail
 			{ text: "✅ Approve Plan", callback_data: `approve_plan:${taskId}` },
 			{ text: "📄 Full Details", callback_data: `preview_plan:${taskId}` },
 		],
-		[
-			{ text: "❌ Reject", callback_data: `notify:reject:${taskId}` },
-		],
+		[{ text: "❌ Reject", callback_data: `notify:reject:${taskId}` }],
 	]
 
 	return await sendInlineKeyboard(botToken, chatId, text, buttons)
@@ -446,22 +455,24 @@ async function sendDeploymentHealth(botToken, chatId, taskId, environment, healt
 		(healthInfo.responseTime ? `*Response Time:* ${healthInfo.responseTime}ms\n` : "") +
 		(healthInfo.statusCode ? `*Status Code:* ${healthInfo.statusCode}\n` : "") +
 		(healthInfo.message ? `\n${healthInfo.message}` : "") +
-		(healthInfo.checks ? `\n\n*Health Checks:*\n${healthInfo.checks.map(function (c) { return `• ${c.name}: ${c.passed ? "✅" : "❌"}` }).join("\n")}` : "")
+		(healthInfo.checks
+			? `\n\n*Health Checks:*\n${healthInfo.checks
+					.map(function (c) {
+						return `• ${c.name}: ${c.passed ? "✅" : "❌"}`
+					})
+					.join("\n")}`
+			: "")
 
 	const buttons = []
 	if (isHealthy && environment === "staging") {
-		buttons.push([
-			{ text: "🚀 Deploy to Production", callback_data: `deploy_production:${taskId}` },
-		])
+		buttons.push([{ text: "🚀 Deploy to Production", callback_data: `deploy_production:${taskId}` }])
 	}
 	buttons.push([
 		{ text: "🌐 Open Dashboard", url: healthInfo.url || "https://dev.abcx124.xyz" },
 		{ text: "📊 View Logs", callback_data: `notify:logs:${taskId}` },
 	])
 	if (!isHealthy) {
-		buttons.push([
-			{ text: "🔄 Rollback", callback_data: `rollback:${taskId}` },
-		])
+		buttons.push([{ text: "🔄 Rollback", callback_data: `rollback:${taskId}` }])
 	}
 
 	return await sendInlineKeyboard(botToken, chatId, text, buttons)
@@ -578,10 +589,12 @@ async function handleNotificationCallback(botToken, callbackQuery) {
 					`*Actions:*\n` +
 					`• \`/approve ${taskId}\` — Approve changes\n` +
 					`• \`/reject ${taskId}\` — Reject changes`,
-				[[
-					{ text: "✅ Approve", callback_data: `notify:approve:${taskId}` },
-					{ text: "❌ Reject", callback_data: `notify:reject:${taskId}` },
-				]],
+				[
+					[
+						{ text: "✅ Approve", callback_data: `notify:approve:${taskId}` },
+						{ text: "❌ Reject", callback_data: `notify:reject:${taskId}` },
+					],
+				],
 			)
 			return true
 		}
@@ -604,9 +617,7 @@ async function handleNotificationCallback(botToken, callbackQuery) {
 				botToken,
 				chatId,
 				messageId,
-				`📋 *Logs for ${taskId}*\n\n` +
-					`_Fetching logs..._\n\n` +
-					`Use \`/logs\` in chat to view recent logs.`,
+				`📋 *Logs for ${taskId}*\n\n` + `_Fetching logs..._\n\n` + `Use \`/logs\` in chat to view recent logs.`,
 				[[{ text: "🔙 Back", callback_data: `notify:back:${taskId}` }]],
 			)
 			return true
@@ -617,9 +628,7 @@ async function handleNotificationCallback(botToken, callbackQuery) {
 				botToken,
 				chatId,
 				messageId,
-				`🔄 *Retrying ${taskId}*\n\n` +
-					`_Re-queuing the task..._\n\n` +
-					`I'll notify you when it's done.`,
+				`🔄 *Retrying ${taskId}*\n\n` + `_Re-queuing the task..._\n\n` + `I'll notify you when it's done.`,
 			)
 			return true
 		}
@@ -660,10 +669,12 @@ async function handleNotificationCallback(botToken, callbackQuery) {
 					`• \`/diff ${taskId}\` — View changes\n` +
 					`• \`/approve ${taskId}\` — Approve\n` +
 					`• \`/logs\` — View logs`,
-				[[
-					{ text: "📄 View Diff", callback_data: `notify:diff:${taskId}` },
-					{ text: "✅ Approve", callback_data: `notify:approve:${taskId}` },
-				]],
+				[
+					[
+						{ text: "📄 View Diff", callback_data: `notify:diff:${taskId}` },
+						{ text: "✅ Approve", callback_data: `notify:approve:${taskId}` },
+					],
+				],
 			)
 			return true
 		}
@@ -687,8 +698,7 @@ async function handleNotificationCallback(botToken, callbackQuery) {
 				botToken,
 				chatId,
 				messageId,
-				`❌ *Action Cancelled*\n\n` +
-					`The operation has been cancelled. No changes were made.`,
+				`❌ *Action Cancelled*\n\n` + `The operation has been cancelled. No changes were made.`,
 			)
 			return true
 		}
