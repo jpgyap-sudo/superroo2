@@ -19,14 +19,7 @@
 import Database from "better-sqlite3"
 
 import type { LogEvent } from "../types"
-
-function safeJsonParse<T>(json: string, fallback: T): T {
-	try {
-		return JSON.parse(json) as T
-	} catch {
-		return fallback
-	}
-}
+import { safeJsonParse } from "../utils/safeJsonParse"
 
 interface Migration {
 	version: number

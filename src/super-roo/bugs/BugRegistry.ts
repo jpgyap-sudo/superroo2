@@ -14,6 +14,7 @@ import { v4 as uuidv4 } from "uuid"
 import type { EventLog } from "../logging/EventLog"
 import type { MemoryStore } from "../memory/MemoryStore"
 import type { BugRecord, BugSeverity, BugStatus } from "../types"
+import { safeJsonParse } from "../utils/safeJsonParse"
 
 interface BugRow {
 	id: string
@@ -30,14 +31,6 @@ interface BugRow {
 	fix_attempts: number
 	created_at: number
 	updated_at: number
-}
-
-function safeJsonParse<T>(json: string, fallback: T): T {
-	try {
-		return JSON.parse(json) as T
-	} catch {
-		return fallback
-	}
 }
 
 function rowToBug(r: BugRow): BugRecord {

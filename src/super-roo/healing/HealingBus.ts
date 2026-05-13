@@ -34,6 +34,7 @@ import type { MemoryStore } from "../memory/MemoryStore"
 import type { EventLog } from "../logging/EventLog"
 import type { LogAggregator } from "../infrastructure/LogAggregator"
 import { v4 as uuidv4 } from "uuid"
+import { safeJsonParse } from "../utils/safeJsonParse"
 
 /** Maximum length for incident title to prevent DB issues */
 const MAX_TITLE_LENGTH = 500
@@ -727,17 +728,6 @@ function rowToHealingAction(row: HealingActionRow): HealingActionRecord {
 		input: safeJsonParse<Record<string, unknown>>(row.input, {}),
 		output: safeJsonParse<Record<string, unknown>>(row.output, {}),
 		createdAt: row.created_at,
-	}
-}
-
-/**
- * Safely parse JSON with fallback for corrupted data.
- */
-function safeJsonParse<T>(json: string, fallback: T): T {
-	try {
-		return JSON.parse(json) as T
-	} catch {
-		return fallback
 	}
 }
 

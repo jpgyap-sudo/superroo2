@@ -18,6 +18,7 @@ import type { EventLog } from "../logging/EventLog"
 import type { MemoryStore } from "../memory/MemoryStore"
 import type { Feature, FeatureHealth, FeatureInput, FeatureInputRaw, FeatureStatus } from "../types"
 import { FeatureInputSchema } from "../types"
+import { safeJsonParse } from "../utils/safeJsonParse"
 
 interface FeatureRow {
 	id: string
@@ -34,14 +35,6 @@ interface FeatureRow {
 	last_checked_at: number | null
 	created_at: number
 	updated_at: number
-}
-
-function safeJsonParse<T>(json: string, fallback: T): T {
-	try {
-		return JSON.parse(json) as T
-	} catch {
-		return fallback
-	}
 }
 
 function rowToFeature(r: FeatureRow): Feature {

@@ -21,6 +21,7 @@ import type { EventLog } from "../logging/EventLog"
 import type { MemoryStore } from "../memory/MemoryStore"
 import type { Task, TaskInput, TaskInputRaw, TaskPriority, TaskStatus } from "../types"
 import { TaskInputSchema } from "../types"
+import { safeJsonParse } from "../utils/safeJsonParse"
 
 interface TaskRow {
 	id: string
@@ -42,14 +43,6 @@ interface TaskRow {
 	updated_at: number
 	started_at: number | null
 	finished_at: number | null
-}
-
-function safeJsonParse<T>(json: string, fallback: T): T {
-	try {
-		return JSON.parse(json) as T
-	} catch {
-		return fallback
-	}
 }
 
 function rowToTask(r: TaskRow): Task {
