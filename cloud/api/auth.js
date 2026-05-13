@@ -891,6 +891,9 @@ async function handleAuthRoute(method, url, req, res) {
 	// fall through to the dedicated handler in api.js
 	if (normalizedPath === "/telegram/webhook") return false
 
+	// Don't intercept Telegram webhook info — used by dashboard to check bot status
+	if (normalizedPath === "/telegram/webhook-info") return false
+
 	// Don't intercept GitHub webhook — it has no auth header and must
 	// fall through to the dedicated handler in api.js
 	if (
@@ -911,6 +914,10 @@ async function handleAuthRoute(method, url, req, res) {
 
 	// Don't intercept Monitoring routes — they are handled by api.js directly
 	if (normalizedPath.startsWith("/monitoring/")) return false
+
+	// Don't intercept Orchestrator read-only routes — they are handled by api.js directly
+	// and need to be accessible without auth for the dashboard and Telegram bot
+	if (normalizedPath.startsWith("/orchestrator/")) return false
 
 	// ── Protected Web Auth Routes ───────────────────────────────────────────
 

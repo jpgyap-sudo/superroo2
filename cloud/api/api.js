@@ -4811,7 +4811,7 @@ const server = http.createServer(async (req, res) => {
 				sendJson(res, 503, { success: false, error: "AgentRegistry not initialized" })
 				return
 			}
-			const agents = orchestrator.agentRegistry.listAgents()
+			const agents = orchestrator.agentRegistry.list()
 			sendJson(res, 200, { success: true, agents })
 			return
 		}
@@ -4823,7 +4823,7 @@ const server = http.createServer(async (req, res) => {
 				return
 			}
 			const agentId = url.match(/^\/orchestrator\/agents\/([^/]+)$/)[1]
-			const agent = orchestrator.agentRegistry.getAgent(agentId)
+			const agent = orchestrator.agentRegistry.get(agentId)
 			if (!agent) {
 				sendJson(res, 404, { success: false, error: "Agent not found" })
 				return
@@ -4840,10 +4840,13 @@ const server = http.createServer(async (req, res) => {
 			}
 			const agentId = url.match(/^\/orchestrator\/agents\/([^/]+)\/toggle$/)[1]
 			const data = await parseBody(req)
-			const result =
-				typeof data.enabled === "boolean"
-					? orchestrator.agentRegistry.setAgentEnabled(agentId, data.enabled)
-					: orchestrator.agentRegistry.toggleAgent(agentId)
+			const agent = orchestrator.agentRegistry.get(agentId)
+			if (!agent) {
+				sendJson(res, 404, { success: false, error: "Agent not found" })
+				return
+			}
+			const newEnabled = typeof data.enabled === "boolean" ? data.enabled : !agent.enabled
+			const result = await orchestrator.agentRegistry.setEnabled(agentId, newEnabled)
 			sendJson(res, 200, { success: true, agent: result })
 			return
 		}
