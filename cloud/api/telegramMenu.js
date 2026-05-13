@@ -16,6 +16,20 @@
 const DASHBOARD_URL = "https://dev.abcx124.xyz"
 const MINI_APP_URL = "https://dev.abcx124.xyz/telegram-miniapp"
 
+// Agent Manager — imported lazily to avoid circular dependency
+let _telegramAgentManager = null
+function getAgentManager() {
+	if (!_telegramAgentManager) {
+		try {
+			_telegramAgentManager = require("./telegramAgentManager")
+		} catch (err) {
+			console.warn("[telegram-menu] telegramAgentManager not available:", err.message)
+			_telegramAgentManager = null
+		}
+	}
+	return _telegramAgentManager
+}
+
 // ─── Menu State ─────────────────────────────────────────────────────────────
 
 /**
@@ -659,7 +673,7 @@ async function showSettingsMenu(botToken, chatId) {
 	const buttons = [
 		[
 			{ text: "🔐 Session Info", callback_data: cb("session") },
-			{ text: "🤖 Agents", callback_data: cb("agents") },
+			{ text: "🤖 Agent Manager", callback_data: cb("agents") },
 		],
 		[
 			{ text: "📁 Workspace", callback_data: cb("workspace") },
@@ -831,6 +845,29 @@ async function handleMenuCallback(botToken, callbackQuery, context) {
 
 		case "settings":
 			await showSettingsMenu(botToken, chatId)
+			return { handled: true, action, data: actionData }
+
+		case "agents":
+			// Route to the Agent Manager
+			{
+				const agentMgr = getAgentManager()
+				const currentState = getMenuState(chatId)
+				if (agentMgr) {
+					await agentMgr.showAgentManager(botToken, chatId, currentState.menuMessageId)
+				} else {
+					// Fallback: show a simple message
+					const text =
+						"*🤖 Agent Manager*\n\n" +
+						"Agent Manager is not available right now.\n" +
+						"Use `/agents` in chat to see available agents."
+					const fallbackButtons = [[{ text: "🔙 Back to Menu", callback_data: cb("main") }]]
+					if (currentState.menuMessageId) {
+						await editMessageText(botToken, chatId, currentState.menuMessageId, text, fallbackButtons)
+					} else {
+						await sendInlineKeyboard(botToken, chatId, text, fallbackButtons)
+					}
+				}
+			}
 			return { handled: true, action, data: actionData }
 
 		case "help":

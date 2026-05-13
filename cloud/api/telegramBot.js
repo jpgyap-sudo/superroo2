@@ -42,7 +42,19 @@ const tgEndpoints = require("./tgEndpoints")
 const telegramMenu = require("./telegramMenu")
 const telegramProjectBrowser = require("./telegramProjectBrowser")
 const telegramTaskBoard = require("./telegramTaskBoard")
-const telegramAgentManager = require("./telegramAgentManager")
+
+// Lazy-loaded modules (may not exist on first deploy)
+let _telegramAgentManager = null
+function getTelegramAgentManager() {
+	if (!_telegramAgentManager) {
+		try {
+			_telegramAgentManager = require("./telegramAgentManager")
+		} catch (e) {
+			_telegramAgentManager = null
+		}
+	}
+	return _telegramAgentManager
+}
 
 // Terminal Brain integration — loaded lazily to avoid crash if packages aren't built
 let _terminalBrainAvailable = false
@@ -2363,8 +2375,13 @@ async function handleWorkspace(botToken, chatId, telegramUserId) {
  */
 async function handleAgents(botToken, chatId) {
 	// Route to the interactive Agent Manager
+	const agentMgr = getTelegramAgentManager()
 	try {
-		await telegramAgentManager.showAgentManager(botToken, chatId)
+		if (agentMgr) {
+			await agentMgr.showAgentManager(botToken, chatId)
+		} else {
+			throw new Error("Agent Manager module not loaded")
+		}
 	} catch (err) {
 		console.warn("[telegram] Agent Manager unavailable, falling back to static list:", err.message)
 		await sendMessage(
@@ -4862,7 +4879,12 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 			// ─── Agent Manager Callbacks ─────────────────────────────────────────
 			if (cqData.startsWith("agentmgr:")) {
 				logTelegramUsage("callback:agentmgr", cqChatId, cqUserId, { data: cqData })
-				var agentResult = await telegramAgentManager.handleAgentManagerCallback(botToken, {
+				const agentMgr = getTelegramAgentManager()
+				if (!agentMgr) {
+					await sendMessage(botToken, cqChatId, "Agent Manager is not available right now.")
+					return
+				}
+				var agentResult = await agentMgr.handleAgentManagerCallback(botToken, {
 					message: { chat: { id: cqChatId }, message_id: cqMessageId },
 					data: cqData,
 					id: cq.id,
