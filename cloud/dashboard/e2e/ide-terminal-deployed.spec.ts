@@ -120,9 +120,18 @@ test.describe("Deployed IDE Terminal — Visual E2E", () => {
 			localStorage.setItem(key, JSON.stringify(state))
 		}, testMessages)
 
-		// Reload to pick up the injected messages
-		await page.reload()
-		await page.waitForLoadState("networkidle")
+		// Reload to pick up the injected messages (with retry for flaky net::ERR_ABORTED)
+		for (let attempt = 0; attempt < 3; attempt++) {
+			try {
+				await page.reload({ timeout: 15000 })
+				await page.waitForLoadState("networkidle", { timeout: 15000 })
+				break
+			} catch {
+				if (attempt === 2) throw new Error("page.reload failed after 3 attempts")
+				console.log(`Reload attempt ${attempt + 1} failed, retrying...`)
+				await page.waitForTimeout(2000)
+			}
+		}
 		await page.waitForTimeout(2000)
 
 		// Navigate back to IDE Terminal

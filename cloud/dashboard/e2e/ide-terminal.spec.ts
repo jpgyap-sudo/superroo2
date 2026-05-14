@@ -36,12 +36,21 @@ async function navigateToIdeTerminal(page: any) {
 	const needsLogin = await loginForm.isVisible().catch(() => false)
 
 	if (needsLogin) {
-		// Set a fake auth token and reload
+		// Set a fake auth token and reload (with retry for flaky net::ERR_ABORTED)
 		await page.evaluate(() => {
 			localStorage.setItem("superroo_auth_token", "e2e-test-token")
 		})
-		await page.reload()
-		await page.waitForLoadState("networkidle")
+		for (let attempt = 0; attempt < 3; attempt++) {
+			try {
+				await page.reload({ timeout: 15000 })
+				await page.waitForLoadState("networkidle", { timeout: 15000 })
+				break
+			} catch {
+				if (attempt === 2) throw new Error("page.reload failed after 3 attempts")
+				console.log(`Reload attempt ${attempt + 1} failed, retrying...`)
+				await page.waitForTimeout(2000)
+			}
+		}
 		await page.waitForTimeout(2000)
 	}
 
