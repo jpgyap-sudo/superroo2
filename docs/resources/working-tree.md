@@ -4,7 +4,7 @@
 
 ## Overview
 
-The SuperRoo system is organized into **18 core modules** spanning orchestration, agent execution, safety, persistence, self-healing, machine learning, product memory, commit/deploy tracking, parallel execution, and infrastructure. Each module has a status, owner, connections to other modules, and specific product features it enables.
+The SuperRoo system is organized into **26 core modules** spanning orchestration, agent execution, safety, persistence, self-healing, machine learning, product memory, commit/deploy tracking, parallel execution, cloud infrastructure, code indexing, and deployment automation. Each module has a status, owner, connections to other modules, and specific product features it enables.
 
 ## Module Map
 
@@ -70,6 +70,13 @@ The SuperRoo system is organized into **18 core modules** spanning orchestration
          │     ├── Secret Vault (AES-256-GCM encrypted storage)
          │     ├── Provider Testers (Real SDK connection testing)
          │     └── Agent Routing Sync (Provider availability → routing)
+         │
+         ├──► CLOUD API SERVER (REST API, Auth, Webhooks)
+         ├──► CLOUD DASHBOARD (Next.js, 18+ management views)
+         ├──► TELEGRAM BOT (NLP, Menus, Task Board, Agent Manager)
+         ├──► INDEXER WORKER (Ollama embeddings → Qdrant)
+         ├──► AUTO-DEPLOYER (GitHub webhook → PM2 restart)
+         └──► MINI IDE (Browser terminal, File explorer, AI chat)
 ```
 
 ## Module Details
@@ -271,6 +278,66 @@ The SuperRoo system is organized into **18 core modules** spanning orchestration
     - **Provider Config** ([`cloud/config/providers.ts`](../cloud/config/providers.ts)) - Provider definitions with models and capabilities
     - **Agent Routing Config** ([`cloud/config/agent-routing.ts`](../cloud/config/agent-routing.ts)) - Agent-to-provider routing with fallbacks
     - **Settings API** ([`cloud/api/api.js`](../cloud/api/api.js)) - REST endpoints for providers, routes, approval evaluation, and full settings CRUD
+
+### 21. Cloud API Server
+
+- **Owner**: `api.js`
+- **Status**: `stable`
+- **Connections**: Dashboard, Orchestrator, Auth, Telegram Bot, Deploy System, Settings
+- **Features**: REST API for dashboard, Authentication & session management, Telegram bot webhook handling, Orchestrator task submission, Provider key management, Commit/deploy log endpoints, Health check & monitoring
+- **Source**: [`cloud/api/api.js`](../cloud/api/api.js)
+- **Port**: 8787 (internal), proxied via Nginx at `/api/`
+
+### 22. Cloud Dashboard
+
+- **Owner**: `Next.js App`
+- **Status**: `stable`
+- **Connections**: API Server, Auth, Working Tree, Agents, Telegram, Settings, Deploy
+- **Features**: Interactive dashboard UI, 18+ management views (Agents, Telegram, Settings, API Keys, Working Tree, Bugs, Healing, Jobs, Queue, Logs, Monitoring, Docker, GitHub, Auto-Deploy, Approvals, AI Chat, AI Assistant, IDE Terminal, Projects, Skill Generator), Sidebar navigation with collapse/expand, Real-time status polling, Authentication (login/register)
+- **Source**: [`cloud/dashboard/`](../cloud/dashboard/)
+- **Port**: 3001 (internal), proxied via Nginx at `/`
+
+### 23. Telegram Bot
+
+- **Owner**: `telegramBot.js`
+- **Status**: `stable`
+- **Connections**: API Server, Orchestrator Bridge, Menu System, Task Board, Agent Manager, Auth
+- **Features**: Natural language command processing, Inline keyboard menus (Main, Projects, Tasks, Deploy, Brain, Settings, Help, Agent Manager), Task board with orchestrator sync, Agent status & management sub-menu, Smart NLP with intent detection, Coding intent detection & quick actions, Workflow templates (deploy, test, build, logs, status, update), Conversation memory & context, Multi-provider AI chat, OTP/email login, Group chat workspace management, PM2 log reading, Deploy & rollback workflows
+- **Source**: [`cloud/api/telegramBot.js`](../cloud/api/telegramBot.js)
+- **Sub-modules**:
+    - **Menu System** ([`cloud/api/telegramMenu.js`](../cloud/api/telegramMenu.js)) - Interactive inline keyboard menus with state tracking
+    - **Task Board** ([`cloud/api/telegramTaskBoard.js`](../cloud/api/telegramTaskBoard.js)) - Task visualization with orchestrator sync
+    - **Agent Manager** ([`cloud/api/telegramAgentManager.js`](../cloud/api/telegramAgentManager.js)) - Agent status, detail, activity, and toggle controls
+    - **Endpoints** ([`cloud/api/tgEndpoints.js`](../cloud/api/tgEndpoints.js)) - PM2 logs, test runner, branch/PR creation, worker restart, Terminal Brain pipeline
+    - **Orchestrator Bridge** ([`cloud/orchestrator/TelegramOrchestratorBridge.js`](../cloud/orchestrator/TelegramOrchestratorBridge.js)) - Task sync between Telegram and orchestrator
+
+### 24. Indexer Worker (Ollama + Qdrant)
+
+- **Owner**: `indexer-worker`
+- **Status**: `active`
+- **Connections**: Ollama, Qdrant, Git, File System
+- **Features**: Git change watching (chokidar), File chunking with language-aware boundary detection, Ollama embedding generation (`nomic-embed-text`, 768-dim), Qdrant vector storage (`superroo_code_chunks` collection), Health endpoint at port 3418, Debounced indexing (2000ms), Skip binary/large files, Point deduplication by file path
+- **Source**: [`apps/indexer-worker/src/worker.js`](../apps/indexer-worker/src/worker.js)
+- **Dependencies**: Ollama (`nomic-embed-text` model), Qdrant (vector DB), chokidar (file watcher), simple-git
+- **Config**: `OLLAMA_URL=http://localhost:11434`, `QDRANT_URL=http://localhost:6333`, `WATCHER_PORT=3418`
+
+### 25. Auto-Deployer
+
+- **Owner**: `auto-deployer`
+- **Status**: `active`
+- **Connections**: GitHub Webhooks, API Server, Deploy System, PM2
+- **Features**: GitHub webhook listener for auto-deploy, Self-retrying SSH deploy agent, Kills stuck processes, Auto-deploys when traffic is high, Continuous retry until deployment succeeds
+- **Source**: [`cloud/api/api.js`](../cloud/api/api.js) (webhook handler at `/api/auto-deploy/github-webhook`)
+- **PM2 Process**: `superroo-auto-deployer`
+
+### 26. Mini IDE
+
+- **Owner**: `mini-ide`
+- **Status**: `active`
+- **Connections**: API Server, Dashboard, Terminal, File System
+- **Features**: Browser-based terminal emulator, File explorer with tree view, AI Assistant chat panel, Ctrl+V paste support, Command execution with output display, Keyboard shortcuts modal, Agent suggestions (`/` commands), Maximizable terminal, Multi-tab AI chat
+- **Source**: [`cloud/dashboard/src/components/views/ide-terminal.tsx`](../cloud/dashboard/src/components/views/ide-terminal.tsx)
+- **PM2 Process**: `superroo-mini-ide`
 
 ## Interaction Flows
 

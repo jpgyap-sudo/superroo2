@@ -466,6 +466,143 @@ export const WORKING_TREE: WorkingTreeNode[] = [
 		connections: ["deploy", "safety"],
 		features: ["SSH command execution", "Remote file operations"],
 	},
+	{
+		id: "cloud-api",
+		label: "Cloud API Server",
+		description:
+			"REST API server powering the dashboard, Telegram bot, authentication, orchestrator task submission, provider key management, and health monitoring. Proxied via Nginx at /api/.",
+		icon: <Workflow className="h-4 w-4" />,
+		status: "stable",
+		owner: "api.js",
+		connections: ["dashboard", "orchestrator", "telegram", "deploy", "settings"],
+		features: [
+			"REST API for dashboard",
+			"Authentication & session management",
+			"Telegram bot webhook handling",
+			"Orchestrator task submission",
+			"Provider key management",
+			"Commit/deploy log endpoints",
+			"Health check & monitoring",
+		],
+	},
+	{
+		id: "dashboard",
+		label: "Cloud Dashboard",
+		description:
+			"Next.js-powered interactive dashboard with 18+ management views for agents, Telegram, settings, API keys, working tree, bugs, healing, jobs, queue, logs, monitoring, Docker, GitHub, auto-deploy, approvals, AI chat, IDE terminal, projects, and skill generator.",
+		icon: <Layers className="h-4 w-4" />,
+		status: "stable",
+		owner: "Next.js App",
+		connections: ["cloud-api", "telegram", "agents", "settings", "deploy"],
+		features: [
+			"18+ management views",
+			"Sidebar navigation with collapse/expand",
+			"Real-time status polling",
+			"Authentication (login/register)",
+			"Working tree visualization",
+		],
+	},
+	{
+		id: "telegram",
+		label: "Telegram Bot",
+		description:
+			"Full-featured Telegram bot with natural language processing, inline keyboard menus, task board with orchestrator sync, agent status management, smart NLP intent detection, workflow templates, conversation memory, and multi-provider AI chat.",
+		icon: <Bot className="h-4 w-4" />,
+		status: "stable",
+		owner: "telegramBot.js",
+		connections: ["cloud-api", "orchestrator", "agents", "auth"],
+		features: [
+			"Natural language command processing",
+			"Inline keyboard menus",
+			"Task board with orchestrator sync",
+			"Agent status & management",
+			"Smart NLP with intent detection",
+			"Workflow templates",
+			"Conversation memory & context",
+			"Multi-provider AI chat",
+		],
+		children: [
+			{
+				id: "telegram-menu",
+				label: "Menu System",
+				description:
+					"Interactive inline keyboard menus with state tracking. Supports Main, Projects, Tasks, Deploy, Brain, Settings, Help, and Agent Manager menus.",
+				icon: <Layers className="h-4 w-4" />,
+				status: "stable",
+				connections: ["telegram"],
+			},
+			{
+				id: "telegram-taskboard",
+				label: "Task Board",
+				description:
+					"Task visualization with orchestrator sync. Shows tasks from both Telegram and VS Code, with status icons, detail view, and refresh controls.",
+				icon: <ListTree className="h-4 w-4" />,
+				status: "stable",
+				connections: ["telegram", "orchestrator"],
+			},
+			{
+				id: "telegram-agentmgr",
+				label: "Agent Manager",
+				description:
+					"Agent status, detail, activity, and toggle controls. Lists all registered agents with enable/disable, run, and activity history views.",
+				icon: <Bot className="h-4 w-4" />,
+				status: "stable",
+				connections: ["telegram", "agents"],
+			},
+		],
+	},
+	{
+		id: "indexer",
+		label: "Indexer Worker",
+		description:
+			"Ollama-powered code indexer that watches git changes, chunks files with language-aware boundary detection, generates embeddings via nomic-embed-text (768-dim), and stores vectors in Qdrant for semantic code search.",
+		icon: <Search className="h-4 w-4" />,
+		status: "active",
+		owner: "indexer-worker",
+		connections: ["memory"],
+		features: [
+			"Git change watching",
+			"File chunking with language detection",
+			"Ollama embedding generation",
+			"Qdrant vector storage",
+			"Health endpoint at port 3418",
+			"Debounced indexing",
+		],
+	},
+	{
+		id: "auto-deployer",
+		label: "Auto-Deployer",
+		description:
+			"GitHub webhook listener that automatically deploys code changes to the VPS. Self-retrying SSH deploy agent that kills stuck processes and retries until deployment succeeds.",
+		icon: <Rocket className="h-4 w-4" />,
+		status: "active",
+		owner: "auto-deployer",
+		connections: ["deploy", "cloud-api"],
+		features: [
+			"GitHub webhook listener",
+			"Self-retrying SSH deploy",
+			"Stuck process killer",
+			"Continuous retry until success",
+		],
+	},
+	{
+		id: "mini-ide",
+		label: "Mini IDE",
+		description:
+			"Browser-based IDE with terminal emulator, file explorer with tree view, AI Assistant chat panel, command execution, keyboard shortcuts, agent suggestions, and maximizable terminal.",
+		icon: <Terminal className="h-4 w-4" />,
+		status: "active",
+		owner: "mini-ide",
+		connections: ["dashboard", "cloud-api"],
+		features: [
+			"Browser-based terminal emulator",
+			"File explorer with tree view",
+			"AI Assistant chat panel",
+			"Command execution with output",
+			"Keyboard shortcuts modal",
+			"Agent suggestions",
+		],
+	},
 ]
 
 // ── Helper: Flatten tree for search ───────────────────────────────────────────
