@@ -6795,6 +6795,20 @@ const server = http.createServer(async (req, res) => {
 	}
 })
 
+// ── WebSocket Upgrade Handler ──────────────────────────────────────────────
+// Routes WebSocket upgrade requests from the HTTP server to the WSS instance.
+// Without this, the dashboard's AI chat WebSocket connection fails silently.
+server.on("upgrade", (request, socket, head) => {
+	const url = request.url || ""
+	if (url.startsWith("/api/ws/chat") || url.startsWith("/ws/chat")) {
+		wss.handleUpgrade(request, socket, head, (ws) => {
+			wss.emit("connection", ws, request)
+		})
+	} else {
+		socket.destroy()
+	}
+})
+
 // ── Log Aggregator (optional) ──────────────────────────────────────────────────
 
 // Initialize the LogAggregator to capture HTTP request logs.
