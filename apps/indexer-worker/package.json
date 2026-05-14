@@ -1,0 +1,20 @@
+{
+	"name": "@superroo/indexer-worker",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"description": "Repo indexing worker — watches git changes, chunks files, creates embeddings via Ollama, stores in Qdrant",
+	"scripts": {
+		"start": "node src/worker.js",
+		"dev": "node --watch src/worker.js",
+		"index": "node src/cli.js",
+		"lint": "eslint src --ext=js --max-warnings=0"
+	},
+	"dependencies": {
+		"chokidar": "^4.0.3",
+		"simple-git": "^3.27.0"
+	},
+	"devDependencies": {
+		"@types/node": "^24.1.0"
+	}
+}
