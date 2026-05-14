@@ -39,10 +39,11 @@ export interface ChatMessage {
 
 export interface OutputBlock {
 	id: string
-	type: "command" | "output" | "error" | "success" | "info" | "agent" | "divider"
+	type: "command" | "output" | "error" | "warning" | "success" | "info" | "agent" | "divider"
 	content: string
 	command?: string
 	timestamp: string
+	collapsed?: boolean
 }
 
 export interface TerminalRecording {
@@ -130,6 +131,7 @@ export interface IdeState {
 	// UI
 	showFilePanel: boolean
 	showAiPanel: boolean
+	showTerminal: boolean
 	terminalHeight: number
 	isTerminalMaximized: boolean
 	showShortcuts: boolean
@@ -145,6 +147,10 @@ export interface IdeState {
 	// Workspace
 	recentWorkspaces: RecentWorkspace[]
 	workspaceTasks: WorkspaceTask[]
+
+	// Dashboard extras
+	hermesStats: any
+	deployments: any[]
 
 	// Hydration
 	_hydrated: boolean
@@ -204,6 +210,7 @@ const initialState: IdeState = {
 
 	showFilePanel: true,
 	showAiPanel: true,
+	showTerminal: true,
 	terminalHeight: 180,
 	isTerminalMaximized: false,
 	showShortcuts: false,
@@ -219,6 +226,9 @@ const initialState: IdeState = {
 	recentWorkspaces: [],
 	workspaceTasks: [],
 
+	hermesStats: null,
+	deployments: [],
+
 	_hydrated: false,
 }
 
@@ -232,6 +242,7 @@ export type IdeAction =
 	| { type: "SET_AI_INPUT"; payload: string }
 	| { type: "SET_AI_SENDING"; payload: boolean }
 	| { type: "SET_AI_ATTACHMENTS"; payload: ChatAttachment[] }
+	| { type: "ADD_AI_ATTACHMENT"; payload: ChatAttachment }
 	| { type: "SET_AI_TAB"; payload: string }
 	| { type: "SET_PROACTIVE_SUGGESTIONS"; payload: string[] }
 	| { type: "SET_TERMINAL_INPUT"; payload: string }
@@ -256,6 +267,7 @@ export type IdeAction =
 	| { type: "SET_LOADING"; payload: boolean }
 	| { type: "SET_SHOW_FILE_PANEL"; payload: boolean }
 	| { type: "SET_SHOW_AI_PANEL"; payload: boolean }
+	| { type: "SET_SHOW_TERMINAL"; payload: boolean }
 	| { type: "SET_TERMINAL_HEIGHT"; payload: number }
 	| { type: "SET_IS_TERMINAL_MAXIMIZED"; payload: boolean }
 	| { type: "SET_SHOW_SHORTCUTS"; payload: boolean }
@@ -269,6 +281,8 @@ export type IdeAction =
 	| { type: "SET_SHOW_QUICK_ACTIONS"; payload: string | null }
 	| { type: "SET_RECENT_WORKSPACES"; payload: RecentWorkspace[] }
 	| { type: "SET_WORKSPACE_TASKS"; payload: WorkspaceTask[] }
+	| { type: "SET_HERMES_STATS"; payload: any }
+	| { type: "SET_DEPLOYMENTS"; payload: any[] }
 
 // ─── Reducer ──────────────────────────────────────────────────────────────
 
@@ -293,6 +307,8 @@ function ideReducer(state: IdeState, action: IdeAction): IdeState {
 			return { ...state, aiSending: action.payload }
 		case "SET_AI_ATTACHMENTS":
 			return { ...state, aiAttachments: action.payload }
+		case "ADD_AI_ATTACHMENT":
+			return { ...state, aiAttachments: [...state.aiAttachments, action.payload] }
 		case "SET_AI_TAB":
 			return { ...state, aiTab: action.payload }
 		case "SET_PROACTIVE_SUGGESTIONS":
@@ -341,6 +357,8 @@ function ideReducer(state: IdeState, action: IdeAction): IdeState {
 			return { ...state, showFilePanel: action.payload }
 		case "SET_SHOW_AI_PANEL":
 			return { ...state, showAiPanel: action.payload }
+		case "SET_SHOW_TERMINAL":
+			return { ...state, showTerminal: action.payload }
 		case "SET_TERMINAL_HEIGHT":
 			return { ...state, terminalHeight: action.payload }
 		case "SET_IS_TERMINAL_MAXIMIZED":
@@ -367,6 +385,10 @@ function ideReducer(state: IdeState, action: IdeAction): IdeState {
 			return { ...state, recentWorkspaces: action.payload }
 		case "SET_WORKSPACE_TASKS":
 			return { ...state, workspaceTasks: action.payload }
+		case "SET_HERMES_STATS":
+			return { ...state, hermesStats: action.payload }
+		case "SET_DEPLOYMENTS":
+			return { ...state, deployments: action.payload }
 		default:
 			return state
 	}

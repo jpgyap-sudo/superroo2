@@ -108,13 +108,38 @@ import {
 	type RecentWorkspace,
 	type WorkspaceTask,
 } from "@/lib/ide-store"
+import ErrorBoundary from "@/components/ide-terminal/ErrorBoundary"
+import FileTree from "@/components/ide-terminal/FileTree"
+import CodeEditor from "@/components/ide-terminal/CodeEditor"
+import TerminalPanel from "@/components/ide-terminal/TerminalPanel"
+import AiChatPanel from "@/components/ide-terminal/AiChatPanel"
+import SearchPanel from "@/components/ide-terminal/SearchPanel"
+import GitPanel from "@/components/ide-terminal/GitPanel"
+import KeyboardShortcutsModal from "@/components/ide-terminal/KeyboardShortcutsModal"
+import DiffViewModal from "@/components/ide-terminal/DiffViewModal"
+import {
+	apiFetch,
+	saveFileContent,
+	fetchFileContent,
+	fetchDiff,
+	sendTerminalCommand,
+	importGithubRepo,
+	openWorkspace,
+	fetchOrchestratorStatus,
+	fetchHermesStats,
+	fetchDeployments,
+	computeDiff,
+} from "@/components/ide-terminal/api"
+import type { BrainTab, DiffData } from "@/components/ide-terminal/types"
 
-// ── Types (local only) ────────────────────────────────────────────────────
+// ── Local types ────────────────────────────────────────────────────────────
 
 interface AutocompleteSuggestion {
 	text: string
 	description: string
 	type: "command" | "agent" | "recent" | "ai"
+	label?: string
+	command?: string
 }
 
 interface BrainPlanStep {
@@ -181,28 +206,6 @@ interface ProjectContext {
 	hasTypeScript?: boolean
 }
 
-// ── API helpers ───────────────────────────────────────────────────────────
-
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-	const base = window.location.origin
-	const res = await fetch(`${base}/api${path}`, {
-		headers: { "Content-Type": "application/json" },
-		...init,
-	})
-	if (!res.ok) {
-		const text = await res.text().catch(() => "Unknown error")
-		throw new Error(`${res.status} ${text.slice(0, 200)}`)
-	}
-	return res.json()
-}
-
-async function brainApi<T>(action: string, payload?: Record<string, unknown>): Promise<T> {
-	return api<T>("/ide-workspace/brain", {
-		method: "POST",
-		body: JSON.stringify({ action, ...payload }),
-	})
-}
-
 // ── Pipeline Icon ─────────────────────────────────────────────────────────
 
 function PipelineIcon({ status }: { status: string }) {
@@ -222,555 +225,30 @@ function PipelineIcon({ status }: { status: string }) {
 	}
 }
 
-// ── File Tree Component ───────────────────────────────────────────────────
+// ── Slash command handlers ────────────────────────────────────────────────
 
-function FileTree({
-	items,
-	onFileClick,
-	searchQuery,
-}: {
-	items: WorkspaceFile[]
-	onFileClick: (path: string, name: string) => void
-	searchQuery?: string
-}) {
-	const [expanded, setExpanded] = useState<Set<string>>(new Set())
-
-	const toggle = (path: string) => {
-		setExpanded((prev) => {
-			const next = new Set(prev)
-			if (next.has(path)) next.delete(path)
-			else next.add(path)
-			return next
-		})
-	}
-
-	const filtered = searchQuery
-		? items.filter((item) => {
-				const q = searchQuery.toLowerCase()
-				return item.name.toLowerCase().includes(q) || item.path.toLowerCase().includes(q)
-			})
-		: items
-
-	return (
-		<>
-			{filtered.map((item) => (
-				<div key={item.path}>
-					<button
-						onClick={() => (item.kind === "folder" ? toggle(item.path) : onFileClick(item.path, item.name))}
-						className="flex w-full items-center gap-1.5 px-2 py-1 text-[11px] text-left hover:bg-[#1e2535]/50 transition-colors rounded-sm">
-						{item.kind === "folder" && (
-							<ChevronRight
-								size={10}
-								className={`text-gray-500 transition-transform ${expanded.has(item.path) ? "rotate-90" : ""}`}
-							/>
-						)}
-						{item.kind === "folder" ? (
-							<Folder size={12} className="text-blue-400 shrink-0" />
-						) : (
-							<FileText size={12} className="text-gray-500 shrink-0" />
-						)}
-						<span className="truncate text-gray-300">{item.name}</span>
-						{item.modified && <span className="text-orange-400 text-[9px] font-bold ml-auto">●</span>}
-					</button>
-					{item.kind === "folder" && expanded.has(item.path) && item.children && (
-						<div className="pl-3">
-							<FileTree items={item.children} onFileClick={onFileClick} searchQuery={searchQuery} />
-						</div>
-					)}
-				</div>
-			))}
-		</>
-	)
-}
-
-// ── Keyboard Shortcuts Modal ──────────────────────────────────────────────
-
-function KeyboardShortcutsModal({ onClose }: { onClose: () => void }) {
-	const shortcuts = [
-		{ key: "Ctrl+`", desc: "Toggle terminal" },
-		{ key: "Ctrl+P", desc: "Search files" },
-		{ key: "Ctrl+K", desc: "Clear terminal" },
-		{ key: "Ctrl+Enter", desc: "Send AI message" },
-		{ key: "Escape", desc: "Close modals / suggestions" },
-		{ key: "Tab", desc: "Accept autocomplete suggestion" },
-		{ key: "↑↓", desc: "Navigate command history" },
-	]
-	return (
-		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
-			<div
-				className="bg-[#0f1117] border border-[#1e2535] rounded-lg p-4 w-full max-w-sm mx-4 shadow-2xl"
-				onClick={(e) => e.stopPropagation()}>
-				<div className="flex items-center justify-between mb-3">
-					<div className="flex items-center gap-2">
-						<Keyboard size={14} className="text-violet-400" />
-						<span className="text-sm font-semibold text-[#e2e8f0]">Keyboard Shortcuts</span>
-					</div>
-					<button onClick={onClose} className="text-gray-500 hover:text-gray-300">
-						<X size={14} />
-					</button>
-				</div>
-				<div className="space-y-1">
-					{shortcuts.map((s) => (
-						<div key={s.key} className="flex items-center justify-between py-1">
-							<kbd className="px-1.5 py-0.5 text-[10px] font-mono rounded bg-[#1e2535] text-gray-300 border border-[#2a3344]">
-								{s.key}
-							</kbd>
-							<span className="text-[11px] text-gray-500">{s.desc}</span>
-						</div>
-					))}
-				</div>
-			</div>
-		</div>
-	)
-}
-
-// ── Parse output lines into blocks ────────────────────────────────────────
-
-function parseOutputLine(line: string, index: number): OutputBlock {
-	const trimmed = line.trim()
-	const ts = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
-
-	if (trimmed.startsWith("$ ")) {
-		return {
-			id: `block-${index}`,
-			type: "command",
-			content: trimmed.slice(2),
-			command: trimmed.slice(2),
-			timestamp: ts,
-		}
-	}
-	if (trimmed.startsWith("✕") || trimmed.toLowerCase().includes("error:")) {
-		return { id: `block-${index}`, type: "error", content: trimmed, timestamp: ts }
-	}
-	if (trimmed.startsWith("✓") || trimmed.startsWith("✔")) {
-		return { id: `block-${index}`, type: "success", content: trimmed, timestamp: ts }
-	}
-	if (trimmed.startsWith("◆")) {
-		return { id: `block-${index}`, type: "agent", content: trimmed, timestamp: ts }
-	}
-	if (trimmed.startsWith("ℹ")) {
-		return { id: `block-${index}`, type: "info", content: trimmed, timestamp: ts }
-	}
-	if (
-		trimmed === "" ||
-		trimmed.startsWith("─") ||
-		trimmed.startsWith("╔") ||
-		trimmed.startsWith("╚") ||
-		trimmed.startsWith("║")
-	) {
-		return { id: `block-${index}`, type: "divider", content: trimmed, timestamp: ts }
-	}
-	return { id: `block-${index}`, type: "output", content: trimmed, timestamp: ts }
-}
-
-function convertToBlocks(lines: string[]): OutputBlock[] {
-	return lines.map(parseOutputLine)
-}
-
-// ── Common Commands ────────────────────────────────────────────────────────
-
-const COMMON_COMMANDS = [
-	{ text: "npm run dev", description: "Start dev server", type: "command" },
-	{ text: "npm run build", description: "Build project", type: "command" },
-	{ text: "npm test", description: "Run tests", type: "command" },
-	{ text: "git status", description: "Check git status", type: "command" },
-	{ text: "git pull", description: "Pull latest code", type: "command" },
-	{ text: "git push", description: "Push commits", type: "command" },
-	{ text: "pm2 status", description: "Check PM2 processes", type: "command" },
-	{ text: "pm2 logs", description: "View PM2 logs", type: "command" },
-	{ text: "docker ps", description: "List Docker containers", type: "command" },
-	{ text: "df -h", description: "Check disk usage", type: "command" },
-	{ text: "free -m", description: "Check memory usage", type: "command" },
-	{ text: "curl -I", description: "Check HTTP headers", type: "command" },
-	{ text: "npx vitest run", description: "Run vitest tests", type: "command" },
-	{ text: "npx tsc --noEmit", description: "TypeScript type check", type: "command" },
-	{ text: "pnpm install", description: "Install dependencies", type: "command" },
-]
-
-// ── Helper: addOutputBlocks ───────────────────────────────────────────────
-
-function addOutputBlocks(
-	blocks: OutputBlock[],
-	setBlocks: React.Dispatch<React.SetStateAction<OutputBlock[]>>,
-	newBlocks: OutputBlock[],
-) {
-	setBlocks((prev) => [...prev, ...newBlocks])
-}
-
-// ── Smart Suggestions ─────────────────────────────────────────────────────
-
-function getSmartSuggestions(
-	input: string,
-	recentCommands: string[],
-	agentCommands: Record<string, { agent: string; description: string; icon: string }>,
-): AutocompleteSuggestion[] {
-	if (!input || input.length < 2) return []
-	const lower = input.toLowerCase()
-	const results: AutocompleteSuggestion[] = []
-
-	// Agent commands
-	if (lower.startsWith("/")) {
-		for (const [cmd, info] of Object.entries(agentCommands)) {
-			if (cmd.startsWith(lower)) {
-				results.push({ text: cmd, description: info.description, type: "command" })
-			}
-		}
-	}
-
-	// Agent mentions
-	if (lower.startsWith("@")) {
-		const mention = lower.slice(1)
-		for (const [, info] of Object.entries(agentCommands)) {
-			if (info.agent !== "system" && info.agent.includes(mention)) {
-				results.push({ text: `@${info.agent}`, description: info.description, type: "agent" })
-			}
-		}
-	}
-
-	// Recent commands
-	if (!lower.startsWith("/") && !lower.startsWith("@")) {
-		for (const cmd of recentCommands) {
-			if (cmd.toLowerCase().includes(lower) && !results.some((r) => r.text === cmd)) {
-				results.push({ text: cmd, description: "Recent command", type: "recent" })
-			}
-		}
-	}
-
-	return results.slice(0, 6)
-}
-
-function createRecording(blocks: OutputBlock[], name: string): TerminalRecording {
-	return {
-		id: `rec-${Date.now()}`,
-		name,
-		blocks: [...blocks],
-		commandCount: blocks.filter((b) => b.type === "command").length,
-		duration: "0:00",
-		createdAt: new Date().toISOString(),
-	}
-}
-
-// ── Rich Content Rendering ──────────────────────────────────────────────
-
-function renderMessageContent(content: string): React.ReactNode[] {
-	if (!content) return [<span key="empty" />]
-
-	const nodes: React.ReactNode[] = []
-	let key = 0
-
-	// Match code blocks first (```language\n...\n```)
-	const codeBlockRegex = /```(\w*)\n?([\s\S]*?)```/g
-	let lastIndex = 0
-	let match: RegExpExecArray | null
-
-	while ((match = codeBlockRegex.exec(content)) !== null) {
-		// Text before this code block
-		if (match.index > lastIndex) {
-			const textBefore = content.slice(lastIndex, match.index)
-			nodes.push(...renderInlineContent(textBefore, key++))
-		}
-
-		const language = match[1] || "text"
-		const code = match[2].trim()
-		const isShellLanguage = ["bash", "sh", "shell", "terminal", "cmd", "powershell", "docker", "zsh"].includes(
-			language.toLowerCase(),
-		)
-		nodes.push(
-			<div key={key++} className="my-2 rounded border border-[#1e2535] overflow-hidden">
-				<div className="flex items-center justify-between bg-[#1a2030] px-3 py-1 border-b border-[#1e2535]">
-					<span className="text-[10px] text-gray-500 font-mono">{language}</span>
-					<div className="flex items-center gap-1">
-						{/* Function 2: Run-in-Terminal button for shell commands */}
-						{isShellLanguage && (
-							<button
-								onClick={() => handleRunInTerminalFromBlock(code)}
-								className="flex items-center gap-1 px-1.5 py-0.5 text-[9px] text-green-400 hover:text-green-300 hover:bg-[#253045] rounded transition-colors"
-								title="Run in terminal">
-								<Play size={9} />
-								Run
-							</button>
-						)}
-						<button
-							onClick={() => navigator.clipboard.writeText(code).catch(() => {})}
-							className="flex items-center gap-1 px-1.5 py-0.5 text-[9px] text-gray-500 hover:text-gray-300 hover:bg-[#253045] rounded transition-colors"
-							title="Copy code">
-							<Copy size={9} />
-							Copy
-						</button>
-						<button
-							onClick={() => handleApplyCodeFromBlock(code, language)}
-							className="flex items-center gap-1 px-1.5 py-0.5 text-[9px] text-violet-400 hover:text-violet-300 hover:bg-[#253045] rounded transition-colors"
-							title="Apply code to file">
-							<Code size={9} />
-							Apply
-						</button>
-					</div>
-				</div>
-				<pre className="p-3 text-[11px] font-mono text-gray-300 overflow-x-auto leading-relaxed bg-[#0a0d14]">
-					<code>{code}</code>
-				</pre>
-			</div>,
-		)
-
-		lastIndex = match.index + match[0].length
-	}
-
-	// Remaining text after last code block
-	if (lastIndex < content.length) {
-		const textAfter = content.slice(lastIndex)
-		nodes.push(...renderInlineContent(textAfter, key++))
-	}
-
-	return nodes
-}
-
-function renderInlineContent(text: string, baseKey: number): React.ReactNode[] {
-	const nodes: React.ReactNode[] = []
-	let key = baseKey * 1000
-
-	// Match inline images: ![alt](url)
-	const imgRegex = /!\[([^\]]*)\]\(([^)]+)\)/g
-	let imgMatch: RegExpExecArray | null
-	let lastIdx = 0
-
-	while ((imgMatch = imgRegex.exec(text)) !== null) {
-		if (imgMatch.index > lastIdx) {
-			nodes.push(...renderTextWithLinks(text.slice(lastIdx, imgMatch.index), key++))
-		}
-		const alt = imgMatch[1]
-		const src = imgMatch[2]
-		nodes.push(
-			<img
-				key={key++}
-				src={src}
-				alt={alt}
-				className="max-w-full h-auto rounded my-1 border border-[#1e2535]"
-				loading="lazy"
-				onError={(e) => {
-					;(e.target as HTMLImageElement).style.display = "none"
-				}}
-			/>,
-		)
-		lastIdx = imgMatch.index + imgMatch[0].length
-	}
-
-	if (lastIdx < text.length) {
-		nodes.push(...renderTextWithLinks(text.slice(lastIdx), key++))
-	}
-
-	return nodes
-}
-
-/** Render inline markdown formatting: bold, italic, strikethrough, inline code, and links */
-function renderFormattedText(text: string, key: number): React.ReactNode[] {
-	const nodes: React.ReactNode[] = []
-	let localKey = key * 100000
-
-	// Combined regex for inline formatting tokens (ordered by priority)
-	// Order: inline code > links > bold > italic > strikethrough
-	const inlineRegex =
-		/(`[^`]+`)|(\/[a-zA-Z0-9_\-./]+[a-zA-Z0-9_])|([a-zA-Z]+:\/\/[^\s]+)|(\*\*([^*]+)\*\*)|(__([^_]+)__)|(\*([^*]+)\*)|(_([^_]+)_)|(~~([^~]+)~~)/g
-
-	let match: RegExpExecArray | null
-	let lastIdx = 0
-
-	while ((match = inlineRegex.exec(text)) !== null) {
-		// Plain text before this match
-		if (match.index > lastIdx) {
-			nodes.push(<span key={localKey++}>{text.slice(lastIdx, match.index)}</span>)
-		}
-
-		if (match[1] !== undefined) {
-			// Inline code: `code`
-			nodes.push(
-				<code
-					key={localKey++}
-					className="px-1 py-0.5 text-[11px] font-mono bg-[#1a2030] text-green-300 rounded border border-[#1e2535]">
-					{match[1].slice(1, -1)}
-				</code>,
-			)
-		} else if (match[2] !== undefined) {
-			// File path link
-			const url = match[2]
-			nodes.push(
-				<button
-					key={localKey++}
-					onClick={() => handleFileLinkClick(url)}
-					className="inline-flex items-center gap-0.5 text-violet-400 hover:text-violet-300 underline underline-offset-2 decoration-violet-500/30 text-[11px] font-mono"
-					title={`Open ${url}`}>
-					<FileCode size={9} />
-					{url}
-				</button>,
-			)
-		} else if (match[3] !== undefined) {
-			// URL link
-			const url = match[3]
-			nodes.push(
-				<a
-					key={localKey++}
-					href={url}
-					target="_blank"
-					rel="noopener noreferrer"
-					className="inline-flex items-center gap-0.5 text-blue-400 hover:text-blue-300 underline underline-offset-2 decoration-blue-500/30 text-[11px]">
-					<ExternalLink size={9} />
-					{url}
-				</a>,
-			)
-		} else if (match[5] !== undefined) {
-			// Bold: **text**
-			nodes.push(
-				<strong key={localKey++} className="font-semibold text-gray-100">
-					{match[5]}
-				</strong>,
-			)
-		} else if (match[7] !== undefined) {
-			// Bold: __text__
-			nodes.push(
-				<strong key={localKey++} className="font-semibold text-gray-100">
-					{match[7]}
-				</strong>,
-			)
-		} else if (match[9] !== undefined) {
-			// Italic: *text*
-			nodes.push(
-				<em key={localKey++} className="italic text-gray-300">
-					{match[9]}
-				</em>,
-			)
-		} else if (match[11] !== undefined) {
-			// Italic: _text_
-			nodes.push(
-				<em key={localKey++} className="italic text-gray-300">
-					{match[11]}
-				</em>,
-			)
-		} else if (match[13] !== undefined) {
-			// Strikethrough: ~~text~~
-			nodes.push(
-				<del key={localKey++} className="line-through text-gray-500">
-					{match[13]}
-				</del>,
-			)
-		}
-
-		lastIdx = match.index + match[0].length
-	}
-
-	if (lastIdx < text.length) {
-		nodes.push(<span key={localKey++}>{text.slice(lastIdx)}</span>)
-	}
-
-	return nodes
-}
-
-function renderTextWithLinks(text: string, key: number): React.ReactNode[] {
-	// Split text into lines to handle block-level formatting (lists, blockquotes, headings)
-	const lines = text.split("\n")
-	const nodes: React.ReactNode[] = []
-	let localKey = key * 10000
-
-	for (let i = 0; i < lines.length; i++) {
-		const line = lines[i]
-		const trimmed = line.trim()
-
-		// Empty line — spacing
-		if (!trimmed) {
-			nodes.push(<div key={localKey++} className="h-1" />)
-			continue
-		}
-
-		// Heading: ### text
-		const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/)
-		if (headingMatch) {
-			const level = headingMatch[1].length
-			const headingText = headingMatch[2]
-			const sizeClass =
-				level === 1
-					? "text-sm font-bold text-gray-100"
-					: level === 2
-						? "text-[13px] font-bold text-gray-100"
-						: level === 3
-							? "text-[12px] font-semibold text-gray-200"
-							: "text-[11px] font-semibold text-gray-300"
-			nodes.push(
-				<div key={localKey++} className={`${sizeClass} mt-2 mb-1`}>
-					{renderFormattedText(headingText, localKey)}
-				</div>,
-			)
-			continue
-		}
-
-		// Blockquote: > text
-		if (trimmed.startsWith("> ")) {
-			const quoteText = trimmed.slice(2)
-			nodes.push(
-				<div
-					key={localKey++}
-					className="border-l-2 border-violet-500/40 pl-3 py-0.5 my-1 text-gray-400 italic text-[11px]">
-					{renderFormattedText(quoteText, localKey)}
-				</div>,
-			)
-			continue
-		}
-
-		// Unordered list: - item or * item
-		const ulMatch = trimmed.match(/^[-*]\s+(.+)$/)
-		if (ulMatch) {
-			nodes.push(
-				<div key={localKey++} className="flex items-start gap-2 my-0.5">
-					<span className="text-gray-500 mt-0.5 shrink-0">•</span>
-					<span className="text-gray-300 text-[12px]">{renderFormattedText(ulMatch[1], localKey)}</span>
-				</div>,
-			)
-			continue
-		}
-
-		// Ordered list: 1. item
-		const olMatch = trimmed.match(/^(\d+)\.\s+(.+)$/)
-		if (olMatch) {
-			nodes.push(
-				<div key={localKey++} className="flex items-start gap-2 my-0.5">
-					<span className="text-gray-500 text-[10px] font-mono mt-0.5 shrink-0 w-4 text-right">
-						{olMatch[1]}.
-					</span>
-					<span className="text-gray-300 text-[12px]">{renderFormattedText(olMatch[2], localKey)}</span>
-				</div>,
-			)
-			continue
-		}
-
-		// Regular paragraph line
-		nodes.push(
-			<div key={localKey++} className="text-gray-300 text-[12px] leading-relaxed">
-				{renderFormattedText(line, localKey)}
-			</div>,
-		)
-	}
-
-	return nodes
-}
-
-// Module-level refs so renderMessageContent can use callbacks from the component
-let _handleApplyCodeFromBlock: ((code: string, language: string) => void) | null = null
-let _handleFileLinkClick: ((path: string) => void) | null = null
-let _handleRunInTerminal: ((code: string) => void) | null = null
-
-function handleApplyCodeFromBlock(code: string, language: string) {
-	if (_handleApplyCodeFromBlock) _handleApplyCodeFromBlock(code, language)
-}
-
-function handleFileLinkClick(path: string) {
-	if (_handleFileLinkClick) _handleFileLinkClick(path)
-}
-
-function handleRunInTerminalFromBlock(code: string) {
-	if (_handleRunInTerminal) _handleRunInTerminal(code)
+const slashCommandHandlers: Record<string, string> = {
+	"/fix": "Fix any errors, bugs, or issues in the following code. Analyze the code carefully and provide a corrected version with explanations.",
+	"/explain":
+		"Explain the following code in detail. Describe what it does, how it works, and any important patterns or concepts used.",
+	"/help":
+		"I can help you with: coding, debugging, refactoring, testing, deployment, code review, documentation, and more. What do you need help with?",
+	"/tests":
+		"Generate comprehensive unit tests for the following code. Include edge cases, error handling, and main functionality tests.",
+	"/optimize":
+		"Optimize the following code for performance, readability, and maintainability. Suggest specific improvements with code examples.",
+	"/refactor":
+		"Refactor the following code to improve its structure, readability, and maintainability while preserving functionality.",
+	"/docs":
+		"Generate documentation for the following code including JSDoc comments, parameter descriptions, return values, and usage examples.",
+	"/review":
+		"Review the following code for potential issues: security vulnerabilities, performance problems, code smells, and best practices violations.",
 }
 
 // ── Main Component ────────────────────────────────────────────────────────
 
 export default function IdeTerminalView() {
-	// ── Global state from store (persisted across tab switches) ──────────
+	// ── Global state from store ──────────────────────────────────────────
 	const { state, dispatch } = useIde()
 	const {
 		aiMessages,
@@ -800,6 +278,7 @@ export default function IdeTerminalView() {
 		loading,
 		showFilePanel,
 		showAiPanel,
+		showTerminal,
 		terminalHeight,
 		isTerminalMaximized,
 		showShortcuts,
@@ -816,7 +295,7 @@ export default function IdeTerminalView() {
 		_hydrated,
 	} = state
 
-	// ── Local-only state (not persisted) ─────────────────────────────────
+	// ── Local-only state ─────────────────────────────────────────────────
 	const [activeMode, setActiveMode] = useState("Auto")
 	const [terminalMode, setTerminalMode] = useState<"shell" | "agent" | "skill">("shell")
 	const [activeAgent, setActiveAgent] = useState<string | null>(null)
@@ -839,13 +318,9 @@ export default function IdeTerminalView() {
 	const [openWorkspacePath, setOpenWorkspacePath] = useState("")
 	const [openWorkspaceLoading, setOpenWorkspaceLoading] = useState(false)
 	const [openWorkspaceError, setOpenWorkspaceError] = useState("")
-	const [smartSuggestions, setSmartSuggestions] = useState<AutocompleteSuggestion[]>([])
+	const [smartSuggestions, setSmartSuggestions] = useState<{ label: string; command: string }[]>([])
 	const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1)
-	const [diffData, setDiffData] = useState<{
-		path: string
-		changes: Array<{ line: number; old: string; new: string }>
-		totalChanges: number
-	} | null>(null)
+	const [diffData, setDiffData] = useState<DiffData | null>(null)
 	const [inlineSelectionPos, setInlineSelectionPos] = useState<{ top: number; left: number } | null>(null)
 	const inlineEditorRef = useRef<HTMLTextAreaElement>(null)
 	const [slashCommandFilter, setSlashCommandFilter] = useState("")
@@ -859,6 +334,8 @@ export default function IdeTerminalView() {
 	const [brainContext, setBrainContext] = useState<ProjectContext | null>(null)
 	const [brainLoading, setBrainLoading] = useState(false)
 	const [showRecentTasks, setShowRecentTasks] = useState(false)
+	const [showSearchPanel, setShowSearchPanel] = useState(false)
+	const [showGitPanel, setShowGitPanel] = useState(false)
 
 	const fileInputRef = useRef<HTMLInputElement>(null)
 	const imageInputRef = useRef<HTMLInputElement>(null)
@@ -925,11 +402,9 @@ export default function IdeTerminalView() {
 		"/pipeline": { agent: "system", description: "Show current pipeline status", icon: "GitBranch" },
 	}
 
-	// ── Detect if input is an agent command ──────────────────────────────
 	const isAgentCommand = (cmd: string) => cmd.startsWith("/") || cmd.startsWith("@")
 	const isAgentMention = (cmd: string) => cmd.startsWith("@")
 
-	// ── Get matching suggestions for autocomplete ────────────────────────
 	const getAgentSuggestions = (input: string): string[] => {
 		if (!input) return []
 		const lower = input.toLowerCase()
@@ -949,55 +424,31 @@ export default function IdeTerminalView() {
 	}
 
 	// ── Load workspace data on mount ──────────────────────────────────────
-	// Wait for IdeProvider hydration to complete before deciding whether to
-	// overwrite state with API data. The hydration effect runs in the parent
-	// (IdeProvider) and sets _hydrated: true, but the child component's effect
-	// may fire before the parent's re-render propagates. We use a ref to track
-	// the latest _hydrated value across renders.
 	const hydratedRef = useRef(_hydrated)
 	hydratedRef.current = _hydrated
 
 	useEffect(() => {
 		async function load() {
 			try {
-				const data = await api<{
+				const data = await apiFetch<{
 					workspaceId: string | null
 					repoName: string | null
 					branch: string
 					files: WorkspaceFile[]
 					pipeline: PipelineStep[]
 					terminalSessions: TerminalSession[]
-					chatMessages: ChatMessage[]
+					recentWorkspaces: RecentWorkspace[]
+					workspaceTasks: WorkspaceTask[]
 					status: WorkspaceStatus
 				}>("/workspace")
-				// Only set data if not already hydrated from localStorage.
-				// The ref captures the latest _hydrated value across renders,
-				// but on first mount the IdeProvider's hydration effect may not
-				// have propagated yet. As a secondary guard, also check if
-				// aiMessages already exist in the store (from localStorage).
-				if (!hydratedRef.current && aiMessages.length === 0) {
-					if (data.repoName) dispatch({ type: "SET_REPO_NAME", payload: data.repoName })
-					if (data.branch) dispatch({ type: "SET_BRANCH", payload: data.branch })
-					if (data.files?.length) dispatch({ type: "SET_FILES", payload: data.files })
-					if (data.pipeline?.length) dispatch({ type: "SET_PIPELINE", payload: data.pipeline })
-					if (data.chatMessages?.length) {
-						dispatch({ type: "SET_AI_MESSAGES", payload: data.chatMessages })
-					}
-					if (data.status) dispatch({ type: "SET_STATUS", payload: data.status })
-					if (data.terminalSessions?.length) {
-						dispatch({ type: "SET_TERMINAL_OUTPUT", payload: data.terminalSessions[0].output })
-					}
-				}
-				// Load Terminal Brain context
-				try {
-					const ctx = await brainApi<{ context?: ProjectContext; projectContext?: ProjectContext }>("context")
-					setBrainContext(ctx.context || ctx.projectContext || null)
-				} catch {}
-				// Load Terminal Brain memory
-				try {
-					const mem = await brainApi<{ memory?: BrainMemory }>("memory")
-					setBrainMemory(mem.memory || null)
-				} catch {}
+				if (hydratedRef.current) return
+				if (data.files) dispatch({ type: "SET_FILES", payload: data.files })
+				if (data.repoName) dispatch({ type: "SET_REPO_NAME", payload: data.repoName })
+				if (data.branch) dispatch({ type: "SET_BRANCH", payload: data.branch })
+				if (data.pipeline) dispatch({ type: "SET_PIPELINE", payload: data.pipeline })
+				if (data.recentWorkspaces) dispatch({ type: "SET_RECENT_WORKSPACES", payload: data.recentWorkspaces })
+				if (data.workspaceTasks) dispatch({ type: "SET_WORKSPACE_TASKS", payload: data.workspaceTasks })
+				if (data.status) dispatch({ type: "SET_STATUS", payload: data.status })
 			} catch (err) {
 				console.error("Failed to load workspace:", err)
 			} finally {
@@ -1005,293 +456,209 @@ export default function IdeTerminalView() {
 			}
 		}
 		load()
-	}, [_hydrated, dispatch])
+	}, [dispatch])
 
-	// ── Auto-scroll AI messages ──────────────────────────────────────────
-	useEffect(() => {
-		aiMessagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-	}, [aiMessages])
-
-	// ── Auto-scroll terminal ──────────────────────────────────────────────
-	useEffect(() => {
-		if (terminalRef.current) {
-			terminalRef.current.scrollTop = terminalRef.current.scrollHeight
-		}
-	}, [terminalOutput])
-
-	// ── Keyboard shortcuts ────────────────────────────────────────────────
+	// ── Keyboard shortcuts (global) ──────────────────────────────────────
 	useEffect(() => {
 		function handleGlobalKeyDown(e: KeyboardEvent) {
-			if (e.ctrlKey && e.key === "`") {
+			if ((e.ctrlKey || e.metaKey) && e.key === "`") {
 				e.preventDefault()
-				dispatch({ type: "SET_IS_TERMINAL_MAXIMIZED", payload: !isTerminalMaximized })
+				dispatch({ type: "SET_SHOW_TERMINAL", payload: !state.showTerminal })
 			}
-			if (e.ctrlKey && e.key === "p") {
+			if ((e.ctrlKey || e.metaKey) && e.key === "b") {
 				e.preventDefault()
-				dispatch({ type: "SET_SHOW_FILE_SEARCH", payload: true })
-				setTimeout(() => fileSearchRef.current?.focus(), 50)
+				dispatch({ type: "SET_SHOW_FILE_PANEL", payload: !showFilePanel })
+			}
+			if ((e.ctrlKey || e.metaKey) && e.key === "f" && !showFilePanel) {
+				e.preventDefault()
+				setShowSearchPanel((v) => !v)
+			}
+			if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "P") {
+				e.preventDefault()
+				dispatch({ type: "SET_SHOW_AI_PANEL", payload: !showAiPanel })
+			}
+			if ((e.ctrlKey || e.metaKey) && e.key === "g") {
+				e.preventDefault()
+				setShowGitPanel((v) => !v)
 			}
 			if (e.key === "Escape") {
-				dispatch({ type: "SET_SHOW_FILE_SEARCH", payload: false })
-				dispatch({ type: "SET_SHOW_SHORTCUTS", payload: false })
-				dispatch({ type: "SET_SHOW_AGENT_SUGGESTIONS", payload: false })
-				dispatch({ type: "SET_SHOW_SMART_SUGGESTIONS", payload: false })
+				setShowSearchPanel(false)
+				setShowGitPanel(false)
 			}
 		}
 		window.addEventListener("keydown", handleGlobalKeyDown)
 		return () => window.removeEventListener("keydown", handleGlobalKeyDown)
-	}, [isTerminalMaximized, dispatch])
+	}, [dispatch, showFilePanel, showAiPanel, state.showTerminal])
 
-	// ── WebSocket Connection for Real-Time Chat ────────────────────────────
+	// ── WebSocket connection ─────────────────────────────────────────────
 	useEffect(() => {
-		let ws: WebSocket | null = null
-		let reconnectTimer: ReturnType<typeof setTimeout> | null = null
-
 		function connect() {
+			const SESSION_KEY = "superroo-chat-session"
+			let sessionId = localStorage.getItem(SESSION_KEY) || ""
+			if (!sessionId) {
+				sessionId = `session-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+				localStorage.setItem(SESSION_KEY, sessionId)
+			}
+			const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
+			const wsUrl = `${protocol}//${window.location.host}/api/ws/chat?session=${sessionId}`
 			try {
-				const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
-				const SESSION_KEY = "superroo-chat-session"
-				let sessionId = localStorage.getItem(SESSION_KEY)
-				if (!sessionId) {
-					sessionId = `session-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
-					localStorage.setItem(SESSION_KEY, sessionId)
-				}
-				const wsUrl = `${protocol}//${window.location.host}/api/ws/chat?session=${encodeURIComponent(sessionId)}`
-				ws = new WebSocket(wsUrl)
-				wsRef.current = ws
-
+				const ws = new WebSocket(wsUrl)
 				ws.onopen = () => {
 					setWsConnected(true)
 					setWsReconnecting(false)
-					// Send ping every 30s to keep alive
 					const pingInterval = setInterval(() => {
-						if (wsRef.current?.readyState === WebSocket.OPEN) {
-							wsRef.current.send(JSON.stringify({ type: "ping" }))
-						}
+						if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "ping" }))
 					}, 30000)
-					if (ws) ws.addEventListener("close", () => clearInterval(pingInterval))
+					ws.addEventListener("close", () => clearInterval(pingInterval))
 				}
-
 				ws.onmessage = (event) => {
 					try {
 						const data = JSON.parse(event.data)
 						switch (data.type) {
-							case "connected":
-								console.log("[ws-chat] Connected:", data.sessionId)
-								break
-							case "pong":
-								break
 							case "assistant-start": {
-								// Create placeholder message for streaming
-								const assistantId = data.id
-								const placeholder: ChatMessage = {
-									id: assistantId,
-									role: "agent",
-									author: "AI",
-									meta: "streaming...",
+								const msg: ChatMessage = {
+									id: `msg-${Date.now()}`,
+									role: "assistant",
+									author: data.agent || "AI",
+									meta: data.meta,
 									time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
 									content: "",
 								}
-								dispatch({ type: "ADD_AI_MESSAGE", payload: placeholder })
+								dispatch({ type: "ADD_AI_MESSAGE", payload: msg })
 								break
 							}
 							case "token": {
-								// Use functional update via reading current state
-								const lastMsg = aiMessages[aiMessages.length - 1]
-								if (lastMsg && lastMsg.meta === "streaming...") {
-									dispatch({
-										type: "UPDATE_LAST_AI_MESSAGE",
-										payload: { content: lastMsg.content + data.text },
-									})
-								}
+								dispatch({ type: "UPDATE_LAST_AI_MESSAGE", payload: data.text })
 								break
 							}
 							case "done":
-								dispatch({
-									type: "UPDATE_LAST_AI_MESSAGE",
-									payload: {
-										content: data.reply || undefined,
-										author: data.provider || "AI",
-										meta: `${data.model || ""} · ws`,
-									},
-								})
 								dispatch({ type: "SET_AI_SENDING", payload: false })
-								break
-							case "suggestions":
-								if (Array.isArray(data.suggestions)) {
+								if (data.suggestions?.length) {
 									dispatch({ type: "SET_PROACTIVE_SUGGESTIONS", payload: data.suggestions })
 								}
 								break
+							case "suggestions":
+								setSmartSuggestions(
+									data.suggestions?.map((s: string) => ({
+										text: s,
+										description: "AI suggestion",
+										type: "ai" as const,
+									})) || [],
+								)
+								dispatch({ type: "SET_SHOW_SMART_SUGGESTIONS", payload: true })
+								break
 							case "error":
-								dispatch({
-									type: "UPDATE_LAST_AI_MESSAGE",
-									payload: {
-										content: `Error: ${data.message}`,
-										author: "System",
-										meta: "error",
-									},
-								})
 								dispatch({ type: "SET_AI_SENDING", payload: false })
+								const errMsg: ChatMessage = {
+									id: `msg-${Date.now()}`,
+									role: "assistant",
+									author: "System",
+									time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+									content: `Error: ${data.message || "Unknown error"}`,
+								}
+								dispatch({ type: "ADD_AI_MESSAGE", payload: errMsg })
 								break
 							case "cancelled":
-								dispatch({
-									type: "UPDATE_LAST_AI_MESSAGE",
-									payload: { meta: "cancelled" },
-								})
 								dispatch({ type: "SET_AI_SENDING", payload: false })
 								break
-							case "typing":
-								// Could show typing indicator
-								break
 						}
-					} catch (err) {
-						console.error("[ws-chat] Parse error:", err)
+					} catch {
+						// ignore parse errors
 					}
 				}
-
 				ws.onclose = () => {
 					setWsConnected(false)
-					// Auto-reconnect after 3s
+					setWsReconnecting(true)
 					reconnectTimer = setTimeout(() => {
-						setWsReconnecting(true)
 						connect()
 					}, 3000)
 				}
-
 				ws.onerror = () => {
-					// onclose will fire after onerror
+					ws.close()
 				}
-			} catch (err) {
-				console.error("[ws-chat] Connection error:", err)
-				setWsConnected(false)
+				wsRef.current = ws
+			} catch {
+				setWsReconnecting(true)
+				reconnectTimer = setTimeout(() => connect(), 3000)
 			}
 		}
-
+		let reconnectTimer: ReturnType<typeof setTimeout>
 		connect()
-
 		return () => {
-			if (reconnectTimer) clearTimeout(reconnectTimer)
-			if (ws) {
-				ws.onclose = null // prevent reconnect on unmount
-				ws.close()
+			clearTimeout(reconnectTimer)
+			if (wsRef.current) {
+				wsRef.current.close()
+				wsRef.current = null
 			}
-			wsRef.current = null
 		}
-	}, [aiMessages, dispatch])
+	}, [dispatch])
 
-	// ── OpenClaw data fetching ────────────────────────────────────────────
-	// Fetch orchestrator status for the Plan tab
-	const fetchOrchestratorStatus = useCallback(async () => {
+	// ── Fetch orchestrator status ────────────────────────────────────────
+	const fetchOrchestratorStatusData = useCallback(async () => {
 		try {
-			const data = await api<{
-				ok: boolean
-				running?: boolean
-				mode?: string
-				uptime?: number
-				taskCount?: number
-				tasks?: Array<{
-					id: string
-					type: string
-					status: string
-					createdAt: number
-					instruction: string
-				}>
-				modules?: string[]
-				hermesClaw?: boolean
-			}>("/ide-workspace/orchestrator/status")
-			if (data.ok && data.tasks) {
-				setBrainPlan(
-					data.tasks.map((t) => ({
-						command: t.instruction?.substring(0, 100) || t.type,
-						description: `${t.status} · ${t.type} · ${new Date(t.createdAt).toLocaleTimeString()}`,
+			const data = await fetchOrchestratorStatus()
+			if (data.tasks) {
+				dispatch({
+					type: "SET_WORKSPACE_TASKS",
+					payload: data.tasks.map((t: any) => ({
+						id: t.id,
+						title: t.description || t.type || "Task",
+						status: t.status,
+						priority: t.priority,
+						createdAt: t.createdAt,
 					})),
-				)
-				setBrainFeedback({
-					status: data.running ? "running" : "stopped",
-					output: `Orchestrator: ${data.running ? "🟢 running" : "🔴 stopped"} · Mode: ${data.mode || "auto"} · ${data.taskCount || 0} tasks · ${data.modules?.length || 0} modules loaded`,
 				})
 			}
 		} catch {
-			// Silently fail — orchestrator may not be initialized
+			// silent
 		}
-	}, [])
+	}, [dispatch])
 
-	// Fetch HermesClaw stats for the Memory tab
-	const fetchHermesStats = useCallback(async () => {
+	const fetchHermesStatsData = useCallback(async () => {
 		try {
-			const data = await api<{
-				ok: boolean
-				stats?: {
-					totalOperations?: number
-					totalMemoryEntries?: number
-					successRate?: number
-					operationsByType?: Record<string, number>
-				}
-			}>("/ide-workspace/hermes/stats")
-			if (data.ok && data.stats) {
-				setBrainMemory({
-					stats: {
-						totalSessions: data.stats.totalOperations || 0,
-						totalCommands: data.stats.totalMemoryEntries || 0,
-						totalErrors: 0,
-						successRate: data.stats.successRate || 0,
-					},
-					commands: [],
-				})
+			const data = await fetchHermesStats()
+			if (data.stats) {
+				dispatch({ type: "SET_HERMES_STATS", payload: data.stats })
 			}
 		} catch {
-			// Silently fail
+			// silent
 		}
-	}, [])
+	}, [dispatch])
 
-	// Fetch deployments for the Deploy tab
-	const fetchDeployments = useCallback(async () => {
+	const fetchDeploymentsData = useCallback(async () => {
 		try {
-			const data = await api<{
-				ok: boolean
-				deployments?: Array<{
-					version: string
-					status: string
-					timestamp: string
-				}>
-			}>("/deployments")
-			if (data.ok && data.deployments) {
-				setBrainDeployments(
-					data.deployments.map((d) => ({
-						version: d.version,
+			const data = await fetchDeployments()
+			if (data.deployments) {
+				dispatch({
+					type: "SET_DEPLOYMENTS",
+					payload: data.deployments.map((d: any) => ({
+						id: d.id,
 						status: d.status,
-						timestamp: d.timestamp,
-						time: d.timestamp,
+						branch: d.branch,
+						timestamp: d.timestamp || d.createdAt,
+						url: d.url,
 					})),
-				)
+				})
 			}
 		} catch {
-			// Silently fail
+			// silent
 		}
-	}, [])
+	}, [dispatch])
 
-	// ── Fetch data when tab changes ───────────────────────────────────────
 	useEffect(() => {
-		if (aiTab === "plan") {
-			setBrainLoading(true)
-			fetchOrchestratorStatus().finally(() => setBrainLoading(false))
-		} else if (aiTab === "memory") {
-			setBrainLoading(true)
-			fetchHermesStats().finally(() => setBrainLoading(false))
-		} else if (aiTab === "deploy") {
-			setBrainLoading(true)
-			fetchDeployments().finally(() => setBrainLoading(false))
-		}
-	}, [aiTab, fetchOrchestratorStatus, fetchHermesStats, fetchDeployments])
+		fetchOrchestratorStatusData()
+		fetchHermesStatsData()
+		fetchDeploymentsData()
+		const interval = setInterval(fetchOrchestratorStatusData, 30000)
+		return () => clearInterval(interval)
+	}, [fetchOrchestratorStatusData, fetchHermesStatsData, fetchDeploymentsData])
 
-	// ── Drag & drop handlers ──────────────────────────────────────────────
+	// ── Drag & drop ──────────────────────────────────────────────────────
 	useEffect(() => {
 		function handleDragEnter(e: DragEvent) {
 			e.preventDefault()
 			dragCounter.current++
-			if (e.dataTransfer?.types.includes("Files")) {
-				setDragOver(true)
-			}
+			if (e.dataTransfer?.types.includes("Files")) setDragOver(true)
 		}
 		function handleDragLeave(e: DragEvent) {
 			e.preventDefault()
@@ -1305,78 +672,71 @@ export default function IdeTerminalView() {
 			e.preventDefault()
 			dragCounter.current = 0
 			setDragOver(false)
-			if (e.dataTransfer?.files) {
-				const newAtts: ChatAttachment[] = []
-				for (const file of Array.from(e.dataTransfer.files)) {
-					newAtts.push({
-						id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-						filename: file.name,
-						type: file.type || "unknown",
-						size: `${(file.size / 1024).toFixed(1)}KB`,
-					})
-				}
-				dispatch({ type: "SET_AI_ATTACHMENTS", payload: [...aiAttachments, ...newAtts] })
+			const files = e.dataTransfer?.files
+			if (files && files.length > 0) {
+				handleFilesSelectedFromList(Array.from(files))
 			}
 		}
 		window.addEventListener("dragenter", handleDragEnter)
+		window.addEventListener("dragover", (e) => e.preventDefault())
 		window.addEventListener("dragleave", handleDragLeave)
 		window.addEventListener("drop", handleDrop)
 		return () => {
 			window.removeEventListener("dragenter", handleDragEnter)
+			window.removeEventListener("dragover", (e) => e.preventDefault())
 			window.removeEventListener("dragleave", handleDragLeave)
 			window.removeEventListener("drop", handleDrop)
 		}
-	}, [aiAttachments, dispatch])
+	}, [])
 
-	// ── Paste handler ─────────────────────────────────────────────────────
+	// ── Paste handler ────────────────────────────────────────────────────
 	useEffect(() => {
 		function handlePaste(e: ClipboardEvent) {
 			const items = e.clipboardData?.items
-			const textData = e.clipboardData?.getData("text")
 			if (!items) return
-
-			const activeEl = document.activeElement
-
-			// ── Case 1: Terminal input is focused → paste text into terminal ──
-			if (activeEl && activeEl === terminalInputRef.current && textData) {
-				e.preventDefault()
-				dispatch({ type: "SET_TERMINAL_INPUT", payload: terminalInput + textData })
-				return
-			}
-
-			// ── Case 2: AI textarea is focused → handle image attachments ──
-			const newAtts: ChatAttachment[] = []
-			for (const item of Array.from(items)) {
-				if (item.type.startsWith("image/")) {
-					const file = item.getAsFile()
-					if (file) {
-						newAtts.push({
-							id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-							filename: `pasted-${Date.now()}.${item.type.split("/")[1] || "png"}`,
-							type: item.type,
-							size: `${(file.size / 1024).toFixed(1)}KB`,
-						})
-					}
+			const imageFiles: File[] = []
+			for (let i = 0; i < items.length; i++) {
+				if (items[i].type.startsWith("image/")) {
+					const file = items[i].getAsFile()
+					if (file) imageFiles.push(file)
 				}
 			}
-			if (newAtts.length > 0) {
-				dispatch({ type: "SET_AI_ATTACHMENTS", payload: [...aiAttachments, ...newAtts] })
+			if (imageFiles.length > 0) {
+				e.preventDefault()
+				handleFilesSelectedFromList(imageFiles)
 			}
 		}
 		window.addEventListener("paste", handlePaste)
 		return () => window.removeEventListener("paste", handlePaste)
-	}, [terminalInput, aiAttachments, dispatch])
+	}, [])
 
-	// ── Slash command handlers ────────────────────────────────────────────
-	const slashCommandHandlers: Record<string, string> = {
-		"/fix": `Fix any errors, bugs, or issues in the current file. Analyze the code carefully and provide the complete fixed version.`,
-		"/explain": `Explain the selected code or the current file in simple terms. Break down what each part does.`,
-		"/help": `Provide helpful guidance about using the Cloud IDE. List available features and how to use them.`,
-		"/tests": `Generate comprehensive tests for the current file. Include unit tests, edge cases, and test descriptions.`,
-		"/optimize": `Optimize the current file for better performance, readability, and maintainability.`,
-		"/refactor": `Refactor the current file to improve code structure while preserving functionality.`,
-		"/docs": `Generate documentation for the current file including function descriptions, parameters, and usage examples.`,
-		"/review": `Review the current file for potential issues, security concerns, and best practices.`,
+	// ── File selection helper ────────────────────────────────────────────
+	async function handleFilesSelectedFromList(fileList: File[]) {
+		for (const file of fileList) {
+			if (file.type.startsWith("image/")) {
+				const reader = new FileReader()
+				reader.onload = (e) => {
+					const dataUrl = e.target?.result as string
+					const attachment: ChatAttachment = {
+						id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+						filename: file.name,
+						type: "image",
+						size: `${(file.size / 1024).toFixed(1)} KB`,
+					}
+					dispatch({ type: "ADD_AI_ATTACHMENT", payload: attachment })
+				}
+				reader.readAsDataURL(file)
+			} else {
+				const text = await file.text()
+				const attachment: ChatAttachment = {
+					id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+					filename: file.name,
+					type: "file",
+					size: `${(file.size / 1024).toFixed(1)} KB`,
+				}
+				dispatch({ type: "ADD_AI_ATTACHMENT", payload: attachment })
+			}
+		}
 	}
 
 	// ── UNIFIED AI Chat Send (WebSocket) ──────────────────────────────────
@@ -1394,7 +754,6 @@ export default function IdeTerminalView() {
 		let text = aiInput.trim()
 		if (!text && aiAttachments.length === 0) return
 
-		// Function 3: Slash commands — expand /fix, /explain, etc. into full prompts
 		let slashCommandUsed = ""
 		if (text.startsWith("/")) {
 			const cmd = text.split(" ")[0].toLowerCase()
@@ -1429,8 +788,6 @@ export default function IdeTerminalView() {
 		dispatch({ type: "SET_PROACTIVE_SUGGESTIONS", payload: [] })
 		dispatch({ type: "SET_SHOW_SLASH_COMMANDS", payload: false })
 
-		// ── Build rich context for the AI ──────────────────────────────
-		// 1. Current (active) file with full content
 		let currentFile = undefined
 		if (activeFilePath) {
 			const openFile = openFiles.find((f) => f.path === activeFilePath)
@@ -1444,7 +801,6 @@ export default function IdeTerminalView() {
 			}
 		}
 
-		// 2. All open files (file names + paths, truncated content)
 		const allOpenFiles = openFiles.map((f) => ({
 			path: f.path,
 			name: f.name,
@@ -1453,1948 +809,846 @@ export default function IdeTerminalView() {
 			content: f.path === activeFilePath ? undefined : f.content.slice(0, 2000),
 		}))
 
-		// 3. Workspace file tree (file names only, for structure awareness)
 		const workspaceFiles = files.map((f) => ({
 			name: f.name,
 			path: f.path,
 			kind: f.kind,
 		}))
 
-		// 4. Recent terminal output for context (last 30 lines)
 		const terminalContext = terminalOutput.slice(-30)
-
-		// 5. Recent conversation history (last 6 messages for continuity)
 		const recentHistory = aiMessages.slice(-6).map((m) => ({
 			role: m.role,
 			author: m.author,
 			content: m.content.length > 500 ? m.content.slice(0, 500) + "..." : m.content,
 		}))
-
-		// 6. Pending workspace tasks
 		const pendingTasks = workspaceTasks.filter((t) => t.status === "pending").map((t) => t.title)
 
-		// ── Build a human-readable context summary for the user ─────────
 		const contextParts: string[] = []
 		if (repoName) contextParts.push(`**Workspace:** ${repoName}${branch ? ` (${branch})` : ""}`)
 		if (currentFile) contextParts.push(`**Active file:** \`${currentFile.path}\``)
-		if (allOpenFiles.length > 0) {
-			const fileList = allOpenFiles.map((f) => `\`${f.path}\``).join(", ")
-			contextParts.push(`**Open files (${allOpenFiles.length}):** ${fileList}`)
-		}
-		if (workspaceFiles.length > 0) {
-			const folderCount = workspaceFiles.filter((f) => f.kind === "folder").length
-			const fileCount = workspaceFiles.filter((f) => f.kind === "file").length
-			contextParts.push(`**Workspace structure:** ${folderCount} folders, ${fileCount} files`)
-		}
-		if (terminalContext.length > 0) {
-			contextParts.push(`**Terminal output:** ${terminalContext.length} recent lines available`)
-		}
-		if (recentHistory.length > 0) {
-			contextParts.push(`**Conversation history:** ${recentHistory.length} previous messages`)
-		}
-		if (pendingTasks.length > 0) {
-			contextParts.push(`**Pending tasks:** ${pendingTasks.join(", ")}`)
-		}
-		if (currentFileSelection) {
-			contextParts.push(`**Selection:** ${currentFileSelection.length} chars selected in active file`)
-		}
-		if (aiAttachments.length > 0) {
-			contextParts.push(`**Attachments:** ${aiAttachments.length} file(s)/image(s) attached`)
-		}
+		if (allOpenFiles.length > 1)
+			contextParts.push(`**Open files:** ${allOpenFiles.map((f) => `\`${f.path}\``).join(", ")}`)
+		if (terminalContext.length > 0)
+			contextParts.push(`**Recent terminal output:**\n\`\`\`\n${terminalContext.join("\n")}\n\`\`\``)
+		if (pendingTasks.length > 0) contextParts.push(`**Pending tasks:** ${pendingTasks.join(", ")}`)
+		if (currentFileSelection) contextParts.push(`**Selected code:**\n\`\`\`\n${currentFileSelection}\n\`\`\``)
 
-		const contextSummary =
-			contextParts.length > 0 ? `📋 **Context sent to AI**\n\n${contextParts.join("\n")}\n\n---` : null
+		const contextSummary = contextParts.length > 0 ? `\n\n---\n${contextParts.join("\n")}` : ""
 
-		// Add context summary as a system message so the user sees what the AI knows
-		if (contextSummary) {
-			dispatch({
-				type: "ADD_AI_MESSAGE",
-				payload: {
-					id: `ctx-${Date.now()}`,
-					role: "system",
-					author: "Context",
-					time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-					content: contextSummary,
-				},
-			})
-		}
-
-		// If WebSocket is connected, use it for real-time streaming
-		if (wsRef.current?.readyState === WebSocket.OPEN) {
-			// Send via WebSocket — the assistant-start/token/done events
-			// are handled by the WebSocket onmessage handler above
-			wsRef.current.send(
-				JSON.stringify({
-					type: "chat",
-					text: text, // ✅ raw user message — not a wrapped contextInstruction
-					context: {
-						repoName,
-						branch,
-					},
-					currentFile,
-					allOpenFiles,
-					workspaceFiles,
-					terminalOutput: terminalContext,
-					pendingTasks,
-					provider: typeof window !== "undefined" ? localStorage.getItem("superroo-chat-provider") : null,
-				}),
-			)
-
-			// Add a workspace task to memory
-			if (text.length > 10) {
-				const taskTitle = text.length > 60 ? text.substring(0, 60) + "..." : text
-				const newTask: WorkspaceTask = {
-					id: `task-${Date.now()}`,
-					title: taskTitle,
-					status: "pending",
-					createdAt: new Date().toISOString(),
-				}
-				dispatch({ type: "SET_WORKSPACE_TASKS", payload: [newTask, ...workspaceTasks.slice(0, 49)] })
-			}
-
-			return
-		}
-
-		// Fallback: if WebSocket not connected, use HTTP POST
-		try {
-			const storedProvider = typeof window !== "undefined" ? localStorage.getItem("superroo-chat-provider") : null
-
-			// Build the same rich context as the WebSocket path
-			let currentFile = undefined
-			if (activeFilePath) {
-				const openFile = openFiles.find((f) => f.path === activeFilePath)
-				if (openFile) {
-					currentFile = {
-						path: openFile.path,
-						content: openFile.content,
-						language: openFile.language,
-						selection: currentFileSelection || undefined,
-					}
-				}
-			}
-			const allOpenFiles = openFiles.map((f) => ({
-				path: f.path,
-				name: f.name,
-				language: f.language,
-				modified: f.modified,
-				content: f.path === activeFilePath ? undefined : f.content.slice(0, 2000),
-			}))
-			const workspaceFiles = files.map((f) => ({ name: f.name, path: f.path, kind: f.kind }))
-			const terminalContext = terminalOutput.slice(-30)
-			const recentHistory = aiMessages.slice(-6).map((m) => ({
-				role: m.role,
-				author: m.author,
-				content: m.content.length > 500 ? m.content.slice(0, 500) + "..." : m.content,
-			}))
-			const pendingTasks = workspaceTasks.filter((t) => t.status === "pending").map((t) => t.title)
-
-			const body: Record<string, unknown> = {
-				message: text, // ✅ raw user message
+		const payload = {
+			type: "chat",
+			message: text + contextSummary,
+			sessionId,
+			attachments: aiAttachments.map((a) => ({ filename: a.filename, type: a.type })),
+			context: {
 				currentFile,
-				allOpenFiles,
+				openFiles: allOpenFiles,
 				workspaceFiles,
-				terminalOutput: terminalContext,
-				conversationHistory: recentHistory,
+				recentHistory,
 				pendingTasks,
 				repoName,
 				branch,
-			}
-			if (storedProvider && storedProvider !== "auto") {
-				body.provider = storedProvider
-			}
-			const result = await api<{
-				ok: boolean
-				reply?: string
-				provider?: string
-				model?: string
-				intent?: string
-				agent?: string
-				orchestratorTaskId?: string | null
-				hermesContextUsed?: boolean
-			}>("/ide-workspace/chat", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					"x-session-id": sessionId,
-				},
-				body: JSON.stringify(body),
-			})
+			},
+		}
 
-			const replyText = result.reply || "Message received."
-			const agentName = result.agent || "chat"
-			const metaParts = [agentName]
-			if (result.model) metaParts.push(result.model)
-			if (result.orchestratorTaskId) metaParts.push(`task:${result.orchestratorTaskId.substring(0, 8)}`)
-			if (result.hermesContextUsed) metaParts.push("🧠")
-
-			// Update the last message (streaming placeholder) or add a new one
-			const lastMsg = aiMessages[aiMessages.length - 1]
-			if (lastMsg && lastMsg.meta === "streaming...") {
-				dispatch({
-					type: "UPDATE_LAST_AI_MESSAGE",
-					payload: {
-						content: replyText,
-						author: result.provider || "AI",
-						meta: metaParts.join(" · "),
-					},
+		if (wsRef.current?.readyState === WebSocket.OPEN) {
+			wsRef.current.send(JSON.stringify(payload))
+		} else {
+			try {
+				const data = await apiFetch<{ reply: string; suggestions?: string[] }>("/brain/ask", {
+					method: "POST",
+					body: JSON.stringify({
+						message: text + contextSummary,
+						sessionId,
+						context: {
+							openFiles: allOpenFiles,
+							workspaceFiles,
+							recentHistory,
+						},
+					}),
 				})
-			} else {
-				dispatch({
-					type: "ADD_AI_MESSAGE",
-					payload: {
-						id: `msg-${Date.now() + 1}`,
-						role: "agent",
-						author: result.provider || "AI",
-						meta: metaParts.join(" · "),
-						time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-						content: replyText,
-					},
-				})
-			}
-
-			if (result.orchestratorTaskId) {
-				fetchOrchestratorStatus()
-			}
-		} catch (err) {
-			const lastMsg = aiMessages[aiMessages.length - 1]
-			if (lastMsg && lastMsg.meta === "streaming...") {
-				dispatch({
-					type: "UPDATE_LAST_AI_MESSAGE",
-					payload: {
-						content: `Error: ${err instanceof Error ? err.message : "Failed"}`,
-						author: "System",
-					},
-				})
+				const replyMsg: ChatMessage = {
+					id: `msg-${Date.now()}`,
+					role: "assistant",
+					author: "AI",
+					time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+					content: data.reply || "No response",
+				}
+				dispatch({ type: "ADD_AI_MESSAGE", payload: replyMsg })
+				if (data.suggestions?.length) {
+					dispatch({ type: "SET_PROACTIVE_SUGGESTIONS", payload: data.suggestions })
+				}
+			} catch (err: any) {
+				const errMsg: ChatMessage = {
+					id: `msg-${Date.now()}`,
+					role: "assistant",
+					author: "System",
+					time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+					content: `Failed to send message: ${err.message}`,
+				}
+				dispatch({ type: "ADD_AI_MESSAGE", payload: errMsg })
+			} finally {
+				dispatch({ type: "SET_AI_SENDING", payload: false })
 			}
 		}
-		dispatch({ type: "SET_AI_SENDING", payload: false })
 	}, [
 		aiInput,
 		aiAttachments,
 		activeFilePath,
 		openFiles,
 		files,
-		currentFileSelection,
 		terminalOutput,
-		fetchOrchestratorStatus,
 		aiMessages,
 		workspaceTasks,
 		repoName,
 		branch,
+		currentFileSelection,
 		dispatch,
 	])
 
-	const handleAiKeyDown = useCallback(
-		(e: React.KeyboardEvent) => {
-			// Function 3: Slash commands auto-complete
-			if (e.key === "Tab" && showSlashCommands) {
-				e.preventDefault()
-				const filtered = slashCommandsList.filter((sc) => sc.command.startsWith(slashCommandFilter || "/"))
-				if (filtered.length > 0) {
-					dispatch({ type: "SET_AI_INPUT", payload: filtered[0].command + " " })
-					dispatch({ type: "SET_SHOW_SLASH_COMMANDS", payload: false })
-				}
-				return
-			}
-			if (e.key === "Escape") {
-				dispatch({ type: "SET_SHOW_SLASH_COMMANDS", payload: false })
-				return
-			}
-			if (e.key === "Enter" && !e.shiftKey) {
-				e.preventDefault()
-				dispatch({ type: "SET_SHOW_SLASH_COMMANDS", payload: false })
-				handleAiSend()
-			}
-		},
-		[handleAiSend, showSlashCommands, slashCommandFilter, dispatch],
-	)
-
-	// ── Terminal command handlers ─────────────────────────────────────────
-	const handleTerminalCommand = useCallback(async () => {
-		const cmd = terminalInput.trim()
-		if (!cmd) return
-
-		dispatch({ type: "APPEND_TERMINAL_OUTPUT", payload: [`$ ${cmd}`] })
-		dispatch({ type: "SET_TERMINAL_INPUT", payload: "" })
-		dispatch({
-			type: "SET_RECENT_COMMANDS",
-			payload: [cmd, ...recentCommands.filter((c) => c !== cmd)].slice(0, 20),
-		})
-
-		if (isAgentCommand(cmd)) {
-			setAgentRunning(true)
-			const agentName = cmd.startsWith("@") ? cmd.slice(1).split(" ")[0] : cmd.split(" ")[0].slice(1)
-			setActiveAgent(agentName)
-			setTerminalMode("agent")
-
+	// ── Handle file selection from tree ──────────────────────────────────
+	const handleFileSelect = useCallback(
+		async (filePath: string) => {
+			setCurrentFilePath(filePath)
 			try {
-				const result = await api<{ ok: boolean; output?: string[]; error?: string }>(
-					"/ide-workspace/terminal",
-					{
-						method: "POST",
-						body: JSON.stringify({ command: cmd }),
-					},
-				)
-				if (result.output) {
-					dispatch({ type: "APPEND_TERMINAL_OUTPUT", payload: result.output })
+				const result = await fetchFileContent(filePath)
+				const content = result.content
+				const ext = filePath.split(".").pop() || ""
+				const langMap: Record<string, string> = {
+					ts: "typescript",
+					tsx: "typescript",
+					js: "javascript",
+					jsx: "javascript",
+					json: "json",
+					md: "markdown",
+					html: "html",
+					css: "css",
+					py: "python",
+					rs: "rust",
+					go: "go",
+					yaml: "yaml",
+					yml: "yaml",
+					toml: "toml",
+					sql: "sql",
+					sh: "bash",
+					bash: "bash",
 				}
-				if (result.error) {
-					dispatch({ type: "APPEND_TERMINAL_OUTPUT", payload: [`✕ ${result.error}`] })
+				const language = langMap[ext] || "text"
+				setCurrentFileContent(content)
+				setCurrentFileLanguage(language)
+				const existing = openFiles.find((f) => f.path === filePath)
+				if (!existing) {
+					const name = filePath.split("/").pop() || filePath
+					const newFile: OpenFile = { path: filePath, name, content, language, modified: false }
+					dispatch({ type: "SET_OPEN_FILES", payload: [...openFiles, newFile] })
 				}
+				dispatch({ type: "SET_ACTIVE_FILE_PATH", payload: filePath })
 			} catch (err) {
-				dispatch({
-					type: "APPEND_TERMINAL_OUTPUT",
-					payload: [`✕ Command failed: ${err instanceof Error ? err.message : "Unknown error"}`],
-				})
-			} finally {
-				setAgentRunning(false)
-				setActiveAgent(null)
-				setTerminalMode("shell")
+				console.error("Failed to load file:", err)
 			}
-		} else {
-			// Shell command — execute via API
-			try {
-				const result = await api<{ ok: boolean; output?: string[]; error?: string }>(
-					"/ide-workspace/terminal",
-					{
-						method: "POST",
-						body: JSON.stringify({ command: cmd }),
-					},
-				)
-				if (result.output) {
-					dispatch({ type: "APPEND_TERMINAL_OUTPUT", payload: result.output })
-				}
-				if (result.error) {
-					dispatch({ type: "APPEND_TERMINAL_OUTPUT", payload: [`✕ ${result.error}`] })
-				}
-			} catch (err) {
-				dispatch({
-					type: "APPEND_TERMINAL_OUTPUT",
-					payload: [`✕ Command failed: ${err instanceof Error ? err.message : "Unknown error"}`],
-				})
-			}
-		}
-	}, [terminalInput, recentCommands, dispatch])
-
-	const handleTerminalKeyDown = useCallback(
-		(e: React.KeyboardEvent) => {
-			if (e.key === "Enter") {
-				e.preventDefault()
-				handleTerminalCommand()
-			}
-			if (e.key === "Tab" && showSmartSuggestions && smartSuggestions.length > 0) {
-				e.preventDefault()
-				const idx = selectedSuggestionIndex >= 0 ? selectedSuggestionIndex : 0
-				const suggestion = smartSuggestions[idx]
-				if (suggestion) {
-					dispatch({ type: "SET_TERMINAL_INPUT", payload: suggestion.text + " " })
-					dispatch({ type: "SET_SHOW_SMART_SUGGESTIONS", payload: false })
-					setSelectedSuggestionIndex(-1)
-				}
-			}
-			if (e.key === "ArrowUp" && showSmartSuggestions) {
-				e.preventDefault()
-				setSelectedSuggestionIndex((prev) => Math.max(0, prev - 1))
-			}
-			if (e.key === "ArrowDown" && showSmartSuggestions) {
-				e.preventDefault()
-				setSelectedSuggestionIndex((prev) => Math.min(smartSuggestions.length - 1, prev + 1))
-			}
-		},
-		[handleTerminalCommand, showSmartSuggestions, smartSuggestions, selectedSuggestionIndex, dispatch],
-	)
-
-	const handleTerminalInputChange = useCallback(
-		(e: React.ChangeEvent<HTMLInputElement>) => {
-			const val = e.target.value
-			dispatch({ type: "SET_TERMINAL_INPUT", payload: val })
-
-			if (val.startsWith("/") || val.startsWith("@")) {
-				const suggestions = getAgentSuggestions(val)
-				setAgentSuggestions(suggestions)
-				dispatch({ type: "SET_SHOW_AGENT_SUGGESTIONS", payload: suggestions.length > 0 })
-				dispatch({ type: "SET_SHOW_SMART_SUGGESTIONS", payload: false })
-			} else if (val.length >= 2) {
-				const smart = getSmartSuggestions(val, recentCommands, agentCommands)
-				setSmartSuggestions(smart)
-				dispatch({ type: "SET_SHOW_SMART_SUGGESTIONS", payload: smart.length > 0 })
-				dispatch({ type: "SET_SHOW_AGENT_SUGGESTIONS", payload: false })
-				setSelectedSuggestionIndex(-1)
-			} else {
-				dispatch({ type: "SET_SHOW_AGENT_SUGGESTIONS", payload: false })
-				dispatch({ type: "SET_SHOW_SMART_SUGGESTIONS", payload: false })
-				setSelectedSuggestionIndex(-1)
-			}
-		},
-		[recentCommands, dispatch],
-	)
-
-	const handleFileClick = useCallback(
-		(path: string, name: string) => {
-			if (!openFiles.find((f) => f.path === path)) {
-				dispatch({
-					type: "SET_OPEN_FILES",
-					payload: [
-						...openFiles,
-						{ path, name, content: `// ${name}\n\n// Loading...`, language: "text", modified: false },
-					],
-				})
-			}
-			dispatch({ type: "SET_ACTIVE_FILE_PATH", payload: path })
 		},
 		[openFiles, dispatch],
 	)
 
-	const handleFilesSelected = useCallback(
-		(e: React.ChangeEvent<HTMLInputElement>) => {
-			const files = e.target.files
-			if (!files) return
-			const newAttachments: ChatAttachment[] = []
-			for (const file of Array.from(files)) {
-				newAttachments.push({
-					id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-					filename: file.name,
-					type: file.type || "unknown",
-					size: `${(file.size / 1024).toFixed(1)}KB`,
+	// ── Handle file save (CodeEditor calls onSave(value: string)) ────────
+	const handleFileSave = useCallback(
+		async (content: string) => {
+			const path = currentFilePath
+			if (!path) return
+			try {
+				await saveFileContent(path, content)
+				dispatch({
+					type: "SET_OPEN_FILES",
+					payload: openFiles.map((f) => (f.path === path ? { ...f, content, modified: false } : f)),
 				})
+				setCurrentFileContent(content)
+			} catch (err) {
+				console.error("Failed to save file:", err)
 			}
-			dispatch({ type: "SET_AI_ATTACHMENTS", payload: [...aiAttachments, ...newAttachments] })
-			e.target.value = ""
 		},
-		[aiAttachments, dispatch],
+		[currentFilePath, openFiles, dispatch],
 	)
 
-	const handleImagesSelected = useCallback(
-		(e: React.ChangeEvent<HTMLInputElement>) => {
-			const files = e.target.files
-			if (!files) return
-			const newAttachments: ChatAttachment[] = []
-			for (const file of Array.from(files)) {
-				newAttachments.push({
-					id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-					filename: file.name,
-					type: file.type || "image/png",
-					size: `${(file.size / 1024).toFixed(1)}KB`,
-				})
+	// ── Handle terminal command execution ────────────────────────────────
+	const handleTerminalCommand = useCallback(
+		async (cmd: string) => {
+			if (!cmd.trim()) return
+			dispatch({ type: "SET_TERMINAL_INPUT", payload: "" })
+			dispatch({ type: "APPEND_TERMINAL_OUTPUT", payload: [`$ ${cmd}`] })
+			try {
+				const result = await sendTerminalCommand(cmd)
+				if (result.output) {
+					dispatch({
+						type: "APPEND_TERMINAL_OUTPUT",
+						payload: Array.isArray(result.output) ? result.output : [result.output],
+					})
+				}
+			} catch (err: any) {
+				dispatch({ type: "APPEND_TERMINAL_OUTPUT", payload: [`Error: ${err.message}`] })
 			}
-			dispatch({ type: "SET_AI_ATTACHMENTS", payload: [...aiAttachments, ...newAttachments] })
-			e.target.value = ""
-		},
-		[aiAttachments, dispatch],
-	)
-
-	const removeAttachment = useCallback(
-		(id: string) => {
-			dispatch({ type: "SET_AI_ATTACHMENTS", payload: aiAttachments.filter((a) => a.id !== id) })
-		},
-		[aiAttachments, dispatch],
-	)
-
-	// ── Function 2: Run-in-Terminal handler ────────────────────────────────
-	const handleRunInTerminal = useCallback(
-		(code: string) => {
-			// Set the terminal input to the command and focus it
-			dispatch({ type: "SET_TERMINAL_INPUT", payload: code })
-			// Focus the terminal input after a short delay to let React render
-			setTimeout(() => {
-				terminalInputRef.current?.focus()
-			}, 50)
 		},
 		[dispatch],
 	)
 
-	// ── Set up module-level refs for rich content rendering callbacks ──────
-	useEffect(() => {
-		_handleApplyCodeFromBlock = handleApplyCode
-		_handleFileLinkClick = handleFileLinkClickFromContent
-		_handleRunInTerminal = handleRunInTerminal
-	})
-
-	// ── Detect file path from code comments (Function 1: Smart Apply-to-File) ──
-	function detectFilePathFromCode(code: string, language: string): string | null {
-		// Look for patterns like: // path/to/file.ts, # path/to/file.py, <!-- path/to/file.html -->
-		const patterns = [
-			// TypeScript/JavaScript/CSS: // path/to/file.ts or /* path/to/file.ts */
-			{ regex: /\/\/\s*([a-zA-Z0-9_\-./]+\.(ts|tsx|js|jsx|css|scss|json|md|html|vue|svelte))/ },
-			{ regex: /\/\*\s*([a-zA-Z0-9_\-./]+\.(ts|tsx|js|jsx|css|scss|json|md|html|vue|svelte))\s*\*\// },
-			// Python/Ruby/Shell: # path/to/file.py
-			{ regex: /#\s*([a-zA-Z0-9_\-./]+\.(py|rb|sh|bash|yml|yaml|env|txt|md|cfg|ini))/, flags: "" },
-			// HTML/XML: <!-- path/to/file.html -->
-			{ regex: /<!--\s*([a-zA-Z0-9_\-./]+\.(html|htm|xml|svg))\s*-->/ },
-			// Generic file: path/to/filename.ext at start of comment
-			{ regex: /\/[a-zA-Z0-9_\-./]+\/[a-zA-Z0-9_\-]+\.[a-zA-Z0-9]+/, flags: "" },
-		]
-		for (const { regex } of patterns) {
-			const m = regex.exec(code)
-			if (m && m[1]) return m[1]
-		}
-		// Also check first line for a file path comment
-		const firstLine = code.split("\n")[0].trim()
-		const fileMatch = firstLine.match(/\/\/\s*(.+)/) || firstLine.match(/#\s*(.+)/)
-		if (fileMatch) {
-			const path = fileMatch[1].trim()
-			if (path.includes(".") && !path.includes(" ")) return path
-		}
-		return null
-	}
-
-	// ── Apply code from a code block (Function 1: Smart Apply-to-File, Function 6: File creation) ──
-	const handleApplyCode = useCallback(
-		async (code: string, language: string) => {
-			// Try to detect file path from code comments
-			const detectedPath = detectFilePathFromCode(code, language)
-
-			if (detectedPath) {
-				// Function 6: File creation from chat — if file doesn't exist, create it
-				try {
-					// Try reading the file first
-					const existing = await api<{ ok: boolean; content?: string }>(
-						`/ide-workspace/file/read?path=${encodeURIComponent(detectedPath)}`,
-					)
-					if (existing.ok) {
-						// File exists — save old content for diff, then apply
-						const oldContent = existing.content || ""
-						// Save diff data for Function 7
-						try {
-							const diffResult = await api<{
-								ok: boolean
-								changes: Array<{ line: number; old: string; new: string }>
-								totalChanges: number
-							}>("/ide-workspace/file/diff", {
-								method: "POST",
-								body: JSON.stringify({ oldContent, newContent: code }),
-							})
-							if (diffResult.ok && diffResult.totalChanges > 0) {
-								setDiffData({
-									path: detectedPath,
-									changes: diffResult.changes,
-									totalChanges: diffResult.totalChanges,
-								})
-							}
-						} catch {}
-					}
-				} catch {
-					// File doesn't exist — create it
-					try {
-						await api("/ide-workspace/file/create", {
-							method: "POST",
-							body: JSON.stringify({ path: detectedPath, content: code }),
-						})
-					} catch {}
-				}
-
-				// Save the file
-				await api("/ide-workspace/file/save", {
-					method: "POST",
-					body: JSON.stringify({ path: detectedPath, content: code }),
-				}).catch(() => {})
-
-				// Open the file in the editor
-				const name = detectedPath.split("/").pop() || detectedPath
-				const existing = openFiles.find((f) => f.path === detectedPath)
-				if (existing) {
-					dispatch({
-						type: "SET_OPEN_FILES",
-						payload: openFiles.map((f) =>
-							f.path === detectedPath ? { ...f, content: code, modified: true } : f,
-						),
-					})
-				} else {
-					dispatch({
-						type: "SET_OPEN_FILES",
-						payload: [...openFiles, { path: detectedPath, name, content: code, language, modified: true }],
-					})
-				}
-				dispatch({ type: "SET_ACTIVE_FILE_PATH", payload: detectedPath })
-				return
-			}
-
-			// Fallback: apply to active file or create untitled
-			if (activeFilePath) {
-				// Save old content for diff
-				const oldFile = openFiles.find((f) => f.path === activeFilePath)
-				if (oldFile) {
-					try {
-						const diffResult = await api<{
-							ok: boolean
-							changes: Array<{ line: number; old: string; new: string }>
-							totalChanges: number
-						}>("/ide-workspace/file/diff", {
-							method: "POST",
-							body: JSON.stringify({ oldContent: oldFile.content, newContent: code }),
-						})
-						if (diffResult.ok && diffResult.totalChanges > 0) {
-							setDiffData({
-								path: activeFilePath,
-								changes: diffResult.changes,
-								totalChanges: diffResult.totalChanges,
-							})
-						}
-					} catch {}
-				}
-				dispatch({
-					type: "SET_OPEN_FILES",
-					payload: openFiles.map((f) =>
-						f.path === activeFilePath ? { ...f, content: code, modified: true } : f,
-					),
-				})
-				api("/ide-workspace/file/save", {
-					method: "POST",
-					body: JSON.stringify({ path: activeFilePath, content: code }),
-				}).catch(() => {})
-			} else {
-				const ext =
-					language === "typescript"
-						? "ts"
-						: language === "javascript"
-							? "js"
-							: language === "python"
-								? "py"
-								: "txt"
-				const filename = `untitled.${ext}`
-				const path = `/tmp/${filename}`
-				dispatch({
-					type: "SET_OPEN_FILES",
-					payload: [...openFiles, { path, name: filename, content: code, language, modified: true }],
-				})
-				dispatch({ type: "SET_ACTIVE_FILE_PATH", payload: path })
-			}
-		},
-		[activeFilePath, openFiles, dispatch],
-	)
-
-	// ── Handle file link click from rich content ──────────────────────────
-	const handleFileLinkClickFromContent = useCallback(
-		(path: string) => {
-			const name = path.split("/").pop() || path
-			if (!openFiles.find((f) => f.path === path)) {
-				dispatch({
-					type: "SET_OPEN_FILES",
-					payload: [
-						...openFiles,
-						{ path, name, content: `// ${name}\n\n// Loading...`, language: "text", modified: false },
-					],
-				})
-			}
-			dispatch({ type: "SET_ACTIVE_FILE_PATH", payload: path })
-		},
-		[openFiles, dispatch],
-	)
-
-	// ── Import GitHub repo ────────────────────────────────────────────────
+	// ── Handle import GitHub repo ────────────────────────────────────────
 	const handleImportGithub = useCallback(async () => {
-		if (!importGithubUrl.trim()) {
-			setImportGithubError("Please enter a GitHub repository URL")
-			return
-		}
+		if (!importGithubUrl.trim()) return
 		setImportGithubLoading(true)
 		setImportGithubError("")
 		try {
-			const result = await api<{
-				ok: boolean
-				repoName?: string
-				branch?: string
-				files?: WorkspaceFile[]
-				error?: string
-			}>("/ide-workspace/workspace/import-github", {
-				method: "POST",
-				body: JSON.stringify({
-					repoUrl: importGithubUrl.trim(),
-					branch: importGithubBranch.trim() || "main",
-				}),
-			})
-			if (result.ok) {
-				if (result.repoName) dispatch({ type: "SET_REPO_NAME", payload: result.repoName })
-				if (result.branch) dispatch({ type: "SET_BRANCH", payload: result.branch })
-				if (result.files) dispatch({ type: "SET_FILES", payload: result.files })
-				dispatch({ type: "SET_SHOW_IMPORT_GITHUB", payload: false })
-				setImportGithubUrl("")
-				setImportGithubBranch("main")
-				const filtered = recentWorkspaces.filter((w) => w.path !== result.repoName)
-				dispatch({
-					type: "SET_RECENT_WORKSPACES",
-					payload: [
-						{
-							name: result.repoName || "imported-repo",
-							path: result.repoName || "imported-repo",
-							lastOpened: new Date().toISOString(),
-						},
-						...filtered.slice(0, 9),
-					],
-				})
-			} else {
-				setImportGithubError(result.error || "Import failed")
+			const result = await importGithubRepo(importGithubUrl, importGithubBranch)
+			if (result.success) {
+				// Reload workspace after import
+				const wsResult = await openWorkspace()
+				if (wsResult.files) dispatch({ type: "SET_FILES", payload: wsResult.files })
 			}
-		} catch (err) {
-			setImportGithubError(err instanceof Error ? err.message : "Import failed")
+			dispatch({ type: "SET_SHOW_IMPORT_GITHUB", payload: false })
+			setImportGithubUrl("")
+		} catch (err: any) {
+			setImportGithubError(err.message || "Import failed")
 		} finally {
 			setImportGithubLoading(false)
 		}
-	}, [importGithubUrl, importGithubBranch, recentWorkspaces, dispatch])
+	}, [importGithubUrl, importGithubBranch, dispatch])
 
-	// ── Open/switch workspace ─────────────────────────────────────────────
-	const handleOpenWorkspace = useCallback(
-		async (path?: string) => {
-			const targetPath = path || openWorkspacePath.trim()
-			if (!targetPath) {
-				setOpenWorkspaceError("Please enter a workspace path")
-				return
-			}
-			setOpenWorkspaceLoading(true)
-			setOpenWorkspaceError("")
+	// ── Handle open workspace ────────────────────────────────────────────
+	const handleOpenWorkspace = useCallback(async () => {
+		if (!openWorkspacePath.trim()) return
+		setOpenWorkspaceLoading(true)
+		setOpenWorkspaceError("")
+		try {
+			const result = await openWorkspace(openWorkspacePath)
+			if (result.files) dispatch({ type: "SET_FILES", payload: result.files })
+			dispatch({ type: "SET_SHOW_OPEN_WORKSPACE", payload: false })
+			setOpenWorkspacePath("")
+		} catch (err: any) {
+			setOpenWorkspaceError(err.message || "Failed to open workspace")
+		} finally {
+			setOpenWorkspaceLoading(false)
+		}
+	}, [openWorkspacePath, dispatch])
+
+	// ── Handle diff view ─────────────────────────────────────────────────
+	const handleViewDiff = useCallback(
+		async (filePath: string) => {
 			try {
-				const result = await api<{
-					ok: boolean
-					repoName?: string
-					branch?: string
-					files?: WorkspaceFile[]
-					error?: string
-				}>("/ide-workspace/workspace/open", {
-					method: "POST",
-					body: JSON.stringify({ path: targetPath }),
-				})
-				if (result.ok) {
-					if (result.repoName) dispatch({ type: "SET_REPO_NAME", payload: result.repoName })
-					if (result.branch) dispatch({ type: "SET_BRANCH", payload: result.branch })
-					if (result.files) dispatch({ type: "SET_FILES", payload: result.files })
-					dispatch({ type: "SET_SHOW_OPEN_WORKSPACE", payload: false })
-					setOpenWorkspacePath("")
-					const name = result.repoName || targetPath.split("/").pop() || targetPath
-					const filtered = recentWorkspaces.filter((w) => w.path !== targetPath)
-					dispatch({
-						type: "SET_RECENT_WORKSPACES",
-						payload: [
-							{ name, path: targetPath, lastOpened: new Date().toISOString() },
-							...filtered.slice(0, 9),
-						],
-					})
-				} else {
-					setOpenWorkspaceError(result.error || "Failed to open workspace")
-				}
+				const content = currentFileContent
+				const diff = await fetchDiff(filePath, content)
+				setDiffData(diff)
+				dispatch({ type: "SET_SHOW_DIFF_VIEW", payload: true })
 			} catch (err) {
-				setOpenWorkspaceError(err instanceof Error ? err.message : "Failed to open workspace")
-			} finally {
-				setOpenWorkspaceLoading(false)
+				console.error("Failed to load diff:", err)
 			}
 		},
-		[openWorkspacePath, recentWorkspaces, dispatch],
+		[currentFileContent, dispatch],
 	)
 
-	const handleTerminalResizeMouseDown = useCallback(
-		(e: React.MouseEvent) => {
-			e.preventDefault()
-			const startY = e.clientY
-			const startHeight = terminalHeight
-			function onMouseMove(ev: MouseEvent) {
-				dispatch({
-					type: "SET_TERMINAL_HEIGHT",
-					payload: Math.max(80, Math.min(600, startHeight + (ev.clientY - startY))),
-				})
+	// ── Handle inline AI button ──────────────────────────────────────────
+	const handleInlineAiAction = useCallback(
+		(action: string) => {
+			if (!currentFileSelection) return
+			const cmd = `/${action}`
+			const handler = slashCommandHandlers[cmd]
+			if (handler) {
+				const text = `${handler}\n\nSelected code:\n\`\`\`\n${currentFileSelection}\n\`\`\``
+				dispatch({ type: "SET_AI_INPUT", payload: text })
+				dispatch({ type: "SET_SHOW_INLINE_AI_BUTTON", payload: false })
+				setInlineSelectionPos(null)
 			}
-			function onMouseUp() {
-				window.removeEventListener("mousemove", onMouseMove)
-				window.removeEventListener("mouseup", onMouseUp)
-			}
-			window.addEventListener("mousemove", onMouseMove)
-			window.addEventListener("mouseup", onMouseUp)
 		},
-		[terminalHeight, dispatch],
+		[currentFileSelection, dispatch],
 	)
 
-	const handleCopyTerminal = useCallback((index: number, content: string) => {
-		navigator.clipboard.writeText(content).catch(() => {})
-		setCopiedIndex(index)
-		setTimeout(() => setCopiedIndex(null), 1500)
-	}, []) // copiedIndex is local-only state
-
-	const toggleBlockCollapse = useCallback(
-		(id: string) => {
-			const next = new Set(collapsedBlocks)
-			if (next.has(id)) next.delete(id)
-			else next.add(id)
-			dispatch({ type: "SET_COLLAPSED_BLOCKS", payload: next })
-		},
-		[collapsedBlocks, dispatch],
-	)
-
-	const handleStartRecording = useCallback(() => {
-		dispatch({ type: "SET_IS_RECORDING", payload: true })
-		dispatch({ type: "SET_RECORDING_BLOCKS", payload: [] })
+	// ── Handle selection detection for inline AI button ──────────────────
+	const handleEditorMouseUp = useCallback(() => {
+		const selection = window.getSelection()
+		if (selection && selection.toString().trim().length > 10) {
+			setCurrentFileSelection(selection.toString())
+			const range = selection.getRangeAt(0)
+			const rect = range.getBoundingClientRect()
+			setInlineSelectionPos({ top: rect.top - 40, left: rect.left })
+			dispatch({ type: "SET_SHOW_INLINE_AI_BUTTON", payload: true })
+		} else {
+			setCurrentFileSelection("")
+			dispatch({ type: "SET_SHOW_INLINE_AI_BUTTON", payload: false })
+			setInlineSelectionPos(null)
+		}
 	}, [dispatch])
-	const handleStopRecording = useCallback(() => {
-		dispatch({ type: "SET_IS_RECORDING", payload: false })
-		if (recordingBlocks.length > 0) {
-			dispatch({
-				type: "SET_RECORDINGS",
-				payload: [...recordings, createRecording(recordingBlocks, `Recording ${recordings.length + 1}`)],
-			})
-		}
-	}, [recordingBlocks, recordings, dispatch])
-	const handleReplayRecording = useCallback(
-		(recording: TerminalRecording) => {
-			dispatch({ type: "SET_OUTPUT_BLOCKS", payload: recording.blocks })
-		},
-		[dispatch],
-	)
 
-	useEffect(() => {
-		dispatch({ type: "SET_OUTPUT_BLOCKS", payload: convertToBlocks(terminalOutput) })
-	}, [terminalOutput, dispatch])
-	useEffect(() => {
-		if (isRecording) {
-			dispatch({
-				type: "SET_RECORDING_BLOCKS",
-				payload: [...recordingBlocks, ...outputBlocks.slice(recordingBlocks.length)],
-			})
-		}
-	}, [outputBlocks, isRecording, recordingBlocks, dispatch])
-
+	// ── Loading state ────────────────────────────────────────────────────
 	if (loading) {
 		return (
-			<div className="flex h-full items-center justify-center bg-[#0a0d14]">
+			<div className="flex items-center justify-center h-full bg-[#1e1e1e]">
 				<div className="flex flex-col items-center gap-3">
-					<Loader2 size={24} className="text-violet-400 animate-spin" />
-					<span className="text-xs text-gray-500">Loading workspace...</span>
+					<Loader2 className="animate-spin text-blue-400" size={32} />
+					<span className="text-sm text-gray-400">Loading IDE...</span>
 				</div>
 			</div>
 		)
 	}
 
+	// ══════════════════════════════════════════════════════════════════════
+	// RENDER
+	// ══════════════════════════════════════════════════════════════════════
 	return (
-		<div className="flex h-full flex-col bg-[#0a0d14] text-[13px]">
-			<header className="flex items-center justify-between border-b border-[#1e2535] bg-[#0f1117] px-3 py-1.5">
-				<div className="flex items-center gap-3">
-					<span className="text-xs font-semibold text-[#e2e8f0]">{repoName}</span>
-					<span className="flex items-center gap-1 text-[10px] text-gray-500">
-						<GitBranch size={10} />
-						{branch}
-					</span>
-					<span className="flex items-center gap-1 text-[10px] text-gray-500">
-						<Cpu size={10} />
-						{status.cpu}
-					</span>
-					<span className="flex items-center gap-1 text-[10px] text-gray-500">
-						<Database size={10} />
-						{status.ram}
-					</span>
-				</div>
-				<div className="flex items-center gap-1.5">
-					{/* Import GitHub */}
-					<button
-						onClick={() => dispatch({ type: "SET_SHOW_IMPORT_GITHUB", payload: true })}
-						className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-gray-500 hover:text-gray-300 hover:bg-[#1e2535] rounded transition-colors"
-						title="Import GitHub repository">
-						<Github size={11} />
-						<span className="hidden sm:inline">Import</span>
-					</button>
-					{/* Open Workspace */}
-					<button
-						onClick={() => dispatch({ type: "SET_SHOW_OPEN_WORKSPACE", payload: true })}
-						className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-gray-500 hover:text-gray-300 hover:bg-[#1e2535] rounded transition-colors"
-						title="Open or switch workspace">
-						<FolderOpen size={11} />
-						<span className="hidden sm:inline">Workspace</span>
-					</button>
-					{/* Recent Workspaces dropdown */}
-					{recentWorkspaces.length > 0 && (
-						<div className="relative group">
-							<button
-								className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-gray-500 hover:text-gray-300 hover:bg-[#1e2535] rounded transition-colors"
-								title="Recent workspaces">
-								<Clock3 size={11} />
-								<span className="hidden sm:inline">Recent</span>
-							</button>
-							<div className="absolute right-0 top-full mt-1 w-56 bg-[#1a2030] border border-[#2a3344] rounded shadow-xl overflow-hidden hidden group-hover:block z-50">
-								<div className="p-1.5 border-b border-[#1e2535]">
-									<span className="text-[9px] text-gray-500 uppercase tracking-wider font-semibold">
-										Recent Workspaces
-									</span>
-								</div>
-								{recentWorkspaces.map((w) => (
-									<button
-										key={w.path}
-										onClick={() => handleOpenWorkspace(w.path)}
-										className="block w-full text-left px-2.5 py-1.5 text-[11px] text-gray-300 hover:bg-[#253045] transition-colors">
-										<div className="flex items-center gap-1.5">
-											<FolderGit2 size={10} className="text-blue-400 shrink-0" />
-											<span className="truncate">{w.name}</span>
-										</div>
-										<div className="text-[9px] text-gray-600 mt-0.5 pl-5">
-											{new Date(w.lastOpened).toLocaleDateString()}
-										</div>
-									</button>
-								))}
-							</div>
+		<ErrorBoundary>
+			<div className="flex flex-col h-full bg-[#1e1e1e] text-gray-200 overflow-hidden">
+				{/* ── Header ─────────────────────────────────────────────── */}
+				<header className="flex items-center justify-between px-4 py-2 bg-[#252526] border-b border-[#3c3c3c] shrink-0">
+					<div className="flex items-center gap-3">
+						<div className="flex items-center gap-2">
+							<TerminalIcon2 size={16} className="text-blue-400" />
+							<span className="text-sm font-semibold text-gray-100">{repoName || "IDE Terminal"}</span>
 						</div>
-					)}
-					{/* Workspace Tasks dropdown */}
-					{workspaceTasks.length > 0 && (
-						<div className="relative group">
-							<button
-								className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-gray-500 hover:text-gray-300 hover:bg-[#1e2535] rounded transition-colors"
-								title="Workspace tasks">
-								<ListTodo size={11} />
-								<span className="hidden sm:inline">
-									Tasks ({workspaceTasks.filter((t) => t.status === "pending").length})
-								</span>
-							</button>
-							<div className="absolute right-0 top-full mt-1 w-64 bg-[#1a2030] border border-[#2a3344] rounded shadow-xl overflow-hidden hidden group-hover:block z-50 max-h-60 overflow-y-auto">
-								<div className="p-1.5 border-b border-[#1e2535] sticky top-0 bg-[#1a2030]">
-									<span className="text-[9px] text-gray-500 uppercase tracking-wider font-semibold">
-										Workspace Tasks
-									</span>
-								</div>
-								{workspaceTasks.slice(0, 15).map((t) => (
-									<div
-										key={t.id}
-										className="flex items-center gap-2 px-2.5 py-1.5 text-[11px] border-b border-[#1e2535]/50 last:border-0">
-										{t.status === "done" ? (
-											<CheckSquare size={10} className="text-green-400 shrink-0" />
-										) : t.status === "failed" ? (
-											<XCircle size={10} className="text-red-400 shrink-0" />
-										) : (
-											<Square size={10} className="text-yellow-400 shrink-0" />
-										)}
-										<span className="truncate text-gray-300">{t.title}</span>
-									</div>
-								))}
-							</div>
-						</div>
-					)}
-					<div className="w-px h-4 bg-[#1e2535] mx-1" />
-					<select
-						value={activeMode}
-						onChange={(e) => setActiveMode(e.target.value)}
-						className="bg-[#1e2535] text-[10px] text-gray-300 border border-[#2a3344] rounded px-1.5 py-0.5 outline-none">
-						<option>Auto</option>
-						<option>Plan</option>
-						<option>Act</option>
-						<option>Review</option>
-					</select>
-					{/* WebSocket connection indicator */}
-					<span
-						className={`inline-block w-1.5 h-1.5 rounded-full ${wsConnected ? "bg-green-500" : wsReconnecting ? "bg-yellow-500" : "bg-red-500"}`}
-						title={
-							wsConnected
-								? "WebSocket Connected"
-								: wsReconnecting
-									? "Reconnecting..."
-									: "WebSocket Disconnected"
-						}
-					/>
-					<button
-						onClick={() => dispatch({ type: "SET_SHOW_SHORTCUTS", payload: true })}
-						className="text-gray-500 hover:text-gray-300 transition-colors"
-						title="Keyboard shortcuts">
-						<Keyboard size={12} />
-					</button>
-				</div>
-			</header>
-
-			<div className="flex flex-1 overflow-hidden">
-				{showFilePanel && (
-					<aside className="w-52 border-r border-[#1e2535] bg-[#0f1117] flex flex-col shrink-0">
-						<div className="flex items-center justify-between px-3 py-1.5 border-b border-[#1e2535]">
-							<span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
-								Explorer
+						{branch && (
+							<span className="flex items-center gap-1 px-2 py-0.5 text-xs bg-[#2d2d2d] rounded text-gray-400 border border-[#3c3c3c]">
+								<GitBranch size={10} />
+								{branch}
 							</span>
-							<div className="flex items-center gap-1">
-								<button
-									onClick={() => dispatch({ type: "SET_SHOW_FILE_SEARCH", payload: true })}
-									className="text-gray-500 hover:text-gray-300 transition-colors"
-									title="Search files (Ctrl+P)">
-									<FileSearch size={11} />
-								</button>
-								<button
-									onClick={() => dispatch({ type: "SET_SHOW_FILE_PANEL", payload: false })}
-									className="text-gray-500 hover:text-gray-300 transition-colors"
-									title="Close panel">
-									<PanelLeftClose size={11} />
-								</button>
-							</div>
-						</div>
-						{showFileSearch && (
-							<div className="px-2 py-1.5 border-b border-[#1e2535]">
-								<input
-									ref={fileSearchRef}
-									type="text"
-									value={fileSearchQuery}
-									onChange={(e) =>
-										dispatch({ type: "SET_FILE_SEARCH_QUERY", payload: e.target.value })
-									}
-									placeholder="Search files..."
-									className="w-full bg-[#1e2535] text-[11px] text-gray-300 placeholder-gray-600 border border-[#2a3344] rounded px-2 py-1 outline-none"
+						)}
+						<div className="flex items-center gap-2 text-xs text-gray-500">
+							<span className="flex items-center gap-1">
+								<Cpu size={10} /> {status.cpu}
+							</span>
+							<span className="flex items-center gap-1">
+								<Database size={10} /> {status.ram}
+							</span>
+							<span
+								className={`flex items-center gap-1 ${wsConnected ? "text-green-400" : "text-red-400"}`}>
+								<span
+									className={`w-1.5 h-1.5 rounded-full ${wsConnected ? "bg-green-400" : "bg-red-400"}`}
 								/>
+								{wsConnected ? "Connected" : wsReconnecting ? "Reconnecting..." : "Disconnected"}
+							</span>
+						</div>
+					</div>
+					<div className="flex items-center gap-1">
+						<button
+							onClick={() => dispatch({ type: "SET_SHOW_IMPORT_GITHUB", payload: true })}
+							className="flex items-center gap-1 px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-[#3c3c3c] rounded"
+							title="Import from GitHub">
+							<Github size={12} /> Import
+						</button>
+						<button
+							onClick={() => dispatch({ type: "SET_SHOW_OPEN_WORKSPACE", payload: true })}
+							className="flex items-center gap-1 px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-[#3c3c3c] rounded"
+							title="Open Workspace">
+							<FolderOpen size={12} /> Open
+						</button>
+						<button
+							onClick={() => setShowRecentTasks((v) => !v)}
+							className="flex items-center gap-1 px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-[#3c3c3c] rounded"
+							title="Recent Tasks">
+							<ListTodo size={12} /> Tasks
+						</button>
+						<button
+							onClick={() => dispatch({ type: "SET_SHOW_SHORTCUTS", payload: true })}
+							className="flex items-center gap-1 px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-[#3c3c3c] rounded"
+							title="Keyboard Shortcuts">
+							<Keyboard size={12} />
+						</button>
+					</div>
+				</header>
+
+				{/* ── Main Content ───────────────────────────────────────── */}
+				<div className="flex flex-1 overflow-hidden">
+					{/* ── File Panel ─────────────────────────────────────── */}
+					{showFilePanel && (
+						<ErrorBoundary>
+							<aside className="w-56 shrink-0 border-r border-[#3c3c3c] bg-[#252526] flex flex-col overflow-hidden">
+								<div className="flex items-center justify-between px-3 py-2 border-b border-[#3c3c3c]">
+									<span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+										Explorer
+									</span>
+									<div className="flex items-center gap-1">
+										<button
+											onClick={() => dispatch({ type: "SET_SHOW_FILE_PANEL", payload: false })}
+											className="p-0.5 text-gray-500 hover:text-gray-300">
+											<PanelLeftClose size={12} />
+										</button>
+									</div>
+								</div>
+								<div className="flex-1 overflow-y-auto">
+									<FileTree
+										items={files}
+										activeFilePath={activeFilePath}
+										onFileClick={handleFileSelect}
+										filter={fileSearchQuery}
+									/>
+								</div>
+							</aside>
+						</ErrorBoundary>
+					)}
+
+					{/* ── Center: Editor + Terminal ──────────────────────── */}
+					<div className="flex-1 flex flex-col overflow-hidden">
+						{/* ── Pipeline Bar ────────────────────────────────── */}
+						{pipeline.length > 0 && (
+							<div className="px-4 py-1.5 bg-[#252526] border-b border-[#3c3c3c] flex items-center gap-2 text-xs overflow-x-auto shrink-0">
+								<Workflow size={12} className="text-gray-500 shrink-0" />
+								{pipeline.map((step) => (
+									<span key={step.id} className="flex items-center gap-1 whitespace-nowrap">
+										<PipelineIcon status={step.status} />
+										<span
+											className={
+												step.status === "done"
+													? "text-green-400"
+													: step.status === "failed"
+														? "text-red-400"
+														: "text-gray-400"
+											}>
+											{step.label}
+										</span>
+										{step.duration && <span className="text-gray-600">({step.duration})</span>}
+										<ChevronRight size={10} className="text-gray-600" />
+									</span>
+								))}
 							</div>
 						)}
-						<div className="flex-1 overflow-y-auto py-1">
-							<FileTree items={files} onFileClick={handleFileClick} searchQuery={fileSearchQuery} />
+
+						{/* ── Code Editor ─────────────────────────────────── */}
+						<div className="flex-1 overflow-hidden relative" onMouseUp={handleEditorMouseUp}>
+							{activeFilePath ? (
+								<ErrorBoundary>
+									<CodeEditor
+										filePath={activeFilePath}
+										value={currentFileContent}
+										language={currentFileLanguage}
+										readOnly={false}
+										onSave={handleFileSave}
+									/>
+								</ErrorBoundary>
+							) : (
+								<div className="flex items-center justify-center h-full text-gray-600">
+									<div className="text-center">
+										<Code2 size={48} className="mx-auto mb-3 opacity-30" />
+										<p className="text-sm">Select a file from the explorer to start editing</p>
+										<p className="text-xs mt-1">Or use Ctrl+B to toggle the file panel</p>
+									</div>
+								</div>
+							)}
+
+							{/* ── Inline AI Button ────────────────────────── */}
+							{showInlineAiButton && inlineSelectionPos && (
+								<div
+									className="absolute z-50 flex items-center gap-1 bg-[#2d2d2d] border border-[#3c3c3c] rounded-md shadow-lg px-1 py-0.5"
+									style={{ top: inlineSelectionPos.top, left: inlineSelectionPos.left }}>
+									<button
+										onClick={() => handleInlineAiAction("fix")}
+										className="p-1 text-xs text-gray-400 hover:text-yellow-400 hover:bg-[#3c3c3c] rounded"
+										title="Fix">
+										<Bug size={12} />
+									</button>
+									<button
+										onClick={() => handleInlineAiAction("explain")}
+										className="p-1 text-xs text-gray-400 hover:text-blue-400 hover:bg-[#3c3c3c] rounded"
+										title="Explain">
+										<MessageCircle size={12} />
+									</button>
+									<button
+										onClick={() => handleInlineAiAction("optimize")}
+										className="p-1 text-xs text-gray-400 hover:text-green-400 hover:bg-[#3c3c3c] rounded"
+										title="Optimize">
+										<Zap size={12} />
+									</button>
+									<button
+										onClick={() => handleInlineAiAction("review")}
+										className="p-1 text-xs text-gray-400 hover:text-purple-400 hover:bg-[#3c3c3c] rounded"
+										title="Review">
+										<Search size={12} />
+									</button>
+								</div>
+							)}
 						</div>
-					</aside>
+
+						{/* ── Terminal ───────────────────────────────────── */}
+						{showTerminal && (
+							<ErrorBoundary>
+								<div
+									ref={terminalResizeRef}
+									className="shrink-0 border-t border-[#3c3c3c] bg-[#1e1e1e] flex flex-col"
+									style={{ height: isTerminalMaximized ? "50%" : terminalHeight }}>
+									<div className="flex items-center justify-between px-3 py-1 bg-[#252526] border-b border-[#3c3c3c] shrink-0">
+										<div className="flex items-center gap-2">
+											<TerminalIcon size={12} className="text-gray-500" />
+											<span className="text-xs text-gray-400 font-medium">Terminal</span>
+											<div className="flex items-center gap-1 ml-2">
+												{(["shell", "agent", "skill"] as const).map((mode) => (
+													<button
+														key={mode}
+														onClick={() => setTerminalMode(mode)}
+														className={`px-1.5 py-0.5 text-[10px] rounded ${
+															terminalMode === mode
+																? "bg-blue-600 text-white"
+																: "text-gray-500 hover:text-gray-300"
+														}`}>
+														{mode === "shell" ? "SH" : mode === "agent" ? "AG" : "SK"}
+													</button>
+												))}
+											</div>
+										</div>
+										<div className="flex items-center gap-1">
+											<button
+												onClick={() =>
+													dispatch({
+														type: "SET_IS_TERMINAL_MAXIMIZED",
+														payload: !isTerminalMaximized,
+													})
+												}
+												className="p-0.5 text-gray-500 hover:text-gray-300">
+												{isTerminalMaximized ? (
+													<Minimize2 size={12} />
+												) : (
+													<Maximize2 size={12} />
+												)}
+											</button>
+											<button
+												onClick={() => dispatch({ type: "SET_SHOW_TERMINAL", payload: false })}
+												className="p-0.5 text-gray-500 hover:text-gray-300">
+												<X size={12} />
+											</button>
+										</div>
+									</div>
+									<div className="flex-1 overflow-hidden">
+										<TerminalPanel
+											outputBlocks={outputBlocks}
+											terminalMode={terminalMode}
+											terminalInput={terminalInput}
+											onTerminalInputChange={(val: string) =>
+												dispatch({ type: "SET_TERMINAL_INPUT", payload: val })
+											}
+											onTerminalCommand={() => handleTerminalCommand(terminalInput)}
+											onTerminalKeyDown={(e: React.KeyboardEvent) => {
+												if (e.key === "Enter") {
+													handleTerminalCommand(terminalInput)
+												}
+											}}
+											onCopyTerminal={(index: number, content: string) => {
+												navigator.clipboard.writeText(content)
+												setCopiedIndex(index)
+												setTimeout(() => setCopiedIndex(null), 2000)
+											}}
+											onToggleBlockCollapse={(id: string) => {
+												const next = new Set(collapsedBlocks)
+												next.has(id) ? next.delete(id) : next.add(id)
+												dispatch({ type: "SET_COLLAPSED_BLOCKS", payload: next })
+											}}
+											onClearTerminal={() =>
+												dispatch({ type: "SET_TERMINAL_OUTPUT", payload: [] })
+											}
+											isRecording={isRecording}
+											recordings={recordings}
+											onStartRecording={() =>
+												dispatch({ type: "SET_IS_RECORDING", payload: true })
+											}
+											onStopRecording={() =>
+												dispatch({ type: "SET_IS_RECORDING", payload: false })
+											}
+											onShowRecordings={() =>
+												dispatch({ type: "SET_SHOW_RECORDINGS", payload: true })
+											}
+											agentSuggestions={agentSuggestions}
+											smartSuggestions={smartSuggestions.map((s) => ({
+												label: s.label,
+												command: s.command,
+											}))}
+											onSuggestionClick={(cmd: string) => {
+												dispatch({ type: "SET_TERMINAL_INPUT", payload: cmd })
+											}}
+											terminalRef={terminalRef}
+											terminalInputRef={terminalInputRef}
+										/>
+									</div>
+								</div>
+							</ErrorBoundary>
+						)}
+					</div>
+
+					{/* ── AI Chat Panel ──────────────────────────────────── */}
+					{showAiPanel && (
+						<ErrorBoundary>
+							<aside className="w-80 shrink-0 border-l border-[#3c3c3c] bg-[#252526] flex flex-col overflow-hidden">
+								<div className="flex items-center justify-between px-3 py-2 border-b border-[#3c3c3c]">
+									<span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+										AI Chat
+									</span>
+									<div className="flex items-center gap-1">
+										<button
+											onClick={() => dispatch({ type: "SET_SHOW_AI_PANEL", payload: false })}
+											className="p-0.5 text-gray-500 hover:text-gray-300">
+											<PanelRightClose size={12} />
+										</button>
+									</div>
+								</div>
+								<div className="flex-1 overflow-hidden">
+									<AiChatPanel
+										aiMessages={aiMessages}
+										aiInput={aiInput}
+										onAiInputChange={(val: string) =>
+											dispatch({ type: "SET_AI_INPUT", payload: val })
+										}
+										onAiSend={handleAiSend}
+										onAiKeyDown={(e: React.KeyboardEvent) => {
+											if (e.key === "Enter" && !e.shiftKey) {
+												e.preventDefault()
+												handleAiSend()
+											}
+										}}
+										isAiLoading={aiSending}
+										canCancel={aiSending}
+										onCancelAi={() => {
+											// WebSocket close triggers cancellation
+											if (wsRef.current) {
+												wsRef.current.close()
+											}
+										}}
+										aiAttachments={aiAttachments}
+										onRemoveAttachment={(index: number) => {
+											dispatch({
+												type: "SET_AI_ATTACHMENTS",
+												payload: aiAttachments.filter((_, i) => i !== index),
+											})
+										}}
+										onFilesClick={() => fileInputRef.current?.click()}
+										onImagesClick={() => imageInputRef.current?.click()}
+										activeBrainTab={aiTab as BrainTab}
+										onBrainTabChange={(tab: BrainTab) =>
+											dispatch({ type: "SET_AI_TAB", payload: tab })
+										}
+										brainPlan={brainPlan}
+										brainFeedback={brainFeedback ? [brainFeedback] : []}
+										brainErrors={brainErrors}
+										brainFixes={brainFixes}
+										brainMemory={brainMemory}
+										brainDeployments={brainDeployments}
+										brainApprovals={brainApprovals}
+										brainLoading={brainLoading}
+										workspaceTasks={workspaceTasks}
+										proactiveSuggestions={proactiveSuggestions}
+										onSuggestionClick={(suggestion: string) => {
+											dispatch({ type: "SET_AI_INPUT", payload: suggestion })
+										}}
+										onApplyCode={(code: string, language: string) => {
+											setCurrentFileContent(code)
+										}}
+										onRunInTerminal={(code: string) => {
+											dispatch({ type: "SET_TERMINAL_INPUT", payload: code })
+										}}
+										onFileLinkClick={(path: string) => {
+											handleFileSelect(path)
+										}}
+										aiMessagesEndRef={aiMessagesEndRef}
+										textareaRef={textareaRef}
+										slashCommandFilter={slashCommandFilter}
+									/>
+								</div>
+							</aside>
+						</ErrorBoundary>
+					)}
+				</div>
+
+				{/* ── Hidden file inputs ─────────────────────────────────── */}
+				<input
+					ref={fileInputRef}
+					type="file"
+					className="hidden"
+					multiple
+					onChange={(e) => {
+						if (e.target.files) handleFilesSelectedFromList(Array.from(e.target.files))
+					}}
+				/>
+				<input
+					ref={imageInputRef}
+					type="file"
+					accept="image/*"
+					className="hidden"
+					multiple
+					onChange={(e) => {
+						if (e.target.files) handleFilesSelectedFromList(Array.from(e.target.files))
+					}}
+				/>
+
+				{/* ── Drag overlay ──────────────────────────────────────── */}
+				{dragOver && (
+					<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+						<div className="flex flex-col items-center gap-3 p-8 rounded-lg border-2 border-dashed border-blue-400 bg-[#1e1e1e]/90">
+							<UploadCloud size={40} className="text-blue-400" />
+							<span className="text-sm text-gray-300">Drop files to attach to AI chat</span>
+						</div>
+					</div>
 				)}
 
-				<div className="flex flex-1 flex-col min-w-0">
-					<div className="flex-1 overflow-hidden flex flex-col min-h-0">
-						{openFiles.length > 0 && (
-							<div className="flex items-center border-b border-[#1e2535] bg-[#0f1117] overflow-x-auto">
-								{openFiles.map((f) => (
-									<button
-										key={f.path}
-										onClick={() => dispatch({ type: "SET_ACTIVE_FILE_PATH", payload: f.path })}
-										className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] border-r border-[#1e2535] transition-colors whitespace-nowrap ${activeFilePath === f.path ? "bg-[#1a2030] text-[#e2e8f0] border-t-2 border-t-violet-500" : "text-gray-500 hover:text-gray-300"}`}>
-										<FileText size={11} />
-										{f.name}
-										{f.modified && <span className="text-orange-400 text-[9px]">●</span>}
-									</button>
-								))}
-							</div>
-						)}
-						<div className="flex-1 overflow-y-auto bg-[#0a0d14] p-4">
-							{activeFilePath ? (
-								<pre
-									className="text-[12px] font-mono text-gray-300 leading-relaxed whitespace-pre-wrap"
-									onMouseUp={(e) => {
-										// Function 5: Detect text selection for inline AI button
-										const selection = window.getSelection()
-										const selectedText = selection?.toString().trim()
-										if (selectedText && selectedText.length > 5) {
-											setCurrentFileSelection(selectedText.slice(0, 3000))
-											const rect = e.currentTarget.getBoundingClientRect()
-											setInlineSelectionPos({
-												top: Math.min(e.clientY, rect.bottom - 40),
-												left: Math.max(e.clientX - 40, rect.left + 10),
-											})
-											dispatch({ type: "SET_SHOW_INLINE_AI_BUTTON", payload: true })
-										} else {
-											dispatch({ type: "SET_SHOW_INLINE_AI_BUTTON", payload: false })
-											setCurrentFileSelection("")
-										}
-									}}>
-									{openFiles.find((f) => f.path === activeFilePath)?.content || "// No content"}
-								</pre>
-							) : (
-								<div className="flex h-full items-center justify-center">
-									<div className="text-center text-gray-600">
-										<Code2 size={32} className="mx-auto mb-2 opacity-30" />
-										<p className="text-xs">Select a file from the explorer to view its contents</p>
-									</div>
-								</div>
-							)}
-						</div>
-					</div>
+				{/* ── Modals ─────────────────────────────────────────────── */}
 
-					{pipeline.length > 0 && (
-						<div className="flex items-center gap-2 border-t border-b border-[#1e2535] bg-[#0f1117] px-3 py-1 overflow-x-auto">
-							<span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider shrink-0">
-								Pipeline
-							</span>
-							{pipeline.map((step) => (
-								<div
-									key={step.id}
-									className="flex items-center gap-1 text-[10px] text-gray-400 shrink-0">
-									<PipelineIcon status={step.status} />
-									<span>{step.label}</span>
-									{step.duration && <span className="text-gray-600">({step.duration})</span>}
-									{step.status === "running" && (
-										<Loader2 size={8} className="text-blue-400 animate-spin" />
-									)}
-								</div>
-							))}
-						</div>
-					)}
-
+				{/* Import GitHub Modal */}
+				{showImportGithub && (
 					<div
-						className="border-t border-[#1e2535] bg-[#0a0d14] flex flex-col"
-						style={{ height: isTerminalMaximized ? "100%" : terminalHeight }}>
-						<div className="flex items-center justify-between px-3 py-1 bg-[#0f1117] border-b border-[#1e2535] shrink-0">
-							<div className="flex items-center gap-2">
-								<Terminal size={11} className="text-green-400" />
-								<span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
-									Terminal
-								</span>
-								{agentRunning && (
-									<span className="flex items-center gap-1 text-[10px] text-violet-400">
-										<Loader2 size={8} className="animate-spin" />
-										Running {activeAgent}...
-									</span>
-								)}
-								{isRecording && (
-									<span className="flex items-center gap-1 text-[10px] text-red-400">
-										<span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-										Recording
-									</span>
-								)}
-							</div>
-							<div className="flex items-center gap-1">
-								<button
-									onClick={isRecording ? handleStopRecording : handleStartRecording}
-									className={`p-0.5 rounded transition-colors ${isRecording ? "text-red-400 hover:text-red-300" : "text-gray-500 hover:text-gray-300"}`}
-									title={isRecording ? "Stop recording" : "Start recording"}>
-									<Mic size={11} />
-								</button>
-								{recordings.length > 0 && (
-									<button
-										onClick={() =>
-											dispatch({ type: "SET_SHOW_RECORDINGS", payload: !showRecordings })
-										}
-										className="p-0.5 text-gray-500 hover:text-gray-300 transition-colors"
-										title="View recordings">
-										<History size={11} />
-									</button>
-								)}
-								<button
-									onClick={() =>
-										dispatch({ type: "SET_IS_TERMINAL_MAXIMIZED", payload: !isTerminalMaximized })
-									}
-									className="p-0.5 text-gray-500 hover:text-gray-300 transition-colors"
-									title={isTerminalMaximized ? "Minimize" : "Maximize"}>
-									{isTerminalMaximized ? <Minimize2 size={11} /> : <Maximize2 size={11} />}
-								</button>
-							</div>
-						</div>
-
+						className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+						onClick={() => dispatch({ type: "SET_SHOW_IMPORT_GITHUB", payload: false })}>
 						<div
-							ref={terminalRef}
-							className="flex-1 overflow-y-auto p-2 font-mono text-[12px] leading-relaxed">
-							{outputBlocks.map((block, idx) => (
-								<div
-									key={block.id}
-									className={`group flex items-start gap-1.5 py-0.5 ${block.type === "command" ? "text-green-400" : block.type === "error" ? "text-red-400" : block.type === "success" ? "text-green-500" : block.type === "agent" ? "text-violet-400" : block.type === "info" ? "text-blue-400" : block.type === "divider" ? "text-gray-700" : "text-gray-300"}`}>
-									<button
-										onClick={() => toggleBlockCollapse(block.id)}
-										className="text-gray-600 hover:text-gray-400 shrink-0 mt-0.5">
-										<ChevronRight
-											size={10}
-											className={collapsedBlocks.has(block.id) ? "" : "rotate-90"}
-										/>
-									</button>
-									<span className="flex-1 min-w-0">
-										{block.type === "command" && <span className="text-gray-500 mr-1">$</span>}
-										{block.content}
-									</span>
-									<button
-										onClick={() => handleCopyTerminal(idx, block.content)}
-										className="opacity-0 group-hover:opacity-100 text-gray-600 hover:text-gray-400 transition-all shrink-0 mt-0.5"
-										title="Copy line">
-										{copiedIndex === idx ? (
-											<Check size={10} className="text-green-400" />
-										) : (
-											<Copy size={10} />
-										)}
-									</button>
-								</div>
-							))}
-						</div>
-
-						<div className="relative border-t border-[#1e2535] px-3 py-1.5 bg-[#0f1117]">
-							{showAgentSuggestions && agentSuggestions.length > 0 && (
-								<div className="absolute bottom-full left-3 mb-1 bg-[#1a2030] border border-[#2a3344] rounded shadow-xl overflow-hidden">
-									{agentSuggestions.map((s) => (
-										<button
-											key={s}
-											onClick={() => {
-												dispatch({ type: "SET_TERMINAL_INPUT", payload: s + " " })
-												dispatch({ type: "SET_SHOW_AGENT_SUGGESTIONS", payload: false })
-											}}
-											className="block w-full text-left px-3 py-1 text-[11px] text-gray-300 hover:bg-[#253045] transition-colors">
-											{s}
-										</button>
-									))}
-								</div>
-							)}
-							{showSmartSuggestions && smartSuggestions.length > 0 && (
-								<div className="absolute bottom-full left-3 mb-1 bg-[#1a2030] border border-[#2a3344] rounded shadow-xl overflow-hidden min-w-[200px]">
-									{smartSuggestions.map((s, idx) => (
-										<button
-											key={s.text + idx}
-											onClick={() => {
-												dispatch({ type: "SET_TERMINAL_INPUT", payload: s.text + " " })
-												dispatch({ type: "SET_SHOW_SMART_SUGGESTIONS", payload: false })
-												setSelectedSuggestionIndex(-1)
-											}}
-											className={`block w-full text-left px-3 py-1.5 text-[11px] transition-colors ${idx === selectedSuggestionIndex ? "bg-violet-500/20 text-violet-300" : "text-gray-300 hover:bg-[#253045]"}`}>
-											<span className="font-medium">{s.text}</span>
-											<span className="text-gray-500 ml-2">{s.description}</span>
-										</button>
-									))}
-								</div>
-							)}
-							<div className="flex items-center gap-2">
-								<span className="text-green-400 text-[11px] font-mono shrink-0">$</span>
-								<input
-									ref={terminalInputRef}
-									type="text"
-									value={terminalInput}
-									onChange={handleTerminalInputChange}
-									onKeyDown={handleTerminalKeyDown}
-									placeholder="Type a command or / for agents..."
-									className="flex-1 bg-transparent text-[12px] text-gray-300 placeholder-gray-600 outline-none font-mono"
-									autoFocus
-								/>
+							className="bg-[#252526] border border-[#3c3c3c] rounded-lg p-6 w-96 shadow-xl"
+							onClick={(e) => e.stopPropagation()}>
+							<h3 className="text-sm font-semibold text-gray-200 mb-4 flex items-center gap-2">
+								<Github size={16} /> Import from GitHub
+							</h3>
+							<input
+								type="text"
+								placeholder="GitHub URL (e.g. https://github.com/user/repo)"
+								value={importGithubUrl}
+								onChange={(e) => setImportGithubUrl(e.target.value)}
+								className="w-full px-3 py-2 text-sm bg-[#1e1e1e] border border-[#3c3c3c] rounded text-gray-200 placeholder-gray-500 focus:outline-none focus:border-blue-500 mb-2"
+							/>
+							<input
+								type="text"
+								placeholder="Branch (default: main)"
+								value={importGithubBranch}
+								onChange={(e) => setImportGithubBranch(e.target.value)}
+								className="w-full px-3 py-2 text-sm bg-[#1e1e1e] border border-[#3c3c3c] rounded text-gray-200 placeholder-gray-500 focus:outline-none focus:border-blue-500 mb-3"
+							/>
+							{importGithubError && <p className="text-xs text-red-400 mb-2">{importGithubError}</p>}
+							<div className="flex justify-end gap-2">
+								<button
+									onClick={() => dispatch({ type: "SET_SHOW_IMPORT_GITHUB", payload: false })}
+									className="px-3 py-1.5 text-xs text-gray-400 hover:text-gray-200">
+									Cancel
+								</button>
+								<button
+									onClick={handleImportGithub}
+									disabled={importGithubLoading || !importGithubUrl.trim()}
+									className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1">
+									{importGithubLoading ? (
+										<Loader2 size={12} className="animate-spin" />
+									) : (
+										<Github size={12} />
+									)}
+									Import
+								</button>
 							</div>
 						</div>
 					</div>
-				</div>
+				)}
 
-				{showAiPanel && (
-					<aside className="w-80 border-l border-[#1e2535] bg-[#0f1117] flex flex-col shrink-0">
-						<div className="flex items-center justify-between px-3 py-1.5 border-b border-[#1e2535]">
-							<div className="flex items-center gap-2">
-								<Brain size={12} className="text-violet-400" />
-								<span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
-									AI Assistant
-								</span>
-							</div>
-							<button
-								onClick={() => dispatch({ type: "SET_SHOW_AI_PANEL", payload: false })}
-								className="text-gray-500 hover:text-gray-300 transition-colors"
-								title="Close panel">
-								<PanelRightClose size={11} />
-							</button>
-						</div>
-
-						<div className="flex border-b border-[#1e2535] bg-[#0a0d14]">
-							{["chat", "plan", "memory", "deploy"].map((tab) => (
+				{/* Open Workspace Modal */}
+				{showOpenWorkspace && (
+					<div
+						className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+						onClick={() => dispatch({ type: "SET_SHOW_OPEN_WORKSPACE", payload: false })}>
+						<div
+							className="bg-[#252526] border border-[#3c3c3c] rounded-lg p-6 w-96 shadow-xl"
+							onClick={(e) => e.stopPropagation()}>
+							<h3 className="text-sm font-semibold text-gray-200 mb-4 flex items-center gap-2">
+								<FolderOpen size={16} /> Open Workspace
+							</h3>
+							<input
+								type="text"
+								placeholder="Workspace path (e.g. /home/user/project)"
+								value={openWorkspacePath}
+								onChange={(e) => setOpenWorkspacePath(e.target.value)}
+								className="w-full px-3 py-2 text-sm bg-[#1e1e1e] border border-[#3c3c3c] rounded text-gray-200 placeholder-gray-500 focus:outline-none focus:border-blue-500 mb-3"
+							/>
+							{openWorkspaceError && <p className="text-xs text-red-400 mb-2">{openWorkspaceError}</p>}
+							<div className="flex justify-end gap-2">
 								<button
-									key={tab}
-									onClick={() => dispatch({ type: "SET_AI_TAB", payload: tab })}
-									className={`flex-1 px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider transition-colors ${aiTab === tab ? "text-violet-400 border-b-2 border-violet-500 bg-[#1a2030]" : "text-gray-600 hover:text-gray-400"}`}>
-									{tab === "chat" && <MessageSquare size={11} className="inline mr-1" />}
-									{tab === "plan" && <GitBranch size={11} className="inline mr-1" />}
-									{tab === "memory" && <Database size={11} className="inline mr-1" />}
-									{tab === "deploy" && <Rocket size={11} className="inline mr-1" />}
-									{tab}
+									onClick={() => dispatch({ type: "SET_SHOW_OPEN_WORKSPACE", payload: false })}
+									className="px-3 py-1.5 text-xs text-gray-400 hover:text-gray-200">
+									Cancel
 								</button>
-							))}
-						</div>
-
-						{aiTab === "chat" && (
-							<>
-								<div className="flex-1 overflow-y-auto p-3 space-y-3">
-									{aiMessages.length === 0 && (
-										<div className="text-center text-gray-600 mt-8">
-											<Bot size={24} className="mx-auto mb-2 opacity-30" />
-											<p className="text-[11px]">Ask me anything about your code</p>
-											<p className="text-[10px] text-gray-700 mt-1">
-												Use @agent to delegate tasks
-											</p>
-										</div>
+								<button
+									onClick={handleOpenWorkspace}
+									disabled={openWorkspaceLoading || !openWorkspacePath.trim()}
+									className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1">
+									{openWorkspaceLoading ? (
+										<Loader2 size={12} className="animate-spin" />
+									) : (
+										<FolderOpen size={12} />
 									)}
-									{aiMessages.map((msg) => (
-										<div key={msg.id} className="space-y-1">
-											<div className="flex items-center justify-between">
-												<div className="flex items-center gap-1.5">
-													{msg.role === "user" ? (
-														<User size={10} className="text-blue-400" />
-													) : (
-														<Bot
-															size={10}
-															className={
-																msg.role === "agent"
-																	? "text-violet-400"
-																	: "text-gray-500"
-															}
-														/>
-													)}
-													<span className="text-[10px] font-medium text-gray-400">
-														{msg.author}
-													</span>
-													{msg.meta && (
-														<span className="text-[9px] text-gray-600">({msg.meta})</span>
-													)}
-												</div>
-												<span className="text-[9px] text-gray-700">{msg.time}</span>
-											</div>
-											<div className="text-[12px] text-gray-300 leading-relaxed">
-												{renderMessageContent(msg.content)}
-											</div>
-											{/* Function 8: Quick Action Buttons after each AI response */}
-											{msg.role !== "user" && msg.content && msg.content.length > 20 && (
-												<div className="flex items-center gap-1 mt-1.5">
-													<button
-														onClick={() => {
-															navigator.clipboard.writeText(msg.content).catch(() => {})
-														}}
-														className="flex items-center gap-1 px-1.5 py-0.5 text-[9px] text-gray-500 hover:text-gray-300 hover:bg-[#1e2535] rounded transition-colors"
-														title="Copy all text">
-														<Copy size={9} />
-														Copy All
-													</button>
-													<button
-														onClick={() => {
-															dispatch({ type: "SET_AI_INPUT", payload: msg.content })
-															setTimeout(() => textareaRef.current?.focus(), 50)
-														}}
-														className="flex items-center gap-1 px-1.5 py-0.5 text-[9px] text-blue-400 hover:text-blue-300 hover:bg-[#1e2535] rounded transition-colors"
-														title="Copy message text to chat input for follow-up">
-														<MessageSquare size={9} />
-														Copy to input
-													</button>
-													{(() => {
-														const codeBlocks = msg.content.match(/```\w*\n?[\s\S]*?```/g)
-														if (codeBlocks && codeBlocks.length > 0) {
-															return (
-																<button
-																	onClick={() => {
-																		codeBlocks.forEach((block) => {
-																			const langMatch =
-																				block.match(/```(\w*)\n?([\s\S]*?)```/)
-																			if (langMatch) {
-																				handleApplyCode(
-																					langMatch[2].trim(),
-																					langMatch[1] || "text",
-																				)
-																			}
-																		})
-																	}}
-																	className="flex items-center gap-1 px-1.5 py-0.5 text-[9px] text-violet-400 hover:text-violet-300 hover:bg-[#1e2535] rounded transition-colors"
-																	title="Apply all code blocks">
-																	<Code size={9} />
-																	Apply All ({codeBlocks.length})
-																</button>
-															)
-														}
-														return null
-													})()}
-													{(() => {
-														const shellBlocks = msg.content.match(
-															/```(bash|sh|shell|terminal|cmd|powershell|docker|zsh)\n?[\s\S]*?```/g,
-														)
-														if (shellBlocks && shellBlocks.length > 0) {
-															return (
-																<button
-																	onClick={() => {
-																		const firstMatch =
-																			shellBlocks[0].match(
-																				/```\w+\n?([\s\S]*?)```/,
-																			)
-																		if (firstMatch) {
-																			handleRunInTerminal(firstMatch[1].trim())
-																		}
-																	}}
-																	className="flex items-center gap-1 px-1.5 py-0.5 text-[9px] text-green-400 hover:text-green-300 hover:bg-[#1e2535] rounded transition-colors"
-																	title="Run shell commands in terminal">
-																	<Play size={9} />
-																	Run Commands ({shellBlocks.length})
-																</button>
-															)
-														}
-														return null
-													})()}
-												</div>
-											)}
-											{msg.attachments && msg.attachments.length > 0 && (
-												<div className="flex flex-wrap gap-1 mt-1">
-													{msg.attachments.map((att) => (
-														<span
-															key={att.id}
-															className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] bg-[#1e2535] text-gray-400 rounded">
-															<Paperclip size={8} />
-															{att.filename}
-														</span>
-													))}
-												</div>
-											)}
+									Open
+								</button>
+							</div>
+						</div>
+					</div>
+				)}
+
+				{/* Recent Tasks Modal */}
+				{showRecentTasks && (
+					<div
+						className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+						onClick={() => setShowRecentTasks(false)}>
+						<div
+							className="bg-[#252526] border border-[#3c3c3c] rounded-lg p-6 w-96 shadow-xl max-h-96 overflow-y-auto"
+							onClick={(e) => e.stopPropagation()}>
+							<h3 className="text-sm font-semibold text-gray-200 mb-4 flex items-center gap-2">
+								<ListTodo size={16} /> Recent Tasks
+							</h3>
+							{workspaceTasks.length === 0 ? (
+								<p className="text-xs text-gray-500">No tasks yet</p>
+							) : (
+								<div className="space-y-2">
+									{workspaceTasks.map((task) => (
+										<div
+											key={task.id}
+											className="flex items-center justify-between px-2 py-1.5 bg-[#1e1e1e] rounded text-xs">
+											<span className="text-gray-300 truncate flex-1">{task.title}</span>
+											<span
+												className={`ml-2 px-1.5 py-0.5 rounded text-[10px] ${
+													task.status === "done"
+														? "bg-green-900 text-green-300"
+														: task.status === "failed"
+															? "bg-red-900 text-red-300"
+															: "bg-yellow-900 text-yellow-300"
+												}`}>
+												{task.status}
+											</span>
 										</div>
 									))}
-
-									{/* Proactive Suggestions */}
-									{proactiveSuggestions.length > 0 && (
-										<div className="flex flex-wrap gap-1.5 px-1">
-											{proactiveSuggestions.map((s, idx) => (
-												<button
-													key={idx}
-													onClick={() => {
-														dispatch({ type: "SET_AI_INPUT", payload: s + " " })
-													}}
-													className="text-[10px] px-2 py-1 bg-[#1e2535] text-gray-400 rounded-full border border-[#2a3344] hover:border-violet-500 hover:text-violet-300 transition-colors">
-													{s}
-												</button>
-											))}
-										</div>
-									)}
-									{aiSending && (
-										<div className="flex items-center gap-2 text-gray-500">
-											<Loader2 size={10} className="animate-spin" />
-											<span className="text-[10px]">Thinking...</span>
-										</div>
-									)}
-									<div ref={aiMessagesEndRef} />
 								</div>
+							)}
+						</div>
+					</div>
+				)}
 
-								{aiAttachments.length > 0 && (
-									<div className="flex flex-wrap gap-1 px-3 py-1.5 border-t border-[#1e2535] bg-[#0a0d14]">
-										{aiAttachments.map((att) => (
-											<span
-												key={att.id}
-												className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] bg-[#1e2535] text-gray-400 rounded">
-												<Paperclip size={8} />
-												{att.filename}
-												<button
-													onClick={() => removeAttachment(att.id)}
-													className="text-gray-600 hover:text-gray-400 ml-0.5">
-													<X size={8} />
-												</button>
-											</span>
-										))}
-									</div>
-								)}
+				{/* Search Panel Modal */}
+				{showSearchPanel && (
+					<SearchPanel
+						onClose={() => setShowSearchPanel(false)}
+						onFileClick={(path: string, name: string) => {
+							handleFileSelect(path)
+							setShowSearchPanel(false)
+						}}
+					/>
+				)}
 
-								<div className="border-t border-[#1e2535] px-3 py-2 bg-[#0a0d14]">
-									<div className="flex items-end gap-2">
-										<div className="flex-1 relative">
-											{/* Recent Tasks dropdown — click to load last task context */}
-											{workspaceTasks.length > 0 && (
-												<div className="absolute bottom-full left-0 mb-1 z-20">
-													<div className="relative group">
-														<button
-															onClick={() => setShowRecentTasks(!showRecentTasks)}
-															className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-gray-500 hover:text-gray-300 hover:bg-[#1e2535] rounded transition-colors"
-															title="Recent tasks">
-															<ListTodo size={10} />
-															<span>Recent Tasks</span>
-														</button>
-														{showRecentTasks && (
-															<div className="absolute bottom-full left-0 mb-1 w-72 bg-[#1a2030] border border-[#2a3344] rounded shadow-xl overflow-hidden max-h-60 overflow-y-auto">
-																<div className="p-1.5 border-b border-[#1e2535] sticky top-0 bg-[#1a2030]">
-																	<span className="text-[9px] text-gray-500 uppercase tracking-wider font-semibold">
-																		Recent Tasks ({workspaceTasks.length})
-																	</span>
-																</div>
-																{workspaceTasks.slice(0, 20).map((t) => (
-																	<button
-																		key={t.id}
-																		onClick={() => {
-																			dispatch({
-																				type: "SET_AI_INPUT",
-																				payload: `Continue task: ${t.title}\n\nStatus: ${t.status}`,
-																			})
-																			setShowRecentTasks(false)
-																			textareaRef?.current?.focus()
-																		}}
-																		className="block w-full text-left px-2.5 py-1.5 text-[11px] border-b border-[#1e2535]/50 last:border-0 hover:bg-[#253045] transition-colors">
-																		<div className="flex items-center gap-2">
-																			{t.status === "done" ? (
-																				<CheckSquare
-																					size={10}
-																					className="text-green-400 shrink-0"
-																				/>
-																			) : t.status === "failed" ? (
-																				<XCircle
-																					size={10}
-																					className="text-red-400 shrink-0"
-																				/>
-																			) : (
-																				<Square
-																					size={10}
-																					className="text-yellow-400 shrink-0"
-																				/>
-																			)}
-																			<span className="truncate text-gray-300">
-																				{t.title}
-																			</span>
-																		</div>
-																		{t.title && (
-																			<div className="text-[9px] text-gray-600 mt-0.5 pl-5 truncate">
-																				{t.title}
-																			</div>
-																		)}
-																	</button>
-																))}
-															</div>
-														)}
-													</div>
-												</div>
-											)}
-											{/* Function 3: Slash commands dropdown */}
-											{showSlashCommands && (
-												<div className="absolute bottom-full left-0 right-0 mb-1 bg-[#0f1117] border border-[#1e2535] rounded shadow-xl max-h-48 overflow-y-auto z-10">
-													{slashCommandsList
-														.filter((sc) =>
-															sc.command.startsWith(slashCommandFilter || "/"),
-														)
-														.map((sc) => (
-															<button
-																key={sc.command}
-																onClick={() => {
-																	dispatch({
-																		type: "SET_AI_INPUT",
-																		payload: sc.command + " ",
-																	})
-																	dispatch({
-																		type: "SET_SHOW_SLASH_COMMANDS",
-																		payload: false,
-																	})
-																	textareaRef?.current?.focus()
-																}}
-																className="w-full flex items-center gap-2 px-2.5 py-1.5 text-[11px] text-left hover:bg-[#1e2535] transition-colors">
-																<Slash size={11} className="text-violet-400 shrink-0" />
-																<span className="text-violet-300 font-medium">
-																	{sc.command}
-																</span>
-																<span className="text-gray-500 ml-1">
-																	{sc.description}
-																</span>
-															</button>
-														))}
-												</div>
-											)}
-											<textarea
-												ref={textareaRef}
-												value={aiInput}
-												onChange={handleAiInputChange}
-												onKeyDown={handleAiKeyDown}
-												placeholder="Ask AI or @agent for help... (type / for commands)"
-												rows={2}
-												className="w-full bg-[#1e2535] text-[12px] text-gray-300 placeholder-gray-600 border border-[#2a3344] rounded px-2.5 py-1.5 outline-none resize-none"
-											/>
-										</div>
-										<button
-											onClick={handleAiSend}
-											disabled={aiSending || (!aiInput.trim() && aiAttachments.length === 0)}
-											className="p-1.5 bg-violet-600 hover:bg-violet-500 disabled:bg-[#1e2535] disabled:text-gray-600 text-white rounded transition-colors"
-											title="Send">
-											<Send size={12} />
-										</button>
-									</div>
-									<div className="flex items-center gap-2 mt-1.5">
-										<button
-											onClick={() => fileInputRef.current?.click()}
-											className="text-gray-600 hover:text-gray-400 transition-colors"
-											title="Attach file">
-											<Paperclip size={10} />
-										</button>
-										<button
-											onClick={() => imageInputRef.current?.click()}
-											className="text-gray-600 hover:text-gray-400 transition-colors"
-											title="Attach image">
-											<Image size={10} />
-										</button>
-										<input
-											ref={fileInputRef}
-											type="file"
-											multiple
-											onChange={handleFilesSelected}
-											className="hidden"
-										/>
-										<input
-											ref={imageInputRef}
-											type="file"
-											accept="image/*"
-											multiple
-											onChange={handleImagesSelected}
-											className="hidden"
-										/>
-									</div>
-								</div>
-							</>
-						)}
+				{/* Git Panel Modal */}
+				{showGitPanel && (
+					<GitPanel
+						onClose={() => setShowGitPanel(false)}
+						onFileClick={(path: string, name: string) => {
+							handleFileSelect(path)
+						}}
+					/>
+				)}
 
-						{aiTab === "plan" && (
-							<div className="flex-1 overflow-y-auto p-3 space-y-3">
-								{brainLoading ? (
-									<div className="flex items-center justify-center py-8">
-										<Loader2 size={16} className="text-violet-400 animate-spin" />
-									</div>
-								) : brainPlan.length > 0 ? (
-									<>
-										<div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-2">
-											Execution Plan
-										</div>
-										{brainPlan.map((step, idx) => (
-											<div key={idx} className="flex items-start gap-2 text-[11px]">
-												<span className="text-gray-600 font-mono shrink-0">{idx + 1}.</span>
-												<div>
-													<code className="text-green-400 text-[10px]">{step.command}</code>
-													{step.description && (
-														<p className="text-gray-500 mt-0.5">{step.description}</p>
-													)}
-												</div>
-											</div>
-										))}
-									</>
-								) : (
-									<div className="text-center text-gray-600 mt-8">
-										<GitBranch size={24} className="mx-auto mb-2 opacity-30" />
-										<p className="text-[11px]">No active plan</p>
-										<p className="text-[10px] text-gray-700 mt-1">Ask the AI to create a plan</p>
-									</div>
-								)}
-								{brainFeedback && (
-									<div className="border-t border-[#1e2535] pt-3 mt-3">
-										<div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-2">
-											Feedback
-										</div>
-										<p className="text-[11px] text-gray-400">{brainFeedback.output}</p>
-									</div>
-								)}
-							</div>
-						)}
+				{/* Diff View Modal */}
+				{showDiffView && diffData && (
+					<DiffViewModal
+						diffData={diffData}
+						onClose={() => dispatch({ type: "SET_SHOW_DIFF_VIEW", payload: false })}
+						onApply={() => {
+							// Apply diff - reload the file content
+							if (diffData.filePath) {
+								handleFileSelect(diffData.filePath)
+							}
+							dispatch({ type: "SET_SHOW_DIFF_VIEW", payload: false })
+						}}
+						onDiscard={() => dispatch({ type: "SET_SHOW_DIFF_VIEW", payload: false })}
+					/>
+				)}
 
-						{aiTab === "memory" && (
-							<div className="flex-1 overflow-y-auto p-3 space-y-3">
-								{brainMemory ? (
-									<>
-										<div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-2">
-											Session Stats
-										</div>
-										<div className="grid grid-cols-2 gap-2">
-											<div className="bg-[#1a2030] rounded p-2">
-												<div className="text-[18px] font-bold text-gray-300">
-													{brainMemory.stats?.totalSessions ?? 0}
-												</div>
-												<div className="text-[9px] text-gray-600">Sessions</div>
-											</div>
-											<div className="bg-[#1a2030] rounded p-2">
-												<div className="text-[18px] font-bold text-gray-300">
-													{brainMemory.stats?.totalCommands ?? 0}
-												</div>
-												<div className="text-[9px] text-gray-600">Commands</div>
-											</div>
-											<div className="bg-[#1a2030] rounded p-2">
-												<div className="text-[18px] font-bold text-gray-300">
-													{brainMemory.stats?.totalErrors ?? 0}
-												</div>
-												<div className="text-[9px] text-gray-600">Errors</div>
-											</div>
-											<div className="bg-[#1a2030] rounded p-2">
-												<div className="text-[18px] font-bold text-gray-300">
-													{brainMemory.stats?.successRate
-														? `${(brainMemory.stats.successRate * 100).toFixed(0)}%`
-														: "0%"}
-												</div>
-												<div className="text-[9px] text-gray-600">Success Rate</div>
-											</div>
-										</div>
-										{brainMemory.commands && brainMemory.commands.length > 0 && (
-											<>
-												<div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mt-3 mb-2">
-													Recent Commands
-												</div>
-												<div className="space-y-1">
-													{brainMemory.commands.slice(0, 10).map((cmd, idx) => (
-														<div
-															key={idx}
-															className="flex items-center justify-between text-[10px]">
-															<span className="text-gray-400 truncate font-mono">
-																{cmd.command}
-															</span>
-															<span
-																className={`shrink-0 ml-2 ${cmd.status === "success" ? "text-green-500" : "text-red-500"}`}>
-																{cmd.status}
-															</span>
-														</div>
-													))}
-												</div>
-											</>
-										)}
-									</>
-								) : (
-									<div className="text-center text-gray-600 mt-8">
-										<Database size={24} className="mx-auto mb-2 opacity-30" />
-										<p className="text-[11px]">No memory data available</p>
-									</div>
-								)}
-							</div>
-						)}
-
-						{aiTab === "deploy" && (
-							<div className="flex-1 overflow-y-auto p-3 space-y-3">
-								{brainDeployments.length > 0 ? (
-									<>
-										<div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-2">
-											Recent Deployments
-										</div>
-										{brainDeployments.map((dep, idx) => (
-											<div
-												key={idx}
-												className="flex items-center justify-between text-[11px] py-1 border-b border-[#1e2535] last:border-0">
-												<div className="flex items-center gap-2">
-													{dep.status === "success" ? (
-														<CheckCircle2 size={10} className="text-green-400" />
-													) : dep.status === "failed" ? (
-														<XCircle size={10} className="text-red-400" />
-													) : (
-														<Loader2 size={10} className="text-blue-400 animate-spin" />
-													)}
-													<span className="text-gray-300">{dep.version || "v1.0"}</span>
-												</div>
-												<span className="text-gray-600">{dep.timestamp || dep.time || ""}</span>
-											</div>
-										))}
-									</>
-								) : (
-									<div className="text-center text-gray-600 mt-8">
-										<Rocket size={24} className="mx-auto mb-2 opacity-30" />
-										<p className="text-[11px]">No deployments yet</p>
-									</div>
-								)}
-							</div>
-						)}
-					</aside>
+				{/* Keyboard Shortcuts Modal */}
+				{showShortcuts && (
+					<KeyboardShortcutsModal onClose={() => dispatch({ type: "SET_SHOW_SHORTCUTS", payload: false })} />
 				)}
 			</div>
-
-			{showShortcuts && (
-				<KeyboardShortcutsModal onClose={() => dispatch({ type: "SET_SHOW_SHORTCUTS", payload: false })} />
-			)}
-			{showRecordings && recordings.length > 0 && (
-				<div
-					className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-					onClick={() => dispatch({ type: "SET_SHOW_RECORDINGS", payload: false })}>
-					<div
-						className="bg-[#0f1117] border border-[#1e2535] rounded-lg p-4 w-full max-w-md mx-4 shadow-2xl"
-						onClick={(e) => e.stopPropagation()}>
-						<div className="flex items-center justify-between mb-3">
-							<div className="flex items-center gap-2">
-								<History size={14} className="text-violet-400" />
-								<span className="text-sm font-semibold text-[#e2e8f0]">Terminal Recordings</span>
-							</div>
-							<button
-								onClick={() => dispatch({ type: "SET_SHOW_RECORDINGS", payload: false })}
-								className="text-gray-500 hover:text-gray-300">
-								<X size={14} />
-							</button>
-						</div>
-						<div className="space-y-2 max-h-60 overflow-y-auto">
-							{recordings.map((rec) => (
-								<div
-									key={rec.id}
-									className="flex items-center justify-between p-2 bg-[#1a2030] rounded">
-									<div>
-										<div className="text-[11px] text-gray-300 font-medium">{rec.name}</div>
-										<div className="text-[9px] text-gray-600">
-											{rec.commandCount} commands · {rec.duration}
-										</div>
-									</div>
-									<button
-										onClick={() => {
-											handleReplayRecording(rec)
-											dispatch({ type: "SET_SHOW_RECORDINGS", payload: false })
-										}}
-										className="text-[10px] text-violet-400 hover:text-violet-300 transition-colors">
-										Replay
-									</button>
-								</div>
-							))}
-						</div>
-					</div>
-				</div>
-			)}
-
-			{/* ── Import GitHub Modal ─────────────────────────────────────────────── */}
-			{showImportGithub && (
-				<div
-					className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-					onClick={() => dispatch({ type: "SET_SHOW_IMPORT_GITHUB", payload: false })}>
-					<div
-						className="bg-[#0f1117] border border-[#1e2535] rounded-lg p-5 w-full max-w-md mx-4 shadow-2xl"
-						onClick={(e) => e.stopPropagation()}>
-						<div className="flex items-center justify-between mb-4">
-							<div className="flex items-center gap-2">
-								<Github size={16} className="text-violet-400" />
-								<span className="text-sm font-semibold text-[#e2e8f0]">Import GitHub Repository</span>
-							</div>
-							<button
-								onClick={() => dispatch({ type: "SET_SHOW_IMPORT_GITHUB", payload: false })}
-								className="text-gray-500 hover:text-gray-300">
-								<X size={14} />
-							</button>
-						</div>
-						<div className="space-y-3">
-							<div>
-								<label className="text-[10px] text-gray-500 font-medium uppercase tracking-wider">
-									Repository URL
-								</label>
-								<input
-									type="text"
-									value={importGithubUrl}
-									onChange={(e) => setImportGithubUrl(e.target.value)}
-									placeholder="https://github.com/user/repo"
-									className="w-full bg-[#1a2030] text-[12px] text-gray-300 placeholder-gray-600 border border-[#2a3344] rounded px-2.5 py-1.5 mt-1 outline-none focus:border-violet-500"
-								/>
-							</div>
-							<div>
-								<label className="text-[10px] text-gray-500 font-medium uppercase tracking-wider">
-									Branch
-								</label>
-								<input
-									type="text"
-									value={importGithubBranch}
-									onChange={(e) => setImportGithubBranch(e.target.value)}
-									placeholder="main"
-									className="w-full bg-[#1a2030] text-[12px] text-gray-300 placeholder-gray-600 border border-[#2a3344] rounded px-2.5 py-1.5 mt-1 outline-none focus:border-violet-500"
-								/>
-							</div>
-							{importGithubError && (
-								<div className="text-[10px] text-red-400 bg-red-400/10 border border-red-400/20 rounded px-2 py-1.5">
-									{importGithubError}
-								</div>
-							)}
-							<button
-								onClick={handleImportGithub}
-								disabled={importGithubLoading || !importGithubUrl.trim()}
-								className="w-full py-1.5 bg-violet-600 hover:bg-violet-500 disabled:bg-[#1e2535] disabled:text-gray-600 text-white text-[12px] rounded transition-colors flex items-center justify-center gap-2">
-								{importGithubLoading ? (
-									<Loader2 size={12} className="animate-spin" />
-								) : (
-									<Github size={12} />
-								)}
-								{importGithubLoading ? "Importing..." : "Import Repository"}
-							</button>
-						</div>
-					</div>
-				</div>
-			)}
-
-			{/* ── Open/New Workspace Modal ────────────────────────────────────────── */}
-			{showOpenWorkspace && (
-				<div
-					className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-					onClick={() => dispatch({ type: "SET_SHOW_OPEN_WORKSPACE", payload: false })}>
-					<div
-						className="bg-[#0f1117] border border-[#1e2535] rounded-lg p-5 w-full max-w-md mx-4 shadow-2xl"
-						onClick={(e) => e.stopPropagation()}>
-						<div className="flex items-center justify-between mb-4">
-							<div className="flex items-center gap-2">
-								<FolderOpen size={16} className="text-violet-400" />
-								<span className="text-sm font-semibold text-[#e2e8f0]">Open Workspace</span>
-							</div>
-							<button
-								onClick={() => dispatch({ type: "SET_SHOW_OPEN_WORKSPACE", payload: false })}
-								className="text-gray-500 hover:text-gray-300">
-								<X size={14} />
-							</button>
-						</div>
-						<div className="space-y-3">
-							<div>
-								<label className="text-[10px] text-gray-500 font-medium uppercase tracking-wider">
-									Workspace Path
-								</label>
-								<input
-									type="text"
-									value={openWorkspacePath}
-									onChange={(e) => setOpenWorkspacePath(e.target.value)}
-									placeholder="/home/user/projects/my-app"
-									className="w-full bg-[#1a2030] text-[12px] text-gray-300 placeholder-gray-600 border border-[#2a3344] rounded px-2.5 py-1.5 mt-1 outline-none focus:border-violet-500"
-								/>
-							</div>
-							{recentWorkspaces.length > 0 && (
-								<>
-									<div className="text-[10px] text-gray-500 font-medium uppercase tracking-wider">
-										Recent Workspaces
-									</div>
-									<div className="space-y-1 max-h-32 overflow-y-auto">
-										{recentWorkspaces.map((w, idx) => (
-											<button
-												key={idx}
-												onClick={() => handleOpenWorkspace(w.path)}
-												className="w-full flex items-center gap-2 px-2 py-1.5 bg-[#1a2030] hover:bg-[#1e2535] rounded text-left transition-colors">
-												<FolderGit2 size={12} className="text-gray-500 shrink-0" />
-												<div className="min-w-0">
-													<div className="text-[11px] text-gray-300 truncate">{w.name}</div>
-													<div className="text-[9px] text-gray-600 truncate">{w.path}</div>
-												</div>
-											</button>
-										))}
-									</div>
-								</>
-							)}
-							{openWorkspaceError && (
-								<div className="text-[10px] text-red-400 bg-red-400/10 border border-red-400/20 rounded px-2 py-1.5">
-									{openWorkspaceError}
-								</div>
-							)}
-							<button
-								onClick={() => handleOpenWorkspace()}
-								disabled={openWorkspaceLoading || !openWorkspacePath.trim()}
-								className="w-full py-1.5 bg-violet-600 hover:bg-violet-500 disabled:bg-[#1e2535] disabled:text-gray-600 text-white text-[12px] rounded transition-colors flex items-center justify-center gap-2">
-								{openWorkspaceLoading ? (
-									<Loader2 size={12} className="animate-spin" />
-								) : (
-									<FolderOpen size={12} />
-								)}
-								{openWorkspaceLoading ? "Opening..." : "Open Workspace"}
-							</button>
-						</div>
-					</div>
-				</div>
-			)}
-
-			{/* ── Function 7: Diff View Modal ──────────────────────────────────────────── */}
-			{showDiffView && diffData && (
-				<div
-					className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-					onClick={() => dispatch({ type: "SET_SHOW_DIFF_VIEW", payload: false })}>
-					<div
-						className="bg-[#0f1117] border border-[#1e2535] rounded-lg p-4 w-full max-w-2xl mx-4 shadow-2xl max-h-[80vh] flex flex-col"
-						onClick={(e) => e.stopPropagation()}>
-						<div className="flex items-center justify-between mb-3">
-							<div className="flex items-center gap-2">
-								<Diff size={14} className="text-violet-400" />
-								<span className="text-sm font-semibold text-[#e2e8f0]">Changes: {diffData.path}</span>
-							</div>
-							<div className="flex items-center gap-2">
-								<span className="text-[10px] text-gray-500">
-									{diffData.totalChanges} change{diffData.totalChanges !== 1 ? "s" : ""}
-								</span>
-								<button
-									onClick={() => dispatch({ type: "SET_SHOW_DIFF_VIEW", payload: false })}
-									className="text-gray-500 hover:text-gray-300">
-									<X size={14} />
-								</button>
-							</div>
-						</div>
-						<div className="flex-1 overflow-y-auto space-y-1">
-							{diffData.changes.map((change, idx) => (
-								<div key={idx} className="text-[10px] font-mono">
-									<div className="flex items-center gap-2 text-gray-600 bg-[#1a2030] px-2 py-0.5 rounded-t">
-										<span>Line {change.line}</span>
-									</div>
-									{change.old !== "" && (
-										<div className="bg-red-900/20 border-l-2 border-red-500 px-2 py-0.5 text-red-300">
-											- {change.old}
-										</div>
-									)}
-									{change.new !== "" && (
-										<div className="bg-green-900/20 border-l-2 border-green-500 px-2 py-0.5 text-green-300 rounded-b">
-											+ {change.new}
-										</div>
-									)}
-								</div>
-							))}
-						</div>
-					</div>
-				</div>
-			)}
-
-			{/* ── Function 5: Inline AI Selection Button ─────────────────────────────── */}
-			{showInlineAiButton && inlineSelectionPos && (
-				<div
-					className="fixed z-50"
-					style={{
-						top: inlineSelectionPos.top - 30,
-						left: inlineSelectionPos.left,
-					}}>
-					<button
-						onClick={() => {
-							if (currentFileSelection) {
-								dispatch({
-									type: "SET_AI_INPUT",
-									payload: `Explain this code:\n\`\`\`\n${currentFileSelection.slice(0, 2000)}\n\`\`\``,
-								})
-								dispatch({ type: "SET_SHOW_INLINE_AI_BUTTON", payload: false })
-								// Focus the AI input
-								setTimeout(() => textareaRef.current?.focus(), 50)
-							}
-						}}
-						className="flex items-center gap-1 px-2 py-1 bg-violet-600 hover:bg-violet-500 text-white text-[10px] rounded shadow-lg transition-colors"
-						title="Ask AI about selected code">
-						<Sparkles size={10} />
-						Ask AI
-					</button>
-				</div>
-			)}
-		</div>
+		</ErrorBoundary>
 	)
 }
