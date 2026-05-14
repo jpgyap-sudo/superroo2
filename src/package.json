@@ -182,7 +182,7 @@
 			},
 			{
 				"command": "superroo.autonomousSafe",
-				"title": "SuperRoo: Run Autonomous Safe Mode",
+				"title": "SuperRoo: Run Fully Autonomous Mode",
 				"category": "%configuration.title%"
 			},
 			{

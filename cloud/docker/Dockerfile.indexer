@@ -1,0 +1,28 @@
+# SuperRoo Indexer Worker Dockerfile
+# ──────────────────────────────
+# Lightweight Node.js container for the file-watching indexer worker.
+# Uses the official Node.js Alpine image for minimal footprint.
+
+FROM node:22-alpine
+
+# Install dependencies for native modules
+RUN apk add --no-cache git curl
+
+WORKDIR /app
+
+# Copy package files first for layer caching
+COPY apps/indexer-worker/package.json ./
+RUN npm install --production
+
+# Copy worker source
+COPY apps/indexer-worker/src/ ./src/
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:3418/health || exit 1
+
+# Expose health check port
+EXPOSE 3418
+
+# Run the worker
+CMD ["node", "src/worker.js"]

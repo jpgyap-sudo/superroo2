@@ -93,6 +93,7 @@ import {
 	FileOutput,
 	Eye,
 	Columns,
+	Puzzle,
 } from "lucide-react"
 import {
 	useIde,
@@ -115,6 +116,9 @@ import TerminalPanel from "@/components/ide-terminal/TerminalPanel"
 import AiChatPanel from "@/components/ide-terminal/AiChatPanel"
 import SearchPanel from "@/components/ide-terminal/SearchPanel"
 import GitPanel from "@/components/ide-terminal/GitPanel"
+import ProblemsPanel from "@/components/ide-terminal/ProblemsPanel"
+import SettingsPanel from "@/components/ide-terminal/SettingsPanel"
+import ExtensionsPanel from "@/components/ide-terminal/ExtensionsPanel"
 import KeyboardShortcutsModal from "@/components/ide-terminal/KeyboardShortcutsModal"
 import DiffViewModal from "@/components/ide-terminal/DiffViewModal"
 import {
@@ -336,6 +340,12 @@ export default function IdeTerminalView() {
 	const [showRecentTasks, setShowRecentTasks] = useState(false)
 	const [showSearchPanel, setShowSearchPanel] = useState(false)
 	const [showGitPanel, setShowGitPanel] = useState(false)
+	const [showProblemsPanel, setShowProblemsPanel] = useState(false)
+	const [showSettingsPanel, setShowSettingsPanel] = useState(false)
+	const [showExtensionsPanel, setShowExtensionsPanel] = useState(false)
+	const [editorProblems, setEditorProblems] = useState<any[]>([])
+	const lspWsRef = useRef<WebSocket | null>(null)
+	const [lspConnected, setLspConnected] = useState(false)
 
 	const fileInputRef = useRef<HTMLInputElement>(null)
 	const imageInputRef = useRef<HTMLInputElement>(null)
@@ -481,9 +491,24 @@ export default function IdeTerminalView() {
 				e.preventDefault()
 				setShowGitPanel((v) => !v)
 			}
+			if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "m") {
+				e.preventDefault()
+				setShowProblemsPanel((v) => !v)
+			}
+			if ((e.ctrlKey || e.metaKey) && e.key === ",") {
+				e.preventDefault()
+				setShowSettingsPanel((v) => !v)
+			}
+			if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "x") {
+				e.preventDefault()
+				setShowExtensionsPanel((v) => !v)
+			}
 			if (e.key === "Escape") {
 				setShowSearchPanel(false)
 				setShowGitPanel(false)
+				setShowProblemsPanel(false)
+				setShowSettingsPanel(false)
+				setShowExtensionsPanel(false)
 			}
 		}
 		window.addEventListener("keydown", handleGlobalKeyDown)
@@ -592,6 +617,40 @@ export default function IdeTerminalView() {
 			}
 		}
 	}, [dispatch])
+
+	// ── LSP WebSocket connection ─────────────────────────────────────────
+	useEffect(() => {
+		const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
+		const wsUrl = `${protocol}//${window.location.host}/api/ws/lsp`
+		try {
+			const ws = new WebSocket(wsUrl)
+			ws.onopen = () => {
+				setLspConnected(true)
+			}
+			ws.onmessage = (event) => {
+				try {
+					const data = JSON.parse(event.data)
+					if (data.type === "status") {
+						setLspConnected(data.available)
+					}
+				} catch {
+					// ignore
+				}
+			}
+			ws.onclose = () => {
+				setLspConnected(false)
+			}
+			lspWsRef.current = ws
+		} catch {
+			setLspConnected(false)
+		}
+		return () => {
+			if (lspWsRef.current) {
+				lspWsRef.current.close()
+				lspWsRef.current = null
+			}
+		}
+	}, [])
 
 	// ── Fetch orchestrator status ────────────────────────────────────────
 	const fetchOrchestratorStatusData = useCallback(async () => {
@@ -1147,6 +1206,37 @@ export default function IdeTerminalView() {
 							title="Keyboard Shortcuts">
 							<Keyboard size={12} />
 						</button>
+						<div className="w-px h-4 bg-[#3c3c3c] mx-1" />
+						<button
+							onClick={() => setShowProblemsPanel((v) => !v)}
+							className={`flex items-center gap-1 px-2 py-1 text-xs rounded ${
+								showProblemsPanel
+									? "bg-[#094771] text-white"
+									: "text-gray-400 hover:text-gray-200 hover:bg-[#3c3c3c]"
+							}`}
+							title="Problems (Ctrl+Shift+M)">
+							<AlertTriangle size={12} /> Problems
+						</button>
+						<button
+							onClick={() => setShowSettingsPanel((v) => !v)}
+							className={`flex items-center gap-1 px-2 py-1 text-xs rounded ${
+								showSettingsPanel
+									? "bg-[#094771] text-white"
+									: "text-gray-400 hover:text-gray-200 hover:bg-[#3c3c3c]"
+							}`}
+							title="Settings (Ctrl+,)">
+							<Settings size={12} /> Settings
+						</button>
+						<button
+							onClick={() => setShowExtensionsPanel((v) => !v)}
+							className={`flex items-center gap-1 px-2 py-1 text-xs rounded ${
+								showExtensionsPanel
+									? "bg-[#094771] text-white"
+									: "text-gray-400 hover:text-gray-200 hover:bg-[#3c3c3c]"
+							}`}
+							title="Extensions (Ctrl+Shift+X)">
+							<Puzzle size={12} /> Extensions
+						</button>
 					</div>
 				</header>
 
@@ -1642,6 +1732,52 @@ export default function IdeTerminalView() {
 						}}
 						onDiscard={() => dispatch({ type: "SET_SHOW_DIFF_VIEW", payload: false })}
 					/>
+				)}
+
+				{/* Problems Panel Overlay */}
+				{showProblemsPanel && (
+					<div
+						className="fixed inset-0 z-50 flex items-start justify-center pt-16 bg-black/40"
+						onClick={() => setShowProblemsPanel(false)}>
+						<div
+							className="bg-[#252526] border border-[#3c3c3c] rounded-lg shadow-xl w-[600px] max-h-[70vh] overflow-hidden"
+							onClick={(e) => e.stopPropagation()}>
+							<ProblemsPanel
+								problems={editorProblems}
+								onProblemClick={(file: string, line: number, column: number) => {
+									handleFileSelect(file)
+									setShowProblemsPanel(false)
+								}}
+								onClose={() => setShowProblemsPanel(false)}
+							/>
+						</div>
+					</div>
+				)}
+
+				{/* Settings Panel Overlay */}
+				{showSettingsPanel && (
+					<div
+						className="fixed inset-0 z-50 flex items-start justify-center pt-8 bg-black/40"
+						onClick={() => setShowSettingsPanel(false)}>
+						<div
+							className="bg-[#252526] border border-[#3c3c3c] rounded-lg shadow-xl w-[700px] max-h-[85vh] overflow-hidden"
+							onClick={(e) => e.stopPropagation()}>
+							<SettingsPanel onClose={() => setShowSettingsPanel(false)} />
+						</div>
+					</div>
+				)}
+
+				{/* Extensions Panel Overlay */}
+				{showExtensionsPanel && (
+					<div
+						className="fixed inset-0 z-50 flex items-start justify-center pt-8 bg-black/40"
+						onClick={() => setShowExtensionsPanel(false)}>
+						<div
+							className="bg-[#252526] border border-[#3c3c3c] rounded-lg shadow-xl w-[700px] max-h-[85vh] overflow-hidden"
+							onClick={(e) => e.stopPropagation()}>
+							<ExtensionsPanel onClose={() => setShowExtensionsPanel(false)} />
+						</div>
+					</div>
 				)}
 
 				{/* Keyboard Shortcuts Modal */}

@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "superroo-brain": {
+      "command": "npx",
+      "args": ["tsx", "server/src/memory/McpMemoryServer.ts"],
+      "env": {
+        "CENTRAL_BRAIN_URL": "http://127.0.0.1:3417",
+        "MCP_SERVER_PORT": "3419",
+        "MCP_SERVER_HOST": "127.0.0.1",
+        "SUPERROO_DAEMON_TOKEN": ""
+      },
+      "description": "SuperRoo Central Brain MCP Server - provides access to project memory, bugs, features, and tasks"
+    }
+  }
+}

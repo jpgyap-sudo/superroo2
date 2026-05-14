@@ -270,6 +270,7 @@ export type ExtensionState = Pick<
 	| "customInstructions"
 	| "dismissedUpsells"
 	| "autoApprovalEnabled"
+	| "safetyMode"
 	| "alwaysAllowReadOnly"
 	| "alwaysAllowReadOnlyOutsideWorkspace"
 	| "alwaysAllowWrite"

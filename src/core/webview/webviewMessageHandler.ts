@@ -810,6 +810,22 @@ export const webviewMessageHandler = async (
 			})
 			break
 		case "runAutonomousSafe":
+			try {
+				const { RooApprovalAdapter } = await import("../../super-roo-host/RooApprovalAdapter")
+				const adapter = new RooApprovalAdapter(provider)
+				await adapter.apply("FULL_AUTONOMOUS")
+				await provider.setValues({ safetyMode: "FULL_AUTONOMOUS" })
+				await provider.postStateToWebview()
+				provider.log("[super-roo] Fully autonomous mode enabled from chat toolbar")
+			} catch (err) {
+				provider.log(
+					`[super-roo] Failed to enable fully autonomous mode: ${err instanceof Error ? err.message : String(err)}`,
+				)
+				await vscode.window.showErrorMessage(
+					`Failed to enable fully autonomous mode: ${err instanceof Error ? err.message : String(err)}`,
+				)
+				break
+			}
 			await vscode.commands.executeCommand("superroo.autonomousSafe")
 			break
 		case "runManualMode":

@@ -1235,9 +1235,9 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 									</StandardTooltip>
 								)}
 								{onRunAutonomousMode && !isEditMode && (
-									<StandardTooltip content="Run autonomous safe mode">
+									<StandardTooltip content="Run fully autonomous mode">
 										<button
-											aria-label="Run autonomous safe mode"
+											aria-label="Run fully autonomous mode"
 											onClick={onRunAutonomousMode}
 											className={cn(
 												compactActionButtonClassName,

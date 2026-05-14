@@ -6795,14 +6795,71 @@ const server = http.createServer(async (req, res) => {
 	}
 })
 
+// ── LSP Bridge ────────────────────────────────────────────────────────────
+// Initialize the Language Server Protocol bridge for Monaco Editor integration.
+// Spawns typescript-language-server and pyright-langserver for IntelliSense,
+// error diagnostics, code actions, and hover info.
+let lspBridge = null
+try {
+	lspBridge = require("./lsp-bridge")
+	lspBridge.init()
+	writeApiLog("info", "lsp-bridge", "LSP Bridge initialized")
+} catch (err) {
+	writeApiLog("warn", "lsp-bridge", "LSP Bridge not available (language servers may not be installed)", {
+		error: err.message,
+	})
+}
+
+// ── LSP WebSocket Server ──────────────────────────────────────────────────
+// Separate WebSocket server for LSP communication between Monaco Editor and
+// language servers. Uses a different path (/api/ws/lsp) to avoid conflicts
+// with the AI chat WebSocket.
+const lspWss = new (require("ws").Server)({ noServer: true })
+
+lspWss.on("connection", (ws, request) => {
+	const url = new URL(request.url || "", "http://localhost")
+	const lang = url.searchParams.get("lang") || "typescript"
+
+	writeApiLog("info", "lsp-bridge", `LSP WebSocket connected`, { lang })
+
+	ws.on("message", (data) => {
+		try {
+			const message = JSON.parse(data.toString())
+			if (lspBridge) {
+				lspBridge.handleWebSocketMessage(ws, message)
+			} else {
+				ws.send(JSON.stringify({ type: "error", message: "LSP Bridge not available" }))
+			}
+		} catch (err) {
+			writeApiLog("error", "lsp-bridge", "Failed to parse LSP message", { error: err.message })
+			ws.send(JSON.stringify({ type: "error", message: "Invalid message format" }))
+		}
+	})
+
+	ws.on("close", () => {
+		writeApiLog("info", "lsp-bridge", "LSP WebSocket disconnected", { lang })
+	})
+
+	// Send initial status
+	ws.send(JSON.stringify({
+		type: "status",
+		available: !!lspBridge,
+		servers: lspBridge ? lspBridge.getStatus() : {},
+	}))
+})
+
 // ── WebSocket Upgrade Handler ──────────────────────────────────────────────
-// Routes WebSocket upgrade requests from the HTTP server to the WSS instance.
-// Without this, the dashboard's AI chat WebSocket connection fails silently.
+// Routes WebSocket upgrade requests from the HTTP server to the appropriate
+// WSS instance (AI chat or LSP).
 server.on("upgrade", (request, socket, head) => {
 	const url = request.url || ""
 	if (url.startsWith("/api/ws/chat") || url.startsWith("/ws/chat")) {
 		wss.handleUpgrade(request, socket, head, (ws) => {
 			wss.emit("connection", ws, request)
+		})
+	} else if (url.startsWith("/api/ws/lsp") || url.startsWith("/ws/lsp")) {
+		lspWss.handleUpgrade(request, socket, head, (ws) => {
+			lspWss.emit("connection", ws, request)
 		})
 	} else {
 		socket.destroy()

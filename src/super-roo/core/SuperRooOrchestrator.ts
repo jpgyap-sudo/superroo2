@@ -13,11 +13,12 @@ export class SuperRooOrchestrator {
 	}
 
 	async runAutonomous(options: SuperRooCommandOptions = {}) {
-		this.runtime.log("Starting Phase 3 autonomous safe-mode loop...")
+		const modeLabel = options.safeMode === false ? "fully autonomous" : "autonomous safe-mode"
+		this.runtime.log(`Starting Phase 3 ${modeLabel} loop...`)
 		await this.runAgent("product-manager", "autonomous", options)
 		await this.runAgent("debugger", "autonomous", options)
 		await this.runAgent("tester", "autonomous", options)
-		this.runtime.log("Autonomous safe-mode finished. No production deploy performed in Phase 3 skeleton.")
+		this.runtime.log(`Phase 3 ${modeLabel} loop finished.`)
 	}
 
 	async runManual(options: SuperRooCommandOptions = {}) {

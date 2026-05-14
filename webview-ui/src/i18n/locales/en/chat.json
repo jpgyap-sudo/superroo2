@@ -356,6 +356,19 @@
 		"triggerLabel_other": "{{count}} auto-approved",
 		"triggerLabelAll": "BRRR"
 	},
+	"safetyMode": {
+		"title": "Safety mode",
+		"description": "Choose how much autonomy SuperRoo can use for this task.",
+		"tooltip": "Safety mode",
+		"off": "Off",
+		"offDesc": "Manual approvals for every action.",
+		"safe": "Safe",
+		"safeDesc": "Read-only actions can run automatically.",
+		"auto": "Auto",
+		"autoDesc": "Read, write, execute, MCP, and mode switches can run automatically.",
+		"fullAutonomous": "Full autonomous",
+		"fullAutonomousDesc": "Fully unattended actions, including protected and outside-workspace writes."
+	},
 	"announcement": {
 		"title": "SuperRoo {{version}} Released",
 		"support": "Please support SuperRoo by starring us on <githubLink>GitHub</githubLink>.",

@@ -39,6 +39,9 @@ export const DEFAULT_WRITE_DELAY_MS = 1000
  */
 export type TerminalOutputPreviewSize = "small" | "medium" | "large"
 
+export const safetyModeSchema = z.enum(["OFF", "SAFE", "AUTO", "FULL_AUTONOMOUS"])
+export type SafetyModeSetting = z.infer<typeof safetyModeSchema>
+
 /**
  * Byte limits for each terminal output preview size.
  *
@@ -96,6 +99,7 @@ export const globalSettingsSchema = z.object({
 	customCondensingPrompt: z.string().optional(),
 
 	autoApprovalEnabled: z.boolean().optional(),
+	safetyMode: safetyModeSchema.optional(),
 	alwaysAllowReadOnly: z.boolean().optional(),
 	alwaysAllowReadOnlyOutsideWorkspace: z.boolean().optional(),
 	alwaysAllowWrite: z.boolean().optional(),

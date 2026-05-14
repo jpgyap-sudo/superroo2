@@ -405,6 +405,24 @@
 			"healthCheckLatencyMs": 250,
 			"startedAt": "2026-05-11T20:00:00.000Z",
 			"completedAt": "2026-05-11T20:00:35.000Z"
+		},
+		{
+			"id": "deploy-ws-fix-2026-05-14",
+			"version": "3daff08eb",
+			"agent": "code",
+			"type": "fix",
+			"title": "fix(ws): add WebSocket upgrade handler + nginx WebSocket headers",
+			"description": "Added server.on('upgrade') handler in api.js to route /api/ws/chat upgrade requests to the WSS instance. Added WebSocket upgrade headers (Upgrade, Connection, proxy_cache_bypass) to nginx /api/ location block with 86400s timeouts for long-lived connections.",
+			"filesChanged": ["cloud/api/api.js", "cloud/nginx-dashboard.conf"],
+			"featuresAffected": ["ide-terminal", "cloud-api", "infrastructure"],
+			"status": "healthy",
+			"environment": "production",
+			"commitsIncluded": ["3daff08eb"],
+			"featuresDeployed": ["ide-terminal", "cloud-api", "infrastructure"],
+			"healthCheckPassed": true,
+			"healthCheckLatencyMs": 250,
+			"startedAt": "2026-05-14T03:13:00.000Z",
+			"completedAt": "2026-05-14T03:13:30.000Z"
 		}
 	]
 }
