@@ -206,6 +206,42 @@ const MAX_CONVERSATION_MESSAGES = 50
 /** Max messages to include in AI context window */
 const MAX_CONTEXT_MESSAGES = 20
 
+/**
+ * Structured error response helper.
+ * Returns a user-friendly error message with error type, description, and suggested action.
+ * @param {Error} err - The error object
+ * @param {string} command - The command being processed (e.g., "/deploy", "/code")
+ * @returns {string} Formatted error message with markdown
+ */
+function formatError(err, command) {
+	var errorType = err.code || err.name || "unknown"
+	var suggestions = {
+		AbortError:
+			"The request took too long. Try again with a simpler request, or check that the AI provider is online.",
+		TimeoutError: "The request timed out. Please try again later.",
+		TypeError: "A network error occurred. Check your connection and try again.",
+		SyntaxError: "An unexpected response was received. Please try again.",
+		ENOENT: "A required file or resource was not found.",
+		ECONNREFUSED: "The service is not available. Please try again later.",
+		ECONNRESET: "The connection was reset. Please try again.",
+		ETIMEDOUT: "The connection timed out. Please try again later.",
+		rate_limit: "You've been rate limited. Please wait a moment before trying again.",
+		auth: "Authentication required. Use /login first.",
+		not_found: "The requested resource was not found. Check that it exists.",
+	}
+	var suggestion =
+		suggestions[errorType] || "Try /help for available commands, or contact support if the issue persists."
+	var lines = [
+		"⚠️ *Error processing " + command + "*",
+		"",
+		"Type: `" + errorType + "`",
+		"Message: " + (err.message || "Unknown error"),
+		"",
+		"💡 " + suggestion,
+	]
+	return lines.join("\n")
+}
+
 /** Session timeout: 30 minutes */
 const SESSION_TTL_MS = 30 * 60 * 1000
 
@@ -391,9 +427,36 @@ function splitLongMessage(text, maxLen) {
 }
 
 /**
+ * Retry wrapper for Telegram API calls with exponential backoff.
+ * Retries up to maxRetries times with 1s, 2s, 4s delays.
+ * @param {Function} fn - Async function to retry
+ * @param {number} maxRetries - Max retry attempts (default 3)
+ * @returns {Promise<any>} Result of the function
+ */
+async function withRetry(fn, maxRetries) {
+	if (maxRetries === undefined) maxRetries = 3
+	for (var attempt = 1; attempt <= maxRetries; attempt++) {
+		try {
+			return await fn()
+		} catch (err) {
+			if (attempt === maxRetries) throw err
+			// Don't retry on 4xx errors (client errors) — they won't succeed on retry
+			if (err.statusCode && err.statusCode >= 400 && err.statusCode < 500 && err.statusCode !== 429) {
+				throw err
+			}
+			// Exponential backoff: 1s, 2s, 4s
+			await new Promise(function (resolve) {
+				return setTimeout(resolve, 1000 * Math.pow(2, attempt - 1))
+			})
+		}
+	}
+}
+
+/**
  * Sends a message to a Telegram chat, automatically splitting long messages
  * into multiple API calls to respect Telegram's 4096-character limit.
  * Each chunk is sent as a separate message in sequence.
+ * Includes retry logic with exponential backoff for transient failures.
  */
 async function sendMessage(botToken, chatId, text, opts) {
 	opts = opts || {}
@@ -419,10 +482,12 @@ async function sendMessage(botToken, chatId, text, opts) {
 			if (opts.disable_notification) body.disable_notification = opts.disable_notification
 			if (opts.reply_markup) body.reply_markup = opts.reply_markup
 			try {
-				const res = await fetch(url, {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify(body),
+				const res = await withRetry(function () {
+					return fetch(url, {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify(body),
+					})
 				})
 				if (!res.ok) {
 					const err = await res.text().catch(function () {
@@ -780,6 +845,17 @@ function getConversationContext(chatId, maxMessages) {
 		conversationHistory.set(chatId, [])
 	}
 	var history = conversationHistory.get(chatId)
+
+	// Context windowing: if history exceeds maxMessages + 5, build a summary of older messages
+	// to keep token usage bounded while preserving context
+	if (history.length > maxMessages + 5) {
+		var recent = history.slice(-maxMessages)
+		var summary = buildConversationSummary(chatId, history.length - maxMessages)
+		if (summary) {
+			return [{ role: "system", content: "Earlier conversation summary: " + summary }, ...recent]
+		}
+	}
+
 	// Return last N messages
 	return history.slice(-maxMessages)
 }
@@ -884,18 +960,33 @@ async function saveConversationHistory() {
  */
 function buildConversationSummary(chatId, maxMessages) {
 	if (maxMessages === undefined) maxMessages = 10
+	if (!conversationHistory.has(chatId)) return ""
 	var history = conversationHistory.get(chatId)
-	if (!history || history.length === 0) return ""
-
-	var recent = history.slice(-maxMessages)
-	var lines = []
-	for (var i = 0; i < recent.length; i++) {
-		var msg = recent[i]
-		var prefix = msg.role === "user" ? "User" : "Assistant"
-		var content = msg.content.slice(0, 200) // Truncate long messages
-		lines.push(prefix + ": " + content)
+	if (history.length === 0) return ""
+	var summary = []
+	var topics = new Set()
+	var userCount = 0
+	var assistantCount = 0
+	for (var i = 0; i < history.length; i++) {
+		var msg = history[i]
+		if (msg.role === "user") userCount++
+		if (msg.role === "assistant") assistantCount++
+		// Extract key topics (capitalized words, code terms)
+		if (msg.content) {
+			var words = msg.content.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b/g)
+			if (words) {
+				for (var w = 0; w < words.length; w++) {
+					if (words[w].length > 3) topics.add(words[w])
+				}
+			}
+		}
 	}
-	return "=== Recent Conversation History ===\n" + lines.join("\n") + "\n=== End of History ==="
+	summary.push("Conversation had " + userCount + " user messages and " + assistantCount + " assistant messages.")
+	if (topics.size > 0) {
+		var topicList = Array.from(topics).slice(0, 10).join(", ")
+		summary.push("Key topics discussed: " + topicList + ".")
+	}
+	return summary.join(" ")
 }
 
 /**

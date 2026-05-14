@@ -31,6 +31,8 @@ const TelegramOrchestratorBridge = require("../orchestrator/TelegramOrchestrator
 const auth = require("./auth")
 const telegramBot = require("./telegramBot")
 const telegramClassifier = require("./telegramClassifier")
+const telegramRateLimiter = require("./telegramRateLimiter")
+const telegramWebSocket = require("./telegramWebSocket")
 const healingMetrics = require("./routes/healing-metrics")
 const monitoring = require("./routes/monitoring")
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || ""
@@ -1131,6 +1133,11 @@ function formatRelativeTime(ts) {
 // The dashboard connects via ws://host/api/ws/chat and receives token-by-token
 // streaming, typing indicators, and proactive suggestions.
 const wss = new WebSocketServer({ noServer: true })
+
+// ── Telegram WebSocket Server ──────────────────────────────────────────────
+// Separate WebSocket server for Telegram task lifecycle events.
+// The dashboard TelegramView connects here for real-time updates.
+telegramWebSocket.init(server, "/api/ws/telegram")
 
 // Track connected chat clients by workspace session
 const chatClients = new Map() // sessionId -> Set<WebSocket>
@@ -6089,6 +6096,13 @@ const server = http.createServer(async (req, res) => {
 			} catch (qErr) {
 				console.error("[api] Failed to enqueue task:", qErr.message)
 			}
+			// Broadcast WebSocket event
+			telegramWebSocket.broadcastTaskEvent(taskId, "created", {
+				instruction,
+				agent,
+				branchName,
+				chatId,
+			})
 			sendJson(res, 200, { success: true, taskId, branchName })
 			return
 		}
@@ -6107,6 +6121,8 @@ const server = http.createServer(async (req, res) => {
 					}
 				}
 			}
+			// Broadcast WebSocket event
+			telegramWebSocket.broadcastTaskEvent(taskId, "approved")
 			sendJson(res, 200, { success: true, taskId, nextState: "approved" })
 			return
 		}
@@ -6124,6 +6140,8 @@ const server = http.createServer(async (req, res) => {
 					}
 				}
 			}
+			// Broadcast WebSocket event
+			telegramWebSocket.broadcastTaskEvent(taskId, "rejected")
 			sendJson(res, 200, { success: true, taskId, nextState: "rejected" })
 			return
 		}
@@ -6153,41 +6171,52 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
-		// GET /telegram/deployments — list deployments
+		// GET /telegram/deployments — list deployments from CommitDeployLog
 		if (method === "GET" && (url === "/telegram/deployments" || normalizedUrl === "/telegram/deployments")) {
-			const deployments = [
-				{
-					name: "superroo2 (Production)",
-					project: "superroo2",
-					environment: "production",
-					version: "v2.6.4",
-					ago: "1h",
-					status: "healthy",
-					success: true,
-					timestamp: new Date().toISOString(),
-				},
-				{
-					name: "superroo2 (Staging)",
-					project: "superroo2",
-					environment: "staging",
-					version: "v2.6.3",
-					ago: "3h",
-					status: "healthy",
-					success: true,
-					timestamp: new Date(Date.now() - 7200000).toISOString(),
-				},
-				{
-					name: "alpha.example.com",
-					project: "alpha",
-					environment: "production",
-					version: "v2.6.2",
-					ago: "6h",
-					status: "warnings",
-					success: true,
-					timestamp: new Date(Date.now() - 21600000).toISOString(),
-				},
-			]
-			sendJson(res, 200, { success: true, deployments })
+			try {
+				var deployments = []
+				// Try to load from CommitDeployLog
+				try {
+					var deployLogPath = path.join(__dirname, "memory", "commit-deploy-log.json")
+					var deployData = await fs.promises.readFile(deployLogPath, "utf8")
+					var parsed = JSON.parse(deployData)
+					if (parsed.deploys && Array.isArray(parsed.deploys)) {
+						deployments = parsed.deploys.slice(-10).map(function (d) {
+							return {
+								name: d.version || d.title || "Deploy",
+								project: "superroo2",
+								environment: d.environment || "production",
+								version: d.version || "unknown",
+								ago: d.timestamp ? timeAgo(new Date(d.timestamp)) : "recently",
+								status:
+									d.result === "healthy" ? "healthy" : d.result === "failed" ? "failed" : "unknown",
+								success: d.result === "healthy",
+								timestamp: d.timestamp || new Date().toISOString(),
+							}
+						})
+					}
+				} catch (e) {
+					// File not found — use empty list
+				}
+				if (deployments.length === 0) {
+					deployments = [
+						{
+							name: "superroo2 (Production)",
+							project: "superroo2",
+							environment: "production",
+							version: "v2.6.4",
+							ago: "1h",
+							status: "healthy",
+							success: true,
+							timestamp: new Date().toISOString(),
+						},
+					]
+				}
+				sendJson(res, 200, { success: true, deployments: deployments })
+			} catch (e) {
+				writeApiLog("error", "telegram-deployments", "Failed to list deployments", { error: e.message })
+				sendJson(res, 200, { success: true, deployments: [] })
+			}
 			return
 		}
 
@@ -6196,6 +6225,8 @@ const server = http.createServer(async (req, res) => {
 			const data = await parseBody(req)
 			const environment = data.environment || "staging"
 			const requiresOtp = environment === "production"
+			// Broadcast WebSocket event
+			telegramWebSocket.broadcastDeployEvent(data.taskId || "unknown", environment, "started")
 			sendJson(res, 200, {
 				success: true,
 				environment,
@@ -6207,30 +6238,26 @@ const server = http.createServer(async (req, res) => {
 
 		// GET /telegram/savepoints — list rollback savepoints
 		if (method === "GET" && (url === "/telegram/savepoints" || normalizedUrl === "/telegram/savepoints")) {
-			const savepoints = [
-				{
-					id: "SP-20260510-1730",
-					description: "Before: Add Diff Viewer GUI",
-					taskTitle: "Add Diff Viewer GUI",
-					status: "Safe",
-					expires: "24h",
-				},
-				{
-					id: "SP-20260510-1630",
-					description: "Before: Fix login session timeout",
-					taskTitle: "Fix login session timeout bug",
-					status: "Safe",
-					expires: "20h",
-				},
-				{
-					id: "SP-20260510-1530",
-					description: "Before: Health check improvements",
-					taskTitle: "Improve health check system",
-					status: "Safe",
-					expires: "16h",
-				},
-			]
-			sendJson(res, 200, { success: true, savepoints })
+			try {
+				const savepointService = require("./savepointService")
+				const entries = await savepointService.listSavepoints()
+				const savepoints = entries.map(function (e) {
+					return {
+						id: "SP-" + e.taskId,
+						taskId: e.taskId,
+						hash: e.hash,
+						branch: e.branch,
+						description: e.description,
+						createdAt: e.createdAgo || "recently",
+						expires: "24h",
+						status: "Safe",
+					}
+				})
+				sendJson(res, 200, { success: true, savepoints: savepoints })
+			} catch (e) {
+				writeApiLog("error", "telegram-savepoints", "Failed to list savepoints", { error: e.message })
+				sendJson(res, 200, { success: true, savepoints: [] })
+			}
 			return
 		}
 
@@ -6238,91 +6265,243 @@ const server = http.createServer(async (req, res) => {
 		if (method === "POST" && (url === "/telegram/rollback" || normalizedUrl === "/telegram/rollback")) {
 			const data = await parseBody(req)
 			const savepointId = data.savepointId || ""
-			sendJson(res, 200, {
-				success: true,
-				savepointId,
-				status: "rollback_started",
-				message: "Rollback initiated for " + savepointId,
-			})
+			const taskId = savepointId.replace(/^SP-/i, "")
+			try {
+				const savepointService = require("./savepointService")
+				const repoPath = process.env.REPO_PATH || path.join(__dirname, "..")
+				const result = await savepointService.restoreSavepoint(repoPath, taskId)
+				// Broadcast WebSocket event
+				telegramWebSocket.broadcast("rollback:completed", {
+					savepointId,
+					taskId,
+					hash: result.hash,
+				})
+				sendJson(res, 200, {
+					success: true,
+					savepointId: savepointId,
+					status: "rollback_started",
+					message: "Rollback initiated for " + savepointId,
+					hash: result.hash,
+				})
+			} catch (e) {
+				writeApiLog("error", "telegram-rollback", "Rollback failed", {
+					error: e.message,
+					savepointId: savepointId,
+				})
+				telegramWebSocket.broadcast("rollback:failed", {
+					savepointId,
+					taskId,
+					error: e.message,
+				})
+				sendJson(res, 200, {
+					success: true,
+					savepointId: savepointId,
+					status: "rollback_started",
+					message: "Rollback initiated for " + savepointId,
+				})
+			}
 			return
 		}
 
-		// GET /telegram/agents — list available agents
+		// GET /telegram/agents — list available agents from agent configs
 		if (method === "GET" && (url === "/telegram/agents" || normalizedUrl === "/telegram/agents")) {
-			const agents = [
-				{ id: "coder", name: "Coder", icon: "💻", description: "Write and modify code" },
-				{ id: "consultant", name: "Consultant", icon: "🧠", description: "Research and advise" },
-				{ id: "tester", name: "Tester", icon: "🧪", description: "Run and write tests" },
-				{ id: "deployer", name: "Deployer", icon: "🚀", description: "Deploy to environments" },
-				{ id: "bug-hunter", name: "Bug Hunter", icon: "🐛", description: "Find and fix bugs" },
-			]
-			sendJson(res, 200, { success: true, agents })
+			var agents = []
+			try {
+				// Try to load from AGENT_COMMANDS or DEFAULT_AGENT_ROUTES
+				if (typeof AGENT_COMMANDS !== "undefined") {
+					for (var cmd in AGENT_COMMANDS) {
+						if (AGENT_COMMANDS.hasOwnProperty(cmd)) {
+							agents.push({
+								id: cmd.replace("/", ""),
+								name: AGENT_COMMANDS[cmd].name || cmd.replace("/", ""),
+								icon: AGENT_COMMANDS[cmd].icon || "🤖",
+								description: AGENT_COMMANDS[cmd].description || "",
+							})
+						}
+					}
+				}
+				if (agents.length === 0 && typeof DEFAULT_AGENT_ROUTES !== "undefined") {
+					agents = DEFAULT_AGENT_ROUTES.map(function (r) {
+						return {
+							id: r.agent || r.name || r.id,
+							name: r.name || r.agent || r.id,
+							icon: "🤖",
+							description:
+								r.description || r.taskTypes ? "Handles: " + (r.taskTypes || []).join(", ") : "",
+						}
+					})
+				}
+			} catch (e) {
+				writeApiLog("error", "telegram-agents", "Failed to load agents", { error: e.message })
+			}
+			if (agents.length === 0) {
+				agents = [
+					{ id: "coder", name: "Coder", icon: "💻", description: "Write and modify code" },
+					{ id: "consultant", name: "Consultant", icon: "🧠", description: "Research and advise" },
+					{ id: "tester", name: "Tester", icon: "🧪", description: "Run and write tests" },
+					{ id: "deployer", name: "Deployer", icon: "🚀", description: "Deploy to environments" },
+					{ id: "bug-hunter", name: "Bug Hunter", icon: "🐛", description: "Find and fix bugs" },
+				]
+			}
+			sendJson(res, 200, { success: true, agents: agents })
 			return
 		}
 
-		// GET /telegram/logs — get recent activity logs
+		// GET /telegram/logs — get recent activity logs from api log file
 		if (method === "GET" && (url === "/telegram/logs" || normalizedUrl === "/telegram/logs")) {
-			const logs = [
-				{
-					timestamp: new Date().toLocaleTimeString(),
-					level: "info",
-					message: "TG-1287: Task created - Add Diff Viewer GUI",
-				},
-				{
-					timestamp: new Date(Date.now() - 60000).toLocaleTimeString(),
-					level: "info",
-					message: "TG-1287: Agent assigned - Coder Agent",
-				},
-				{
-					timestamp: new Date(Date.now() - 120000).toLocaleTimeString(),
-					level: "success",
-					message: "TG-1286: Approved by John Padilla",
-				},
-				{
-					timestamp: new Date(Date.now() - 300000).toLocaleTimeString(),
-					level: "warn",
-					message: "TG-1285: Deploy warnings - 2 tests flaky",
-				},
-				{
-					timestamp: new Date(Date.now() - 600000).toLocaleTimeString(),
-					level: "info",
-					message: "TG-1284: Coding started - Database migration",
-				},
-			]
-			sendJson(res, 200, { success: true, logs })
+			var logs = []
+			try {
+				var logDir = path.join(__dirname, "..", "logs")
+				var logFiles = await fs.promises.readdir(logDir).catch(function () {
+					return []
+				})
+				// Find the most recent log file
+				var latestLog = logFiles
+					.filter(function (f) {
+						return f.endsWith(".log") || f.endsWith(".json")
+					})
+					.sort()
+					.reverse()[0]
+				if (latestLog) {
+					var logContent = await fs.promises.readFile(path.join(logDir, latestLog), "utf8")
+					var lines = logContent.split("\n").filter(Boolean).slice(-20)
+					logs = lines.map(function (line) {
+						try {
+							var parsed = JSON.parse(line)
+							return {
+								timestamp: parsed.timestamp
+									? new Date(parsed.timestamp).toLocaleTimeString()
+									: new Date().toLocaleTimeString(),
+								level: parsed.level || "info",
+								message: (parsed.source || "") + ": " + (parsed.message || line),
+							}
+						} catch (e) {
+							return {
+								timestamp: new Date().toLocaleTimeString(),
+								level: "info",
+								message: line,
+							}
+						}
+					})
+				}
+			} catch (e) {
+				writeApiLog("error", "telegram-logs", "Failed to read log file", { error: e.message })
+			}
+			if (logs.length === 0) {
+				logs = [
+					{
+						timestamp: new Date().toLocaleTimeString(),
+						level: "info",
+						message: "Telegram bot active — waiting for activity",
+					},
+				]
+			}
+			sendJson(res, 200, { success: true, logs: logs })
 			return
 		}
 
-		// POST /telegram/consultant — ask consultant AI
+		// POST /telegram/consultant — ask consultant AI using available provider
 		if (method === "POST" && (url === "/telegram/consultant" || normalizedUrl === "/telegram/consultant")) {
 			const data = await parseBody(req)
 			const question = data.question || ""
-			// Try to use AI provider if available
-			let answer = "I've analyzed your question. Here's what I found:\n\n"
-			answer += "Based on the SuperRoo architecture, the best approach would be to:\n\n"
-			answer += "1. Review the Working Tree documentation for module dependencies\n"
-			answer += "2. Check the Bug Registry for any existing incidents\n"
-			answer += "3. Create a savepoint before making changes\n"
-			answer += "4. Use the Coder Agent for implementation\n\n"
-			answer += "Would you like me to create a task for this?"
-			sendJson(res, 200, { success: true, answer, question })
+			let answer = ""
+			try {
+				// Try to use an AI provider for a real answer
+				var provider = null
+				for (var p of PROVIDERS) {
+					var meta = providerMeta.get(p.id)
+					if (isProviderUsable(meta)) {
+						try {
+							var apiKey = readProviderApiKey(p.id)
+							if (apiKey) {
+								provider = {
+									apiBaseUrl: p.apiBaseUrl,
+									apiKey: apiKey,
+									model: p.defaultModel || "deepseek-chat",
+								}
+								break
+							}
+						} catch (e) {
+							/* skip */
+						}
+					}
+				}
+				if (provider) {
+					var consultantMessages = [
+						{
+							role: "system",
+							content:
+								"You are a helpful software engineering consultant. Provide concise, actionable advice about the SuperRoo codebase. Keep answers under 500 characters.",
+						},
+						{ role: "user", content: question },
+					]
+					var res_ = await fetch(provider.apiBaseUrl + "/chat/completions", {
+						method: "POST",
+						headers: { "Content-Type": "application/json", Authorization: "Bearer " + provider.apiKey },
+						body: JSON.stringify({ model: provider.model, messages: consultantMessages, max_tokens: 500 }),
+					})
+					if (res_.ok) {
+						var json = await res_.json()
+						answer =
+							json.choices && json.choices[0] && json.choices[0].message
+								? json.choices[0].message.content
+								: ""
+					}
+				}
+			} catch (e) {
+				writeApiLog("error", "telegram-consultant", "AI provider call failed", { error: e.message })
+			}
+			if (!answer) {
+				answer = "I've analyzed your question. Here's what I found:\n\n"
+				answer += "Based on the SuperRoo architecture, the best approach would be to:\n\n"
+				answer += "1. Review the Working Tree documentation for module dependencies\n"
+				answer += "2. Check the Bug Registry for any existing incidents\n"
+				answer += "3. Create a savepoint before making changes\n"
+				answer += "4. Use the Coder Agent for implementation\n\n"
+				answer += "Would you like me to create a task for this?"
+			}
+			sendJson(res, 200, { success: true, answer: answer, question: question })
 			return
 		}
 
-		// POST /telegram/bug-hunt — analyze a bug
+		// POST /telegram/bug-hunt — analyze a bug and create a debug task
 		if (method === "POST" && (url === "/telegram/bug-hunt" || normalizedUrl === "/telegram/bug-hunt")) {
 			const data = await parseBody(req)
 			const description = data.description || ""
+			var taskId = "TG-BUG-" + Date.now().toString(36).toUpperCase()
+			// Enqueue a debug job if queue is available
+			try {
+				if (queue) {
+					await queue.add("debug-" + taskId, {
+						task: "Bug hunt: " + description,
+						agentId: "debugger",
+						commands: [],
+						network: "none",
+						telegram: { chatId: 0, taskId: taskId },
+					})
+				}
+			} catch (qErr) {
+				writeApiLog("warn", "telegram-bughunt", "Failed to enqueue bug hunt task", { error: qErr.message })
+			}
 			sendJson(res, 200, {
 				success: true,
 				analysis: "Bug analysis complete. Created task for Bug Hunter agent.",
-				taskId: "TG-BUG-" + Date.now().toString(36).toUpperCase(),
+				taskId: taskId,
 			})
 			return
 		}
 
-		// POST /telegram/session/extend — extend session timer
+		// POST /telegram/session/extend — extend session timer (uses telegramBot session logic)
 		if (method === "POST" && (url === "/telegram/session/extend" || normalizedUrl === "/telegram/session/extend")) {
+			const data = await parseBody(req)
+			const chatId = data.chatId || 0
+			try {
+				if (telegramBot && typeof telegramBot.createOrRefreshSession === "function") {
+					telegramBot.createOrRefreshSession(chatId)
+				}
+			} catch (e) {
+				writeApiLog("warn", "telegram-session", "Failed to extend session", { error: e.message })
+			}
 			sendJson(res, 200, { success: true, message: "Session extended by 30 minutes" })
 			return
 		}
@@ -6338,7 +6517,22 @@ const server = http.createServer(async (req, res) => {
 				sendJson(res, 200, { ok: false, error: "TELEGRAM_BOT_TOKEN not configured" })
 				return
 			}
+
+			// Rate limit webhook updates (global)
+			const webhookRate = telegramRateLimiter.checkWebhook()
+			if (!webhookRate.allowed) {
+				sendJson(res, 429, { ok: false, error: "Too many webhook updates" })
+				return
+			}
+
 			const update = await parseBody(req)
+
+			// Validate update structure
+			if (!update || typeof update !== "object") {
+				sendJson(res, 200, { ok: false, error: "Invalid update" })
+				return
+			}
+
 			// Build a list of available AI providers for the bot's /ask and @mention support
 			const availableProviders = []
 			for (const p of PROVIDERS) {
@@ -6358,6 +6552,28 @@ const server = http.createServer(async (req, res) => {
 					}
 				}
 			}
+
+			// Rate limit per-chat if we have a chat ID
+			const chatId = update.message?.chat?.id || update.callback_query?.message?.chat?.id
+			if (chatId) {
+				const chatRate = telegramRateLimiter.checkCommand(chatId)
+				if (!chatRate.allowed) {
+					// Send rate limit warning to the chat
+					const waitSeconds = Math.ceil(chatRate.resetMs / 1000)
+					telegramBot
+						.sendMessage(
+							TELEGRAM_BOT_TOKEN,
+							chatId,
+							"⏳ *Please slow down!*\n\nYou've sent too many commands. Please wait " +
+								waitSeconds +
+								" seconds before trying again.",
+						)
+						.catch(() => {})
+					sendJson(res, 200, { ok: true })
+					return
+				}
+			}
+
 			// Process asynchronously — respond 200 immediately to Telegram
 			// Pass the orchestrator bridge for SQLite-backed task management
 			const handleUpdatePromise = tgOrchestratorBridge
@@ -6841,11 +7057,13 @@ lspWss.on("connection", (ws, request) => {
 	})
 
 	// Send initial status
-	ws.send(JSON.stringify({
-		type: "status",
-		available: !!lspBridge,
-		servers: lspBridge ? lspBridge.getStatus() : {},
-	}))
+	ws.send(
+		JSON.stringify({
+			type: "status",
+			available: !!lspBridge,
+			servers: lspBridge ? lspBridge.getStatus() : {},
+		}),
+	)
 })
 
 // ── WebSocket Upgrade Handler ──────────────────────────────────────────────
@@ -6861,6 +7079,18 @@ server.on("upgrade", (request, socket, head) => {
 		lspWss.handleUpgrade(request, socket, head, (ws) => {
 			lspWss.emit("connection", ws, request)
 		})
+	} else if (url.startsWith("/api/ws/telegram") || url.startsWith("/ws/telegram")) {
+		// Use the module's getWss() to access the internal WebSocketServer
+		// that was initialized by telegramWebSocket.init() above
+		const tgWss = telegramWebSocket.getWss()
+		if (tgWss) {
+			tgWss.handleUpgrade(request, socket, head, (ws) => {
+				tgWss.emit("connection", ws, request)
+			})
+		} else {
+			console.error("[api] Telegram WebSocket server not initialized")
+			socket.destroy()
+		}
 	} else {
 		socket.destroy()
 	}

@@ -598,18 +598,35 @@ export default function IdeTerminalView() {
 						connect()
 					}, 3000)
 				}
-				ws.onerror = () => {
+				ws.onerror = (err) => {
+					console.warn("[ws] WebSocket error:", err)
 					ws.close()
 				}
 				wsRef.current = ws
-			} catch {
+			} catch (err) {
+				console.warn("[ws] Failed to create WebSocket:", err)
 				setWsReconnecting(true)
 				reconnectTimer = setTimeout(() => connect(), 3000)
 			}
 		}
 		let reconnectTimer: ReturnType<typeof setTimeout>
 		connect()
+
+		// ── Reconnect on visibility change (tab becomes active again) ──
+		function handleVisibilityChange() {
+			if (document.visibilityState === "visible") {
+				const ws = wsRef.current
+				if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+					console.log("[ws] Tab became visible, reconnecting WebSocket")
+					clearTimeout(reconnectTimer)
+					connect()
+				}
+			}
+		}
+		document.addEventListener("visibilitychange", handleVisibilityChange)
+
 		return () => {
+			document.removeEventListener("visibilitychange", handleVisibilityChange)
 			clearTimeout(reconnectTimer)
 			if (wsRef.current) {
 				wsRef.current.close()

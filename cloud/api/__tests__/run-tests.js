@@ -1,5 +1,5 @@
 /**
- * Quick unit test runner for OpenClaw modules.
+ * Quick unit test runner for Telegram modules.
  * Run with: node cloud/api/__tests__/run-tests.js
  */
 const assert = require("assert")
@@ -270,19 +270,87 @@ test("seniorEngineerReply falls back when providers is null", async () => {
 })
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Summary
+// telegramBot Tests
 // ═══════════════════════════════════════════════════════════════════════════════
 
-console.log("\n" + "=".repeat(60))
-console.log("  RESULTS: " + passed + " passed, " + failed + " failed")
-console.log("=".repeat(60))
-
-if (failures.length > 0) {
-	console.log("\n  Failures:")
-	for (const f of failures) {
-		console.log("    ✗ " + f.name + ": " + f.error)
-	}
-	process.exit(1)
-} else {
-	console.log("\n  All tests passed! ✓\n")
+async function runBotTests() {
+	const botTest = require("./test-telegram-bot.test.js")
+	return await botTest.runTests()
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// telegramNotifier Tests
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function runNotifierTests() {
+	const notifierTest = require("./test-telegram-notifier.test.js")
+	return await notifierTest.runTests()
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// telegramLearner Tests
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function runLearnerTests() {
+	const learnerTest = require("./test-telegram-learner.test.js")
+	return await learnerTest.runTests()
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// tgEndpoints Tests
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function runEndpointTests() {
+	const endpointTest = require("./test-tg-endpoints.test.js")
+	return await endpointTest.runTests()
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Run All Tests
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function main() {
+	// Run the new test modules
+	const botResults = await runBotTests()
+	passed += botResults.passed
+	failed += botResults.failed
+	failures = failures.concat(botResults.failures)
+
+	const notifierResults = await runNotifierTests()
+	passed += notifierResults.passed
+	failed += notifierResults.failed
+	failures = failures.concat(notifierResults.failures)
+
+	const learnerResults = await runLearnerTests()
+	passed += learnerResults.passed
+	failed += learnerResults.failed
+	failures = failures.concat(learnerResults.failures)
+
+	const endpointResults = await runEndpointTests()
+	passed += endpointResults.passed
+	failed += endpointResults.failed
+	failures = failures.concat(endpointResults.failures)
+
+	// ═══════════════════════════════════════════════════════════════════════════════
+	// Summary
+	// ═══════════════════════════════════════════════════════════════════════════════
+
+	console.log("\n" + "=".repeat(60))
+	console.log("  TOTAL RESULTS: " + passed + " passed, " + failed + " failed")
+	console.log("=".repeat(60))
+
+	if (failures.length > 0) {
+		console.log("\n  Failures:")
+		for (const f of failures) {
+			console.log("    ✗ " + f.name + ": " + f.error)
+		}
+		process.exit(1)
+	} else {
+		console.log("\n  All tests passed! ✓\n")
+	}
+}
+
+main().catch((err) => {
+	console.error("Test runner error:", err)
+	process.exit(1)
+})

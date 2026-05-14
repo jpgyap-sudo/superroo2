@@ -26,7 +26,7 @@ import { TelegramView } from "@/components/views/telegram"
 import { AutoDeployView } from "@/components/views/auto-deploy"
 import { LoginPage } from "@/components/auth/login"
 
-const PAGES: Record<string, React.FC> = {
+const PAGES: Record<string, React.ComponentType> = {
 	overview: Overview,
 	"working-tree": WorkingTreeView,
 	jobs: JobsView,
@@ -77,18 +77,33 @@ export default function Dashboard() {
 
 	// Check authentication on mount
 	useEffect(() => {
-		const token = localStorage.getItem("superroo_auth_token")
-		if (token) {
-			setAuthenticated(true)
-		} else {
+		try {
+			const token = localStorage.getItem("superroo_auth_token")
+			if (token) {
+				setAuthenticated(true)
+			} else {
+				setAuthenticated(false)
+			}
+		} catch {
+			// localStorage unavailable (private browsing, SSR, storage quota exceeded)
 			setAuthenticated(false)
 		}
 	}, [])
 
 	// Register service worker for PWA
+	// Use cache-busting query param so the browser detects sw.js changes
 	useEffect(() => {
 		if ("serviceWorker" in navigator) {
-			navigator.serviceWorker.register("/sw.js").catch(() => {
+			// Unregister any existing service workers first to clear stale caches
+			navigator.serviceWorker.getRegistrations().then((registrations) => {
+				for (const reg of registrations) {
+					reg.unregister()
+				}
+			})
+			// Register with a cache-busting timestamp so the browser always
+			// fetches the latest sw.js (which clears old caches on install)
+			const swUrl = "/sw.js?v=" + Date.now()
+			navigator.serviceWorker.register(swUrl).catch(() => {
 				// Service worker registration failed — non-critical
 			})
 		}

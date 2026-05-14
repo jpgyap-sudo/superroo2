@@ -288,8 +288,18 @@ export type IdeAction =
 
 function ideReducer(state: IdeState, action: IdeAction): IdeState {
 	switch (action.type) {
-		case "HYDRATE":
-			return { ...state, ...action.payload, _hydrated: true }
+		case "HYDRATE": {
+			// Safely merge hydrated state, ensuring critical fields have valid defaults
+			const payload = action.payload || {}
+			return {
+				...state,
+				...payload,
+				// Ensure Set type is preserved even if payload has a plain array
+				collapsedBlocks:
+					payload.collapsedBlocks instanceof Set ? payload.collapsedBlocks : state.collapsedBlocks,
+				_hydrated: true,
+			}
+		}
 		case "SET_AI_MESSAGES":
 			return { ...state, aiMessages: action.payload }
 		case "ADD_AI_MESSAGE":
@@ -407,11 +417,16 @@ function serialize(state: IdeState): string {
 
 /** Deserialize state from JSON, converting arrays back to Sets */
 function deserialize(raw: string): Partial<IdeState> {
-	const parsed = JSON.parse(raw)
-	const { _collapsedBlocks, ...rest } = parsed
-	return {
-		...rest,
-		collapsedBlocks: new Set<string>(_collapsedBlocks || []),
+	try {
+		const parsed = JSON.parse(raw)
+		if (!parsed || typeof parsed !== "object") return {}
+		const { _collapsedBlocks, ...rest } = parsed
+		return {
+			...rest,
+			collapsedBlocks: new Set<string>(Array.isArray(_collapsedBlocks) ? _collapsedBlocks : []),
+		}
+	} catch {
+		return {}
 	}
 }
 
