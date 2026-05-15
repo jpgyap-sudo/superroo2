@@ -8,7 +8,7 @@
 
 import { exec, type ChildProcess } from "node:child_process"
 import * as path from "node:path"
-import type { CommandResult, PlannedCommand, SafetyDecision } from "../../terminal-core/src/types"
+import type { CommandResult, PlannedCommand, SafetyDecision } from "@superroo/terminal-core"
 
 export interface RunnerOptions {
 	defaultTimeout?: number

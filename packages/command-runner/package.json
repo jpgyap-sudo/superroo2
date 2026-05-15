@@ -11,6 +11,9 @@
 		"check-types": "tsc --noEmit",
 		"clean": "rimraf .turbo"
 	},
+	"dependencies": {
+		"@superroo/terminal-core": "workspace:^"
+	},
 	"devDependencies": {
 		"@superroo/config-typescript": "workspace:^",
 		"@types/node": "^24.1.0"

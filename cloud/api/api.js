@@ -32,9 +32,14 @@ const auth = require("./auth")
 const telegramBot = require("./telegramBot")
 const telegramClassifier = require("./telegramClassifier")
 const telegramRateLimiter = require("./telegramRateLimiter")
+const rateLimiter = require("./rateLimiter")
+const logRotator = require("./logRotator")
 const telegramWebSocket = require("./telegramWebSocket")
+const dashboardWebSocket = require("./dashboardWebSocket")
 const healingMetrics = require("./routes/healing-metrics")
 const monitoring = require("./routes/monitoring")
+const mlRoutes = require("./routes/ml")
+const tenantManager = require("./tenantManager")
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || ""
 
 // ── IDE Workspace Persistence ─────────────────────────────────────────────────
@@ -1139,6 +1144,12 @@ const wss = new WebSocketServer({ noServer: true })
 // The dashboard TelegramView connects here for real-time updates.
 telegramWebSocket.init(server, "/api/ws/telegram")
 
+// ── Dashboard WebSocket Server ─────────────────────────────────────────────
+// Generic WebSocket server for broadcasting real-time dashboard data updates.
+// Replaces polling-based data fetching with push-based updates.
+// Dashboard views subscribe to channels and receive data as it changes.
+dashboardWebSocket.init(server, "/api/ws/dashboard")
+
 // Track connected chat clients by workspace session
 const chatClients = new Map() // sessionId -> Set<WebSocket>
 
@@ -1560,6 +1571,16 @@ const server = http.createServer(async (req, res) => {
 	// - Via Next.js rewrite: /api/health stays as /api/health
 	// Normalize by stripping /api prefix if present
 	const normalizedUrl = url.startsWith("/api") ? url.slice(4) || "/" : url
+
+	// Store normalized URL for rate limiter
+	req._normalizedUrl = normalizedUrl
+
+	// Apply rate limiting (skip for health endpoint to allow monitoring)
+	if (normalizedUrl !== "/health") {
+		if (!rateLimiter.checkRequest(req, res)) {
+			return // Rate limited — response already sent
+		}
+	}
 
 	try {
 		// Health
@@ -2679,6 +2700,216 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// ── Tenant routes ────────────────────────────────────────────────────
+
+		// Multi-tenant management:
+		//   GET    /api/tenants              — List tenants for current user
+		//   POST   /api/tenants              — Create a new tenant
+		//   GET    /api/tenants/:id          — Get tenant details
+		//   PUT    /api/tenants/:id          — Update tenant
+		//   DELETE /api/tenants/:id          — Deactivate tenant
+		//   GET    /api/tenants/:id/members  — List tenant members
+		//   POST   /api/tenants/:id/members  — Add member to tenant
+		//   DELETE /api/tenants/:id/members/:userId — Remove member
+		//   PUT    /api/tenants/:id/members/:userId — Update member role
+		//   POST   /api/tenants/:id/invites  — Create invite code
+		//   POST   /api/tenants/redeem       — Redeem invite code
+		//   GET    /api/tenants/:id/quota    — Get tenant quota
+		if (normalizedUrl.startsWith("/api/tenants")) {
+			const email = auth.authenticate(req)
+			if (!email) {
+				sendJson(res, 401, { ok: false, error: "Unauthorized" })
+				return
+			}
+			const user = Object.values(require("./auth").users || {}).find((u) => u.email === email)
+			const userId = user ? user.userId : null
+
+			// POST /api/tenants/redeem — redeem invite code
+			if (method === "POST" && normalizedUrl === "/api/tenants/redeem") {
+				try {
+					const body = await parseBody(req)
+					const result = await tenantManager.redeemInvite(body.code, userId)
+					const tenant = tenantManager.getTenant(result.tenantId)
+					sendJson(res, 200, { ok: true, tenant })
+				} catch (err) {
+					sendJson(res, 400, { ok: false, error: err.message })
+				}
+				return
+			}
+
+			// POST /api/tenants — create tenant
+			if (method === "POST" && normalizedUrl === "/api/tenants") {
+				try {
+					const body = await parseBody(req)
+					const tenant = await tenantManager.createTenant({
+						name: body.name,
+						slug: body.slug,
+						ownerUserId: userId,
+						plan: body.plan || "free",
+					})
+					sendJson(res, 200, { ok: true, tenant })
+				} catch (err) {
+					sendJson(res, 400, { ok: false, error: err.message })
+				}
+				return
+			}
+
+			// GET /api/tenants — list tenants for current user
+			if (method === "GET" && normalizedUrl === "/api/tenants") {
+				const userTenants = tenantManager.listUserTenants(userId)
+				sendJson(res, 200, { ok: true, tenants: userTenants })
+				return
+			}
+
+			// Tenant-specific routes: /api/tenants/:id/...
+			const tenantMatch = normalizedUrl.match(/^\/api\/tenants\/([a-zA-Z0-9_]+)(\/.*)?$/)
+			if (tenantMatch) {
+				const tenantId = tenantMatch[1]
+				const subPath = tenantMatch[2] || ""
+
+				// Check membership for tenant-specific operations
+				const isMember = tenantManager.checkMembership(tenantId, userId, "member")
+				const isAdmin = tenantManager.checkMembership(tenantId, userId, "admin")
+
+				if (!isMember && method !== "GET") {
+					sendJson(res, 403, { ok: false, error: "Not a member of this tenant" })
+					return
+				}
+
+				// GET /api/tenants/:id — get tenant details
+				if (method === "GET" && subPath === "") {
+					const tenant = tenantManager.getTenant(tenantId)
+					if (!tenant) {
+						sendJson(res, 404, { ok: false, error: "Tenant not found" })
+						return
+					}
+					sendJson(res, 200, { ok: true, tenant })
+					return
+				}
+
+				// PUT /api/tenants/:id — update tenant (admin only)
+				if (method === "PUT" && subPath === "") {
+					if (!isAdmin) {
+						sendJson(res, 403, { ok: false, error: "Admin access required" })
+						return
+					}
+					try {
+						const body = await parseBody(req)
+						const tenant = await tenantManager.updateTenant(tenantId, body)
+						sendJson(res, 200, { ok: true, tenant })
+					} catch (err) {
+						sendJson(res, 400, { ok: false, error: err.message })
+					}
+					return
+				}
+
+				// DELETE /api/tenants/:id — deactivate tenant (admin only)
+				if (method === "DELETE" && subPath === "") {
+					if (!isAdmin) {
+						sendJson(res, 403, { ok: false, error: "Admin access required" })
+						return
+					}
+					await tenantManager.deleteTenant(tenantId)
+					sendJson(res, 200, { ok: true })
+					return
+				}
+
+				// GET /api/tenants/:id/members — list members
+				if (method === "GET" && subPath === "/members") {
+					const members = tenantManager.listMembers(tenantId)
+					sendJson(res, 200, { ok: true, members })
+					return
+				}
+
+				// POST /api/tenants/:id/members — add member (admin only)
+				if (method === "POST" && subPath === "/members") {
+					if (!isAdmin) {
+						sendJson(res, 403, { ok: false, error: "Admin access required" })
+						return
+					}
+					try {
+						const body = await parseBody(req)
+						await tenantManager.addMember(tenantId, body.userId, body.role || "member")
+						sendJson(res, 200, { ok: true })
+					} catch (err) {
+						sendJson(res, 400, { ok: false, error: err.message })
+					}
+					return
+				}
+
+				// DELETE /api/tenants/:id/members/:userId — remove member (admin only)
+				const removeMatch = subPath.match(/^\/members\/([a-zA-Z0-9_]+)$/)
+				if (method === "DELETE" && removeMatch) {
+					if (!isAdmin) {
+						sendJson(res, 403, { ok: false, error: "Admin access required" })
+						return
+					}
+					try {
+						await tenantManager.removeMember(tenantId, removeMatch[1])
+						sendJson(res, 200, { ok: true })
+					} catch (err) {
+						sendJson(res, 400, { ok: false, error: err.message })
+					}
+					return
+				}
+
+				// PUT /api/tenants/:id/members/:userId — update member role (admin only)
+				if (method === "PUT" && removeMatch) {
+					if (!isAdmin) {
+						sendJson(res, 403, { ok: false, error: "Admin access required" })
+						return
+					}
+					try {
+						const body = await parseBody(req)
+						await tenantManager.updateMemberRole(tenantId, removeMatch[1], body.role)
+						sendJson(res, 200, { ok: true })
+					} catch (err) {
+						sendJson(res, 400, { ok: false, error: err.message })
+					}
+					return
+				}
+
+				// GET /api/tenants/:id/invites — list invites
+				if (method === "GET" && subPath === "/invites") {
+					const invites = tenantManager.listInvites(tenantId)
+					sendJson(res, 200, { ok: true, invites })
+					return
+				}
+
+				// POST /api/tenants/:id/invites — create invite (admin only)
+				if (method === "POST" && subPath === "/invites") {
+					if (!isAdmin) {
+						sendJson(res, 403, { ok: false, error: "Admin access required" })
+						return
+					}
+					try {
+						const body = await parseBody(req)
+						const invite = await tenantManager.createInvite(
+							tenantId,
+							userId,
+							body.maxUses,
+							body.expiresInDays,
+						)
+						sendJson(res, 200, { ok: true, invite })
+					} catch (err) {
+						sendJson(res, 400, { ok: false, error: err.message })
+					}
+					return
+				}
+
+				// GET /api/tenants/:id/quota — get tenant quota
+				if (method === "GET" && subPath === "/quota") {
+					const quota = tenantManager.getQuota(tenantId)
+					sendJson(res, 200, { ok: true, quota })
+					return
+				}
+			}
+
+			// If no route matched, return 404
+			sendJson(res, 404, { ok: false, error: "Tenant route not found" })
+			return
+		}
+
 		// ── Healing Metrics routes ───────────────────────────────────────────
 
 		// Healing Metrics — exposes healing module data for the dashboard
@@ -2695,6 +2926,16 @@ const server = http.createServer(async (req, res) => {
 		// Provides log viewer, system stats, and health check history endpoints
 		if (normalizedUrl.startsWith("/monitoring/")) {
 			if (await monitoring.handleMonitoringRoute(method, url, req, res)) {
+				return
+			}
+		}
+
+		// ── ML Engine routes ─────────────────────────────────────────────────
+
+		// ML Engine — exposes ML model status, observations, training progress
+		// Provides dashboard visibility into the ML Engine integration with agents
+		if (normalizedUrl.startsWith("/api/ml/")) {
+			if (await mlRoutes.handleMlRoute(method, url, req, res)) {
 				return
 			}
 		}
@@ -7091,6 +7332,16 @@ server.on("upgrade", (request, socket, head) => {
 			console.error("[api] Telegram WebSocket server not initialized")
 			socket.destroy()
 		}
+	} else if (url.startsWith("/api/ws/dashboard") || url.startsWith("/ws/dashboard")) {
+		const dashWss = dashboardWebSocket.getWss()
+		if (dashWss) {
+			dashWss.handleUpgrade(request, socket, head, (ws) => {
+				dashWss.emit("connection", ws, request)
+			})
+		} else {
+			console.error("[api] Dashboard WebSocket server not initialized")
+			socket.destroy()
+		}
 	} else {
 		socket.destroy()
 	}
@@ -7197,9 +7448,78 @@ function safeRequire(modulePath) {
 	return require(modulePath)
 }
 
-// Load persisted encrypted secrets and auth store before accepting requests
-Promise.all([loadEncryptedSecrets(), auth.loadStore()]).then(async () => {
+// Load persisted encrypted secrets, auth store, and tenant store before accepting requests
+Promise.all([loadEncryptedSecrets(), auth.loadStore(), tenantManager.loadStore()]).then(async () => {
 	loadEnvironmentSecrets()
+
+	// Start log rotation (non-blocking, runs in background)
+	logRotator.start()
+
+	// ── Run database migrations ──────────────────────────────────────────
+	// Apply pending SQLite migrations for Telegram Learner & Orchestrator stores.
+	// PostgreSQL migrations are applied separately when the PG connection is available.
+	try {
+		const { migrate } = require("./lib/migrationRunner")
+		const Database = require("better-sqlite3")
+		const path = require("path")
+		const fs = require("fs")
+
+		const sqliteDbPath = path.join(__dirname, "..", "data", "telegram-learner.db")
+		const sqliteDir = path.dirname(sqliteDbPath)
+		if (!fs.existsSync(sqliteDir)) {
+			fs.mkdirSync(sqliteDir, { recursive: true })
+		}
+		const sqliteDb = new Database(sqliteDbPath)
+		sqliteDb.pragma("journal_mode = WAL")
+		sqliteDb.pragma("foreign_keys = ON")
+
+		const result = await migrate("sqlite", { db: sqliteDb })
+		if (result.applied.length > 0) {
+			console.log(`[migration] Applied ${result.applied.length} migration(s): ${result.applied.join(", ")}`)
+		}
+		if (result.errors.length > 0) {
+			console.error(`[migration] ${result.errors.length} error(s): ${result.errors.join(", ")}`)
+			writeApiLog("error", "migration", "Migration errors", { errors: result.errors })
+		}
+		sqliteDb.close()
+	} catch (err) {
+		console.error("[migration] Failed to run migrations:", err.message)
+		writeApiLog("error", "migration", `Migration failed: ${err.message}`, { error: err.message })
+		// Non-fatal — API continues without migrations
+	}
+
+	// ── Start Monitoring Engine ──────────────────────────────────────────
+	// Periodic health checks across all services, alert rule evaluation,
+	// and real-time alert broadcasting via WebSocket.
+	try {
+		const monitoringEngine = require("./monitoringEngine")
+		const dashboardWebSocket = require("./dashboardWebSocket")
+
+		// Wire up broadcast to WebSocket clients
+		monitoringEngine.setBroadcast((channel, data) => {
+			try {
+				dashboardWebSocket.broadcast(channel, data)
+			} catch (_) {
+				// WebSocket may not be initialized yet
+			}
+		})
+
+		// Wire up log writer
+		monitoringEngine.setWriteLog((level, source, message, metadata) => {
+			try {
+				writeApiLog(level, source, message, metadata)
+			} catch (_) {
+				// Log writer may not be initialized yet
+			}
+		})
+
+		// Start the monitoring engine (60s check interval)
+		monitoringEngine.start(60000)
+		console.log("[api] Monitoring engine started (interval: 60s)")
+	} catch (err) {
+		console.error("[api] Failed to start monitoring engine (non-fatal):", err.message)
+		writeApiLog("warn", "cloud-api", "Monitoring engine failed to start", { error: err.message })
+	}
 
 	// Initialize the Cloud Orchestrator (non-blocking — API starts regardless)
 	// Use safeRequire to clear module cache and prevent "not a constructor" errors

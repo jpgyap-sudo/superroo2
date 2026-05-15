@@ -35,8 +35,18 @@ async function runTests() {
 	const testDataDir = path.join(os.tmpdir(), "superroo-learner-test-" + Date.now())
 	process.env.LEARNER_DATA_DIR = testDataDir
 
+	// Clear all cached modules that might hold DB state
+	const dbPath = path.join(__dirname, "..", "lib", "telegramLearnerDb.js")
 	const learnerPath = path.join(__dirname, "..", "telegramLearner.js")
-	delete require.cache[require.resolve(learnerPath)]
+	delete require.cache[dbPath]
+	delete require.cache[learnerPath]
+	// Also clear any parent caches that may have required these modules
+	for (const key of Object.keys(require.cache)) {
+		if (key.includes("telegramLearner") || key.includes("telegram-learner")) {
+			delete require.cache[key]
+		}
+	}
+
 	const learner = require(learnerPath)
 
 	// ── recordInteraction ────────────────────────────────────────────────────
@@ -307,25 +317,76 @@ async function runTests() {
 		failures.push(t22)
 	}
 
+	// ── DB passthrough tests ─────────────────────────────────────────────────
+
+	const t23 = test("getConversationsByIntent returns array", () => {
+		const results = learner.getConversationsByIntent("deploy")
+		assert.ok(Array.isArray(results))
+	})
+	if (t23.passed) passed++
+	else {
+		failed++
+		failures.push(t23)
+	}
+
+	const t24 = test("searchConversations returns array", () => {
+		const results = learner.searchConversations("deploy")
+		assert.ok(Array.isArray(results))
+	})
+	if (t24.passed) passed++
+	else {
+		failed++
+		failures.push(t24)
+	}
+
+	const t25 = test("getConversationCount returns number", () => {
+		const count = learner.getConversationCount()
+		assert.ok(typeof count === "number")
+	})
+	if (t25.passed) passed++
+	else {
+		failed++
+		failures.push(t25)
+	}
+
+	const t26 = test("getPatternCount returns number", () => {
+		const count = learner.getPatternCount()
+		assert.ok(typeof count === "number")
+	})
+	if (t26.passed) passed++
+	else {
+		failed++
+		failures.push(t26)
+	}
+
+	const t27 = test("getAllPatterns returns array", () => {
+		const patterns = learner.getAllPatterns()
+		assert.ok(Array.isArray(patterns))
+	})
+	if (t27.passed) passed++
+	else {
+		failed++
+		failures.push(t27)
+	}
+
 	// ── Cleanup ──────────────────────────────────────────────────────────────
 
-	// Clean up test data
+	// Close DB connection gracefully
 	try {
-		const dir = path.dirname(require.resolve("../telegramLearner.js"))
-		const dataDir = path.join(dir, "..", "data")
+		learner.closeDb()
+	} catch (e) {
+		// Ignore close errors
+	}
+
+	// Clean up test data — remove both JSON files and SQLite DB
+	try {
+		const dataDir = testDataDir
 		if (fs.existsSync(dataDir)) {
 			const files = fs.readdirSync(dataDir)
 			for (const f of files) {
-				if (
-					f.startsWith("telegram-learner") ||
-					f.startsWith("telegram-user") ||
-					f.startsWith("telegram-frustration") ||
-					f.startsWith("telegram-patterns") ||
-					f.startsWith("telegram-conversations")
-				) {
-					fs.unlinkSync(path.join(dataDir, f))
-				}
+				fs.unlinkSync(path.join(dataDir, f))
 			}
+			fs.rmdirSync(dataDir)
 		}
 	} catch (e) {
 		// Ignore cleanup errors

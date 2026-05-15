@@ -1,0 +1,27 @@
+# SuperRoo Worker Container
+# Build context: repo root (needs cloud/, src/ for orchestrator modules)
+# Requires Docker socket mount for spawning sandbox containers
+FROM node:20-alpine AS base
+
+RUN apk add --no-cache curl docker-cli
+
+WORKDIR /opt/superroo2
+
+# Copy package files first for layer caching
+COPY cloud/package.json cloud/package-lock.json* ./
+RUN if [ -f package-lock.json ]; then npm ci --omit=dev --ignore-scripts; else npm install --omit=dev --ignore-scripts; fi
+
+# Copy source code
+COPY cloud/ ./cloud/
+COPY src/ ./src/
+
+# Create required directories
+RUN mkdir -p /opt/superroo2/cloud/logs/jobs \
+    /opt/superroo2/cloud/sandbox/jobs
+
+EXPOSE 8790
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:8790/health || exit 1
+
+CMD ["node", "cloud/worker/worker.js"]

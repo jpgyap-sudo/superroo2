@@ -1,0 +1,16 @@
+{
+	"name": "@superroo/terminal-core",
+	"description": "Terminal Brain Layer — Core types and utilities for the smart terminal system.",
+	"version": "0.0.1",
+	"type": "module",
+	"exports": {
+		".": "./src/types.ts"
+	},
+	"scripts": {
+		"clean": "rimraf .turbo"
+	},
+	"devDependencies": {
+		"@superroo/config-typescript": "workspace:^",
+		"@types/node": "^24.1.0"
+	}
+}

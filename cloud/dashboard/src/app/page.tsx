@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { Sidebar } from "@/components/sidebar"
 import { Badge } from "@/components/ui/badge"
+import ErrorBoundary from "@/components/ErrorBoundary"
 import { Overview } from "@/components/views/overview"
 import { JobsView } from "@/components/views/jobs"
 import { QueueView } from "@/components/views/queue"
@@ -24,6 +25,8 @@ import IdeTerminalView from "@/components/views/ide-terminal"
 import { ProjectsView } from "@/components/views/projects"
 import { TelegramView } from "@/components/views/telegram"
 import { AutoDeployView } from "@/components/views/auto-deploy"
+import { MlView } from "@/components/views/ml"
+import { TenantsView } from "@/components/views/tenants"
 import { LoginPage } from "@/components/auth/login"
 
 const PAGES: Record<string, React.ComponentType> = {
@@ -48,6 +51,8 @@ const PAGES: Record<string, React.ComponentType> = {
 	projects: ProjectsView,
 	telegram: TelegramView,
 	"auto-deploy": AutoDeployView,
+	ml: MlView,
+	tenants: TenantsView,
 }
 
 function StatusDot({ online }: { online: boolean }) {
@@ -158,6 +163,8 @@ export default function Dashboard() {
 			projects: "Projects",
 			telegram: "Telegram",
 			"auto-deploy": "Auto Deploy",
+			ml: "ML Engine",
+			tenants: "Organizations",
 		}[page] || page
 
 	// Show login page while checking auth or if not authenticated
@@ -211,7 +218,9 @@ export default function Dashboard() {
 					<div className="mb-4 flex items-center justify-between">
 						<h1 className="text-base sm:text-lg font-semibold">{pageLabel}</h1>
 					</div>
-					<PageComponent />
+					<ErrorBoundary name={pageLabel}>
+						<PageComponent />
+					</ErrorBoundary>
 				</div>
 			</div>
 		</div>

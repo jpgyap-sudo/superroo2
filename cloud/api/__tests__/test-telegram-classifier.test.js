@@ -4,7 +4,7 @@
  * Run with: cd src && npx vitest run ../cloud/api/__tests__/test-telegram-classifier.test.js
  */
 
-const { describe, test, expect, beforeEach } = require("../../src/__tests__/globals") || {}
+// Vitest globals (describe, test, expect, beforeEach) are available via vitest.config.ts
 
 // Use dynamic require since we're testing from src directory
 const path = require("path")

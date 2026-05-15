@@ -29,6 +29,8 @@ import {
 	Rocket,
 	HeartPulse,
 	Activity,
+	Network,
+	Building2,
 } from "lucide-react"
 
 const NAV = [
@@ -42,6 +44,8 @@ const NAV = [
 	{ id: "bugs", icon: Bug, label: "Bugs" },
 	{ id: "healing", icon: HeartPulse, label: "Healing" },
 	{ id: "monitoring", icon: Activity, label: "Monitoring" },
+	{ id: "ml", icon: Network, label: "ML Engine" },
+	{ id: "tenants", icon: Building2, label: "Organizations" },
 	{ id: "logs", icon: ScrollText, label: "Logs" },
 	{ id: "docker", icon: Container, label: "Docker" },
 	{ id: "github", icon: Github, label: "GitHub" },

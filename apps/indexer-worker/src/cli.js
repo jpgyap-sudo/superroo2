@@ -12,7 +12,8 @@
 import { resolve } from "node:path"
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs"
 import { createHash } from "node:crypto"
-import { createServer } from "node:http"
+// createServer is available if needed for HTTP health checks
+import { createServer as _createServer } from "node:http"
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
@@ -55,13 +56,34 @@ async function createEmbedding(text) {
 function detectLanguage(filePath) {
 	const ext = filePath.split(".").pop().toLowerCase()
 	const map = {
-		ts: "typescript", tsx: "tsx", js: "javascript", jsx: "jsx",
-		py: "python", go: "go", rs: "rust", java: "java",
-		cpp: "cpp", c: "c", h: "c", hpp: "cpp",
-		php: "php", rb: "ruby", swift: "swift", kt: "kotlin",
-		sh: "shell", bash: "shell", yaml: "yaml", yml: "yaml",
-		toml: "toml", json: "json", md: "markdown", sql: "sql",
-		css: "css", scss: "scss", html: "html", vue: "typescript",
+		ts: "typescript",
+		tsx: "tsx",
+		js: "javascript",
+		jsx: "jsx",
+		py: "python",
+		go: "go",
+		rs: "rust",
+		java: "java",
+		cpp: "cpp",
+		c: "c",
+		h: "c",
+		hpp: "cpp",
+		php: "php",
+		rb: "ruby",
+		swift: "swift",
+		kt: "kotlin",
+		sh: "shell",
+		bash: "shell",
+		yaml: "yaml",
+		yml: "yaml",
+		toml: "toml",
+		json: "json",
+		md: "markdown",
+		sql: "sql",
+		css: "css",
+		scss: "scss",
+		html: "html",
+		vue: "typescript",
 		svelte: "typescript",
 	}
 	return map[ext] || "text"
@@ -69,11 +91,35 @@ function detectLanguage(filePath) {
 
 const SKIP_DIRS = ["node_modules", ".git", "dist", "build", ".next", ".turbo", "coverage", "__pycache__"]
 const SKIP_EXTS = new Set([
-	".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp",
-	".woff", ".woff2", ".ttf", ".eot", ".mp4", ".mp3",
-	".zip", ".tar", ".gz", ".rar", ".pdf", ".doc", ".docx",
-	".exe", ".dll", ".so", ".dylib", ".o", ".obj", ".class",
-	".map", ".d.ts",
+	".png",
+	".jpg",
+	".jpeg",
+	".gif",
+	".svg",
+	".ico",
+	".webp",
+	".woff",
+	".woff2",
+	".ttf",
+	".eot",
+	".mp4",
+	".mp3",
+	".zip",
+	".tar",
+	".gz",
+	".rar",
+	".pdf",
+	".doc",
+	".docx",
+	".exe",
+	".dll",
+	".so",
+	".dylib",
+	".o",
+	".obj",
+	".class",
+	".map",
+	".d.ts",
 ])
 
 function isIndexable(filePath) {
@@ -95,7 +141,9 @@ function chunkFile(filePath, content) {
 	const boundaryPatterns = {
 		typescript: [/^\s*(export\s+)?(async\s+)?(function|class|interface|type|enum|namespace|module)\s+\w+/],
 		javascript: [/^\s*(export\s+)?(async\s+)?(function|class)\s+\w+/],
-		tsx: [/^\s*(export\s+)?(async\s+)?(function|class|interface|const\s+\w+\s*[:=]\s*(React\.FC|React\.ComponentType|\(\)))/],
+		tsx: [
+			/^\s*(export\s+)?(async\s+)?(function|class|interface|const\s+\w+\s*[:=]\s*(React\.FC|React\.ComponentType|\(\)))/,
+		],
 		python: [/^\s*(def|class|async\s+def)\s+\w+/],
 		go: [/^\s*(func|type\s+\w+\s+(struct|interface))\s+\w+/],
 		rust: [/^\s*(fn|struct|enum|impl|trait|mod)\s+\w+/],

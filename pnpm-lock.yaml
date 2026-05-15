@@ -173,9 +173,24 @@ importers:
         specifier: ^3.27.0
         version: 3.27.0
     devDependencies:
+      '@eslint/js':
+        specifier: ^9.22.0
+        version: 9.28.0
       '@types/node':
         specifier: ^24.1.0
         version: 24.2.1
+      eslint:
+        specifier: ^9.27.0
+        version: 9.28.0(jiti@2.4.2)
+      eslint-config-prettier:
+        specifier: ^10.1.1
+        version: 10.1.8(eslint@9.28.0(jiti@2.4.2))
+      eslint-plugin-only-warn:
+        specifier: ^1.1.0
+        version: 1.1.0
+      globals:
+        specifier: ^16.0.0
+        version: 16.3.0
 
   apps/vscode-e2e:
     devDependencies:
@@ -631,6 +646,10 @@ importers:
         version: 3.2.4(@types/debug@4.1.12)(@types/node@24.2.1)(@vitest/ui@3.2.4)(jiti@2.4.2)(jsdom@26.1.0)(lightningcss@1.30.1)(tsx@4.19.4)(yaml@2.8.0)
 
   packages/command-runner:
+    dependencies:
+      '@superroo/terminal-core':
+        specifier: workspace:^
+        version: link:../terminal-core
     devDependencies:
       '@superroo/config-typescript':
         specifier: workspace:^
@@ -864,6 +883,15 @@ importers:
       vitest:
         specifier: ^3.2.3
         version: 3.2.4(@types/debug@4.1.12)(@types/node@20.17.57)(@vitest/ui@3.2.4)(jiti@2.4.2)(jsdom@26.1.0)(lightningcss@1.30.1)(tsx@4.19.4)(yaml@2.8.0)
+
+  packages/terminal-core:
+    devDependencies:
+      '@superroo/config-typescript':
+        specifier: workspace:^
+        version: link:../config-typescript
+      '@types/node':
+        specifier: ^24.1.0
+        version: 24.2.1
 
   packages/types:
     dependencies:
@@ -15807,7 +15835,7 @@ snapshots:
       sirv: 3.0.1
       tinyglobby: 0.2.14
       tinyrainbow: 2.0.0
-      vitest: 3.2.4(@types/debug@4.1.12)(@types/node@20.17.57)(@vitest/ui@3.2.4)(jiti@2.4.2)(jsdom@26.1.0)(lightningcss@1.30.1)(tsx@4.19.4)(yaml@2.8.0)
+      vitest: 3.2.4(@types/debug@4.1.12)(@types/node@24.2.1)(@vitest/ui@3.2.4)(jiti@2.4.2)(jsdom@26.1.0)(lightningcss@1.30.1)(tsx@4.19.4)(yaml@2.8.0)
 
   '@vitest/utils@3.2.4':
     dependencies:
@@ -17488,6 +17516,10 @@ snapshots:
   eslint-config-prettier@10.1.8(eslint@9.27.0(jiti@2.4.2)):
     dependencies:
       eslint: 9.27.0(jiti@2.4.2)
+
+  eslint-config-prettier@10.1.8(eslint@9.28.0(jiti@2.4.2)):
+    dependencies:
+      eslint: 9.28.0(jiti@2.4.2)
 
   eslint-plugin-only-warn@1.1.0: {}
 

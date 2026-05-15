@@ -57,10 +57,13 @@ export async function fetchDiff(filePath: string, content: string) {
 /* ── Terminal ──────────────────────────────────────────── */
 
 export async function sendTerminalCommand(command: string, sessionId?: string) {
-	return apiFetch<{ output: string; sessionId: string }>("/ide-workspace/terminal", {
-		method: "POST",
-		body: JSON.stringify({ command, sessionId }),
-	})
+	return apiFetch<{ ok: boolean; output: string[]; agent?: string; skill?: string }>(
+		"/ide-workspace/terminal/execute",
+		{
+			method: "POST",
+			body: JSON.stringify({ command, terminalId: sessionId || "term-1" }),
+		},
+	)
 }
 
 /* ── GitHub Import ─────────────────────────────────────── */

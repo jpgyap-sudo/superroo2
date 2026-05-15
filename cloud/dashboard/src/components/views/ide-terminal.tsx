@@ -109,7 +109,7 @@ import {
 	type RecentWorkspace,
 	type WorkspaceTask,
 } from "@/lib/ide-store"
-import ErrorBoundary from "@/components/ide-terminal/ErrorBoundary"
+import ErrorBoundary from "@/components/ErrorBoundary"
 import FileTree from "@/components/ide-terminal/FileTree"
 import CodeEditor from "@/components/ide-terminal/CodeEditor"
 import TerminalPanel from "@/components/ide-terminal/TerminalPanel"

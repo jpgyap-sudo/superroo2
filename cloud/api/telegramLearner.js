@@ -14,154 +14,152 @@
  * - Frustration detection (negative sentiment, repeated failures)
  * - Proactive suggestions based on learned patterns
  * - pgvector RAG integration for semantic memory search
- * - Persistent learning state stored as JSON
+ * - Persistent learning state stored in SQLite (via better-sqlite3)
  */
 
 const fs = require("fs")
 const path = require("path")
+const db = require("./lib/telegramLearnerDb")
 
 // ─── Configuration ──────────────────────────────────────────────────────────
 
-const LEARNER_STATE_FILE = path.join(__dirname, "..", "data", "telegram-learner-state.json")
-const CONVERSATION_LOG_FILE = path.join(__dirname, "..", "data", "telegram-conversations.jsonl")
-const PATTERNS_FILE = path.join(__dirname, "..", "data", "telegram-patterns.json")
-const PREFERENCES_FILE = path.join(__dirname, "..", "data", "telegram-user-preferences.json")
-const FRUSTRATION_FILE = path.join(__dirname, "..", "data", "telegram-frustration-log.json")
-
+const DATA_DIR = path.join(__dirname, "..", "data")
 const MAX_CONVERSATIONS_IN_MEMORY = 1000
 const MIN_PATTERN_CONFIDENCE = 0.6
 const LEARNING_RATE = 0.1
 const FRUSTRATION_THRESHOLD = 3 // Number of negative signals before flagging
 const PREFERENCE_DECAY_DAYS = 30 // Decay old preferences
 
-// ─── State ──────────────────────────────────────────────────────────────────
+// ─── State (in-memory cache backed by SQLite) ───────────────────────────────
 
 let learnerState = {
 	totalConversations: 0,
 	totalInteractions: 0,
-	intentCounts: {}, // { intent_name: count }
-	intentAccuracy: {}, // { intent_name: { correct, total, accuracy } }
-	responseQuality: {}, // { intent_name: { scores: [], average } }
-	patternConfidence: {}, // { pattern_key: confidence_score }
+	intentCounts: {},
+	intentAccuracy: {},
+	responseQuality: {},
+	patternConfidence: {},
 	lastTrainingAt: null,
-	modelVersion: 2, // Upgraded to v2 with preferences & frustration
+	modelVersion: 2,
 }
 
-let conversationBuffer = [] // Recent conversations for pattern analysis
-let knownPatterns = {} // Detected conversation patterns
-let userPreferences = {} // { userId: { favoriteCommands: [], favoriteProjects: [], workflows: [], lastActive: ISO } }
-let frustrationLog = {} // { userId: { count, lastFrustration, contexts: [] } }
+let conversationBuffer = [] // Recent conversations for pattern analysis (in-memory cache)
+let knownPatterns = {} // Detected conversation patterns (in-memory cache)
+let userPreferences = {} // User preferences (in-memory cache)
+let frustrationLog = {} // Frustration logs (in-memory cache)
 
 // ─── Initialization ─────────────────────────────────────────────────────────
 
 function ensureDataDir() {
-	const dir = path.dirname(LEARNER_STATE_FILE)
-	if (!fs.existsSync(dir)) {
-		fs.mkdirSync(dir, { recursive: true })
+	if (!fs.existsSync(DATA_DIR)) {
+		fs.mkdirSync(DATA_DIR, { recursive: true })
 	}
 }
 
 function loadState() {
 	ensureDataDir()
-	try {
-		if (fs.existsSync(LEARNER_STATE_FILE)) {
-			const raw = fs.readFileSync(LEARNER_STATE_FILE, "utf8")
-			learnerState = JSON.parse(raw)
-			console.log(
-				"[telegram-learner] Loaded state: " +
-					learnerState.totalConversations +
-					" conversations, " +
-					learnerState.totalInteractions +
-					" interactions",
-			)
+
+	// Migrate from JSON files if they exist and DB is fresh
+	const dbStats = db.getStats()
+	if (dbStats.totalInteractions === 0 && dbStats.knownPatterns === 0) {
+		const migrated = db.migrateFromJson(DATA_DIR)
+		if (migrated > 0) {
+			console.log("[telegram-learner] Migrated " + migrated + " data sources from JSON to SQLite")
 		}
-	} catch (err) {
-		console.error("[telegram-learner] Failed to load state:", err.message)
 	}
 
-	try {
-		if (fs.existsSync(PATTERNS_FILE)) {
-			const raw = fs.readFileSync(PATTERNS_FILE, "utf8")
-			knownPatterns = JSON.parse(raw)
-			console.log("[telegram-learner] Loaded " + Object.keys(knownPatterns).length + " known patterns")
+	// Load state from DB into memory cache
+	learnerState.totalConversations = db.getState("totalConversations") || 0
+	learnerState.totalInteractions = db.getTotalInteractions()
+	learnerState.intentCounts = db.getIntentCounts()
+	learnerState.intentAccuracy = db.getAllIntentAccuracy()
+	learnerState.responseQuality = db.getAllResponseQuality()
+	learnerState.modelVersion = db.getState("modelVersion") || 2
+	learnerState.lastTrainingAt = db.getState("lastTrainingAt")
+
+	// Load patterns into memory cache
+	const patternRows = db.getAllPatterns()
+	knownPatterns = {}
+	for (const row of patternRows) {
+		knownPatterns[row.pattern_key] = {
+			intent: row.intent,
+			keyword: row.keyword,
+			confidence: row.confidence,
+			firstSeen: row.first_seen,
+			occurrences: row.occurrences,
 		}
-	} catch (err) {
-		console.error("[telegram-learner] Failed to load patterns:", err.message)
 	}
+
+	// Load user preferences into memory cache
+	userPreferences = db.getAllUserPreferences()
+
+	// Load frustration logs into memory cache
+	frustrationLog = db.getAllFrustrationLogs()
+
+	// Load recent conversations into buffer
+	const recent = db.getRecentConversations(MAX_CONVERSATIONS_IN_MEMORY)
+	conversationBuffer = recent.map((r) => ({
+		message: r.message,
+		intent: r.intent,
+		response: r.response,
+		timestamp: r.created_at,
+	}))
+
+	console.log(
+		"[telegram-learner] Loaded state: " +
+			learnerState.totalConversations +
+			" conversations, " +
+			learnerState.totalInteractions +
+			" interactions, " +
+			Object.keys(knownPatterns).length +
+			" patterns",
+	)
 }
 
 function saveState() {
-	ensureDataDir()
-	try {
-		learnerState.lastTrainingAt = new Date().toISOString()
-		fs.writeFileSync(LEARNER_STATE_FILE, JSON.stringify(learnerState, null, 2), "utf8")
-	} catch (err) {
-		console.error("[telegram-learner] Failed to save state:", err.message)
-	}
+	db.setState("totalConversations", learnerState.totalConversations)
+	db.setState("totalInteractions", learnerState.totalInteractions)
+	db.setState("modelVersion", learnerState.modelVersion)
+	db.setState("lastTrainingAt", new Date().toISOString())
 }
 
 function savePatterns() {
-	ensureDataDir()
-	try {
-		fs.writeFileSync(PATTERNS_FILE, JSON.stringify(knownPatterns, null, 2), "utf8")
-	} catch (err) {
-		console.error("[telegram-learner] Failed to save patterns:", err.message)
+	for (const [key, pattern] of Object.entries(knownPatterns)) {
+		db.upsertPattern(key, pattern)
 	}
 }
 
 // ─── User Preferences & Frustration Detection (v2) ─────────────────────────
 
 /**
- * Load user preferences from disk.
+ * Load user preferences from DB into memory cache.
  */
 function loadPreferences() {
-	ensureDataDir()
-	try {
-		if (fs.existsSync(PREFERENCES_FILE)) {
-			const raw = fs.readFileSync(PREFERENCES_FILE, "utf8")
-			userPreferences = JSON.parse(raw)
-		}
-	} catch (err) {
-		console.error("[telegram-learner] Failed to load preferences:", err.message)
-	}
+	userPreferences = db.getAllUserPreferences()
 }
 
 /**
- * Save user preferences to disk.
+ * Save user preferences from memory cache to DB.
  */
 function savePreferences() {
-	ensureDataDir()
-	try {
-		fs.writeFileSync(PREFERENCES_FILE, JSON.stringify(userPreferences, null, 2), "utf8")
-	} catch (err) {
-		console.error("[telegram-learner] Failed to save preferences:", err.message)
+	for (const [userId, data] of Object.entries(userPreferences)) {
+		db.upsertUserPreference(userId, data)
 	}
 }
 
 /**
- * Load frustration log from disk.
+ * Load frustration log from DB into memory cache.
  */
 function loadFrustrationLog() {
-	ensureDataDir()
-	try {
-		if (fs.existsSync(FRUSTRATION_FILE)) {
-			const raw = fs.readFileSync(FRUSTRATION_FILE, "utf8")
-			frustrationLog = JSON.parse(raw)
-		}
-	} catch (err) {
-		console.error("[telegram-learner] Failed to load frustration log:", err.message)
-	}
+	frustrationLog = db.getAllFrustrationLogs()
 }
 
 /**
- * Save frustration log to disk.
+ * Save frustration log from memory cache to DB.
  */
 function saveFrustrationLog() {
-	ensureDataDir()
-	try {
-		fs.writeFileSync(FRUSTRATION_FILE, JSON.stringify(frustrationLog, null, 2), "utf8")
-	} catch (err) {
-		console.error("[telegram-learner] Failed to save frustration log:", err.message)
+	for (const [userId, data] of Object.entries(frustrationLog)) {
+		db.upsertFrustrationLog(userId, data)
 	}
 }
 
@@ -383,10 +381,6 @@ function semanticSearch(query, limit = 5) {
 		.slice(0, limit)
 }
 
-// Load v2 data on init
-loadPreferences()
-loadFrustrationLog()
-
 // ─── Core Learning Functions ────────────────────────────────────────────────
 
 /**
@@ -404,11 +398,20 @@ loadFrustrationLog()
 function recordInteraction(interaction) {
 	learnerState.totalInteractions++
 
-	// Log to conversation file
-	logConversation(interaction)
+	// Persist to SQLite
+	db.insertConversation({
+		userId: interaction.userId,
+		chatId: interaction.chatId,
+		message: interaction.message,
+		intent: interaction.intent,
+		response: interaction.response,
+		responseTimeMs: interaction.responseTimeMs,
+		userSatisfied: interaction.userSatisfied,
+	})
 
 	// Update intent counts
 	const intent = interaction.intent || "unknown"
+	db.incrementIntentCount(intent)
 	if (!learnerState.intentCounts[intent]) {
 		learnerState.intentCounts[intent] = 0
 	}
@@ -441,6 +444,13 @@ function recordInteraction(interaction) {
 	if (qs.scores.length > 100) qs.scores.shift()
 	qs.average = qs.scores.reduce((a, b) => a + b, 0) / qs.scores.length
 
+	// Persist response quality to DB
+	db.upsertResponseQuality(intent, {
+		scores: qs.scores,
+		average: qs.average,
+		sampleSize: qs.scores.length,
+	})
+
 	// Add to conversation buffer for pattern analysis
 	conversationBuffer.push({
 		message: interaction.message,
@@ -454,29 +464,6 @@ function recordInteraction(interaction) {
 	}
 
 	saveState()
-}
-
-/**
- * Log a conversation to the JSONL file for offline analysis.
- */
-function logConversation(interaction) {
-	ensureDataDir()
-	try {
-		const line =
-			JSON.stringify({
-				ts: new Date().toISOString(),
-				userId: interaction.userId,
-				chatId: interaction.chatId,
-				message: interaction.message,
-				intent: interaction.intent,
-				responseLength: (interaction.response || "").length,
-				responseTimeMs: interaction.responseTimeMs,
-				userSatisfied: interaction.userSatisfied,
-			}) + "\n"
-		fs.appendFileSync(CONVERSATION_LOG_FILE, line, "utf8")
-	} catch (err) {
-		console.error("[telegram-learner] Failed to log conversation:", err.message)
-	}
 }
 
 /**
@@ -631,26 +618,10 @@ function suggestIntent(message) {
 }
 
 /**
- * Get learning statistics.
+ * Get learning statistics from DB.
  */
 function getStats() {
-	return {
-		totalConversations: learnerState.totalConversations,
-		totalInteractions: learnerState.totalInteractions,
-		intentCounts: learnerState.intentCounts,
-		responseQuality: Object.fromEntries(
-			Object.entries(learnerState.responseQuality).map(([k, v]) => [
-				k,
-				{
-					average: v.average,
-					sampleSize: v.scores.length,
-				},
-			]),
-		),
-		knownPatterns: Object.keys(knownPatterns).length,
-		modelVersion: learnerState.modelVersion,
-		lastTrainingAt: learnerState.lastTrainingAt,
-	}
+	return db.getStats()
 }
 
 /**
@@ -658,7 +629,7 @@ function getStats() {
  */
 function recordConversation() {
 	learnerState.totalConversations++
-	saveState()
+	db.setState("totalConversations", learnerState.totalConversations)
 }
 
 /**
@@ -672,7 +643,7 @@ function updateIntentAccuracy(intent, wasCorrect) {
 	ia.total++
 	if (wasCorrect) ia.correct++
 	ia.accuracy = ia.correct / ia.total
-	saveState()
+	db.upsertIntentAccuracy(intent, ia)
 }
 
 // ─── Periodic Training ──────────────────────────────────────────────────────
@@ -729,4 +700,11 @@ module.exports = {
 	detectFrustration,
 	resetFrustration,
 	semanticSearch,
+	// DB passthrough
+	getConversationsByIntent: db.getConversationsByIntent,
+	searchConversations: db.searchConversations,
+	getConversationCount: db.getConversationCount,
+	getPatternCount: db.getPatternCount,
+	getAllPatterns: db.getAllPatterns,
+	closeDb: db.close,
 }

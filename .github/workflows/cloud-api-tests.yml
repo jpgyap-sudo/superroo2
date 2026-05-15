@@ -29,10 +29,28 @@ jobs:
             - name: Setup Node.js and pnpm
               uses: ./.github/actions/setup-node-pnpm
 
-            - name: Run Telegram bot tests
+            - name: Run Telegram custom runner tests (bot, learner, notifier, endpoints)
               run: node __tests__/run-tests.js
 
-    dashboard-build:
+    telegram-vitest-tests:
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: cloud
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Setup Node.js and pnpm
+              uses: ./.github/actions/setup-node-pnpm
+
+            - name: Install dependencies
+              run: npm install
+
+            - name: Run Vitest tests (policy, engineer, classifier)
+              run: npx vitest run
+
+    dashboard-unit-tests:
         runs-on: ubuntu-latest
         defaults:
             run:
@@ -44,5 +62,42 @@ jobs:
             - name: Setup Node.js and pnpm
               uses: ./.github/actions/setup-node-pnpm
 
+            - name: Run IDE terminal unit tests
+              run: node src/components/ide-terminal/__tests__/run-ide-tests.js
+
+    dashboard-build:
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: cloud/dashboard
+        needs: [dashboard-unit-tests]
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Setup Node.js and pnpm
+              uses: ./.github/actions/setup-node-pnpm
+
             - name: Build dashboard
               run: pnpm build
+
+    dashboard-e2e:
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: cloud/dashboard
+        needs: [dashboard-build]
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Setup Node.js and pnpm
+              uses: ./.github/actions/setup-node-pnpm
+
+            - name: Install Playwright browsers
+              run: npx playwright install chromium
+
+            - name: Run Playwright e2e tests
+              run: npx playwright test --config=playwright.config.ts
+              env:
+                E2E_BASE_URL: ${{ vars.E2E_BASE_URL || 'https://dev.abcx124.xyz' }}

@@ -1,21 +1,57 @@
-# SuperRoo Docker Compose — Hybrid Approach
+# =============================================================================
+# SuperRoo Cloud — Fully Containerized Docker Compose
 #
-# Containerized:  API, Dashboard, Mini-IDE
-# Host (PM2):     Worker, Auto-Deployer, Redis
-#
-# Containers connect to host Redis via host.docker.internal:6379
-# Container-to-container via Docker DNS (superroo-api, superroo-dashboard, superroo-mini-ide)
-# nginx stays on host, proxies to localhost:8787, localhost:3001, localhost:8081
+# Five services — everything runs in containers:
+#   1. redis       — BullMQ queue backend (replaces host Redis)
+#   2. superroo-api       — Node.js HTTP API (port 8787)
+#   3. superroo-worker    — BullMQ worker (port 8790, needs Docker socket)
+#   4. superroo-dashboard — Next.js dashboard (port 3001)
+#   5. superroo-mini-ide  — Telegram Mini IDE (port 8081)
 #
 # Usage:
-#   docker compose -f cloud/docker/docker-compose.yml up -d
+#   docker compose -f cloud/docker/docker-compose.yml --env-file cloud/docker/.env up -d --build
+#   docker compose -f cloud/docker/docker-compose.yml ps
+#   docker compose -f cloud/docker/docker-compose.yml logs -f
 #   docker compose -f cloud/docker/docker-compose.yml down
 #
-# Rollback:
-#   docker compose -f cloud/docker/docker-compose.yml down
-#   cd /opt/superroo2/cloud && pm2 start ecosystem.config.js
+# Environment file (cloud/docker/.env):
+#   TELEGRAM_BOT_TOKEN=...
+#   SUPERROO_VAULT_KEY=...
+#   SMTP_HOST=...
+#   SMTP_USER=...
+#   SMTP_PASS=...
+#   SMTP_FROM=...
+# =============================================================================
 
 services:
+  # ---------------------------------------------------------------------------
+  # Redis — BullMQ queue backend
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: superroo-redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - superroo-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ---------------------------------------------------------------------------
+  # SuperRoo API — HTTP API server
+  # ---------------------------------------------------------------------------
   superroo-api:
     build:
       context: ../..
@@ -27,7 +63,7 @@ services:
     environment:
       - NODE_ENV=production
       - API_PORT=8787
-      - REDIS_URL=redis://host.docker.internal:6379
+      - REDIS_URL=redis://redis:6379
       - SUPERROO_QUEUE_NAME=superroo-jobs
       - ORCHESTRATOR_DB_PATH=/opt/superroo2/cloud/orchestrator/data/orchestrator.db
       - ORCHESTRATOR_MODE=safe
@@ -35,6 +71,7 @@ services:
       - ORCHESTRATOR_LOOP_INTERVAL=5000
       - LOGS_DIR=/opt/superroo2/cloud/logs
       - SETTINGS_DIR=/opt/superroo2/cloud/data/settings
+      - AUTH_DIR=/opt/superroo2/cloud/data/auth
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - SUPERROO_VAULT_KEY=${SUPERROO_VAULT_KEY}
       - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
@@ -49,6 +86,9 @@ services:
     mem_limit: 256m
     mem_reservation: 128m
     restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8787/api/health"]
       interval: 30s
@@ -57,9 +97,72 @@ services:
       retries: 3
     networks:
       - superroo-net
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
+  # ---------------------------------------------------------------------------
+  # SuperRoo Worker — BullMQ job processor (needs Docker socket for sandbox)
+  # ---------------------------------------------------------------------------
+  superroo-worker:
+    build:
+      context: ../..
+      dockerfile: cloud/docker/Dockerfile.worker
+    image: superroo-worker:latest
+    container_name: superroo-worker
+    ports:
+      - "127.0.0.1:8790:8790"
+    environment:
+      - NODE_ENV=production
+      - REDIS_URL=redis://redis:6379
+      - SUPERROO_QUEUE_NAME=superroo-jobs
+      - WORKER_CONCURRENCY=2
+      - SUPERROO_ROOT=/opt/superroo2
+      - SANDBOX_IMAGE=superroo-sandbox:latest
+      - JOB_TIMEOUT_MS=600000
+      - SANDBOX_MAX_RETRIES=2
+      - SANDBOX_MEMORY=512m
+      - SANDBOX_CPUS=1
+      - WORKER_MAX_REDIS_FAILURES=5
+      - WORKER_HEALTH_CHECK_INTERVAL_MS=30000
+      - BOSS_TELEGRAM_CHAT_ID=${BOSS_TELEGRAM_CHAT_ID:-8485794779}
+      - API_BASE_URL=http://superroo-api:8787
+      - SUPERROO_VAULT_KEY=${SUPERROO_VAULT_KEY}
+    volumes:
+      # Docker socket for spawning sandbox containers
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Mount sandbox directory for job scripts
+      - sandbox-data:/opt/superroo2/cloud/sandbox/jobs
+      - logs:/opt/superroo2/cloud/logs
+      # Mount orchestrator data for direct DB access
+      - orchestrator-data:/opt/superroo2/cloud/orchestrator/data
+    mem_limit: 512m
+    mem_reservation: 256m
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      superroo-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8790/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+    networks:
+      - superroo-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ---------------------------------------------------------------------------
+  # SuperRoo Dashboard — Next.js frontend
+  # ---------------------------------------------------------------------------
   superroo-dashboard:
     build:
       context: ../..
@@ -87,7 +190,15 @@ services:
     depends_on:
       superroo-api:
         condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
+  # ---------------------------------------------------------------------------
+  # SuperRoo Mini IDE — Telegram Mini App
+  # ---------------------------------------------------------------------------
   superroo-mini-ide:
     build:
       context: ../..
@@ -123,17 +234,32 @@ services:
     depends_on:
       superroo-api:
         condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
+# ---------------------------------------------------------------------------
+# Volumes
+# ---------------------------------------------------------------------------
 volumes:
+  redis-data:
+    name: superroo-redis-data
   orchestrator-data:
     name: superroo-orchestrator-data
   hermes-data:
     name: superroo-hermes-data
+  sandbox-data:
+    name: superroo-sandbox-data
   uploads:
     name: superroo-uploads
   logs:
     name: superroo-logs
 
+# ---------------------------------------------------------------------------
+# Networks
+# ---------------------------------------------------------------------------
 networks:
   superroo-net:
     name: superroo-net

@@ -1,0 +1,10 @@
+{
+	"extends": "@superroo/config-typescript/base.json",
+	"compilerOptions": {
+		"outDir": "dist",
+		"rootDir": ".",
+		"noEmit": true
+	},
+	"include": ["src"],
+	"exclude": ["node_modules"]
+}

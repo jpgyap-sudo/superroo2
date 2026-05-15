@@ -1,13 +1,19 @@
 /**
  * SuperRoo Cloud — Monitoring API Routes
  *
- * Exposes log aggregation, system stats, and health timeline data
- * for the Monitoring Dashboard.
+ * Exposes log aggregation, system stats, health timeline data,
+ * alert history, and alert rule management for the Monitoring Dashboard.
  *
  * Endpoints:
- *   GET /api/monitoring/logs              — Query aggregated logs
- *   GET /api/monitoring/stats             — System stats (CPU, memory, active agents, recent errors)
- *   GET /api/monitoring/health-timeline   — Health check history
+ *   GET  /api/monitoring/logs              — Query aggregated logs
+ *   GET  /api/monitoring/stats             — System stats (CPU, memory, active agents, recent errors)
+ *   GET  /api/monitoring/health-timeline   — Health check history
+ *   GET  /api/monitoring/alerts            — Alert history
+ *   GET  /api/monitoring/alerts/rules      — Alert rules
+ *   PUT  /api/monitoring/alerts/rules/:id  — Update alert rule
+ *   POST /api/monitoring/alerts/:id/ack    — Acknowledge alert
+ *   POST /api/monitoring/alerts/:id/resolve — Resolve alert
+ *   GET  /api/monitoring/alerts/stats      — Alert statistics
  */
 
 const fs = require("fs")
@@ -437,13 +443,109 @@ async function handleMonitoringRoute(method, url, req, res) {
 
 	// POST /api/monitoring/health-timeline/record
 	if (method === "POST" && pathname === "/api/monitoring/health-timeline/record") {
-		// Body is already parsed by the caller
 		const body = req.body || {}
 		await handleRecordHealthCheck(req, res, body)
 		return true
 	}
 
+	// GET /api/monitoring/alerts — Alert history
+	if (method === "GET" && pathname === "/api/monitoring/alerts") {
+		const params = parseQuery(url)
+		const limit = Math.min(parseInt(params.limit || "100", 10), 500)
+		const offset = parseInt(params.offset || "0", 10)
+		const monitoringEngine = safeRequire("../monitoringEngine")
+		if (monitoringEngine) {
+			const result = monitoringEngine.getAlertHistory(limit, offset)
+			sendJson(res, 200, result)
+		} else {
+			sendJson(res, 200, { alerts: [], total: 0, hasMore: false })
+		}
+		return true
+	}
+
+	// GET /api/monitoring/alerts/stats — Alert statistics
+	if (method === "GET" && pathname === "/api/monitoring/alerts/stats") {
+		const monitoringEngine = safeRequire("../monitoringEngine")
+		if (monitoringEngine) {
+			const stats = monitoringEngine.getStats()
+			sendJson(res, 200, stats)
+		} else {
+			sendJson(res, 200, { totalAlerts: 0, recent24h: 0, critical24h: 0, unacknowledged: 0 })
+		}
+		return true
+	}
+
+	// GET /api/monitoring/alerts/rules — Alert rules
+	if (method === "GET" && pathname === "/api/monitoring/alerts/rules") {
+		const monitoringEngine = safeRequire("../monitoringEngine")
+		if (monitoringEngine) {
+			const rules = monitoringEngine.getRules()
+			sendJson(res, 200, { rules })
+		} else {
+			sendJson(res, 200, { rules: [] })
+		}
+		return true
+	}
+
+	// PUT /api/monitoring/alerts/rules/:id — Update alert rule
+	const rulesMatch = pathname.match(/^\/api\/monitoring\/alerts\/rules\/(.+)$/)
+	if (method === "PUT" && rulesMatch) {
+		const ruleId = rulesMatch[1]
+		const body = req.body || {}
+		const monitoringEngine = safeRequire("../monitoringEngine")
+		if (monitoringEngine) {
+			const updated = monitoringEngine.updateRule(ruleId, body)
+			if (updated) {
+				sendJson(res, 200, { rule: updated })
+			} else {
+				sendJson(res, 404, { error: "Rule not found" })
+			}
+		} else {
+			sendJson(res, 500, { error: "Monitoring engine not available" })
+		}
+		return true
+	}
+
+	// POST /api/monitoring/alerts/:id/ack — Acknowledge alert
+	const ackMatch = pathname.match(/^\/api\/monitoring\/alerts\/(.+)\/ack$/)
+	if (method === "POST" && ackMatch) {
+		const alertId = ackMatch[1]
+		const monitoringEngine = safeRequire("../monitoringEngine")
+		if (monitoringEngine) {
+			const ok = monitoringEngine.acknowledgeAlert(alertId)
+			sendJson(res, ok ? 200 : 404, { success: ok })
+		} else {
+			sendJson(res, 500, { error: "Monitoring engine not available" })
+		}
+		return true
+	}
+
+	// POST /api/monitoring/alerts/:id/resolve — Resolve alert
+	const resolveMatch = pathname.match(/^\/api\/monitoring\/alerts\/(.+)\/resolve$/)
+	if (method === "POST" && resolveMatch) {
+		const alertId = resolveMatch[1]
+		const monitoringEngine = safeRequire("../monitoringEngine")
+		if (monitoringEngine) {
+			const ok = monitoringEngine.resolveAlert(alertId)
+			sendJson(res, ok ? 200 : 404, { success: ok })
+		} else {
+			sendJson(res, 500, { error: "Monitoring engine not available" })
+		}
+		return true
+	}
+
 	return false
+}
+
+/**
+ * Safe require that returns null instead of throwing.
+ */
+function safeRequire(modulePath) {
+	try {
+		return require(modulePath)
+	} catch {
+		return null
+	}
 }
 
 module.exports = { handleMonitoringRoute }

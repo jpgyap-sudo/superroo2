@@ -1,0 +1,26 @@
+{
+	"compilerOptions": {
+		"allowJs": true,
+		"checkJs": true,
+		"noEmit": true,
+		"strict": true,
+		"target": "ES2022",
+		"module": "commonjs",
+		"moduleResolution": "node",
+		"ignoreDeprecations": "5.0",
+		"esModuleInterop": true,
+		"skipLibCheck": true,
+		"resolveJsonModule": true,
+		"isolatedModules": true,
+		"lib": ["es2022"],
+		"types": ["node"]
+	},
+	"include": [
+		"api/rateLimiter.js",
+		"api/logRotator.js",
+		"api/dashboardWebSocket.js",
+		"api/__tests__/test-rate-limiter.test.js",
+		"api/__tests__/test-log-rotator.test.js"
+	],
+	"exclude": ["node_modules"]
+}

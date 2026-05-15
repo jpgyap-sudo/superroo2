@@ -12,7 +12,7 @@
 
 import { watch } from "chokidar"
 import { relative, resolve } from "node:path"
-import { readFileSync, existsSync } from "node:fs"
+import { readFileSync } from "node:fs"
 import { createServer } from "node:http"
 import { createHash } from "node:crypto"
 
@@ -83,13 +83,34 @@ async function createEmbedding(text) {
 function detectLanguage(filePath) {
 	const ext = filePath.split(".").pop().toLowerCase()
 	const map = {
-		ts: "typescript", tsx: "tsx", js: "javascript", jsx: "jsx",
-		py: "python", go: "go", rs: "rust", java: "java",
-		cpp: "cpp", c: "c", h: "c", hpp: "cpp",
-		php: "php", rb: "ruby", swift: "swift", kt: "kotlin",
-		sh: "shell", bash: "shell", yaml: "yaml", yml: "yaml",
-		toml: "toml", json: "json", md: "markdown", sql: "sql",
-		css: "css", scss: "scss", html: "html", vue: "typescript",
+		ts: "typescript",
+		tsx: "tsx",
+		js: "javascript",
+		jsx: "jsx",
+		py: "python",
+		go: "go",
+		rs: "rust",
+		java: "java",
+		cpp: "cpp",
+		c: "c",
+		h: "c",
+		hpp: "cpp",
+		php: "php",
+		rb: "ruby",
+		swift: "swift",
+		kt: "kotlin",
+		sh: "shell",
+		bash: "shell",
+		yaml: "yaml",
+		yml: "yaml",
+		toml: "toml",
+		json: "json",
+		md: "markdown",
+		sql: "sql",
+		css: "css",
+		scss: "scss",
+		html: "html",
+		vue: "typescript",
 		svelte: "typescript",
 	}
 	return map[ext] || "text"
@@ -97,11 +118,35 @@ function detectLanguage(filePath) {
 
 const SKIP_DIRS = ["node_modules", ".git", "dist", "build", ".next", ".turbo", "coverage"]
 const SKIP_EXTS = new Set([
-	".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp",
-	".woff", ".woff2", ".ttf", ".eot", ".mp4", ".mp3",
-	".zip", ".tar", ".gz", ".rar", ".pdf", ".doc", ".docx",
-	".exe", ".dll", ".so", ".dylib", ".o", ".obj", ".class",
-	".map", ".d.ts",
+	".png",
+	".jpg",
+	".jpeg",
+	".gif",
+	".svg",
+	".ico",
+	".webp",
+	".woff",
+	".woff2",
+	".ttf",
+	".eot",
+	".mp4",
+	".mp3",
+	".zip",
+	".tar",
+	".gz",
+	".rar",
+	".pdf",
+	".doc",
+	".docx",
+	".exe",
+	".dll",
+	".so",
+	".dylib",
+	".o",
+	".obj",
+	".class",
+	".map",
+	".d.ts",
 ])
 
 function isIndexable(filePath) {
@@ -124,7 +169,9 @@ function chunkFile(filePath, content) {
 	const boundaryPatterns = {
 		typescript: [/^\s*(export\s+)?(async\s+)?(function|class|interface|type|enum|namespace|module)\s+\w+/],
 		javascript: [/^\s*(export\s+)?(async\s+)?(function|class)\s+\w+/],
-		tsx: [/^\s*(export\s+)?(async\s+)?(function|class|interface|const\s+\w+\s*[:=]\s*(React\.FC|React\.ComponentType|\(\)))/],
+		tsx: [
+			/^\s*(export\s+)?(async\s+)?(function|class|interface|const\s+\w+\s*[:=]\s*(React\.FC|React\.ComponentType|\(\)))/,
+		],
 		python: [/^\s*(def|class|async\s+def)\s+\w+/],
 		go: [/^\s*(func|type\s+\w+\s+(struct|interface))\s+\w+/],
 		rust: [/^\s*(fn|struct|enum|impl|trait|mod)\s+\w+/],
@@ -302,7 +349,7 @@ function startWatcher() {
 	console.log("[indexer] Ollama:", OLLAMA_URL, "model:", OLLAMA_MODEL)
 
 	const watcher = watch(REPO_PATH, {
-		ignored: /(^|[\/\\])(node_modules|\.git|dist|build|\.next|\.turbo|coverage|__pycache__)([\/\\]|$)/,
+		ignored: /(^|[/\\])(node_modules|\.git|dist|build|\.next|\.turbo|coverage|__pycache__)([/\\]|$)/,
 		persistent: true,
 		ignoreInitial: true,
 		awaitWriteFinish: {
@@ -334,23 +381,25 @@ function startHealthServer() {
 	const server = createServer((req, res) => {
 		if (req.method === "GET" && req.url === "/health") {
 			res.writeHead(200, { "content-type": "application/json" })
-			res.end(JSON.stringify({
-				ok: true,
-				uptime: Date.now() - startTime,
-				indexedFiles: health.indexedFiles,
-				indexedChunks: health.indexedChunks,
-				errors: health.errors,
-				queueSize: queue.size,
-				processing,
-				repo: REPO_PATH,
-				project: PROJECT_ID,
-			}))
+			res.end(
+				JSON.stringify({
+					ok: true,
+					uptime: Date.now() - startTime,
+					indexedFiles: health.indexedFiles,
+					indexedChunks: health.indexedChunks,
+					errors: health.errors,
+					queueSize: queue.size,
+					processing,
+					repo: REPO_PATH,
+					project: PROJECT_ID,
+				}),
+			)
 			return
 		}
 
 		if (req.method === "POST" && req.url === "/reindex") {
 			let body = ""
-			req.on("data", (chunk) => body += chunk)
+			req.on("data", (chunk) => (body += chunk))
 			req.on("end", async () => {
 				try {
 					const { file } = JSON.parse(body)
