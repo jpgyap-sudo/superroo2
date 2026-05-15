@@ -156,11 +156,18 @@ async function runSandboxJob(job) {
 		"--stop-timeout=30", // give processes 30s to gracefully shut down
 		"--name",
 		containerName,
-		IMAGE_NAME,
-		"bash",
-		"-c",
-		commands.join(" && "),
 	]
+
+	// If a projectPath is provided, mount the actual project repo into /project
+	// This allows the sandbox to operate on real code instead of an empty job folder
+	if (job.projectPath && fs.existsSync(job.projectPath)) {
+		dockerArgs.push("-v", `${job.projectPath}:/project`)
+		log(`Mounted project repo: ${job.projectPath} -> /project`)
+	} else {
+		log(`No projectPath provided or path does not exist — using empty job folder only`)
+	}
+
+	dockerArgs.push(IMAGE_NAME, "bash", "-c", commands.join(" && "))
 
 	log(`Docker command: docker ${dockerArgs.join(" ")}`)
 

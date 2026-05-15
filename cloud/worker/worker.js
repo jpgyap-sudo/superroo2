@@ -22,6 +22,7 @@ const IORedis = require("ioredis")
 const { runSandboxJob } = require("./sandboxRunner")
 const { runAgentJob } = require("../agent-runtime/agentRunner")
 const { runDebugJob } = require("./debugJobRunner")
+const { executeRunner } = require("./agentRunners")
 const https = require("https")
 const http = require("http")
 
@@ -199,11 +200,33 @@ async function processJob(job) {
 	console.log(`[worker] Received job ${job.id} — task: ${job.data.task || "n/a"}`)
 
 	try {
+		// ── Coding jobs with projectPath → use real coder loop ──────────────
+		// When the Telegram /code command passes a projectPath, we route to
+		// runCoder() in agentRunners.js which reads the repo, asks AI to generate
+		// code changes, applies them, runs tests, and returns a diff.
+		if (job.data.projectPath && job.data.goal) {
+			console.log(`[worker] Running coder job ${job.id} on project: ${job.data.projectPath}`)
+			const result = await executeRunner("coder", {
+				id: job.id,
+				data: {
+					instruction: job.data.goal,
+					workspaceDir: job.data.projectPath,
+					repoName: job.data.repo || "superroo2",
+					branch: job.data.branch || "main",
+					files: job.data.files || [],
+				},
+			})
+			console.log(`[worker] Coder job ${job.id} completed | success=${result.success}`)
+			return result
+		}
+
+		// ── Debug agent jobs ────────────────────────────────────────────────
 		if (job.data.agentId === "superroo-debugger-agent") {
 			console.log(`[worker] Running Super Debug Team job ${job.id}`)
 			return await runDebugJob(job)
 		}
 
+		// ── Other agent jobs (run in Docker sandbox) ────────────────────────
 		if (job.data.agentId) {
 			console.log(`[worker] Running agent job for ${job.data.agentId}`)
 			const result = await runAgentJob(
@@ -222,11 +245,13 @@ async function processJob(job) {
 			return result
 		}
 
+		// ── Plain sandbox jobs (no agent, just commands in Docker) ──────────
 		const result = await runSandboxJob({
 			id: job.id,
 			task: job.data.task,
 			commands: job.data.commands,
 			network: job.data.network,
+			projectPath: job.data.projectPath, // pass through for optional mount
 		})
 
 		console.log(`[worker] Job ${job.id} completed | success=${result.success} | log=${result.logPath}`)
@@ -257,7 +282,13 @@ worker.on("completed", (job, result) => {
 	if (job.data && job.data.telegram && job.data.telegram.chatId) {
 		const taskName = job.data.task || "Untitled task"
 		sendTelegramNotification("task_complete", job.id, taskName, {
-			result: result ? (result.success !== undefined ? (result.success ? "✅ Success" : "❌ Failed") : "✅ Completed") : "✅ Completed",
+			result: result
+				? result.success !== undefined
+					? result.success
+						? "✅ Success"
+						: "❌ Failed"
+					: "✅ Completed"
+				: "✅ Completed",
 		})
 	}
 })

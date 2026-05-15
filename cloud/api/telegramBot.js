@@ -752,6 +752,8 @@ function createOrRefreshSession(chatId) {
 		authenticatedAt: Date.now(),
 		otpVerified: false,
 		otpVerifiedAt: null,
+		// Active project for coding tasks — set via /projects or /specify
+		activeProject: null, // { id, name, repoName, localPath, branch }
 	}
 	activeSessions.set(chatId, session)
 	// Reset expiry notification flag
@@ -1676,11 +1678,21 @@ async function handleCode(botToken, chatId, args, queue, orchestratorBridge) {
 	// Build conversation summary for the worker so it has context
 	var conversationSummary = buildConversationSummary(chatId)
 
+	// Resolve active project from session — this tells the worker which repo to code in
+	var session = getSession(chatId)
+	var activeProject = session ? session.activeProject : null
+	var repoName = activeProject ? activeProject.repoName : "superroo2"
+	var projectPath = activeProject ? activeProject.localPath : null
+
 	var job = await queue.add("telegram-" + taskId, {
 		task: instruction,
 		agentId: "superroo-debugger-agent",
 		commands: [],
 		network: "none",
+		// Pass project context so the worker knows which repo to operate on
+		goal: instruction,
+		repo: repoName,
+		projectPath: projectPath,
 		telegram: {
 			chatId: chatId,
 			taskId: taskId,
@@ -2350,17 +2362,26 @@ async function handleProjects(botToken, chatId, telegramUserId) {
 			return
 		}
 
+		// Show active project indicator
+		var session = getSession(chatId)
+		var activeProject = session ? session.activeProject : null
+
 		var projectList = result.projects
 			.map(function (p, i) {
+				var isActive = activeProject && activeProject.id === p.id
+				var activeMarker = isActive ? " ✅ *ACTIVE*" : ""
+				var pathInfo = p.localPath ? "\n   📁 `" + p.localPath + "`" : ""
 				return (
 					"*" +
 					(i + 1) +
 					". " +
 					p.name +
 					"*" +
+					activeMarker +
 					(p.description ? "\n   " + p.description : "") +
 					"\n   Status: " +
 					(p.status || "active") +
+					pathInfo +
 					"\n   ID: `" +
 					p.id +
 					"`"
@@ -2370,7 +2391,8 @@ async function handleProjects(botToken, chatId, telegramUserId) {
 
 		// Build inline keyboard for project selection
 		var projectButtons = result.projects.map(function (p) {
-			return [{ text: p.name, callback_data: "project:" + p.id }]
+			var isActive = activeProject && activeProject.id === p.id
+			return [{ text: (isActive ? "✅ " : "") + p.name, callback_data: "project:" + p.id }]
 		})
 
 		await sendInlineKeyboard(
@@ -2400,16 +2422,21 @@ async function handleWorkspace(botToken, chatId, telegramUserId) {
 	}
 
 	try {
-		var result = await auth.handleTelegramProjects({
-			telegramUserId: telegramUserId,
-			telegramChatId: chatId,
-		})
+		// First check the session's activeProject (set via /projects or /specify)
+		var session = getSession(chatId)
+		var activeProject = session ? session.activeProject : null
 
-		var activeProject = null
-		if (result && result.projects) {
-			activeProject = result.projects.find(function (p) {
-				return p.is_active
+		// If no session active project, fall back to auth module's is_active flag
+		if (!activeProject) {
+			var result = await auth.handleTelegramProjects({
+				telegramUserId: telegramUserId,
+				telegramChatId: chatId,
 			})
+			if (result && result.projects) {
+				activeProject = result.projects.find(function (p) {
+					return p.is_active
+				})
+			}
 		}
 
 		if (activeProject) {
@@ -2424,11 +2451,17 @@ async function handleWorkspace(botToken, chatId, telegramUserId) {
 					"*Status:* " +
 					(activeProject.status || "active") +
 					"\n" +
+					"*Path:* `" +
+					(activeProject.localPath || "default") +
+					"`\n" +
+					"*Branch:* `" +
+					(activeProject.branch || "main") +
+					"`\n" +
 					"*ID:* `" +
 					activeProject.id +
 					"`\n\n" +
 					"Use `/projects` to switch projects.\n" +
-					"Use `/code <instruction>` to start coding.",
+					"Use `/code <instruction>` to start coding in this project.",
 			)
 		} else {
 			await sendMessage(
@@ -3807,6 +3840,18 @@ async function handleProjectSelect(botToken, chatId, messageId, projectId, teleg
 		})
 
 		if (result && result.project) {
+			// Store active project in session so /code can use it
+			var session = getSession(chatId)
+			if (session) {
+				session.activeProject = {
+					id: result.project.id,
+					name: result.project.name,
+					repoName: result.project.repoName,
+					localPath: result.project.localPath,
+					branch: result.project.branch || "main",
+				}
+			}
+
 			// Update the original message to show selection
 			await editMessageText(
 				botToken,
@@ -3815,6 +3860,12 @@ async function handleProjectSelect(botToken, chatId, messageId, projectId, teleg
 				"*Project Selected* ✅\n\n*" +
 					result.project.name +
 					"* is now your active workspace.\n\n" +
+					"📁 Path: `" +
+					(result.project.localPath || "default") +
+					"`\n" +
+					"🌿 Branch: `" +
+					(result.project.branch || "main") +
+					"`\n\n" +
 					"Use `/code <instruction>` to start coding in this project.\n" +
 					"Use `/workspace` to view the active workspace.",
 			)
@@ -3827,7 +3878,9 @@ async function handleProjectSelect(botToken, chatId, messageId, projectId, teleg
 				chatId,
 				"*Ready to Code* 🚀\n\nActive workspace: *" +
 					result.project.name +
-					"*\n\n" +
+					"*\n📁 `" +
+					(result.project.localPath || "default") +
+					"`\n\n" +
 					"📱 *Open Mini IDE* — Full code editor with file browser, AI assistant, and file uploads.\n" +
 					"Or send commands directly in chat:\n" +
 					"`/code <instruction>` — Start coding\n" +
