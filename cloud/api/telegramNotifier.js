@@ -192,7 +192,10 @@ async function sendTaskStarted(botToken, chatId, taskId, instruction, agentType)
 		`*Instruction:* ${instruction.slice(0, 200)}${instruction.length > 200 ? "..." : ""}\n\n` +
 		`_Processing... I'll notify you when it's done._`
 
-	const buttons = [[{ text: "⏳ Check Status", callback_data: `notify:status:${taskId}` }]]
+	const buttons = [
+		[{ text: "⏳ Check Status", callback_data: `notify:status:${taskId}` }],
+		[{ text: "📋 Task Board", callback_data: "taskboard:list" }],
+	]
 
 	return await sendInlineKeyboard(botToken, chatId, text, buttons)
 }
@@ -231,6 +234,9 @@ async function sendTaskComplete(botToken, chatId, taskId, instruction, result) {
 		{ text: "❌ Reject", callback_data: `notify:reject:${taskId}` },
 	])
 
+	// Task Board navigation
+	buttons.push([{ text: "📋 Task Board", callback_data: "taskboard:list" }])
+
 	// Cloud IDE integration — open task in the cloud dashboard
 	buttons.push([{ text: "☁️ Open in Cloud IDE", url: DASHBOARD_URL + "/ide?task=" + taskId }])
 
@@ -253,6 +259,7 @@ async function sendTaskFailed(botToken, chatId, taskId, instruction, error) {
 			{ text: "🔄 Retry", callback_data: `notify:retry:${taskId}` },
 			{ text: "📋 View Logs", callback_data: `notify:logs:${taskId}` },
 		],
+		[{ text: "📋 Task Board", callback_data: "taskboard:list" }],
 		[{ text: "☁️ Open in Cloud IDE", url: DASHBOARD_URL + "/ide?task=" + taskId }],
 	]
 
@@ -294,6 +301,7 @@ async function sendApprovalRequest(botToken, chatId, taskId, instruction, diffIn
 			{ text: "❌ Reject", callback_data: `notify:reject:${taskId}` },
 			{ text: "💬 Comment", callback_data: `notify:comment:${taskId}` },
 		],
+		[{ text: "📋 Task Board", callback_data: "taskboard:list" }],
 		[{ text: "☁️ Open in Cloud IDE", url: DASHBOARD_URL + "/ide?task=" + taskId }],
 	]
 

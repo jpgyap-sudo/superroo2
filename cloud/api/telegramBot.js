@@ -2072,16 +2072,16 @@ async function handleDeploy(botToken, chatId, args, queue, orchestratorBridge) {
 			})
 	}
 
-	await sendMessage(
+	await sendInlineKeyboard(
 		botToken,
 		chatId,
-		"*Deploy triggered!*\n\nTask: " +
-			task.id +
-			"\nBranch: `" +
-			task.branchName +
-			"`\nJob: `" +
-			job.id +
-			"`\n\nUse `/status` to monitor deployment.",
+		"*Deploy triggered!*\n\nTask: `" + task.id + "`\nBranch: `" + task.branchName + "`\nJob: `" + job.id + "`",
+		[
+			[
+				{ text: "📊 Monitor Status", callback_data: `notify:status:${task.id}` },
+				{ text: "📋 Task Board", callback_data: "taskboard:list" },
+			],
+		],
 	)
 }
 
@@ -3232,6 +3232,8 @@ const KNOWN_COMMANDS = [
 	"/restart",
 	"/aceteam",
 	"/ask",
+	"/task",
+	"/tasks",
 ]
 
 /** Brain subcommands for correction */
@@ -4087,7 +4089,7 @@ async function handleNaturalLanguageInstruction(
 						userId: telegramUserId,
 					},
 				})
-				await sendMessage(
+				await sendInlineKeyboard(
 					botToken,
 					chatId,
 					"🔍 *Super Debug Team Activated*\n\n" +
@@ -4098,6 +4100,12 @@ async function handleNaturalLanguageInstruction(
 						debugRepo +
 						"`\n\n" +
 						"The debug team is analyzing the issue and will send progress updates here.",
+					[
+						[
+							{ text: "📊 Check Status", callback_data: `notify:status:${debugTaskId}` },
+							{ text: "📋 Task Board", callback_data: "taskboard:list" },
+						],
+					],
 				)
 
 				// If Terminal Brain is available, also run error analysis on the debug text
@@ -5658,6 +5666,16 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 			} catch (err) {
 				logTelegramError("/aceteam", chatId, telegramUserId, err)
 				await sendMessage(botToken, chatId, "*Ace Team Error* ❌\n\n" + err.message)
+			}
+		} else if (command === "/task" || command === "/tasks") {
+			logTelegramUsage("/task", chatId, telegramUserId)
+			await sendChatAction(botToken, chatId, "typing")
+			try {
+				var taskBoardTasks = userTasks.get(chatId) || []
+				await telegramTaskBoard.showTaskBoard(botToken, chatId, null, taskBoardTasks, null, orchestratorBridge)
+			} catch (err) {
+				logTelegramError("/task", chatId, telegramUserId, err)
+				await sendMessage(botToken, chatId, "*Task Board Error* ❌\n\n" + err.message)
 			}
 		} else {
 			// ─── Check for Email OTP Login Flow ────────────────────────────
