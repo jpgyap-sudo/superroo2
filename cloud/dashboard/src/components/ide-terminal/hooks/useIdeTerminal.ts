@@ -225,7 +225,7 @@ export function useIdeTerminal() {
 
 	// ── Local-only state ─────────────────────────────────────────────────
 	const [activeMode, setActiveMode] = useState("Auto")
-	const [terminalMode, setTerminalMode] = useState<"shell" | "agent" | "skill">("shell")
+	const [terminalMode, setTerminalMode] = useState<"shell" | "agent" | "skill">("agent")
 	const [activeAgent, setActiveAgent] = useState<string | null>(null)
 	const [agentRunning, setAgentRunning] = useState(false)
 	const [agentSuggestions, setAgentSuggestions] = useState<string[]>([])
@@ -590,12 +590,20 @@ export function useIdeTerminal() {
 			if (imageFiles.length > 0) {
 				e.preventDefault()
 				handleFilesSelectedFromList(imageFiles)
+				return
+			}
+
+			if (document.activeElement === terminalInputRef.current) {
+				const text = e.clipboardData?.getData("text")
+				if (text) {
+					e.preventDefault()
+					dispatch({ type: "SET_TERMINAL_INPUT", payload: `${terminalInputRef.current?.value || ""}${text}` })
+				}
 			}
 		}
 		window.addEventListener("paste", handlePaste)
 		return () => window.removeEventListener("paste", handlePaste)
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [])
+	}, [dispatch])
 
 	// ── File selection helper ────────────────────────────────────────────
 	async function handleFilesSelectedFromList(fileList: File[]) {
@@ -931,6 +939,11 @@ export function useIdeTerminal() {
 		[wsSend],
 	)
 
+	useEffect(() => {
+		if (terminalMode !== "shell" || !wsConnected || ptyConnected || ptySessionId) return
+		handlePtyCreate({ cwd: ptyCwd || undefined })
+	}, [terminalMode, wsConnected, ptyConnected, ptySessionId, ptyCwd, handlePtyCreate])
+
 	// ── Split Terminal Operations (#4) ────────────────────────────────────
 
 	const handleAddSplitTerminal = useCallback(
@@ -1094,7 +1107,7 @@ export function useIdeTerminal() {
 			if (!cmd.trim()) return
 			dispatch({ type: "SET_TERMINAL_INPUT", payload: "" })
 
-			if (ptyConnected && ptySessionId) {
+			if (terminalMode === "shell" && ptyConnected && ptySessionId) {
 				// Send via PTY for real shell interaction
 				handlePtyInput(cmd + "\n")
 				return
@@ -1103,7 +1116,7 @@ export function useIdeTerminal() {
 			// Fallback to REST-based command execution
 			dispatch({ type: "APPEND_TERMINAL_OUTPUT", payload: [`$ ${cmd}`] })
 			try {
-				const result = await sendTerminalCommand(cmd)
+				const result = await sendTerminalCommand(cmd, undefined, terminalMode)
 				if (result.output) {
 					dispatch({
 						type: "APPEND_TERMINAL_OUTPUT",
@@ -1114,7 +1127,7 @@ export function useIdeTerminal() {
 				dispatch({ type: "APPEND_TERMINAL_OUTPUT", payload: [`Error: ${err.message}`] })
 			}
 		},
-		[dispatch, ptyConnected, ptySessionId, handlePtyInput],
+		[dispatch, ptyConnected, ptySessionId, handlePtyInput, terminalMode],
 	)
 
 	// ── Import / Open workspace ───────────────────────────────────────────

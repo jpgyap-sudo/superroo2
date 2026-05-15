@@ -37,6 +37,7 @@ const telegramClassifier = require("./telegramClassifier")
 const telegramPolicy = require("./telegramPolicy")
 const telegramEngineer = require("./telegramEngineer")
 const tgEndpoints = require("./tgEndpoints")
+const telegramRateLimiter = require("./telegramRateLimiter")
 
 // Smart Menu System — GUI-driven navigation replacing slash commands
 const telegramMenu = require("./telegramMenu")
@@ -1234,9 +1235,8 @@ function buildSystemPrompt() {
  * @param {boolean} [options.includeSuggestions=true] - Whether to append proactive suggestions
  * @returns {string} AI response
  */
-async function askAI(message, providers, chatId, options) {
+async function askAI(botToken, message, providers, chatId, options) {
 	if (!options) options = {}
-	var includeSuggestions = options.includeSuggestions !== false
 
 	// Build messages array with conversation context if chatId is provided
 	var messages = []
@@ -1279,6 +1279,18 @@ async function askAI(message, providers, chatId, options) {
 		console.log("[telegram] HermesClaw context recall failed (non-fatal):", hermesErr.message)
 	}
 
+	// ── Step 2b: Request AI to include follow-up suggestions inline ─────
+	// Instead of making a second API call for suggestions, ask the AI to
+	// include 2-3 follow-up suggestions at the end of its response.
+	// This eliminates the redundant API call (saving cost and latency).
+	if (chatId !== undefined && chatId !== null) {
+		systemPrompt +=
+			"\n\nAt the end of your response, include 2-3 short follow-up suggestions " +
+			"the user might want to do next. Format as a bullet list with each item " +
+			"being a complete command or question. Keep each under 60 characters. " +
+			"Prefix each with '💡 '."
+	}
+
 	messages.push({
 		role: "system",
 		content: systemPrompt,
@@ -1298,7 +1310,12 @@ async function askAI(message, providers, chatId, options) {
 	// ── Step 4: Add current user message ────────────────────────────────
 	messages.push({ role: "user", content: message })
 
-	// ── Step 5: Try each provider in order ──────────────────────────────
+	// ── Step 5: Send typing indicator before long operation ─────────────
+	if (chatId !== undefined && chatId !== null) {
+		sendChatAction(botToken, chatId, "typing").catch(function () {})
+	}
+
+	// ── Step 6: Try each provider in order ──────────────────────────────
 	for (var i = 0; i < providers.length; i++) {
 		var provider = providers[i]
 		if (!provider.apiKey) continue
@@ -1335,47 +1352,6 @@ async function askAI(message, providers, chatId, options) {
 			}
 			var data = await res.json()
 			var reply = data.choices[0].message.content || "(no response)"
-
-			// ── Step 6: Append proactive suggestions ──────────────────────
-			// Ask the AI to generate follow-up suggestions as part of the response
-			if (includeSuggestions && chatId !== undefined && chatId !== null) {
-				var suggestionPrompt = [
-					{
-						role: "system",
-						content:
-							"Based on the conversation above, suggest 2-3 short follow-up actions the user might want to take. " +
-							"Format as a bullet list with each item being a complete command or question the user could send. " +
-							"Keep each suggestion under 60 characters. Prefix with '💡 '.",
-					},
-					{ role: "user", content: "Suggest follow-ups for: " + message },
-				]
-				try {
-					var suggestionRes = await fetch(url, {
-						method: "POST",
-						headers: {
-							"Content-Type": "application/json",
-							Authorization: "Bearer " + provider.apiKey,
-						},
-						body: JSON.stringify({
-							model: provider.model,
-							messages: suggestionPrompt,
-							max_tokens: 200,
-							temperature: 0.5,
-						}),
-						signal: AbortSignal.timeout(10_000),
-					})
-					if (suggestionRes.ok) {
-						var suggestionData = await suggestionRes.json()
-						var suggestions = suggestionData.choices[0].message.content || ""
-						if (suggestions) {
-							reply += "\n\n" + suggestions
-						}
-					}
-				} catch (suggestionErr) {
-					// Non-fatal — don't break the response
-					console.log("[telegram] Failed to generate suggestions:", suggestionErr.message)
-				}
-			}
 
 			// ── Step 7: Record to conversation context ────────────────────
 			if (chatId !== undefined && chatId !== null) {
@@ -1477,7 +1453,7 @@ async function handleAsk(botToken, chatId, args, providers) {
 
 	console.log("[telegram] AI query from " + chatId + ": " + question.slice(0, 100))
 
-	var reply = await askAI(question, providers, chatId)
+	var reply = await askAI(botToken, question, providers, chatId)
 
 	// sendMessage auto-splits long messages to respect Telegram's 4096-char limit
 	await sendMessage(botToken, chatId, reply)
@@ -1537,7 +1513,7 @@ async function handleConsultant(botToken, chatId, question, providers, options) 
 		"User question: " +
 		question
 
-	var research = await askAI(researchPrompt, providers, chatId)
+	var research = await askAI(botToken, researchPrompt, providers, chatId)
 
 	// ─── Phase 2: Create Skills & Resources Knowledge ───────────────────
 	// Generate structured skills.md and resources.md content
@@ -1564,7 +1540,7 @@ async function handleConsultant(botToken, chatId, question, providers, options) 
 		"Topic: " +
 		question
 
-	var knowledgeDocs = await askAI(skillPrompt, providers, chatId)
+	var knowledgeDocs = await askAI(botToken, skillPrompt, providers, chatId)
 
 	// Parse out skills and resources sections
 	var skillsContent = ""
@@ -1689,6 +1665,9 @@ async function handleCode(botToken, chatId, args, queue, orchestratorBridge) {
 		)
 		return
 	}
+
+	// Send typing indicator to show the bot is working
+	sendChatAction(botToken, chatId, "typing").catch(function () {})
 
 	var taskId =
 		"TG-" + Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).slice(2, 6).toUpperCase()
@@ -2064,6 +2043,9 @@ async function handleDeploy(botToken, chatId, args, queue, orchestratorBridge) {
 		)
 		return
 	}
+
+	// Send typing indicator to show the bot is working
+	sendChatAction(botToken, chatId, "typing").catch(function () {})
 
 	var job = await queue.add("deploy-" + taskId + "-" + Date.now(), {
 		task: "Deploy: " + task.instruction,
@@ -4053,7 +4035,7 @@ async function handleNaturalLanguageInstruction(
 		if (intentKind === "chat") {
 			await sendChatAction(botToken, chatId, "typing")
 			console.log("[telegram] AI query from " + chatId + ": " + text.slice(0, 100))
-			var reply = await askAI(text, providers || [], chatId)
+			var reply = await askAI(botToken, text, providers || [], chatId)
 			await sendMessage(botToken, chatId, reply)
 			return true
 		}
@@ -5338,6 +5320,15 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 				data: cqData,
 			})
 			console.error("[telegram] Callback query error:", err.message)
+			try {
+				await sendMessage(
+					botToken,
+					cqChatId,
+					formatError(err, "callback:" + (cqData.split(":")[0] || "unknown")),
+				)
+			} catch (sendErr) {
+				console.error("[telegram] Failed to send callback error message:", sendErr.message)
+			}
 		}
 		return
 	}
@@ -5351,6 +5342,20 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 	var telegramUserId = msg.from ? msg.from.id : chatId
 
 	if (!text) return
+
+	// ─── Rate Limit Check ───────────────────────────────────────────────
+	// Prevent abuse by limiting commands per sliding window.
+	// Callback queries are excluded since they're user-triggered actions.
+	var rateResult = telegramRateLimiter.checkRateLimit(chatId)
+	if (rateResult.limited) {
+		console.log("[telegram] Rate limited chat " + chatId + " — retry in " + rateResult.retryAfterMs + "ms")
+		try {
+			await sendMessage(botToken, chatId, telegramRateLimiter.formatRateLimitWarning(rateResult.retryAfterMs))
+		} catch (sendErr) {
+			console.error("[telegram] Failed to send rate limit warning:", sendErr.message)
+		}
+		return
+	}
 
 	// If the user quoted/replied to a message, prepend that context so the AI
 	// understands what "this", "that", "the task above", etc. refers to.
@@ -5699,11 +5704,7 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 		logTelegramError(command || "unknown", chatId, telegramUserId, err, { text: text.slice(0, 100) })
 		console.error("[telegram] Unhandled error in command routing:", err.message)
 		try {
-			await sendMessage(
-				botToken,
-				chatId,
-				"*Error* ❌\n\nAn unexpected error occurred. The Ace Team has been notified.\n\nError: " + err.message,
-			)
+			await sendMessage(botToken, chatId, formatError(err, command || "unknown"))
 		} catch (sendErr) {
 			console.error("[telegram] Failed to send error message:", sendErr.message)
 		}

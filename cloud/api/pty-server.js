@@ -120,9 +120,10 @@ function createSession(sessionId, ws, options = {}) {
 	}
 
 	// ── PTY stdout → WebSocket ──────────────────────────────
-	ptyProcess.onData((data) => {
+	const handleOutput = (data) => {
 		session.lastActivity = Date.now()
-		session.buffer += data
+		const text = data.toString()
+		session.buffer += text
 		// Keep buffer manageable (last 100KB)
 		if (session.buffer.length > 102400) {
 			session.buffer = session.buffer.slice(-102400)
@@ -134,7 +135,7 @@ function createSession(sessionId, ws, options = {}) {
 					JSON.stringify({
 						type: "pty:output",
 						sessionId,
-						data,
+						data: text,
 						timestamp: Date.now(),
 					}),
 				)
@@ -142,10 +143,17 @@ function createSession(sessionId, ws, options = {}) {
 				/* ws closed */
 			}
 		}
-	})
+	}
+
+	if (typeof ptyProcess.onData === "function") {
+		ptyProcess.onData(handleOutput)
+	} else {
+		ptyProcess.stdout?.on("data", handleOutput)
+		ptyProcess.stderr?.on("data", handleOutput)
+	}
 
 	// ── Handle process exit ─────────────────────────────────
-	ptyProcess.onExit(({ exitCode, signal }) => {
+	const handleExit = ({ exitCode, signal }) => {
 		log("info", `PTY session ${sessionId} exited`, { sessionId, exitCode, signal })
 		if (ws.readyState === ws.OPEN) {
 			try {
@@ -163,7 +171,13 @@ function createSession(sessionId, ws, options = {}) {
 			}
 		}
 		sessions.delete(sessionId)
-	})
+	}
+
+	if (typeof ptyProcess.onExit === "function") {
+		ptyProcess.onExit(handleExit)
+	} else {
+		ptyProcess.on("exit", (exitCode, signal) => handleExit({ exitCode, signal }))
+	}
 
 	sessions.set(sessionId, session)
 	log("info", `PTY session created`, { sessionId, shell, cwd, cols, rows })
@@ -206,7 +220,11 @@ function handleMessage(ws, message) {
 					return
 				}
 				session.lastActivity = Date.now()
-				session.process.write(payload.data || "")
+				if (typeof session.process.write === "function") {
+					session.process.write(payload.data || "")
+				} else {
+					session.process.stdin?.write(payload.data || "")
+				}
 				break
 			}
 

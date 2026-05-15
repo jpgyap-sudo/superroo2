@@ -40,6 +40,7 @@ const ptyServer = require("./pty-server")
 const healingMetrics = require("./routes/healing-metrics")
 const monitoring = require("./routes/monitoring")
 const mlRoutes = require("./routes/ml")
+const skillsRoutes = require("./routes/skills")
 const tenantManager = require("./tenantManager")
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || ""
 
@@ -1139,17 +1140,6 @@ function formatRelativeTime(ts) {
 // The dashboard connects via ws://host/api/ws/chat and receives token-by-token
 // streaming, typing indicators, and proactive suggestions.
 const wss = new WebSocketServer({ noServer: true })
-
-// ── Telegram WebSocket Server ──────────────────────────────────────────────
-// Separate WebSocket server for Telegram task lifecycle events.
-// The dashboard TelegramView connects here for real-time updates.
-telegramWebSocket.init(server, "/api/ws/telegram")
-
-// ── Dashboard WebSocket Server ─────────────────────────────────────────────
-// Generic WebSocket server for broadcasting real-time dashboard data updates.
-// Replaces polling-based data fetching with push-based updates.
-// Dashboard views subscribe to channels and receive data as it changes.
-dashboardWebSocket.init(server, "/api/ws/dashboard")
 
 // ── PTY Server ─────────────────────────────────────────────────────────────
 // Real pseudo-terminal shell integration via node-pty + WebSocket.
@@ -3022,6 +3012,16 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// ── Skills Generator routes ───────────────────────────────────────────
+
+		// Skills Generator — exposes skill library, recommendations, and draft management
+		// Provides the backend for the Skills Generator dashboard view
+		if (normalizedUrl.startsWith("/skills")) {
+			if (await skillsRoutes.handleSkillsRoute(method, url, req, res, sendJson, parseBody)) {
+				return
+			}
+		}
+
 		// ── IDE Workspace routes ──────────────────────────────────────────────
 
 		// Persistent IDE workspace state (survives server restarts)
@@ -3810,6 +3810,7 @@ const server = http.createServer(async (req, res) => {
 			const data = await parseBody(req)
 			const cmd = data?.command || ""
 			const terminalId = data?.terminalId || "term-1"
+			const mode = ["shell", "agent", "skill"].includes(data?.mode) ? data.mode : "shell"
 
 			if (!cmd) {
 				sendJson(res, 400, { ok: false, error: "Missing command" })
@@ -3824,20 +3825,26 @@ const server = http.createServer(async (req, res) => {
 
 			// ── Agent/Skill-aware command detection ────────────────────────
 			// Detect if this is an agent/skill command (prefixed with / or @)
-			const isAgentCommand = cmd.startsWith("/") || cmd.startsWith("@")
+			const routedCommand =
+				mode === "agent" && !cmd.startsWith("/") && !cmd.startsWith("@")
+					? `/code ${cmd}`
+					: mode === "skill" && !cmd.startsWith("/")
+						? `/skill ${cmd}`
+						: cmd
+			const isAgentCommand = mode !== "shell" || routedCommand.startsWith("/") || routedCommand.startsWith("@")
 
 			if (isAgentCommand) {
 				// Route through agent system instead of raw shell
 				try {
-					const agentResult = await handleAgentTerminalCommand(cmd, ws, term)
+					const agentResult = await handleAgentTerminalCommand(routedCommand, ws, term)
 					const outputLines = agentResult.output || ["Command processed by agent system"]
 					// Log to terminal session
-					term.output.push(`$ ${cmd}`)
+					term.output.push(`$ ${routedCommand}`)
 					term.output.push(...outputLines)
 					saveWorkspaceStore(global.__ideWorkspace) // persist terminal
 					sendJson(res, 200, {
 						ok: true,
-						output: outputLines,
+						output: [`$ ${routedCommand}`, ...outputLines],
 						agent: agentResult.agent,
 						skill: agentResult.skill,
 					})
@@ -7406,6 +7413,17 @@ const server = http.createServer(async (req, res) => {
 		})
 	}
 })
+
+// ── Telegram WebSocket Server ──────────────────────────────────────────────
+// Separate WebSocket server for Telegram task lifecycle events.
+// The dashboard TelegramView connects here for real-time updates.
+telegramWebSocket.init(server, "/api/ws/telegram")
+
+// ── Dashboard WebSocket Server ─────────────────────────────────────────────
+// Generic WebSocket server for broadcasting real-time dashboard data updates.
+// Replaces polling-based data fetching with push-based updates.
+// Dashboard views subscribe to channels and receive data as it changes.
+dashboardWebSocket.init(server, "/api/ws/dashboard")
 
 // ── LSP Bridge ────────────────────────────────────────────────────────────
 // Initialize the Language Server Protocol bridge for Monaco Editor integration.

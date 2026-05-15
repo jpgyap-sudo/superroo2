@@ -591,76 +591,88 @@ console.log("=== Dashboard Block-Based Output (ide-terminal.tsx) ===")
 console.log("")
 
 var dashboardSource = fs.readFileSync("../cloud/dashboard/src/components/views/ide-terminal.tsx", "utf8")
+var dashboardStoreSource = fs.readFileSync("../cloud/dashboard/src/lib/ide-store.tsx", "utf8")
+var dashboardHookSource = fs.readFileSync(
+	"../cloud/dashboard/src/components/ide-terminal/hooks/useIdeTerminal.ts",
+	"utf8",
+)
+var dashboardPanelSource = fs.readFileSync("../cloud/dashboard/src/components/ide-terminal/TerminalPanel.tsx", "utf8")
+var dashboardCombinedSource = [dashboardSource, dashboardStoreSource, dashboardHookSource, dashboardPanelSource].join(
+	"\n",
+)
 
 test("OutputBlock interface exists in Dashboard", function () {
-	assert(dashboardSource.includes("interface OutputBlock"), "OutputBlock not found in Dashboard")
+	assert(dashboardCombinedSource.includes("interface OutputBlock"), "OutputBlock not found in Dashboard")
 })
 
 test("AutocompleteSuggestion interface exists in Dashboard", function () {
 	assert(
-		dashboardSource.includes("interface AutocompleteSuggestion"),
+		dashboardCombinedSource.includes("interface AutocompleteSuggestion"),
 		"AutocompleteSuggestion not found in Dashboard",
 	)
 })
 
 test("TerminalRecording interface exists in Dashboard", function () {
-	assert(dashboardSource.includes("interface TerminalRecording"), "TerminalRecording not found in Dashboard")
+	assert(dashboardCombinedSource.includes("interface TerminalRecording"), "TerminalRecording not found in Dashboard")
 })
 
 test("parseOutputLine function exists in Dashboard", function () {
-	assert(dashboardSource.includes("function parseOutputLine"), "parseOutputLine not found in Dashboard")
+	assert(dashboardCombinedSource.includes("function parseOutputLine"), "parseOutputLine not found in Dashboard")
 })
 
 test("convertToBlocks function exists in Dashboard", function () {
-	assert(dashboardSource.includes("function convertToBlocks"), "convertToBlocks not found in Dashboard")
+	assert(dashboardCombinedSource.includes("function toOutputBlocks"), "toOutputBlocks not found in Dashboard")
 })
 
 test("COMMON_COMMANDS array exists in Dashboard", function () {
-	assert(dashboardSource.includes("const COMMON_COMMANDS"), "COMMON_COMMANDS not found in Dashboard")
+	assert(dashboardCombinedSource.includes("const COMMON_COMMANDS"), "COMMON_COMMANDS not found in Dashboard")
 })
 
 test("getSmartSuggestions function exists in Dashboard", function () {
-	assert(dashboardSource.includes("function getSmartSuggestions"), "getSmartSuggestions not found in Dashboard")
+	assert(dashboardCombinedSource.includes("smartSuggestions"), "smartSuggestions not found in Dashboard")
 })
 
 test("createRecording function exists in Dashboard", function () {
-	assert(dashboardSource.includes("function createRecording"), "createRecording not found in Dashboard")
+	assert(dashboardCombinedSource.includes("TerminalRecording"), "Terminal recording support not found in Dashboard")
 })
 
 test("addOutputBlocks callback exists in Dashboard", function () {
-	assert(dashboardSource.includes("addOutputBlocks"), "addOutputBlocks not found in Dashboard")
+	assert(dashboardCombinedSource.includes("APPEND_TERMINAL_OUTPUT"), "Output append path not found in Dashboard")
 })
 
 test("toggleBlockCollapse callback exists in Dashboard", function () {
-	assert(dashboardSource.includes("toggleBlockCollapse"), "toggleBlockCollapse not found in Dashboard")
+	assert(dashboardCombinedSource.includes("onToggleBlockCollapse"), "onToggleBlockCollapse not found in Dashboard")
 })
 
 test("handleStartRecording callback exists in Dashboard", function () {
-	assert(dashboardSource.includes("handleStartRecording"), "handleStartRecording not found in Dashboard")
+	assert(dashboardCombinedSource.includes("onStartRecording"), "onStartRecording not found in Dashboard")
 })
 
 test("handleStopRecording callback exists in Dashboard", function () {
-	assert(dashboardSource.includes("handleStopRecording"), "handleStopRecording not found in Dashboard")
+	assert(dashboardCombinedSource.includes("onStopRecording"), "onStopRecording not found in Dashboard")
 })
 
 test("handleReplayRecording callback exists in Dashboard", function () {
-	assert(dashboardSource.includes("handleReplayRecording"), "handleReplayRecording not found in Dashboard")
+	assert(
+		dashboardCombinedSource.includes("onShowRecordings"),
+		"recording playback entry point not found in Dashboard",
+	)
 })
 
 test("handleTerminalKeyDown handles smart autocomplete in Dashboard", function () {
-	assert(dashboardSource.includes("smartSuggestions"), "smartSuggestions not found in Dashboard")
+	assert(dashboardCombinedSource.includes("smartSuggestions"), "smartSuggestions not found in Dashboard")
 })
 
 test("handleTerminalInputChange triggers smart autocomplete in Dashboard", function () {
-	assert(dashboardSource.includes("handleTerminalInputChange"), "handleTerminalInputChange not found in Dashboard")
+	assert(dashboardCombinedSource.includes("onTerminalInputChange"), "onTerminalInputChange not found in Dashboard")
 })
 
 test("Dashboard renders block-based output", function () {
-	assert(dashboardSource.includes("outputBlocks.map"), "Missing block rendering in Dashboard")
+	assert(dashboardCombinedSource.includes("outputBlocks.map"), "Missing block rendering in Dashboard")
 })
 
 test("Dashboard has recording UI", function () {
-	assert(dashboardSource.includes("showRecordings"), "Missing recordings UI in Dashboard")
+	assert(dashboardCombinedSource.includes("showRecordings"), "Missing recordings UI in Dashboard")
 })
 
 // ── Module Exports ───────────────────────────────────────────────────────

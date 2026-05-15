@@ -356,6 +356,31 @@ const initialState: IdeState = {
 	_hydrated: false,
 }
 
+function toOutputBlocks(lines: string[], startIndex = 0): OutputBlock[] {
+	return lines.map((line, offset) => {
+		const trimmed = line.trim()
+		let type: OutputBlock["type"] = "info"
+
+		if (trimmed.startsWith("$ ")) {
+			type = "command"
+		} else if (/error|failed|exception|traceback|errno/i.test(trimmed)) {
+			type = "error"
+		} else if (/warning|warn/i.test(trimmed)) {
+			type = "warning"
+		} else if (/success|done|compiled|passed/i.test(trimmed)) {
+			type = "success"
+		}
+
+		return {
+			id: `block-${Date.now()}-${startIndex + offset}`,
+			type,
+			content: line,
+			timestamp: new Date().toISOString(),
+			collapsed: false,
+		}
+	})
+}
+
 // ─── Actions ──────────────────────────────────────────────────────────────
 
 export type IdeAction =
@@ -481,9 +506,13 @@ function ideReducer(state: IdeState, action: IdeAction): IdeState {
 		case "SET_TERMINAL_INPUT":
 			return { ...state, terminalInput: action.payload }
 		case "SET_TERMINAL_OUTPUT":
-			return { ...state, terminalOutput: action.payload }
+			return { ...state, terminalOutput: action.payload, outputBlocks: toOutputBlocks(action.payload) }
 		case "APPEND_TERMINAL_OUTPUT":
-			return { ...state, terminalOutput: [...state.terminalOutput, ...action.payload] }
+			return {
+				...state,
+				terminalOutput: [...state.terminalOutput, ...action.payload],
+				outputBlocks: [...state.outputBlocks, ...toOutputBlocks(action.payload, state.outputBlocks.length)],
+			}
 		case "SET_OUTPUT_BLOCKS":
 			return { ...state, outputBlocks: action.payload }
 		case "SET_COLLAPSED_BLOCKS":

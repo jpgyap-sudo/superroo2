@@ -60,6 +60,22 @@ function createInitialState() {
 	}
 }
 
+function toOutputBlocks(lines, startIndex = 0) {
+	return lines.map((line, offset) => ({
+		id: `block-${startIndex + offset}`,
+		type: line.startsWith("$ ")
+			? "command"
+			: /error|failed/i.test(line)
+				? "error"
+				: /warning|warn/i.test(line)
+					? "warning"
+					: "info",
+		content: line,
+		timestamp: "test",
+		collapsed: false,
+	}))
+}
+
 // ── Reducer (re-implemented for test isolation) ────────────────────────────
 
 function ideReducer(state, action) {
@@ -100,9 +116,13 @@ function ideReducer(state, action) {
 		case "SET_TERMINAL_INPUT":
 			return { ...state, terminalInput: action.payload }
 		case "SET_TERMINAL_OUTPUT":
-			return { ...state, terminalOutput: action.payload }
+			return { ...state, terminalOutput: action.payload, outputBlocks: toOutputBlocks(action.payload) }
 		case "APPEND_TERMINAL_OUTPUT":
-			return { ...state, terminalOutput: [...state.terminalOutput, ...action.payload] }
+			return {
+				...state,
+				terminalOutput: [...state.terminalOutput, ...action.payload],
+				outputBlocks: [...state.outputBlocks, ...toOutputBlocks(action.payload, state.outputBlocks.length)],
+			}
 		case "SET_OUTPUT_BLOCKS":
 			return { ...state, outputBlocks: action.payload }
 		case "SET_COLLAPSED_BLOCKS":
@@ -271,6 +291,8 @@ test("APPEND_TERMINAL_OUTPUT adds lines", () => {
 	const result = ideReducer(state, { type: "APPEND_TERMINAL_OUTPUT", payload: ["line2", "line3"] })
 	assert.strictEqual(result.terminalOutput.length, 3)
 	assert.deepStrictEqual(result.terminalOutput, ["line1", "line2", "line3"])
+	assert.strictEqual(result.outputBlocks.length, 2)
+	assert.strictEqual(result.outputBlocks[0].content, "line2")
 })
 
 test("SET_TERMINAL_OUTPUT replaces all output", () => {
@@ -279,6 +301,8 @@ test("SET_TERMINAL_OUTPUT replaces all output", () => {
 	const result = ideReducer(state, { type: "SET_TERMINAL_OUTPUT", payload: ["new"] })
 	assert.strictEqual(result.terminalOutput.length, 1)
 	assert.strictEqual(result.terminalOutput[0], "new")
+	assert.strictEqual(result.outputBlocks.length, 1)
+	assert.strictEqual(result.outputBlocks[0].content, "new")
 })
 
 test("SET_TERMINAL_INPUT updates input", () => {
