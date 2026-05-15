@@ -59,6 +59,7 @@ const NAV = [
 	{ id: "ai", icon: Sparkles, label: "AI Assistant" },
 	{ id: "ide-terminal", icon: Terminal, label: "IDE Terminal" },
 	{ id: "auto-deploy", icon: Rocket, label: "Auto Deploy" },
+	{ id: "login", icon: LogIn, label: "Login" },
 ]
 
 export function Sidebar({
@@ -174,20 +175,6 @@ export function Sidebar({
 						)
 					})}
 				</nav>
-
-				{/* Logout button */}
-				<div className="border-t border-[#1e2535]">
-					<button
-						onClick={onLogout}
-						className={cn(
-							"flex w-full items-center gap-3 px-3 py-3 md:py-2.5 text-sm transition-colors active:scale-[0.98]",
-							"border-l-2 border-transparent text-gray-500 hover:bg-[#0f1117] hover:text-red-400",
-						)}
-						title="Sign out">
-						<LogOut className="h-4 w-4 shrink-0" />
-						{!collapsed && <span>Sign Out</span>}
-					</button>
-				</div>
 
 				{/* Version footer */}
 				{!collapsed && (

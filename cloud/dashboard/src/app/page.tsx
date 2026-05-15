@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import { LogOut } from "lucide-react"
 import { Sidebar } from "@/components/sidebar"
 import { Badge } from "@/components/ui/badge"
 import ErrorBoundary from "@/components/ErrorBoundary"
@@ -177,7 +178,8 @@ export default function Dashboard() {
 		setAuthenticated(false)
 	}, [])
 
-	const PageComponent = PAGES[page] || Overview
+	const isLoginPage = page === "login"
+	const PageComponent: React.ComponentType = isLoginPage ? (() => null) : PAGES[page] || Overview
 	const pageLabel =
 		{
 			overview: "Overview",
@@ -202,6 +204,7 @@ export default function Dashboard() {
 			"auto-deploy": "Auto Deploy",
 			ml: "ML Engine",
 			tenants: "Organizations",
+			login: "Login",
 		}[page] || page
 
 	// Show login page while checking auth or if not authenticated
@@ -246,18 +249,32 @@ export default function Dashboard() {
 						<div className="max-sm:hidden">
 							<Badge status="warning" label="1 pending approval" />
 						</div>
+						{/* Sign Out button — always visible in header */}
+						<button
+							onClick={handleLogout}
+							className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] text-gray-500 hover:text-red-400 hover:bg-red-900/20 transition-colors"
+							title="Sign out">
+							<LogOut className="h-3.5 w-3.5" />
+							<span className="hidden sm:inline">Sign Out</span>
+						</button>
 						<span className="text-[11px] text-gray-700">{time}</span>
 					</div>
 				</div>
 
 				{/* Content — responsive padding */}
 				<div className="flex-1 overflow-y-auto p-3 sm:p-5">
-					<div className="mb-4 flex items-center justify-between">
-						<h1 className="text-base sm:text-lg font-semibold">{pageLabel}</h1>
-					</div>
-					<ErrorBoundary name={pageLabel}>
-						<PageComponent />
-					</ErrorBoundary>
+					{isLoginPage ? (
+						<LoginPage onLogin={() => setAuthenticated(true)} />
+					) : (
+						<>
+							<div className="mb-4 flex items-center justify-between">
+								<h1 className="text-base sm:text-lg font-semibold">{pageLabel}</h1>
+							</div>
+							<ErrorBoundary name={pageLabel}>
+								<PageComponent />
+							</ErrorBoundary>
+						</>
+					)}
 				</div>
 			</div>
 		</div>
