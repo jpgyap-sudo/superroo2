@@ -894,6 +894,9 @@ async function handleAuthRoute(method, url, req, res) {
 	// Don't intercept Telegram webhook info — used by dashboard to check bot status
 	if (normalizedPath === "/telegram/webhook-info") return false
 
+	// Don't intercept Telegram mapping — used by dashboard to show live component status
+	if (normalizedPath === "/telegram/mapping") return false
+
 	// Don't intercept GitHub webhook — it has no auth header and must
 	// fall through to the dedicated handler in api.js
 	if (
