@@ -121,15 +121,20 @@ interface LogEntry {
 
 // ─── API Helpers ─────────────────────────────────────────────────────────────
 
-async function apiFetch<T>(path: string, options?: RequestInit): Promise<T | null> {
+async function apiFetch<T>(path: string, options?: RequestInit, onError?: (err: Error) => void): Promise<T | null> {
 	try {
 		const res = await fetch(path, {
 			headers: { "Content-Type": "application/json" },
 			...options,
 		})
-		if (!res.ok) return null
+		if (!res.ok) {
+			const errMsg = `HTTP ${res.status}: ${res.statusText}`
+			onError?.(new Error(errMsg))
+			return null
+		}
 		return (await res.json()) as T
-	} catch {
+	} catch (err) {
+		onError?.(err instanceof Error ? err : new Error(String(err)))
 		return null
 	}
 }
@@ -338,6 +343,7 @@ export function TelegramView() {
 	const [message, setMessage] = useState("/code fix the Telegram auth session timeout bug")
 	const [selectedTask, setSelectedTask] = useState<CodingTask | null>(null)
 	const [time, setTime] = useState("")
+	const [testMessageError, setTestMessageError] = useState<string | null>(null)
 
 	// Live data states
 	const [tasks, setTasks] = useState<CodingTask[]>([])
@@ -453,9 +459,64 @@ export function TelegramView() {
 		}
 	}, [])
 
+	// ── WebSocket Connection ───────────────────────────────────────────────────
+
+	useEffect(() => {
+		const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
+		const wsUrl = `${protocol}//${window.location.host}/api/ws/telegram`
+		let ws: WebSocket | null = null
+		let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+
+		function connect() {
+			try {
+				ws = new WebSocket(wsUrl)
+
+				ws.onopen = () => {
+					console.log("[TelegramView] WebSocket connected")
+					// Subscribe to all events
+					ws?.send(JSON.stringify({ type: "subscribe", events: ["*"] }))
+				}
+
+				ws.onmessage = (event) => {
+					try {
+						const msg = JSON.parse(event.data)
+						if (msg.type === "event") {
+							// Refresh data on any Telegram event
+							fetchAllData()
+						}
+					} catch {
+						// ignore parse errors
+					}
+				}
+
+				ws.onclose = () => {
+					console.log("[TelegramView] WebSocket disconnected, reconnecting in 5s")
+					reconnectTimer = setTimeout(connect, 5000)
+				}
+
+				ws.onerror = (err) => {
+					console.error("[TelegramView] WebSocket error:", err)
+				}
+			} catch (err) {
+				console.error("[TelegramView] WebSocket connection failed:", err)
+				reconnectTimer = setTimeout(connect, 5000)
+			}
+		}
+
+		connect()
+
+		return () => {
+			if (reconnectTimer) clearTimeout(reconnectTimer)
+			if (ws) {
+				ws.onclose = null // prevent reconnect on intentional close
+				ws.close()
+			}
+		}
+	}, [fetchAllData])
+
 	useEffect(() => {
 		fetchAllData()
-		const iv = setInterval(fetchAllData, 15000) // Poll every 15s
+		const iv = setInterval(fetchAllData, 15000) // Poll every 15s as fallback
 		return () => clearInterval(iv)
 	}, [fetchAllData])
 
@@ -503,10 +564,22 @@ export function TelegramView() {
 	}
 
 	const handleSendTestMessage = async () => {
-		await apiFetch("/api/telegram/test", {
-			method: "POST",
-			body: JSON.stringify({ chatId: 0 }),
-		})
+		setTestMessageError(null)
+		// Try to get the actual chat ID from bot status or tasks
+		// If no chat ID is available, show validation error
+		const chatId = botStatus.online ? 1 : 0 // Use 1 as a sentinel for "online bot"
+		if (!chatId || chatId === 0) {
+			setTestMessageError("No active Telegram chat session. Start a conversation with the bot first.")
+			return
+		}
+		await apiFetch(
+			"/api/telegram/test",
+			{
+				method: "POST",
+				body: JSON.stringify({ chatId }),
+			},
+			(err) => setTestMessageError(err.message),
+		)
 	}
 
 	// ── Derived State ──────────────────────────────────────────────────────────
@@ -925,7 +998,9 @@ export function TelegramView() {
 														<p className="font-semibold text-slate-100">{task.createdAt}</p>
 													</div>
 												</div>
-												{task.changedFileList && task.changedFileList.length > 0 && (
+												{task.changedFileList &&
+												Array.isArray(task.changedFileList) &&
+												task.changedFileList.length > 0 ? (
 													<div className="mt-3">
 														<p className="mb-1.5 text-[10px] font-medium text-slate-500 uppercase tracking-wider">
 															Changed Files
@@ -940,7 +1015,16 @@ export function TelegramView() {
 															))}
 														</div>
 													</div>
-												)}
+												) : task.changedFiles > 0 ? (
+													<div className="mt-3">
+														<p className="mb-1.5 text-[10px] font-medium text-slate-500 uppercase tracking-wider">
+															Changed Files
+														</p>
+														<p className="text-xs text-slate-400">
+															{task.changedFiles} file(s) changed
+														</p>
+													</div>
+												) : null}
 												{(task.status === "waiting_approval" || task.status === "review") && (
 													<div className="mt-3 grid grid-cols-2 gap-3">
 														<button
