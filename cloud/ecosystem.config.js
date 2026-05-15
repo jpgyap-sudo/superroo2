@@ -7,6 +7,9 @@
  * - Max restart limits to avoid crash loops
  * - Graceful shutdown timeouts
  *
+ * SECURITY: All secrets are loaded from cloud/.env (not hardcoded here).
+ * The .env file is in .gitignore and NEVER committed to git.
+ *
  * Usage:
  *   cd /opt/superroo2/cloud
  *   pm2 start ecosystem.config.js
@@ -33,23 +36,11 @@ module.exports = {
 			min_uptime: 30000,
 			// Graceful shutdown
 			kill_timeout: 30000,
+			// All secrets loaded from .env file — NEVER hardcode secrets here
+			env_file: "./.env",
 			env: {
 				NODE_ENV: "production",
-				REDIS_URL: "redis://127.0.0.1:6379",
-				SUPERROO_QUEUE_NAME: "superroo-jobs",
-				API_PORT: "8787",
-				SUPERROO_VAULT_KEY: "D16PFwmjzXtmpEfFSYrAepsaveOB+fLuneeuQrvTYVw=",
-				TELEGRAM_BOT_TOKEN: "8645986629:AAGFH6aC6y_F39dLfAB2q95-1s-kKALm0RQ",
-				SMTP_HOST: "smtp.gmail.com",
-				SMTP_PORT: "587",
-				SMTP_USER: "marketing.homeu1@gmail.com",
-				SMTP_PASS: "ouhx sjib hyoj aayv",
-				SMTP_FROM: "marketing.homeu1@gmail.com",
-				// Cloud Orchestrator
-				ORCHESTRATOR_DB_PATH: "/opt/superroo2/cloud/orchestrator/data/orchestrator.db",
-				ORCHESTRATOR_MODE: "safe",
-				ORCHESTRATOR_SELF_IMPROVE: "false",
-				ORCHESTRATOR_LOOP_INTERVAL: "5000",
+				// Non-secret config only — secrets go in .env
 			},
 			log_file: "/opt/superroo2/cloud/logs/api-combined.log",
 			out_file: "/opt/superroo2/cloud/logs/api-out.log",
@@ -73,25 +64,10 @@ module.exports = {
 			min_uptime: 15000,
 			// Graceful shutdown (matches worker.js shutdown handler)
 			kill_timeout: 30000,
+			env_file: "./.env",
 			env: {
 				NODE_ENV: "production",
-				REDIS_URL: "redis://127.0.0.1:6379",
-				SUPERROO_QUEUE_NAME: "superroo-jobs",
-				WORKER_CONCURRENCY: "2",
-				SUPERROO_ROOT: "/opt/superroo2",
-				SANDBOX_IMAGE: "superroo-sandbox:latest",
-				// Sandbox runner config
-				JOB_TIMEOUT_MS: "600000",
-				SANDBOX_MAX_RETRIES: "2",
-				SANDBOX_MEMORY: "512m",
-				SANDBOX_CPUS: "1",
-				// Worker resilience config
-				WORKER_MAX_REDIS_FAILURES: "5",
-				WORKER_HEALTH_CHECK_INTERVAL_MS: "30000",
-				// Telegram notification config
-				BOSS_TELEGRAM_CHAT_ID: "8485794779",
-				API_BASE_URL: "http://127.0.0.1:8787",
-				SUPERROO_VAULT_KEY: "D16PFwmjzXtmpEfFSYrAepsaveOB+fLuneeuQrvTYVw=",
+				// Non-secret config only — secrets go in .env
 			},
 			log_file: "/opt/superroo2/cloud/logs/worker-combined.log",
 			out_file: "/opt/superroo2/cloud/logs/worker-out.log",
@@ -115,6 +91,7 @@ module.exports = {
 			kill_timeout: 30000,
 			kill_retry_time: 5000,
 			listen_timeout: 10000,
+			env_file: "./.env",
 			env: {
 				NODE_ENV: "production",
 				PORT: "3001",
@@ -139,16 +116,11 @@ module.exports = {
 			restart_delay: 5000,
 			min_uptime: 10000,
 			kill_timeout: 15000,
+			env_file: "./.env",
 			env: {
 				NODE_ENV: "production",
 				MINI_IDE_PORT: "8081",
-				TELEGRAM_BOT_TOKEN: "8645986629:AAGFH6aC6y_F39dLfAB2q95-1s-kKALm0RQ",
 				CORS_ORIGIN: "https://dev.abcx124.xyz",
-				SUPERROO_API_URL: "http://127.0.0.1:8787",
-				SUPERROO_API_KEY: "",
-				WORKSPACE_ROOT: "/srv/superroo/workspaces",
-				UPLOAD_DIR: "/opt/superroo2/cloud/mini-ide/uploads",
-				SESSION_TTL_MINUTES: "30",
 			},
 			log_file: "/opt/superroo2/cloud/logs/mini-ide-combined.log",
 			out_file: "/opt/superroo2/cloud/logs/mini-ide-out.log",
@@ -170,6 +142,7 @@ module.exports = {
 			restart_delay: 5000,
 			min_uptime: 10000,
 			kill_timeout: 15000,
+			env_file: "./.env",
 			env: {
 				NODE_ENV: "production",
 				AUTO_DEPLOYER_PORT: "8790",
@@ -194,6 +167,7 @@ module.exports = {
 			restart_delay: 5000,
 			min_uptime: 15000,
 			kill_timeout: 15000,
+			env_file: "./.env",
 			env: {
 				NODE_ENV: "production",
 				OLLAMA_URL: "http://localhost:11434",
