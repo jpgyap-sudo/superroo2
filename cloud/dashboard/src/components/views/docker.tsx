@@ -64,111 +64,7 @@ interface LogEntry {
 }
 
 // ─── Mock Data ───────────────────────────────────────────────────────────────
-
-const MOCK_CONTAINERS: Container[] = [
-	{
-		id: "c1",
-		name: "superoo-api",
-		image: "superoo/api:latest",
-		status: "running",
-		cpu: 12,
-		ram: 480,
-		ramMax: 1024,
-		ports: ["3000:3000"],
-		uptime: "3d 14h",
-		project: "superoo",
-	},
-	{
-		id: "c2",
-		name: "superoo-worker",
-		image: "superoo/worker:latest",
-		status: "running",
-		cpu: 8,
-		ram: 320,
-		ramMax: 2048,
-		ports: [],
-		uptime: "3d 14h",
-		project: "superoo",
-	},
-	{
-		id: "c3",
-		name: "superoo-dashboard",
-		image: "superoo/dashboard:latest",
-		status: "running",
-		cpu: 5,
-		ram: 180,
-		ramMax: 512,
-		ports: ["8080:80"],
-		uptime: "3d 14h",
-		project: "superoo",
-	},
-	{
-		id: "c4",
-		name: "product-image-studio",
-		image: "superoo/img-studio:latest",
-		status: "crashed",
-		cpu: 0,
-		ram: 0,
-		ramMax: 1024,
-		ports: ["4000:4000"],
-		uptime: "0m",
-		project: "superoo",
-	},
-	{
-		id: "c5",
-		name: "redis",
-		image: "redis:7-alpine",
-		status: "running",
-		cpu: 2,
-		ram: 12,
-		ramMax: 128,
-		ports: ["6379:6379"],
-		uptime: "7d 6h",
-		project: "infra",
-	},
-	{
-		id: "c6",
-		name: "postgres",
-		image: "postgres:16-alpine",
-		status: "stopped",
-		cpu: 0,
-		ram: 0,
-		ramMax: 512,
-		ports: ["5432:5432"],
-		uptime: "0m",
-		project: "infra",
-	},
-]
-
-const MOCK_CRASHES: CrashAnalysis[] = [
-	{
-		container: "product-image-studio",
-		issue: "Out of memory (OOM) — process exited with code 137",
-		possibleCauses: [
-			"Memory limit too low for image processing workloads",
-			"Memory leak in image processing pipeline",
-			"Concurrent image uploads exceeding available RAM",
-		],
-		suggestedFixes: [
-			"Increase memory limit from 512MB to 1GB in docker-compose.yml",
-			"Add rate limiting to image upload endpoint",
-			"Enable swap as temporary mitigation",
-		],
-	},
-]
-
-const MOCK_LOGS: LogEntry[] = [
-	{ container: "superoo-api", message: "GET /api/v1/jobs 200 45ms", timestamp: "14:08:01", level: "info" },
-	{ container: "superoo-api", message: "GET /api/v1/agents 200 12ms", timestamp: "14:07:58", level: "info" },
-	{ container: "superoo-worker", message: "Job j-42 completed successfully", timestamp: "14:07:55", level: "info" },
-	{ container: "superoo-dashboard", message: "WebSocket connection established", timestamp: "14:07:52", level: "info" },
-	{ container: "product-image-studio", message: "FATAL: OutOfMemoryError: Java heap space", timestamp: "14:07:48", level: "error" },
-	{ container: "redis", message: "Ready to accept connections", timestamp: "14:07:45", level: "info" },
-	{ container: "superoo-api", message: "POST /api/v1/deploy 500 120ms", timestamp: "14:07:40", level: "error" },
-	{ container: "superoo-worker", message: "WARN: Queue backlog at 85% capacity", timestamp: "14:07:35", level: "warn" },
-	{ container: "superoo-api", message: "Rate limit exceeded for IP 10.0.0.42", timestamp: "14:07:30", level: "warn" },
-	{ container: "superoo-dashboard", message: "Static asset cache refreshed", timestamp: "14:07:25", level: "info" },
-]
+// (removed — hybrid view fetches from real API; shows loading state while data loads)
 
 // ─── Sub-components ─────────────────────────────────────────────────────────
 
@@ -224,34 +120,10 @@ function ActionButton({
 }
 
 function LogStream() {
-	const [logs, setLogs] = useState<LogEntry[]>(MOCK_LOGS)
+	const [logs, setLogs] = useState<LogEntry[]>([])
 	const [filter, setFilter] = useState<string>("all")
 	const scrollRef = useRef<HTMLDivElement>(null)
 	const [autoScroll, setAutoScroll] = useState(true)
-
-	useEffect(() => {
-		const iv = setInterval(() => {
-			const containers = ["superoo-api", "superoo-worker", "redis"]
-			const levels: LogEntry["level"][] = ["info", "info", "info", "warn", "error"]
-			const msgs = [
-				"Heartbeat OK",
-				"Health check passed",
-				"Cache hit ratio: 94%",
-				"Connection pool at 12/25",
-				"Request queued (priority: normal)",
-			]
-			setLogs((prev) => [
-				...prev,
-				{
-					container: containers[Math.floor(Math.random() * containers.length)],
-					message: msgs[Math.floor(Math.random() * msgs.length)],
-					timestamp: new Date().toLocaleTimeString("en-US", { hour12: false }),
-					level: levels[Math.floor(Math.random() * levels.length)],
-				},
-			])
-		}, 4000)
-		return () => clearInterval(iv)
-	}, [])
 
 	useEffect(() => {
 		if (autoScroll && scrollRef.current) {
@@ -302,7 +174,7 @@ function LogStream() {
 				ref={scrollRef}
 				className="h-48 overflow-y-auto rounded-lg border border-[#1e2535] bg-[#060810] p-3 font-mono text-[11px] leading-relaxed">
 				{filteredLogs.length === 0 ? (
-					<div className="flex h-full items-center justify-center text-slate-600">No matching log entries</div>
+					<div className="flex h-full items-center justify-center text-slate-600">No log data yet — connect to Docker API</div>
 				) : (
 					filteredLogs.map((log, i) => (
 						<div key={i} className="flex gap-3">
@@ -319,7 +191,7 @@ function LogStream() {
 }
 
 function DockerDoctorPanel() {
-	const [crashes] = useState<CrashAnalysis[]>(MOCK_CRASHES)
+	const [crashes] = useState<CrashAnalysis[]>([])
 	const [expanded, setExpanded] = useState<string | null>(null)
 
 	if (crashes.length === 0) {
@@ -398,17 +270,17 @@ function DockerDoctorPanel() {
 // ─── Main View ──────────────────────────────────────────────────────────────
 
 export function DockerView() {
-	const [containers, setContainers] = useState<Container[]>(MOCK_CONTAINERS)
+	const [containers, setContainers] = useState<Container[]>([])
 	const [stats, setStats] = useState<DockerStats>({
-		containers: MOCK_CONTAINERS.length,
-		running: MOCK_CONTAINERS.filter((c) => c.status === "running").length,
-		stopped: MOCK_CONTAINERS.filter((c) => c.status === "stopped").length,
-		crashed: MOCK_CONTAINERS.filter((c) => c.status === "crashed").length,
-		cpuTotal: MOCK_CONTAINERS.reduce((s, c) => s + c.cpu, 0),
-		ramTotal: MOCK_CONTAINERS.reduce((s, c) => s + c.ram, 0),
-		ramMax: MOCK_CONTAINERS.reduce((s, c) => s + c.ramMax, 0),
-		images: 24,
-		sandboxReady: true,
+		containers: 0,
+		running: 0,
+		stopped: 0,
+		crashed: 0,
+		cpuTotal: 0,
+		ramTotal: 0,
+		ramMax: 0,
+		images: 0,
+		sandboxReady: false,
 	})
 	const [sandboxResult, setSandboxResult] = useState<string[] | null>(null)
 	const [sandboxRunning, setSandboxRunning] = useState(false)
@@ -506,18 +378,35 @@ export function DockerView() {
 				</div>
 				<button
 					onClick={() => {
-						setContainers(MOCK_CONTAINERS)
+						setContainers([])
 						setStats({
-							containers: MOCK_CONTAINERS.length,
-							running: MOCK_CONTAINERS.filter((c) => c.status === "running").length,
-							stopped: MOCK_CONTAINERS.filter((c) => c.status === "stopped").length,
-							crashed: MOCK_CONTAINERS.filter((c) => c.status === "crashed").length,
-							cpuTotal: MOCK_CONTAINERS.reduce((s, c) => s + c.cpu, 0),
-							ramTotal: MOCK_CONTAINERS.reduce((s, c) => s + c.ram, 0),
-							ramMax: MOCK_CONTAINERS.reduce((s, c) => s + c.ramMax, 0),
-							images: 24,
-							sandboxReady: true,
+							containers: 0,
+							running: 0,
+							stopped: 0,
+							crashed: 0,
+							cpuTotal: 0,
+							ramTotal: 0,
+							ramMax: 0,
+							images: 0,
+							sandboxReady: false,
 						})
+						// Re-fetch stats from API
+						fetch("/api/docker/status")
+							.then((res) => res.ok && res.json())
+							.then((data) => {
+								if (data) {
+									setStats((prev) => ({
+										...prev,
+										containers: data.containers ?? prev.containers,
+										running: data.running ?? prev.running,
+										stopped: data.stopped ?? prev.stopped,
+										crashed: data.crashed ?? prev.crashed,
+										images: data.images ?? prev.images,
+										sandboxReady: data.sandboxReady ?? prev.sandboxReady,
+									}))
+								}
+							})
+							.catch(() => {})
 					}}
 					className="flex items-center gap-1.5 rounded-md border border-slate-700/50 bg-slate-800/50 px-3 py-1.5 text-[11px] text-slate-400 hover:border-slate-600 hover:text-slate-300">
 					<RefreshCw className="h-3 w-3" />

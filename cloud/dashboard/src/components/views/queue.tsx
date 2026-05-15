@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import {
 	Activity,
 	AlertTriangle,
@@ -65,118 +65,6 @@ interface PipelineStage {
 	avg: string
 }
 
-/* ─── Mock Data ─── */
-
-const MOCK_JOBS: QueueJob[] = [
-	{
-		id: "#J-7821",
-		title: "Fix Telegram Auth Bug",
-		agent: "Debugger Agent",
-		project: "superroo2",
-		status: "Running",
-		priority: "High",
-		progress: 65,
-		retries: "2/5",
-		started: "11:30 AM",
-		eta: "3m 12s",
-	},
-	{
-		id: "#J-7820",
-		title: "Deploy API to VPS",
-		agent: "Deploy Agent",
-		project: "superroo2",
-		status: "Running",
-		priority: "High",
-		progress: 40,
-		retries: "1/5",
-		started: "11:31 AM",
-		eta: "2m 45s",
-	},
-	{
-		id: "#J-7819",
-		title: "Run E2E Tests",
-		agent: "Tester Agent",
-		project: "superroo2",
-		status: "Completed",
-		priority: "Medium",
-		progress: 100,
-		retries: "0/5",
-		started: "11:25 AM",
-		eta: "—",
-	},
-	{
-		id: "#J-7818",
-		title: "Generate OpenAPI Spec",
-		agent: "Coder Agent",
-		project: "superroo2",
-		status: "Completed",
-		priority: "Low",
-		progress: 100,
-		retries: "0/3",
-		started: "11:21 AM",
-		eta: "—",
-	},
-	{
-		id: "#J-7817",
-		title: "Database Migration",
-		agent: "Deploy Agent",
-		project: "superroo2",
-		status: "Failed",
-		priority: "High",
-		progress: 100,
-		retries: "3/3",
-		started: "11:10 AM",
-		eta: "—",
-	},
-]
-
-const MOCK_AGENTS: AgentUsage[] = [
-	{ agent: "Planner Agent", model: "GPT-5", status: "Running", costToday: "$0.04", tokens: "5.1k", utilization: 68 },
-	{
-		agent: "Coder Agent",
-		model: "Claude 3.5 Sonnet",
-		status: "Active",
-		costToday: "$0.32",
-		tokens: "42.3k",
-		utilization: 72,
-	},
-	{
-		agent: "Debugger Agent",
-		model: "DeepSeek R1",
-		status: "Active",
-		costToday: "$0.01",
-		tokens: "8.9k",
-		utilization: 54,
-	},
-	{
-		agent: "Tester Agent",
-		model: "Claude 3.5 Sonnet",
-		status: "Active",
-		costToday: "$0.07",
-		tokens: "11.0k",
-		utilization: 47,
-	},
-	{ agent: "Deploy Agent", model: "GPT-4o", status: "Idle", costToday: "$0.02", tokens: "2.1k", utilization: 12 },
-]
-
-const MOCK_ACTIVITY: ActivityItem[] = [
-	{ time: "11:42:02", agent: "Debugger Agent", message: "Retrying deployment (attempt 2/5)", type: "debug" },
-	{ time: "11:42:11", agent: "Crawler Agent", message: "Fetching GitHub issues #231", type: "crawl" },
-	{ time: "11:42:19", agent: "Tester Agent", message: "Running Playwright suite", type: "test" },
-	{ time: "11:42:22", agent: "Deploy Agent", message: "Validating VPS container", type: "deploy" },
-	{ time: "11:42:25", agent: "Planner Agent", message: "Analyzing codebase changes", type: "plan" },
-	{ time: "11:42:30", agent: "Coder Agent", message: "Generating API types", type: "code" },
-]
-
-const MOCK_PIPELINE: PipelineStage[] = [
-	{ name: "Planning Agent", count: "12 active", avg: "avg 2.1s" },
-	{ name: "Coder Agent", count: "8 active", avg: "avg 4.3s" },
-	{ name: "Tester Agent", count: "6 active", avg: "avg 6.2s" },
-	{ name: "Debugger Agent", count: "3 active", avg: "avg 8.7s" },
-	{ name: "Deploy Agent", count: "2 active", avg: "avg 3.9s" },
-	{ name: "Verification Agent", count: "1 active", avg: "avg 2.0s" },
-]
-
 /* ─── Sub-components ─── */
 
 function StatusPill({
@@ -222,14 +110,30 @@ function AgentIcon({ index }: { index: number }) {
 
 export function QueueView() {
 	const [paused, setPaused] = useState(false)
+	const [loading, setLoading] = useState(true)
 	const [stats, setStats] = useState({ waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0 })
+	const [jobs, setJobs] = useState<QueueJob[]>([])
+	const [agents, setAgents] = useState<AgentUsage[]>([])
+	const [activity, setActivity] = useState<ActivityItem[]>([])
+	const [pipeline, setPipeline] = useState<PipelineStage[]>([])
+
+	const showToast = useCallback((message: string, type: "success" | "error" | "info" = "info") => {
+		console.log(`[Toast] ${type}: ${message}`)
+	}, [])
 
 	useEffect(() => {
-		const fetchStats = async () => {
+		const fetchAll = async () => {
 			try {
-				const res = await fetch("/api/queue/stats")
-				if (res.ok) {
-					const data = await res.json()
+				const [statsRes, jobsRes, agentsRes, activityRes, pipelineRes] = await Promise.all([
+					fetch("/api/queue/stats"),
+					fetch("/api/jobs?limit=20"),
+					fetch("/api/agents"),
+					fetch("/api/activity?limit=10"),
+					fetch("/api/queue/pipeline"),
+				])
+
+				if (statsRes.ok) {
+					const data = await statsRes.json()
 					setStats({
 						waiting: data.waiting ?? 0,
 						active: data.active ?? 0,
@@ -238,44 +142,62 @@ export function QueueView() {
 						delayed: data.delayed ?? 0,
 					})
 				}
+				if (jobsRes.ok) {
+					const data = await jobsRes.json()
+					setJobs(Array.isArray(data) ? data : data.jobs ?? [])
+				}
+				if (agentsRes.ok) {
+					const data = await agentsRes.json()
+					setAgents(Array.isArray(data) ? data : data.agents ?? [])
+				}
+				if (activityRes.ok) {
+					const data = await activityRes.json()
+					setActivity(Array.isArray(data) ? data : data.activity ?? [])
+				}
+				if (pipelineRes.ok) {
+					const data = await pipelineRes.json()
+					setPipeline(Array.isArray(data) ? data : data.stages ?? [])
+				}
 			} catch (err) {
-				console.error("Error fetching queue stats:", err)
+				console.error("Error fetching queue data:", err)
+			} finally {
+				setLoading(false)
 			}
 		}
-		fetchStats()
-		const iv = setInterval(fetchStats, 3000)
+		fetchAll()
+		const iv = setInterval(fetchAll, 5000)
 		return () => clearInterval(iv)
 	}, [])
 
 	const statCards = [
 		{
 			label: "Waiting",
-			value: stats.waiting || 8,
-			delta: "↑ 3 from last hour",
+			value: stats.waiting,
+			delta: "from queue",
 			icon: Gauge,
 			tone: "text-amber-400",
 			bg: "bg-amber-500/10",
 		},
 		{
 			label: "Active",
-			value: stats.active || 12,
-			delta: "↑ 5 from last hour",
+			value: stats.active,
+			delta: "currently running",
 			icon: Activity,
 			tone: "text-blue-400",
 			bg: "bg-blue-500/10",
 		},
 		{
 			label: "Completed",
-			value: stats.completed || 128,
-			delta: "↑ 15 from last hour",
+			value: stats.completed,
+			delta: "total completed",
 			icon: CheckCircle2,
 			tone: "text-emerald-400",
 			bg: "bg-emerald-500/10",
 		},
 		{
 			label: "Failed",
-			value: stats.failed || 5,
-			delta: "↓ 2 from last hour",
+			value: stats.failed,
+			delta: "total failed",
 			icon: AlertTriangle,
 			tone: "text-red-400",
 			bg: "bg-red-500/10",
@@ -289,6 +211,14 @@ export function QueueView() {
 		["Invalid SSH key", 8],
 		["Other", 6],
 	]
+
+	if (loading) {
+		return (
+			<div className="flex h-64 items-center justify-center">
+				<div className="text-xs text-slate-400">Loading queue data...</div>
+			</div>
+		)
+	}
 
 	return (
 		<div className="space-y-4">
@@ -306,25 +236,25 @@ export function QueueView() {
 			{/* ── Action Buttons ── */}
 			<div className="flex flex-wrap items-center gap-2">
 				<button
-					onClick={() => setPaused(!paused)}
+					onClick={() => { setPaused(!paused); showToast(paused ? "Queue resumed" : "Queue paused", "info") }}
 					className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300 hover:bg-emerald-500/20">
 					<Play size={14} /> Resume Queue
 				</button>
 				<button
-					onClick={() => setPaused(!paused)}
+					onClick={() => { setPaused(!paused); showToast(paused ? "Queue resumed" : "Queue paused", "info") }}
 					className="inline-flex items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-500/20">
 					<Pause size={14} /> Pause Queue
 				</button>
-				<button className="inline-flex items-center gap-1.5 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-300 hover:bg-red-500/20">
+				<button onClick={() => showToast("Stop All: not yet implemented", "info")} className="inline-flex items-center gap-1.5 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-300 hover:bg-red-500/20">
 					<Square size={14} /> Stop All
 				</button>
-				<button className="inline-flex items-center gap-1.5 rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs font-medium text-blue-300 hover:bg-blue-500/20">
+				<button onClick={() => showToast("Retry Failed: not yet implemented", "info")} className="inline-flex items-center gap-1.5 rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs font-medium text-blue-300 hover:bg-blue-500/20">
 					<RotateCcw size={14} /> Retry Failed
 				</button>
-				<button className="inline-flex items-center gap-1.5 rounded-md border border-purple-500/30 bg-purple-500/10 px-3 py-1.5 text-xs font-medium text-purple-300 hover:bg-purple-500/20">
+				<button onClick={() => showToast("Clear Completed: not yet implemented", "info")} className="inline-flex items-center gap-1.5 rounded-md border border-purple-500/30 bg-purple-500/10 px-3 py-1.5 text-xs font-medium text-purple-300 hover:bg-purple-500/20">
 					<Trash2 size={14} /> Clear Completed
 				</button>
-				<button className="inline-flex items-center gap-1.5 rounded-md border border-orange-500/30 bg-orange-500/10 px-3 py-1.5 text-xs font-medium text-orange-300 hover:bg-orange-500/20">
+				<button onClick={() => showToast("Priority Boost: not yet implemented", "info")} className="inline-flex items-center gap-1.5 rounded-md border border-orange-500/30 bg-orange-500/10 px-3 py-1.5 text-xs font-medium text-orange-300 hover:bg-orange-500/20">
 					<Zap size={14} /> Priority Boost
 				</button>
 				<button className="inline-flex items-center gap-1.5 rounded-md border border-slate-600/50 bg-slate-800/50 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-700/50">
@@ -366,7 +296,7 @@ export function QueueView() {
 							<button className="text-[11px] text-slate-400 hover:text-slate-200">View as DAG</button>
 						</div>
 						<div className="flex flex-wrap items-center gap-0">
-							{MOCK_PIPELINE.map((step, index) => (
+							{pipeline.map((step, index) => (
 								<div key={step.name} className="flex items-center">
 									<div className="flex items-center gap-2.5 rounded-lg border border-slate-700/40 bg-slate-800/30 px-3 py-2">
 										<AgentIcon index={index} />
@@ -376,7 +306,7 @@ export function QueueView() {
 											<p className="text-[10px] text-slate-500">{step.avg}</p>
 										</div>
 									</div>
-									{index < MOCK_PIPELINE.length - 1 && (
+									{index < pipeline.length - 1 && (
 										<div className="mx-1 h-px w-4 bg-slate-600/40" />
 									)}
 								</div>
@@ -384,7 +314,7 @@ export function QueueView() {
 						</div>
 						<div className="mt-3 flex items-center gap-2 text-[11px] text-slate-500">
 							<span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
-							12 workflows in progress
+							{pipeline.length > 0 ? `${pipeline.length} stages active` : "No pipeline data"}
 						</div>
 					</Card>
 
@@ -426,58 +356,66 @@ export function QueueView() {
 									</tr>
 								</thead>
 								<tbody>
-									{MOCK_JOBS.map((job) => (
-										<tr key={job.id} className="border-t border-[#1e2535]">
-											<td className="py-2.5 pr-3">
-												<p className="font-medium text-slate-200">{job.title}</p>
-												<p className="text-[11px] text-slate-500">{job.id}</p>
-											</td>
-											<td className="py-2.5 pr-3 text-slate-300">{job.agent}</td>
-											<td className="py-2.5 pr-3 text-slate-300">{job.project}</td>
-											<td className="py-2.5 pr-3">
-												<StatusPill
-													tone={
-														job.status === "Failed"
-															? "red"
-															: job.status === "Completed"
-																? "green"
-																: "blue"
-													}>
-													{job.status}
-												</StatusPill>
-												{job.status === "Running" && <Progress value={job.progress} />}
-											</td>
-											<td className="py-2.5 pr-3">
-												<StatusPill
-													tone={
-														job.priority === "High"
-															? "red"
-															: job.priority === "Medium"
-																? "yellow"
-																: "blue"
-													}>
-													{job.priority}
-												</StatusPill>
-											</td>
-											<td className="py-2.5 pr-3 text-slate-300">{job.retries}</td>
-											<td className="py-2.5 pr-3 text-slate-300">{job.started}</td>
-											<td className="py-2.5 pr-3 text-slate-300">{job.eta}</td>
-											<td className="py-2.5">
-												<div className="flex items-center gap-1">
-													<button className="rounded p-1 text-slate-500 hover:bg-slate-700/50 hover:text-slate-200">
-														<Terminal size={13} />
-													</button>
-													<button className="rounded p-1 text-slate-500 hover:bg-slate-700/50 hover:text-slate-200">
-														<RotateCcw size={13} />
-													</button>
-												</div>
+									{jobs.length === 0 ? (
+										<tr>
+											<td colSpan={9} className="py-8 text-center text-xs text-slate-500">
+												No jobs in queue
 											</td>
 										</tr>
-									))}
+									) : (
+										jobs.map((job) => (
+											<tr key={job.id} className="border-t border-[#1e2535]">
+												<td className="py-2.5 pr-3">
+													<p className="font-medium text-slate-200">{job.title}</p>
+													<p className="text-[11px] text-slate-500">{job.id}</p>
+												</td>
+												<td className="py-2.5 pr-3 text-slate-300">{job.agent}</td>
+												<td className="py-2.5 pr-3 text-slate-300">{job.project}</td>
+												<td className="py-2.5 pr-3">
+													<StatusPill
+														tone={
+															job.status === "Failed"
+																? "red"
+																: job.status === "Completed"
+																	? "green"
+																	: "blue"
+														}>
+														{job.status}
+													</StatusPill>
+													{job.status === "Running" && <Progress value={job.progress} />}
+												</td>
+												<td className="py-2.5 pr-3">
+													<StatusPill
+														tone={
+															job.priority === "High"
+																? "red"
+																: job.priority === "Medium"
+																	? "yellow"
+																	: "blue"
+														}>
+														{job.priority}
+													</StatusPill>
+												</td>
+												<td className="py-2.5 pr-3 text-slate-300">{job.retries}</td>
+												<td className="py-2.5 pr-3 text-slate-300">{job.started}</td>
+												<td className="py-2.5 pr-3 text-slate-300">{job.eta}</td>
+												<td className="py-2.5">
+													<div className="flex items-center gap-1">
+														<button className="rounded p-1 text-slate-500 hover:bg-slate-700/50 hover:text-slate-200">
+															<Terminal size={13} />
+														</button>
+														<button className="rounded p-1 text-slate-500 hover:bg-slate-700/50 hover:text-slate-200">
+															<RotateCcw size={13} />
+														</button>
+													</div>
+												</td>
+											</tr>
+										))
+									)}
 								</tbody>
 							</table>
 						</div>
-						<p className="mt-3 text-[11px] text-slate-500">Showing 1 to 5 of 25 jobs</p>
+						<p className="mt-3 text-[11px] text-slate-500">Showing {jobs.length} job{jobs.length !== 1 ? "s" : ""}</p>
 					</Card>
 
 					{/* Bottom Grid: AI Model Usage + Retry Intelligence + Autonomous Loop */}
@@ -487,29 +425,33 @@ export function QueueView() {
 								AI Model Usage
 							</h3>
 							<div className="space-y-2">
-								{MOCK_AGENTS.map((a) => (
-									<div
-										key={a.agent}
-										className="flex items-center gap-2 rounded border border-slate-700/30 bg-slate-800/20 px-2.5 py-1.5">
-										<div className="min-w-0 flex-1">
-											<p className="text-xs font-medium text-slate-200">{a.agent}</p>
-											<p className="text-[10px] text-slate-500">{a.model}</p>
-										</div>
-										<StatusPill tone={a.status === "Idle" ? "gray" : "green"}>
-											{a.status}
-										</StatusPill>
-										<span className="text-[11px] text-slate-400">{a.costToday}</span>
-										<span className="text-[11px] text-slate-400">{a.tokens}</span>
-										<div className="w-16">
-											<div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-700/50">
-												<span
-													className="block h-full rounded-full bg-emerald-400 transition-all"
-													style={{ width: `${a.utilization}%` }}
-												/>
+								{agents.length === 0 ? (
+									<p className="text-xs text-slate-500">No agent data available</p>
+								) : (
+									agents.map((a) => (
+										<div
+											key={a.agent}
+											className="flex items-center gap-2 rounded border border-slate-700/30 bg-slate-800/20 px-2.5 py-1.5">
+											<div className="min-w-0 flex-1">
+												<p className="text-xs font-medium text-slate-200">{a.agent}</p>
+												<p className="text-[10px] text-slate-500">{a.model}</p>
+											</div>
+											<StatusPill tone={a.status === "Idle" ? "gray" : "green"}>
+												{a.status}
+											</StatusPill>
+											<span className="text-[11px] text-slate-400">{a.costToday}</span>
+											<span className="text-[11px] text-slate-400">{a.tokens}</span>
+											<div className="w-16">
+												<div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-700/50">
+													<span
+														className="block h-full rounded-full bg-emerald-400 transition-all"
+														style={{ width: `${a.utilization}%` }}
+													/>
+												</div>
 											</div>
 										</div>
-									</div>
-								))}
+									))
+								)}
 							</div>
 						</Card>
 
@@ -600,18 +542,22 @@ export function QueueView() {
 							<button className="text-[11px] text-blue-400 hover:text-blue-300">See all</button>
 						</div>
 						<div className="space-y-2">
-							{MOCK_ACTIVITY.map((item) => (
-								<div
-									key={item.time}
-									className="flex items-start gap-2 rounded border border-slate-700/20 bg-slate-800/10 px-2.5 py-2">
-									<span className="mt-0.5 shrink-0 text-[10px] text-slate-500">{item.time}</span>
-									<Bot size={14} className="mt-0.5 shrink-0 text-slate-400" />
-									<div className="min-w-0">
-										<p className="text-xs font-medium text-slate-200">{item.agent}</p>
-										<p className="text-[11px] text-slate-400">{item.message}</p>
+							{activity.length === 0 ? (
+								<p className="text-xs text-slate-500">No recent activity</p>
+							) : (
+								activity.map((item) => (
+									<div
+										key={item.time}
+										className="flex items-start gap-2 rounded border border-slate-700/20 bg-slate-800/10 px-2.5 py-2">
+										<span className="mt-0.5 shrink-0 text-[10px] text-slate-500">{item.time}</span>
+										<Bot size={14} className="mt-0.5 shrink-0 text-slate-400" />
+										<div className="min-w-0">
+											<p className="text-xs font-medium text-slate-200">{item.agent}</p>
+											<p className="text-[11px] text-slate-400">{item.message}</p>
+										</div>
 									</div>
-								</div>
-							))}
+								))
+							)}
 						</div>
 					</Card>
 

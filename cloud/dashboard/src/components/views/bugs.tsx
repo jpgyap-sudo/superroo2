@@ -46,111 +46,6 @@ interface BugEntry {
 	assignedTo?: string
 }
 
-// ── Mock Data ──────────────────────────────────────────────────────────────────
-
-const MOCK_BUGS: BugEntry[] = [
-	{
-		id: "BUG-001",
-		title: "Memory leak in agent loop after 10k iterations",
-		severity: "critical",
-		status: "resolved",
-		service: "agent-engine",
-		timestamp: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
-		description:
-			"The agent loop accumulates heap memory after ~10k iterations due to unbounded ActionOutcomeTracker records and orphaned CancellableSleep promises.",
-		stackTrace:
-			"at ActionOutcomeTracker.record (src/super-roo/ml/engine/Metrics.ts:118)\nat InfiniteImprovementLoop.predictAndAct (src/super-roo/ml/loop/InfiniteImprovementLoop.ts:355)",
-		resolution:
-			"Added maxRecords cap (10k) with automatic pruning in ActionOutcomeTracker. Added wake-before-overwrite guard in CancellableSleep to prevent orphaned promise references.",
-		assignedTo: "alice",
-	},
-	{
-		id: "BUG-002",
-		title: "WebSocket reconnection causes duplicate event handlers",
-		severity: "high",
-		status: "open",
-		service: "api-gateway",
-		timestamp: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-		description:
-			"When the WebSocket reconnects after a network blip, the event bus registers duplicate handlers, causing events to fire twice.",
-		resolution: "Needs WebSocket implementation with dedup key in handler registry",
-		assignedTo: "bob",
-	},
-	{
-		id: "BUG-003",
-		title: "Dashboard CPU chart shows incorrect time axis",
-		severity: "medium",
-		status: "resolved",
-		service: "dashboard",
-		timestamp: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
-		description:
-			"The CPU usage chart on the overview page shows timestamps in UTC but the axis labels are misaligned by one hour during DST transitions.",
-		resolution:
-			"Overview page no longer uses a time-series CPU chart — replaced with real-time percentage bars that use local time consistently.",
-		assignedTo: "carol",
-	},
-	{
-		id: "BUG-004",
-		title: "Sandbox container fails to start on ARM hosts",
-		severity: "high",
-		status: "open",
-		service: "sandbox",
-		timestamp: new Date(Date.now() - 1000 * 60 * 180).toISOString(),
-		description:
-			"The sandbox Docker image is built for amd64 only. ARM-based hosts (e.g., Apple Silicon, Graviton) fail with 'exec format error'.",
-		assignedTo: "dave",
-	},
-	{
-		id: "BUG-005",
-		title: "Settings page throws error on empty API key field",
-		severity: "low",
-		status: "resolved",
-		service: "dashboard",
-		timestamp: new Date(Date.now() - 1000 * 60 * 300).toISOString(),
-		description:
-			"When the API key field is left empty and the user clicks Save, the settings page crashes with a TypeError on undefined.trim().",
-		resolution: "Added null check before trim() call in settings handler",
-		assignedTo: "carol",
-	},
-	{
-		id: "BUG-006",
-		title: "Job queue stalls when Redis connection drops",
-		severity: "critical",
-		status: "resolved",
-		service: "queue",
-		timestamp: new Date(Date.now() - 1000 * 60 * 600).toISOString(),
-		description:
-			"If Redis connection is interrupted, the BullMQ queue enters a stalled state and does not auto-recover. Jobs remain in 'waiting' indefinitely.",
-		resolution:
-			"Added Redis reconnection event handlers (error/close/reconnecting/connect) with exponential backoff retry strategy and lazyConnect in cpu-guard/queue.ts.",
-		assignedTo: "bob",
-	},
-	{
-		id: "BUG-007",
-		title: "Agent skill loading order is non-deterministic",
-		severity: "medium",
-		status: "open",
-		service: "agent-engine",
-		timestamp: new Date(Date.now() - 1000 * 60 * 900).toISOString(),
-		description:
-			"Skills are loaded from the filesystem in readdir order, which varies across platforms. This causes inconsistent agent behavior when skills have inter-dependencies.",
-		assignedTo: "alice",
-	},
-	{
-		id: "BUG-008",
-		title: "Deploy health check timeout too aggressive",
-		severity: "low",
-		status: "resolved",
-		service: "deploy",
-		timestamp: new Date(Date.now() - 1000 * 60 * 1200).toISOString(),
-		description:
-			"The deploy health check times out after 5 seconds, which is too short for cold-start services.",
-		resolution:
-			"Increased default health check timeout from 5s to 30s in DeployOrchestrator.fetch() to accommodate cold-start services.",
-		assignedTo: "dave",
-	},
-]
-
 const SEVERITY_CONFIG = {
 	critical: {
 		label: "Critical",
@@ -494,17 +389,33 @@ function ChartsSection({ timeline, errorTypes, services }: ReturnType<typeof bui
 // ── Main View ──────────────────────────────────────────────────────────────────
 
 export function BugsView() {
-	const [bugs] = useState<BugEntry[]>(MOCK_BUGS)
+	const [bugs, setBugs] = useState<BugEntry[]>([])
 	const [selectedBug, setSelectedBug] = useState<BugEntry | null>(null)
 	const [search, setSearch] = useState("")
 	const [severityFilter, setSeverityFilter] = useState<string>("all")
 	const [statusFilter, setStatusFilter] = useState<string>("all")
 	const [loading, setLoading] = useState(true)
 
-	// Simulate loading
+	// Fetch bugs from the orchestrator API
 	useEffect(() => {
-		const t = setTimeout(() => setLoading(false), 600)
-		return () => clearTimeout(t)
+		const fetchBugs = async () => {
+			try {
+				const res = await fetch("/orchestrator/bugs")
+				if (res.ok) {
+					const data = await res.json()
+					if (Array.isArray(data)) {
+						setBugs(data)
+					} else if (data.bugs && Array.isArray(data.bugs)) {
+						setBugs(data.bugs)
+					}
+				}
+			} catch (err) {
+				console.error("Error fetching bugs:", err)
+			} finally {
+				setLoading(false)
+			}
+		}
+		fetchBugs()
 	}, [])
 
 	const filtered = useMemo(() => {

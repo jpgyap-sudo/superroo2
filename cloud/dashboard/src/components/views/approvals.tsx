@@ -55,121 +55,7 @@ interface PermissionRow {
 }
 
 // ─── Mock Data ───────────────────────────────────────────────────────────────
-
-const MOCK_APPROVALS: ApprovalRequest[] = [
-	{
-		id: "DEPLOY-221",
-		agent: "Deploy Agent",
-		type: "Production Deployment",
-		action: "Deploy to production environment",
-		details: "Changes: 18 files • 2,341 additions",
-		risk: "high",
-		score: 82,
-		status: "pending",
-		age: "2m ago",
-		icon: "rocket",
-	},
-	{
-		id: "TERM-884",
-		agent: "Debugger Agent",
-		type: "Terminal Command",
-		action: "Run command: sudo apt install nginx",
-		details: "Packages: nginx, nginx-common, nginx-core",
-		risk: "medium",
-		score: 56,
-		status: "review",
-		age: "4m ago",
-		icon: "terminal",
-	},
-	{
-		id: "GIT-472",
-		agent: "Coder Agent",
-		type: "GitHub Action",
-		action: "Force push to main branch",
-		details: "Repository: superroo/cloud • 7 commits",
-		risk: "critical",
-		score: 95,
-		status: "pending",
-		age: "7m ago",
-		icon: "github",
-	},
-	{
-		id: "API-117",
-		agent: "Research Agent",
-		type: "API Access",
-		action: "Access OpenAI Billing API",
-		details: "Endpoint: /v1/organization/usage",
-		risk: "medium",
-		score: 48,
-		status: "review",
-		age: "11m ago",
-		icon: "cloud",
-	},
-	{
-		id: "FILE-316",
-		agent: "Tester Agent",
-		type: "File Operation",
-		action: "Delete cache directory",
-		details: "Path: /app/.next/cache (1.2 GB)",
-		risk: "low",
-		score: 18,
-		status: "auto-approved",
-		age: "13m ago",
-		icon: "folder",
-	},
-	{
-		id: "DEPLOY-222",
-		agent: "Deploy Agent",
-		type: "Staging Deployment",
-		action: "Deploy to staging environment",
-		details: "Changes: 5 files • 342 additions",
-		risk: "low",
-		score: 12,
-		status: "pending",
-		age: "18m ago",
-		icon: "rocket",
-	},
-	{
-		id: "DB-019",
-		agent: "Coder Agent",
-		type: "Database Migration",
-		action: "Run migration: add_users_table",
-		details: "SQL: CREATE TABLE users (id UUID PRIMARY KEY, ...)",
-		risk: "high",
-		score: 74,
-		status: "pending",
-		age: "22m ago",
-		icon: "folder",
-	},
-	{
-		id: "SEC-003",
-		agent: "Research Agent",
-		type: "Secrets Access",
-		action: "Read AWS production secrets",
-		details: "Vault path: /secrets/aws/production/*",
-		risk: "critical",
-		score: 98,
-		status: "review",
-		age: "25m ago",
-		icon: "cloud",
-	},
-]
-
-const MOCK_PERMISSIONS: PermissionRow[] = [
-	{ agent: "Coder Agent", terminal: true, github: true, deploy: false, database: "-", secrets: false },
-	{ agent: "Debugger Agent", terminal: true, github: false, deploy: false, database: "Read", secrets: false },
-	{ agent: "Deploy Agent", terminal: true, github: true, deploy: true, database: "-", secrets: false },
-	{ agent: "Research Agent", terminal: false, github: false, deploy: false, database: "Read", secrets: false },
-	{ agent: "Tester Agent", terminal: true, github: false, deploy: false, database: "-", secrets: false },
-]
-
-const MOCK_TIMELINE = [
-	{ time: "20:41", event: "Coder Agent modified API router" },
-	{ time: "20:42", event: "Tester Agent ran regression tests" },
-	{ time: "20:43", event: "Debugger Agent found memory leak" },
-	{ time: "20:44", event: "Deploy Agent requested approval" },
-	{ time: "20:45", event: "Sandbox tests initiated" },
-]
+// (removed — approvals, permissions, and timeline now fetched from real API)
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -428,26 +314,23 @@ function DetailPanel({ request }: { request: ApprovalRequest | null }) {
 }
 
 function LiveActivityTimeline() {
-	const [timeline, setTimeline] = useState(MOCK_TIMELINE)
+	const [timeline, setTimeline] = useState<{ time: string; event: string }[]>([])
 	const scrollRef = useRef<HTMLDivElement>(null)
 
 	useEffect(() => {
-		const iv = setInterval(() => {
-			const events = [
-				"Heartbeat check passed",
-				"Cache invalidation triggered",
-				"Agent health report received",
-				"Queue depth: 12 items",
-				"WebSocket reconnected",
-			]
-			setTimeline((prev) => [
-				...prev.slice(-20),
-				{
-					time: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false }),
-					event: events[Math.floor(Math.random() * events.length)],
-				},
-			])
-		}, 6000)
+		const fetchTimeline = async () => {
+			try {
+				const res = await fetch("/api/activity/timeline?limit=20")
+				if (res.ok) {
+					const data = await res.json()
+					setTimeline(Array.isArray(data) ? data : data.events ?? [])
+				}
+			} catch (err) {
+				console.error("Error fetching timeline:", err)
+			}
+		}
+		fetchTimeline()
+		const iv = setInterval(fetchTimeline, 10000)
 		return () => clearInterval(iv)
 	}, [])
 
@@ -459,17 +342,38 @@ function LiveActivityTimeline() {
 
 	return (
 		<div ref={scrollRef} className="max-h-48 space-y-1 overflow-y-auto">
-			{timeline.map((t, i) => (
-				<div key={i} className="flex gap-2 border-l border-violet-500/30 pl-3 text-[11px]">
-					<span className="shrink-0 text-slate-500">{t.time}</span>
-					<span className="text-slate-400">{t.event}</span>
-				</div>
-			))}
+			{timeline.length === 0 ? (
+				<p className="text-[11px] text-slate-500">No timeline events yet</p>
+			) : (
+				timeline.map((t, i) => (
+					<div key={i} className="flex gap-2 border-l border-violet-500/30 pl-3 text-[11px]">
+						<span className="shrink-0 text-slate-500">{t.time}</span>
+						<span className="text-slate-400">{t.event}</span>
+					</div>
+				))
+			)}
 		</div>
 	)
 }
 
 function PermissionMatrix() {
+	const [permissions, setPermissions] = useState<PermissionRow[]>([])
+
+	useEffect(() => {
+		const fetchPermissions = async () => {
+			try {
+				const res = await fetch("/api/permissions")
+				if (res.ok) {
+					const data = await res.json()
+					setPermissions(Array.isArray(data) ? data : data.permissions ?? [])
+				}
+			} catch (err) {
+				console.error("Error fetching permissions:", err)
+			}
+		}
+		fetchPermissions()
+	}, [])
+
 	return (
 		<div className="overflow-x-auto">
 			<table className="w-full text-left text-[11px]">
@@ -484,24 +388,32 @@ function PermissionMatrix() {
 					</tr>
 				</thead>
 				<tbody>
-					{MOCK_PERMISSIONS.map((p) => (
-						<tr key={p.agent} className="border-b border-[#1e2535]/50">
-							<td className="py-1.5 pr-2 text-slate-300">{p.agent}</td>
-							<td className="px-2 py-1.5 text-center text-slate-500">
-								{p.terminal ? <span className="text-emerald-400">✓</span> : "—"}
-							</td>
-							<td className="px-2 py-1.5 text-center text-slate-500">
-								{p.github ? <span className="text-emerald-400">✓</span> : "—"}
-							</td>
-							<td className="px-2 py-1.5 text-center text-slate-500">
-								{p.deploy ? <span className="text-emerald-400">✓</span> : "—"}
-							</td>
-							<td className="px-2 py-1.5 text-center text-slate-500">{p.database}</td>
-							<td className="pl-2 py-1.5 text-center text-slate-500">
-								{p.secrets ? <span className="text-emerald-400">✓</span> : "—"}
+					{permissions.length === 0 ? (
+						<tr>
+							<td colSpan={6} className="py-4 text-center text-[11px] text-slate-500">
+								No permissions data
 							</td>
 						</tr>
-					))}
+					) : (
+						permissions.map((p) => (
+							<tr key={p.agent} className="border-b border-[#1e2535]/50">
+								<td className="py-1.5 pr-2 text-slate-300">{p.agent}</td>
+								<td className="px-2 py-1.5 text-center text-slate-500">
+									{p.terminal ? <span className="text-emerald-400">✓</span> : "—"}
+								</td>
+								<td className="px-2 py-1.5 text-center text-slate-500">
+									{p.github ? <span className="text-emerald-400">✓</span> : "—"}
+								</td>
+								<td className="px-2 py-1.5 text-center text-slate-500">
+									{p.deploy ? <span className="text-emerald-400">✓</span> : "—"}
+								</td>
+								<td className="px-2 py-1.5 text-center text-slate-500">{p.database}</td>
+								<td className="pl-2 py-1.5 text-center text-slate-500">
+									{p.secrets ? <span className="text-emerald-400">✓</span> : "—"}
+								</td>
+							</tr>
+						))
+					)}
 				</tbody>
 			</table>
 			<button className="mt-2 w-full text-center text-[11px] text-violet-400 hover:text-violet-300">
@@ -514,10 +426,30 @@ function PermissionMatrix() {
 // ─── Main View ──────────────────────────────────────────────────────────────
 
 export function ApprovalsView() {
-	const [approvals] = useState<ApprovalRequest[]>(MOCK_APPROVALS)
+	const [approvals, setApprovals] = useState<ApprovalRequest[]>([])
+	const [loading, setLoading] = useState(true)
 	const [selectedId, setSelectedId] = useState<string | null>(null)
 	const [filterTab, setFilterTab] = useState<string>("all")
 	const [searchQuery, setSearchQuery] = useState("")
+
+	useEffect(() => {
+		const fetchApprovals = async () => {
+			try {
+				const res = await fetch("/api/approvals")
+				if (res.ok) {
+					const data = await res.json()
+					setApprovals(Array.isArray(data) ? data : data.approvals ?? [])
+				}
+			} catch (err) {
+				console.error("Error fetching approvals:", err)
+			} finally {
+				setLoading(false)
+			}
+		}
+		fetchApprovals()
+		const iv = setInterval(fetchApprovals, 10000)
+		return () => clearInterval(iv)
+	}, [])
 
 	const selectedRequest = approvals.find((a) => a.id === selectedId) || null
 

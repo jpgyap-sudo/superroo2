@@ -119,46 +119,16 @@ function TimelineIcon({ status }: { status: TimelineStep["status"] }) {
 }
 
 /* ─── Mock Data ─── */
-
-const MOCK_HEALTH: ServiceHealth[] = [
-	{ label: "API", value: "Healthy", sub: "42ms", status: "healthy", icon: "◉" },
-	{ label: "Worker", value: "8 active", sub: "62% CPU", status: "healthy", icon: "⚙" },
-	{ label: "Redis", value: "Online", sub: "1.8ms", status: "healthy", icon: "◆" },
-	{ label: "Docker", value: "12 containers", sub: "11 up", status: "healthy", icon: "▣" },
-	{ label: "Queue", value: "41 pending", sub: "6 urgent", status: "warning", icon: "☰" },
-]
-
-const MOCK_LOGS: LogEntry[] = [
-	{ id: "log_001", time: "12:31:02", timestamp: new Date().toISOString(), level: "error", agent: "Debugger", source: "API", message: "Coinglass funding endpoint returned 429 rate limit", status: "Fallback triggered", model: "Claude", cost: "$0.04", workspace: "xsjprd55", project: "Trading Bot", taskId: "task_9041", commit: "a81fd12", retryCount: 3, durationMs: 8920, tokenUsage: 3921 },
-	{ id: "log_002", time: "12:31:08", timestamp: new Date().toISOString(), level: "success", agent: "Coder", source: "Deploy", message: "Patch committed to services/coinglass/parser.ts", status: "Passed", model: "GPT-5", cost: "$0.07", commit: "b14ac91" },
-	{ id: "log_003", time: "12:31:11", timestamp: new Date().toISOString(), level: "warn", agent: "Crawler", source: "SSR", message: "Playwright fallback slower than expected on liquidation heatmap", status: "Retry 2/3", model: "DeepSeek", cost: "$0.01", retryCount: 2 },
-	{ id: "log_004", time: "12:32:25", timestamp: new Date().toISOString(), level: "info", agent: "Planner", source: "Task", message: "Created autonomous repair plan for Trading Bot API failures", status: "Running", model: "GPT-5", cost: "$0.03" },
-	{ id: "log_005", time: "12:33:04", timestamp: new Date().toISOString(), level: "ai", agent: "Research", source: "News", message: "Detected Binance maintenance notice and linked it to API errors", status: "Analyzed", model: "Kimi", cost: "$0.02" },
-	{ id: "log_006", time: "12:34:40", timestamp: new Date().toISOString(), level: "security", agent: "Approvals", source: "Policy", message: "Blocked shell command requiring manual approval", status: "Needs review", model: "Policy", cost: "—" },
-]
-
-const MOCK_API_ROWS: ApiMonitorRow[] = [
-	{ api: "Binance", status: "Healthy", latency: "120ms", fallback: "—" },
-	{ api: "Coinglass", status: "Failed", latency: "timeout", fallback: "SSR crawler" },
-	{ api: "Birdeye", status: "Slow", latency: "4.2s", fallback: "retry" },
-	{ api: "DeFiLlama", status: "Healthy", latency: "210ms", fallback: "—" },
-]
-
-const MOCK_TIMELINE: TimelineStep[] = [
-	{ name: "Planner", status: "done" },
-	{ name: "Coder", status: "done" },
-	{ name: "Tester", status: "running" },
-	{ name: "Debugger", status: "pending" },
-	{ name: "Deploy Checker", status: "pending" },
-]
+// (removed — hybrid view fetches from real API; shows loading state while data loads)
 
 /* ─── Main Component ─── */
 
 export function LogsView() {
-	const [selected, setSelected] = useState<LogEntry>(MOCK_LOGS[0])
+	const [selected, setSelected] = useState<LogEntry | null>(null)
 	const [query, setQuery] = useState("")
-	const [liveLogs, setLiveLogs] = useState<LogEntry[]>(MOCK_LOGS)
-	const [health, setHealth] = useState<ServiceHealth[]>(MOCK_HEALTH)
+	const [liveLogs, setLiveLogs] = useState<LogEntry[]>([])
+	const [health, setHealth] = useState<ServiceHealth[]>([])
+	const [loading, setLoading] = useState(true)
 
 	useEffect(() => {
 		const fetchLogs = async () => {
@@ -167,7 +137,7 @@ export function LogsView() {
 				if (res.ok) {
 					const data = await res.json()
 					if (data.logs?.length) {
-						setLiveLogs(data.logs.map((l: string, i: number) => ({
+						const parsed: LogEntry[] = data.logs.map((l: string, i: number) => ({
 							id: `log_${i}`,
 							time: l.slice(0, 8),
 							timestamp: new Date().toISOString(),
@@ -176,11 +146,15 @@ export function LogsView() {
 							source: "API",
 							message: l,
 							status: l.includes("error") ? "Error" : "OK",
-						})))
+						}))
+						setLiveLogs(parsed)
+						if (!selected) setSelected(parsed[0])
 					}
 				}
 			} catch (err) {
 				console.error("Error fetching logs:", err)
+			} finally {
+				setLoading(false)
 			}
 		}
 		fetchLogs()
@@ -262,7 +236,7 @@ export function LogsView() {
 								<button
 									key={log.id}
 									onClick={() => setSelected(log)}
-									className={`grid w-full grid-cols-[80px_80px_80px_1fr_100px_70px] items-center gap-2 px-4 py-2.5 text-left text-xs hover:bg-slate-800/30 ${selected.id === log.id ? "bg-violet-500/10" : ""}`}
+									className={`grid w-full grid-cols-[80px_80px_80px_1fr_100px_70px] items-center gap-2 px-4 py-2.5 text-left text-xs hover:bg-slate-800/30 ${selected?.id === log.id ? "bg-violet-500/10" : ""}`}
 								>
 									<span className="font-mono text-[11px] text-slate-500">{log.time}</span>
 									<LogBadge type={log.level}>{log.level.toUpperCase()}</LogBadge>
@@ -280,28 +254,10 @@ export function LogsView() {
 						<Card className="border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a]">
 							<div className="mb-3 flex items-center justify-between">
 								<h3 className="text-xs font-semibold uppercase tracking-wide text-slate-100">Autonomous Loop Timeline</h3>
-								<LogBadge type="ai">Session #SR-2041</LogBadge>
+								<LogBadge type="ai">Waiting for session data...</LogBadge>
 							</div>
-							<div className="flex items-center gap-2">
-								{MOCK_TIMELINE.map((step, index) => (
-									<div key={step.name} className="flex items-center">
-										<div className="flex flex-col items-center gap-1.5">
-											<div
-												className={`grid h-9 w-9 place-items-center rounded-full border ${
-													step.status === "done"
-														? "border-emerald-400/40 bg-emerald-500/10 text-emerald-300"
-														: step.status === "running"
-															? "border-violet-400/40 bg-violet-500/10 text-violet-300"
-															: "border-slate-700 bg-slate-800/50 text-slate-500"
-												}`}
-											>
-												<TimelineIcon status={step.status} />
-											</div>
-											<span className="text-[10px] text-slate-400">{step.name}</span>
-										</div>
-										{index < MOCK_TIMELINE.length - 1 && <div className="mb-6 h-px w-4 flex-1 bg-slate-700/40" />}
-									</div>
-								))}
+							<div className="flex items-center justify-center py-6 text-xs text-slate-500">
+								Timeline data not yet available from API
 							</div>
 						</Card>
 
@@ -345,17 +301,8 @@ export function LogsView() {
 							<AlertTriangle size={14} className="text-amber-400" />
 							<h3 className="text-xs font-semibold uppercase tracking-wide text-slate-100">API Failure Monitor</h3>
 						</div>
-						<div className="space-y-2">
-							{MOCK_API_ROWS.map((row) => (
-								<div key={row.api} className="grid grid-cols-[1fr_60px_50px] items-center gap-2 rounded-lg bg-slate-800/30 p-2 text-xs">
-									<div>
-										<div className="font-medium text-slate-200">{row.api}</div>
-										<div className="text-[11px] text-slate-500">Fallback: {row.fallback}</div>
-									</div>
-									<span className={apiStatusClass(row.status)}>{row.status}</span>
-									<span className="text-slate-500">{row.latency}</span>
-								</div>
-							))}
+						<div className="flex items-center justify-center py-6 text-xs text-slate-500">
+							API monitor data not yet available
 						</div>
 					</Card>
 
@@ -374,31 +321,39 @@ export function LogsView() {
 							<Info size={14} className="text-slate-400" />
 							<h3 className="text-xs font-semibold uppercase tracking-wide text-slate-100">Selected Log Detail</h3>
 						</div>
-						<div className="space-y-2 text-xs text-slate-400">
-							<div className="flex justify-between border-b border-slate-800/50 pb-1.5">
-								<span>Agent</span>
-								<span className="text-slate-200">{selected.agent}</span>
+						{selected ? (
+							<>
+								<div className="space-y-2 text-xs text-slate-400">
+									<div className="flex justify-between border-b border-slate-800/50 pb-1.5">
+										<span>Agent</span>
+										<span className="text-slate-200">{selected.agent}</span>
+									</div>
+									<div className="flex justify-between border-b border-slate-800/50 pb-1.5">
+										<span>Source</span>
+										<span className="text-slate-200">{selected.source}</span>
+									</div>
+									<div className="flex justify-between border-b border-slate-800/50 pb-1.5">
+										<span>Model</span>
+										<span className="text-slate-200">{selected.model || "—"}</span>
+									</div>
+									<div className="flex justify-between border-b border-slate-800/50 pb-1.5">
+										<span>Cost</span>
+										<span className="text-slate-200">{formatCost(selected.cost)}</span>
+									</div>
+									<div className="flex justify-between pb-1.5">
+										<span>Commit</span>
+										<span className="text-slate-200">{selected.commit || "—"}</span>
+									</div>
+								</div>
+								<button className="mt-3 w-full rounded-md border border-slate-600/50 px-3 py-2 text-xs text-slate-300 hover:bg-slate-800/50">
+									Open full trace
+								</button>
+							</>
+						) : (
+							<div className="flex items-center justify-center py-6 text-xs text-slate-500">
+								Click a log entry to see details
 							</div>
-							<div className="flex justify-between border-b border-slate-800/50 pb-1.5">
-								<span>Source</span>
-								<span className="text-slate-200">{selected.source}</span>
-							</div>
-							<div className="flex justify-between border-b border-slate-800/50 pb-1.5">
-								<span>Model</span>
-								<span className="text-slate-200">{selected.model || "—"}</span>
-							</div>
-							<div className="flex justify-between border-b border-slate-800/50 pb-1.5">
-								<span>Cost</span>
-								<span className="text-slate-200">{formatCost(selected.cost)}</span>
-							</div>
-							<div className="flex justify-between pb-1.5">
-								<span>Commit</span>
-								<span className="text-slate-200">{selected.commit || "a81fd12"}</span>
-							</div>
-						</div>
-						<button className="mt-3 w-full rounded-md border border-slate-600/50 px-3 py-2 text-xs text-slate-300 hover:bg-slate-800/50">
-							Open full trace
-						</button>
+						)}
 					</Card>
 				</div>
 			</div>
