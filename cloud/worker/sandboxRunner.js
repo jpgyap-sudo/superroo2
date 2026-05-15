@@ -163,6 +163,41 @@ async function runSandboxJob(job) {
 	if (job.projectPath && fs.existsSync(job.projectPath)) {
 		dockerArgs.push("-v", `${job.projectPath}:/project`)
 		log(`Mounted project repo: ${job.projectPath} -> /project`)
+
+		// Also mount the cloud worker directory so agentRunners.js and coder-sandbox.js
+		// are available inside the container at /opt/superroo2/cloud/worker
+		const workerDir = path.join(PROJECT_ROOT, "cloud", "worker")
+		if (fs.existsSync(workerDir)) {
+			dockerArgs.push("-v", `${workerDir}:/opt/superroo2/cloud/worker`)
+			log(`Mounted cloud worker dir: ${workerDir} -> /opt/superroo2/cloud/worker`)
+		}
+
+		// Mount the cloud data directory so encrypted secrets are accessible
+		const dataDir = path.join(PROJECT_ROOT, "cloud", "data")
+		if (fs.existsSync(dataDir)) {
+			dockerArgs.push("-v", `${dataDir}:/opt/superroo2/cloud/data`)
+			log(`Mounted cloud data dir: ${dataDir} -> /opt/superroo2/cloud/data`)
+		}
+
+		// Mount the cloud logs directory so agent runners can write logs
+		const logsDir = path.join(PROJECT_ROOT, "cloud", "logs")
+		if (fs.existsSync(logsDir)) {
+			dockerArgs.push("-v", `${logsDir}:/opt/superroo2/cloud/logs`)
+			log(`Mounted cloud logs dir: ${logsDir} -> /opt/superroo2/cloud/logs`)
+		}
+
+		// Pass through environment variables needed by agentRunners.js
+		dockerArgs.push("-e", `SUPERROO_ROOT=/opt/superroo2`)
+		dockerArgs.push("-e", `SUPERROO_VAULT_KEY=${process.env.SUPERROO_VAULT_KEY || ""}`)
+		dockerArgs.push("-e", `OPENAI_API_KEY=${process.env.OPENAI_API_KEY || ""}`)
+		dockerArgs.push("-e", `ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY || ""}`)
+		dockerArgs.push("-e", `DEEPSEEK_API_KEY=${process.env.DEEPSEEK_API_KEY || ""}`)
+
+		// Run as root so the coder agent can write to the mounted project repo
+		// (the mounted files are owned by root on the host, and the default
+		// sandbox user doesn't have write permission). This is acceptable since
+		// the coder sandbox is a trusted internal operation.
+		dockerArgs.push("--user", "root")
 	} else {
 		log(`No projectPath provided or path does not exist — using empty job folder only`)
 	}

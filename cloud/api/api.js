@@ -329,6 +329,17 @@ const connection = new IORedis(REDIS_URL, {
 
 const queue = new Queue(QUEUE_NAME, { connection })
 
+// Wire the queue into the Telegram notifier so it can create apply jobs
+// when the user approves a preview plan (two-phase coding flow).
+try {
+	if (telegramBot && telegramBot.telegramNotifier && typeof telegramBot.telegramNotifier.setQueue === "function") {
+		telegramBot.telegramNotifier.setQueue(queue)
+		console.log("[api] Queue wired to Telegram notifier for apply-job creation")
+	}
+} catch (err) {
+	console.error("[api] Failed to wire queue to notifier:", err.message)
+}
+
 // ── Cloud Orchestrator Initialization ──────────────────────────────────────────
 
 /** @type {CloudOrchestrator|null} */
@@ -1944,6 +1955,14 @@ const server = http.createServer(async (req, res) => {
 							taskId,
 							instruction || "",
 							result || {},
+						)
+						break
+					case "task_progress":
+						sent = await notifier.sendNotification(
+							TELEGRAM_BOT_TOKEN,
+							chatId,
+							"⏳ Coding in progress",
+							result?.progress?.message || "🤖 Coder agent is working on your request...",
 						)
 						break
 					case "notification":
@@ -7037,11 +7056,15 @@ const server = http.createServer(async (req, res) => {
 		// GET /telegram/mapping — live status of all Telegram bot components
 		if (method === "GET" && (url === "/telegram/mapping" || normalizedUrl === "/telegram/mapping")) {
 			try {
-				const webhookInfo = TELEGRAM_BOT_TOKEN ? await telegramBot.getWebhookInfo(TELEGRAM_BOT_TOKEN).catch(() => null) : null
+				const webhookInfo = TELEGRAM_BOT_TOKEN
+					? await telegramBot.getWebhookInfo(TELEGRAM_BOT_TOKEN).catch(() => null)
+					: null
 				const webhookOnline = !!(webhookInfo && webhookInfo.ok && webhookInfo.result && webhookInfo.result.url)
-				const pendingUpdates = (webhookInfo && webhookInfo.result && webhookInfo.result.pending_update_count) || 0
+				const pendingUpdates =
+					(webhookInfo && webhookInfo.result && webhookInfo.result.pending_update_count) || 0
 				const lastErrorDate = (webhookInfo && webhookInfo.result && webhookInfo.result.last_error_date) || null
-				const lastErrorMessage = (webhookInfo && webhookInfo.result && webhookInfo.result.last_error_message) || null
+				const lastErrorMessage =
+					(webhookInfo && webhookInfo.result && webhookInfo.result.last_error_message) || null
 
 				// Check if telegramBot module exports are present
 				const hasHandleUpdate = typeof telegramBot.handleUpdate === "function"
@@ -7063,8 +7086,12 @@ const server = http.createServer(async (req, res) => {
 				const hasTaskBoard = !!(taskBoard && typeof taskBoard.showTaskBoard === "function")
 
 				// Check rate limiter
-				const hasRateLimiter = !!(telegramRateLimiter && typeof telegramRateLimiter.checkRateLimit === "function")
-				const hasWebhookRateLimiter = !!(telegramRateLimiter && typeof telegramRateLimiter.checkWebhook === "function")
+				const hasRateLimiter = !!(
+					telegramRateLimiter && typeof telegramRateLimiter.checkRateLimit === "function"
+				)
+				const hasWebhookRateLimiter = !!(
+					telegramRateLimiter && typeof telegramRateLimiter.checkWebhook === "function"
+				)
 
 				// Check menu
 				const menu = safeRequire("./telegramMenu")
@@ -7075,7 +7102,9 @@ const server = http.createServer(async (req, res) => {
 				const hasLearner = !!(learner && typeof learner.recordInteraction === "function")
 
 				// Check orchestrator bridge
-				const hasOrchestratorBridge = !!(tgOrchestratorBridge && typeof tgOrchestratorBridge.createTask === "function")
+				const hasOrchestratorBridge = !!(
+					tgOrchestratorBridge && typeof tgOrchestratorBridge.createTask === "function"
+				)
 
 				// Check queue
 				const hasQueue = !!(queue && typeof queue.add === "function")
@@ -7089,19 +7118,28 @@ const server = http.createServer(async (req, res) => {
 					const redisPing = await new Promise(function (resolve) {
 						var redisClient = global.__redisClient
 						if (redisClient && typeof redisClient.ping === "function") {
-							redisClient.ping().then(function () { resolve(true) }).catch(function () { resolve(false) })
+							redisClient
+								.ping()
+								.then(function () {
+									resolve(true)
+								})
+								.catch(function () {
+									resolve(false)
+								})
 						} else {
 							resolve(false)
 						}
 					})
 					redisOnline = redisPing
-				} catch (_) { redisOnline = false }
+				} catch (_) {
+					redisOnline = false
+				}
 
 				const mapping = {
 					webhook: {
 						label: "Telegram Webhook",
 						online: webhookOnline,
-						detail: webhookOnline ? (webhookInfo.result.url || "connected") : "Not configured",
+						detail: webhookOnline ? webhookInfo.result.url || "connected" : "Not configured",
 						pendingUpdates: pendingUpdates,
 						lastError: lastErrorMessage ? { date: lastErrorDate, message: lastErrorMessage } : null,
 					},
@@ -7128,7 +7166,9 @@ const server = http.createServer(async (req, res) => {
 					callbackQuery: {
 						label: "answerCallbackQuery",
 						online: hasAnswerCallbackQuery,
-						detail: hasAnswerCallbackQuery ? "answerCallbackQuery() loaded" : "Missing answerCallbackQuery export",
+						detail: hasAnswerCallbackQuery
+							? "answerCallbackQuery() loaded"
+							: "Missing answerCallbackQuery export",
 					},
 					splitMessage: {
 						label: "splitLongMessage",

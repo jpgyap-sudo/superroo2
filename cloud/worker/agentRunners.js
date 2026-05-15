@@ -196,14 +196,56 @@ async function writeFileContent(filePath, content) {
  *   - files?: string[] — specific files to modify (optional)
  */
 async function runCoder(job) {
-	const { instruction, workspaceDir, repoName, branch, files } = job.data
+	const { instruction, workspaceDir, repoName, branch, files, previewOnly } = job.data
 	const jobId = job.id
 	const tag = `[coder:${jobId}]`
 
-	log("coder", jobId, `Starting | instruction: ${instruction?.substring(0, 100)}`)
+	log("coder", jobId, `Starting | instruction: ${instruction?.substring(0, 100)} | previewOnly=${!!previewOnly}`)
 
 	if (!workspaceDir) {
 		return { success: false, error: "No workspaceDir provided", output: [] }
+	}
+
+	// ── Step 0: Git branch management (skip in preview mode) ────────────
+	// In preview mode we don't create branches or stash since no changes
+	// are applied. The apply phase will handle branching.
+	let featureBranch = ""
+	let originalBranch = ""
+	let branchCreated = false
+	let stashedChanges = false
+
+	if (!previewOnly) {
+		featureBranch =
+			branch && branch !== "main" && branch !== "master" ? `tg/coder-${jobId}-${branch}` : `tg/coder-${jobId}`
+
+		try {
+			const { stdout: currentBranch } = await execAsync(
+				`cd ${workspaceDir} && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown"`,
+				{ timeout: 10000 },
+			)
+			originalBranch = currentBranch.trim()
+			log("coder", jobId, `Current branch: ${originalBranch}`)
+
+			// Stash any uncommitted changes before branching
+			const { stdout: statusOut } = await execAsync(
+				`cd ${workspaceDir} && git status --porcelain 2>/dev/null || echo ""`,
+				{ timeout: 5000 },
+			)
+			if (statusOut.trim()) {
+				await execAsync(`cd ${workspaceDir} && git stash push -m "tg-coder-${jobId} auto-stash" 2>/dev/null`, {
+					timeout: 15000,
+				})
+				stashedChanges = true
+				log("coder", jobId, `Stashed ${statusOut.trim().split("\n").length} uncommitted change(s)`)
+			}
+
+			// Create and switch to feature branch
+			await execAsync(`cd ${workspaceDir} && git checkout -b "${featureBranch}" 2>/dev/null`, { timeout: 15000 })
+			branchCreated = true
+			log("coder", jobId, `Created feature branch: ${featureBranch}`)
+		} catch (err) {
+			log("coder", jobId, `Git branch setup skipped (non-git dir or error): ${err.message}`)
+		}
 	}
 
 	// Step 1: Gather context — list files, read relevant ones
@@ -306,10 +348,57 @@ Be precise. Output ONLY valid JSON, no markdown fences.`
 	output.push(`Plan: ${plan.plan || "No plan description"}`)
 	output.push("")
 
-	// Apply file changes
 	const changes = Array.isArray(plan.changes) ? plan.changes : []
 	let allSuccess = true
 
+	// ── Preview mode: return plan without applying changes ──────────────
+	if (previewOnly) {
+		// Build a diff summary for the preview
+		for (const change of changes) {
+			const filePath = path.resolve(workspaceDir, change.file)
+			if (!filePath.startsWith(workspaceDir)) {
+				output.push(`  ⚠️  Skipped ${change.file} — path traversal blocked`)
+				continue
+			}
+			if (change.action === "delete") {
+				output.push(`  🔍 Will delete ${change.file}`)
+			} else {
+				output.push(`  🔍 Will ${change.action === "create" ? "create" : "modify"} ${change.file}`)
+			}
+			if (change.description) {
+				output.push(`     ${change.description}`)
+			}
+		}
+
+		const commands = Array.isArray(plan.commands) ? plan.commands : []
+		if (commands.length > 0) {
+			output.push("")
+			output.push("── Post-change commands (preview) ──")
+			for (const cmd of commands) {
+				output.push(`  $ ${cmd}`)
+			}
+		}
+
+		output.push("")
+		output.push(`📋 ${changes.length} file(s) to change — waiting for approval`)
+
+		await writeResultLog("coder", jobId, {
+			success: true,
+			changes: changes.length,
+			preview: true,
+		})
+
+		return {
+			success: true,
+			output,
+			preview: true,
+			plan: plan, // return the full plan so worker can re-apply later
+			gitBranch: "",
+			gitCommit: "",
+		}
+	}
+
+	// ── Apply mode: actually write the changes ──────────────────────────
 	for (const change of changes) {
 		const filePath = path.resolve(workspaceDir, change.file)
 
@@ -359,9 +448,84 @@ Be precise. Output ONLY valid JSON, no markdown fences.`
 	output.push("")
 	output.push(allSuccess ? "✅ All changes applied successfully" : "⚠️  Some changes failed")
 
-	await writeResultLog("coder", jobId, { success: allSuccess, changes: changes.length })
+	// ── Step 5: Git commit (if branch was created) ─────────────────────
+	let commitSha = ""
+	if (branchCreated && allSuccess) {
+		try {
+			// Add all changed files
+			await execAsync(`cd ${workspaceDir} && git add -A 2>/dev/null`, { timeout: 15000 })
+			// Commit with descriptive message
+			const commitMsg = `tg(coder): ${(instruction || "auto-commit").substring(0, 72)}`
+			const { stdout: commitOut } = await execAsync(
+				`cd ${workspaceDir} && git commit -m "${commitMsg}" -m "Coder job: ${jobId}" 2>/dev/null || echo "(nothing to commit)"`,
+				{ timeout: 15000 },
+			)
+			commitSha = commitOut.trim()
+			output.push(`  📝 Commit: ${commitSha.substring(0, 40)}`)
 
-	return { success: allSuccess, output }
+			// Push branch to remote (best-effort)
+			try {
+				await execAsync(`cd ${workspaceDir} && git push origin "${featureBranch}" 2>/dev/null`, {
+					timeout: 30000,
+				})
+				output.push(`  📤 Pushed branch: ${featureBranch}`)
+			} catch {
+				output.push(`  ⚠️  Could not push branch (no remote access)`)
+			}
+		} catch (err) {
+			output.push(`  ⚠️  Git commit failed: ${err.message}`)
+		}
+	}
+
+	// ── Step 6: Rollback on failure ────────────────────────────────────
+	if (branchCreated && !allSuccess) {
+		output.push("")
+		output.push("── Rolling back changes ──")
+		try {
+			// Stash any uncommitted changes
+			await execAsync(`cd ${workspaceDir} && git add -A && git stash 2>/dev/null`, { timeout: 15000 })
+			// Switch back to original branch
+			await execAsync(`cd ${workspaceDir} && git checkout "${originalBranch}" 2>/dev/null`, { timeout: 15000 })
+			// Delete the feature branch
+			await execAsync(`cd ${workspaceDir} && git branch -D "${featureBranch}" 2>/dev/null`, { timeout: 15000 })
+			output.push("  🔄 Rolled back — switched to " + originalBranch + ", deleted " + featureBranch)
+		} catch (err) {
+			output.push(`  ⚠️  Rollback incomplete: ${err.message}`)
+		}
+	}
+
+	// ── Step 7: Restore original branch if we're on feature branch ─────
+	if (branchCreated && allSuccess) {
+		try {
+			await execAsync(`cd ${workspaceDir} && git checkout "${originalBranch}" 2>/dev/null`, { timeout: 15000 })
+			output.push(`  🔄 Switched back to ${originalBranch}`)
+		} catch {
+			// Non-critical — user can switch manually
+		}
+	}
+
+	// Restore stashed changes if any
+	if (stashedChanges) {
+		try {
+			await execAsync(`cd ${workspaceDir} && git stash pop 2>/dev/null`, { timeout: 15000 })
+		} catch {
+			// Stash may conflict — non-critical
+		}
+	}
+
+	await writeResultLog("coder", jobId, {
+		success: allSuccess,
+		changes: changes.length,
+		branch: featureBranch,
+		commit: commitSha,
+	})
+
+	return {
+		success: allSuccess,
+		output,
+		gitBranch: featureBranch,
+		gitCommit: commitSha,
+	}
 }
 
 /**

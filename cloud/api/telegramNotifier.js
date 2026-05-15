@@ -22,6 +22,21 @@ const TELEGRAM_API_BASE = "https://api.telegram.org/bot"
 const DASHBOARD_URL = "https://dev.abcx124.xyz"
 
 // ---------------------------------------------------------------------------
+// BullMQ Queue Reference (set by api.js after queue creation)
+// ---------------------------------------------------------------------------
+// Used to create apply jobs when the user approves a preview plan.
+let _queue = null
+
+/**
+ * Set the BullMQ queue reference so the notifier can create apply jobs
+ * when the user approves a preview plan.
+ * @param {import("bullmq").Queue} queue
+ */
+function setQueue(queue) {
+	_queue = queue
+}
+
+// ---------------------------------------------------------------------------
 // Notification State
 // ---------------------------------------------------------------------------
 // Tracks pending approval requests: chatId -> { taskId, instruction, diff, timestamp }
@@ -550,7 +565,51 @@ async function handleNotificationCallback(botToken, callbackQuery) {
 
 	switch (action) {
 		case "approve": {
-			// Update the message to show approved status
+			const approvalKey = `${chatId}:${taskId}`
+			const approval = pendingApprovals.get(approvalKey)
+			const diffInfo = approval ? approval.diffInfo : null
+
+			// ── If this is a preview approval (has plan data), create apply job ──
+			if (diffInfo && diffInfo.plan && _queue) {
+				// Update message to show applying status
+				await editMessageText(
+					botToken,
+					chatId,
+					messageId,
+					`✅ *Task ${taskId} Approved*\n\n⏳ Applying changes... I'll notify you when it's done.`,
+					[[{ text: "📊 Check Status", callback_data: `notify:status:${taskId}` }]],
+				)
+
+				// Create a new BullMQ job with applyPlan: true and the plan from preview
+				const applyTaskId = taskId + "-apply"
+				await _queue.add("telegram-" + applyTaskId, {
+					task: diffInfo.plan.plan || "Apply approved changes",
+					agentId: "superroo-coder-agent",
+					commands: [],
+					network: "none",
+					goal: diffInfo.goal || diffInfo.plan.plan || "Apply approved changes",
+					repo: diffInfo.repo || "superroo2",
+					projectPath: diffInfo.projectPath,
+					branch: diffInfo.branch || "main",
+					applyPlan: true,
+					plan: diffInfo.plan,
+					telegram: {
+						chatId: chatId,
+						taskId: applyTaskId,
+						branchName: "tg/apply-" + taskId.toLowerCase(),
+						conversationSummary: "",
+					},
+				})
+
+				// Record approval
+				if (approval) {
+					approval.status = "approved"
+					pendingApprovals.set(approvalKey, approval)
+				}
+				return true
+			}
+
+			// ── Regular approval (no plan data) — just update message ──────────
 			await editMessageText(
 				botToken,
 				chatId,
@@ -558,8 +617,8 @@ async function handleNotificationCallback(botToken, callbackQuery) {
 				`✅ *Task ${taskId} Approved*\n\nChanges have been approved and will be applied.`,
 				[[{ text: "📊 Check Status", callback_data: `notify:status:${taskId}` }]],
 			)
+
 			// Record approval
-			const approvalKey = `${chatId}:${taskId}`
 			if (pendingApprovals.has(approvalKey)) {
 				const approval = pendingApprovals.get(approvalKey)
 				approval.status = "approved"
@@ -773,4 +832,7 @@ module.exports = {
 	// Group chat routing
 	setGroupRouting,
 	resolveChatId,
+
+	// Queue reference (set by api.js)
+	setQueue,
 }

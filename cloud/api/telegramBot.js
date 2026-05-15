@@ -1686,7 +1686,7 @@ async function handleCode(botToken, chatId, args, queue, orchestratorBridge) {
 
 	var job = await queue.add("telegram-" + taskId, {
 		task: instruction,
-		agentId: "superroo-debugger-agent",
+		agentId: "superroo-coder-agent",
 		commands: [],
 		network: "none",
 		// Pass project context so the worker knows which repo to operate on
@@ -1720,7 +1720,7 @@ async function handleCode(botToken, chatId, args, queue, orchestratorBridge) {
 				tgTaskId: taskId,
 				chatId: chatId,
 				instruction: instruction,
-				agentType: "superroo-debugger-agent",
+				agentType: "superroo-coder-agent",
 				branchName: branchName,
 				source: "/code",
 			})
@@ -1730,7 +1730,7 @@ async function handleCode(botToken, chatId, args, queue, orchestratorBridge) {
 	}
 
 	// Send rich notification with action buttons
-	await telegramNotifier.sendTaskStarted(botToken, chatId, taskId, instruction, "superroo-debugger-agent")
+	await telegramNotifier.sendTaskStarted(botToken, chatId, taskId, instruction, "superroo-coder-agent")
 }
 
 /**

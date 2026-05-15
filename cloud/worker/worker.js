@@ -158,10 +158,12 @@ const BOSS_CHAT_ID = process.env.BOSS_TELEGRAM_CHAT_ID || ""
  * Uses the /telegram/notify endpoint to push job lifecycle updates.
  */
 function sendTelegramNotification(type, taskId, instruction, extra) {
-	if (!BOSS_CHAT_ID) return // no chat configured, skip
+	// Use the per-job chatId if provided, otherwise fall back to BOSS_CHAT_ID
+	const chatId = (extra && extra.chatId) || BOSS_CHAT_ID
+	if (!chatId) return // no chat configured, skip
 
 	const payload = JSON.stringify({
-		chatId: BOSS_CHAT_ID,
+		chatId: chatId,
 		type,
 		taskId,
 		instruction: instruction || "Untitled task",
@@ -204,19 +206,106 @@ async function processJob(job) {
 		// When the Telegram /code command passes a projectPath, we route to
 		// runCoder() in agentRunners.js which reads the repo, asks AI to generate
 		// code changes, applies them, runs tests, and returns a diff.
+		//
+		// The coder runs inside a Docker sandbox for isolation, with the project
+		// repo mounted at /project and the agentRunners module invoked via node.
 		if (job.data.projectPath && job.data.goal) {
 			console.log(`[worker] Running coder job ${job.id} on project: ${job.data.projectPath}`)
-			const result = await executeRunner("coder", {
+
+			// ── Progress updates for long-running coding tasks ─────────────
+			const progressInterval = setInterval(() => {
+				if (job.data.telegram && job.data.telegram.chatId) {
+					const elapsed = Math.floor((Date.now() - job.timestamp) / 1000)
+					const mins = Math.floor(elapsed / 60)
+					const secs = elapsed % 60
+					sendTelegramNotification("task_progress", job.id, job.data.goal || "Coding task", {
+						chatId: job.data.telegram.chatId,
+						progress: {
+							elapsed: `${mins}m ${secs}s`,
+							stage: "coding",
+							message: `🤖 Coder agent is working on your request... (${mins}m ${secs}s elapsed)`,
+						},
+					})
+				}
+			}, 30000)
+			const clearProgress = () => clearInterval(progressInterval)
+
+			// ── Two-phase flow: preview → approve → apply ──────────────────
+			const isApplyPhase = job.data.applyPlan === true
+			const previewOnly = !isApplyPhase
+
+			// ── Run coder inside Docker sandbox for isolation ──────────────
+			// The sandbox mounts the project repo at /project and the cloud
+			// worker directory at /opt/superroo2/cloud/worker so that
+			// agentRunners.js and coder-sandbox.js are available inside the
+			// container. LLM API keys are passed through environment variables.
+			//
+			// coder-sandbox.js is the entrypoint that calls executeRunner("coder")
+			// and outputs CODER_RESULT:JSON to stdout for the worker to parse.
+			const filesJson = JSON.stringify(job.data.files || [])
+			const sandboxResult = await runSandboxJob({
 				id: job.id,
-				data: {
-					instruction: job.data.goal,
-					workspaceDir: job.data.projectPath,
-					repoName: job.data.repo || "superroo2",
-					branch: job.data.branch || "main",
-					files: job.data.files || [],
-				},
+				task: job.data.goal,
+				commands: [
+					`node /opt/superroo2/cloud/worker/coder-sandbox.js` +
+						` '${job.id}'` +
+						` ${previewOnly}` +
+						` '${(job.data.goal || "").replace(/'/g, "'\\''")}'` +
+						` '${(job.data.repo || "superroo2").replace(/'/g, "'\\''")}'` +
+						` '${(job.data.branch || "main").replace(/'/g, "'\\''")}'` +
+						` '${filesJson.replace(/'/g, "'\\''")}'`,
+				],
+				network: "host", // needs network access for LLM API calls
+				projectPath: job.data.projectPath,
 			})
-			console.log(`[worker] Coder job ${job.id} completed | success=${result.success}`)
+			clearProgress()
+
+			// ── Parse coder result from sandbox stdout ─────────────────────
+			let result
+			try {
+				const stdoutLines = sandboxResult.stdout || ""
+				const coderMatch = stdoutLines.match(/CODER_RESULT:(\{[\s\S]*?\})/)
+				result = coderMatch
+					? JSON.parse(coderMatch[1])
+					: { success: false, error: "No CODER_RESULT found in sandbox output", output: [] }
+			} catch (err) {
+				result = { success: false, error: "Failed to parse coder result: " + err.message, output: [] }
+			}
+
+			console.log(
+				`[worker] Coder job ${job.id} completed | success=${result.success} | preview=${!!result.preview}`,
+			)
+
+			// ── Transform runCoder() output for Telegram notification ──────
+			const outputLines = Array.isArray(result.output) ? result.output : []
+			const changedFiles = outputLines.filter(function (l) {
+				return (
+					(l.includes("✅") || l.includes("🔍")) &&
+					(l.includes("Created") || l.includes("Modified") || l.includes("Deleted") || l.includes("Will"))
+				)
+			}).length
+			const failedChanges = outputLines.filter(function (l) {
+				return l.includes("❌")
+			}).length
+			const outputSummary = outputLines.join("\n").substring(0, 1500)
+
+			result._telegramNotify = {
+				success: result.success,
+				changedFiles: changedFiles,
+				linesAdded: 0,
+				outputSummary: outputSummary,
+				failedChanges: failedChanges,
+				gitBranch: result.gitBranch || "",
+				gitCommit: result.gitCommit || "",
+				preview: result.preview || false,
+				plan: result.plan || null,
+				goal: job.data.goal,
+				projectPath: job.data.projectPath,
+				repo: job.data.repo,
+				branch: job.data.branch,
+				taskId: job.data.telegram ? job.data.telegram.taskId : null,
+				chatId: job.data.telegram ? job.data.telegram.chatId : null,
+			}
 			return result
 		}
 
@@ -281,14 +370,44 @@ worker.on("completed", (job, result) => {
 	// Only send Telegram notification if the job originated from Telegram
 	if (job.data && job.data.telegram && job.data.telegram.chatId) {
 		const taskName = job.data.task || "Untitled task"
+
+		// Use rich notification data if available (from coder jobs), otherwise generic
+		const notifyData = (result && result._telegramNotify) || {}
+
+		// ── Preview mode: send approval request instead of completion ─────
+		if (notifyData.preview) {
+			sendTelegramNotification("approval_request", job.id, taskName, {
+				chatId: notifyData.chatId,
+				result: {
+					changedFiles: notifyData.changedFiles || 0,
+					linesAdded: 0,
+					outputSummary: notifyData.outputSummary || "",
+					diffInfo: {
+						changedFiles: notifyData.changedFiles || 0,
+						linesAdded: 0,
+						plan: notifyData.plan,
+						goal: notifyData.goal,
+						projectPath: notifyData.projectPath,
+						repo: notifyData.repo,
+						branch: notifyData.branch,
+						taskId: notifyData.taskId,
+					},
+				},
+			})
+			return
+		}
+
 		sendTelegramNotification("task_complete", job.id, taskName, {
-			result: result
-				? result.success !== undefined
-					? result.success
-						? "✅ Success"
-						: "❌ Failed"
-					: "✅ Completed"
-				: "✅ Completed",
+			result: {
+				success:
+					notifyData.success !== undefined ? notifyData.success : result ? result.success !== false : true,
+				changedFiles: notifyData.changedFiles || 0,
+				linesAdded: notifyData.linesAdded || 0,
+				outputSummary: notifyData.outputSummary || "",
+				failedChanges: notifyData.failedChanges || 0,
+				gitBranch: notifyData.gitBranch || "",
+				gitCommit: notifyData.gitCommit || "",
+			},
 		})
 	}
 })
