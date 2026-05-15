@@ -151,10 +151,57 @@ function clearAll() {
 	commandLog.clear()
 }
 
+// ─── Webhook-level rate limiting ─────────────────────────────────────────────
+// Limits total incoming webhook updates to prevent overload.
+
+var webhookLog = []
+var WEBHOOK_MAX = 50
+var WEBHOOK_WINDOW_MS = 1000
+
+/**
+ * Check global webhook rate limit (no chat ID needed).
+ *
+ * @param {object} [opts]
+ * @returns {{ allowed: boolean, remaining: number, resetMs: number }}
+ */
+function checkWebhook(opts) {
+	var max = (opts && opts.maxWebhooks) || WEBHOOK_MAX
+	var windowMs = (opts && opts.windowMs) || WEBHOOK_WINDOW_MS
+	var now = Date.now()
+	var cutoff = now - windowMs
+	webhookLog = webhookLog.filter(function (ts) { return ts > cutoff })
+	if (webhookLog.length >= max) {
+		var oldest = webhookLog[0]
+		var resetMs = Math.max(0, oldest + windowMs - now)
+		return { allowed: false, remaining: 0, resetMs: resetMs }
+	}
+	webhookLog.push(now)
+	return { allowed: true, remaining: max - webhookLog.length - 1, resetMs: 0 }
+}
+
+/**
+ * Check per-chat command rate limit.
+ * Wraps checkRateLimit with the { allowed, resetMs } interface expected by api.js.
+ *
+ * @param {number|string} chatId
+ * @param {object} [opts]
+ * @returns {{ allowed: boolean, remaining: number, resetMs: number }}
+ */
+function checkCommand(chatId, opts) {
+	var result = checkRateLimit(chatId, opts)
+	return {
+		allowed: !result.limited,
+		remaining: result.remaining,
+		resetMs: result.retryAfterMs,
+	}
+}
+
 module.exports = {
 	checkRateLimit: checkRateLimit,
 	getRateLimitState: getRateLimitState,
 	formatRateLimitWarning: formatRateLimitWarning,
 	resetRateLimit: resetRateLimit,
 	clearAll: clearAll,
+	checkWebhook: checkWebhook,
+	checkCommand: checkCommand,
 }
