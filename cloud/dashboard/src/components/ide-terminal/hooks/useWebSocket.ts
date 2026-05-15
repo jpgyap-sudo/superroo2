@@ -24,6 +24,18 @@ interface UseWebSocketOptions {
 	dispatch: Dispatch<IdeAction>
 	onSuggestions?: (suggestions: { text: string; description: string; type: "ai" }[]) => void
 	onShowSmartSuggestions?: (show: boolean) => void
+	/** Callback for PTY output data */
+	onPtyOutput?: (sessionId: string, data: string) => void
+	/** Callback for PTY session exit */
+	onPtyExit?: (sessionId: string, exitCode: number | null, signal: string | null) => void
+	/** Callback for PTY session created confirmation */
+	onPtyCreated?: (sessionId: string, shell: string, cwd: string) => void
+	/** Callback for PTY buffer data */
+	onPtyBuffer?: (sessionId: string, buffer: string) => void
+	/** Callback for PTY session list */
+	onPtyList?: (
+		sessions: Array<{ id: string; shell: string; cwd: string; createdAt: number; lastActivity: number }>,
+	) => void
 }
 
 interface UseWebSocketReturn {
@@ -37,6 +49,11 @@ export function useWebSocket({
 	dispatch,
 	onSuggestions,
 	onShowSmartSuggestions,
+	onPtyOutput,
+	onPtyExit,
+	onPtyCreated,
+	onPtyBuffer,
+	onPtyList,
 }: UseWebSocketOptions): UseWebSocketReturn {
 	const wsRef = useRef<WebSocket | null>(null)
 	const [wsConnected, setWsConnected] = useState(false)
@@ -152,6 +169,27 @@ export function useWebSocket({
 							dispatch({ type: "SET_AI_SENDING", payload: false })
 							break
 						}
+						// ── PTY Events ──────────────────────────────────────────
+						case "pty:output": {
+							onPtyOutput?.(data.sessionId, data.data)
+							break
+						}
+						case "pty:exit": {
+							onPtyExit?.(data.sessionId, data.exitCode, data.signal)
+							break
+						}
+						case "pty:created": {
+							onPtyCreated?.(data.sessionId, data.shell, data.cwd)
+							break
+						}
+						case "pty:buffer": {
+							onPtyBuffer?.(data.sessionId, data.buffer)
+							break
+						}
+						case "pty:list": {
+							onPtyList?.(data.sessions || [])
+							break
+						}
 					}
 				} catch {
 					// ignore parse errors
@@ -180,7 +218,18 @@ export function useWebSocket({
 			setWsReconnecting(true)
 			reconnectTimerRef.current = setTimeout(() => connect(), RECONNECT_DELAY)
 		}
-	}, [dispatch, startStreamTimeout, clearStreamTimeout, onSuggestions, onShowSmartSuggestions])
+	}, [
+		dispatch,
+		startStreamTimeout,
+		clearStreamTimeout,
+		onSuggestions,
+		onShowSmartSuggestions,
+		onPtyOutput,
+		onPtyExit,
+		onPtyCreated,
+		onPtyBuffer,
+		onPtyList,
+	])
 
 	useEffect(() => {
 		connect()

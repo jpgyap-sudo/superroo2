@@ -232,6 +232,30 @@ export default function IdeTerminalView() {
 							<span className="flex items-center gap-1">
 								<Database size={10} /> {status.ram}
 							</span>
+							{/* #2: LSP status indicator */}
+							<span
+								className={`flex items-center gap-1 ${
+									hook.lspConnected ? "text-purple-400" : "text-gray-600"
+								}`}>
+								<span
+									className={`w-1.5 h-1.5 rounded-full ${
+										hook.lspConnected ? "bg-purple-400" : "bg-gray-600"
+									}`}
+								/>
+								LSP
+							</span>
+							{/* #1: PTY status indicator */}
+							<span
+								className={`flex items-center gap-1 ${
+									hook.ptyConnected ? "text-green-400" : "text-gray-600"
+								}`}>
+								<span
+									className={`w-1.5 h-1.5 rounded-full ${
+										hook.ptyConnected ? "bg-green-400" : "bg-gray-600"
+									}`}
+								/>
+								PTY
+							</span>
 							<span
 								className={`flex items-center gap-1 ${hook.wsConnected ? "text-green-400" : "text-red-400"}`}>
 								<span
@@ -336,27 +360,58 @@ export default function IdeTerminalView() {
 
 					{/* ── Center: Editor + Terminal ──────────────────────── */}
 					<div className="flex-1 flex flex-col overflow-hidden">
-						{/* ── Pipeline Bar ────────────────────────────────── */}
+						{/* ── Pipeline Bar (#8 enhanced) ──────────────────── */}
 						{pipeline.length > 0 && (
 							<div className="px-4 py-1.5 bg-[#252526] border-b border-[#3c3c3c] flex items-center gap-2 text-xs overflow-x-auto shrink-0">
 								<Workflow size={12} className="text-gray-500 shrink-0" />
-								{pipeline.map((step) => (
-									<span key={step.id} className="flex items-center gap-1 whitespace-nowrap">
-										<PipelineIcon status={step.status} />
-										<span
-											className={
-												step.status === "done"
-													? "text-green-400"
-													: step.status === "failed"
-														? "text-red-400"
-														: "text-gray-400"
-											}>
-											{step.label}
+								<div className="flex items-center gap-0 flex-1">
+									{pipeline.map((step, idx) => (
+										<div key={step.id} className="flex items-center gap-0">
+											{/* Pipeline step node */}
+											<div
+												className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] border ${
+													step.status === "done"
+														? "bg-green-900/20 border-green-700/30 text-green-400"
+														: step.status === "running"
+															? "bg-blue-900/20 border-blue-700/30 text-blue-400"
+															: step.status === "failed"
+																? "bg-red-900/20 border-red-700/30 text-red-400"
+																: step.status === "approval"
+																	? "bg-yellow-900/20 border-yellow-700/30 text-yellow-400"
+																	: step.status === "blocked"
+																		? "bg-orange-900/20 border-orange-700/30 text-orange-400"
+																		: "bg-gray-900/20 border-gray-700/30 text-gray-500"
+												}`}
+												title={`${step.label}${step.duration ? ` (${step.duration})` : ""}`}>
+												<PipelineIcon status={step.status} />
+												<span className="font-medium">{step.label}</span>
+												{step.duration && (
+													<span className="opacity-60 ml-0.5">{step.duration}</span>
+												)}
+											</div>
+											{/* Connector line between steps */}
+											{idx < pipeline.length - 1 && (
+												<div className="flex items-center mx-1">
+													<div
+														className={`w-4 h-0.5 ${
+															step.status === "done"
+																? "bg-green-700/50"
+																: "bg-gray-700/30"
+														}`}
+													/>
+												</div>
+											)}
+										</div>
+									))}
+								</div>
+								{/* Pipeline progress summary */}
+								{pipeline.length > 0 && (
+									<div className="flex items-center gap-1 text-[10px] text-gray-600 shrink-0 ml-auto">
+										<span>
+											{pipeline.filter((s) => s.status === "done").length}/{pipeline.length} steps
 										</span>
-										{step.duration && <span className="text-gray-600">({step.duration})</span>}
-										<ChevronRight size={10} className="text-gray-600" />
-									</span>
-								))}
+									</div>
+								)}
 							</div>
 						)}
 
@@ -511,6 +566,37 @@ export default function IdeTerminalView() {
 											}}
 											terminalRef={hook.terminalRef}
 											terminalInputRef={hook.terminalInputRef}
+											// #1: PTY connection
+											ptyConnected={hook.ptyConnected}
+											ptySessionId={hook.ptySessionId}
+											// #4: Split terminals
+											splitTerminals={hook.splitTerminals}
+											activeSplitTerminal={hook.activeSplitTerminal}
+											onAddSplitTerminal={hook.handleAddSplitTerminal}
+											onRemoveSplitTerminal={hook.handleRemoveSplitTerminal}
+											onSetActiveSplitTerminal={hook.handleSetActiveSplitTerminal}
+											// #6: Terminal search
+											terminalSearchQuery={hook.terminalSearchQuery}
+											terminalSearchResults={hook.terminalSearchResults}
+											terminalSearchActiveIndex={hook.terminalSearchActiveIndex}
+											onTerminalSearch={hook.handleTerminalSearch}
+											onTerminalSearchNext={hook.handleTerminalSearchNext}
+											onTerminalSearchPrev={hook.handleTerminalSearchPrev}
+											// #9: Notifications
+											notifications={hook.terminalNotifications}
+											onDismissNotification={hook.handleDismissNotification}
+											// #10: Snippets
+											snippets={hook.commandSnippets}
+											showSnippetsPanel={hook.showSnippetsPanel}
+											onAddSnippet={hook.handleAddSnippet}
+											onRemoveSnippet={hook.handleRemoveSnippet}
+											onToggleSnippetsPanel={hook.handleToggleSnippetsPanel}
+											// #11: Sharing
+											showShareDialog={hook.showShareDialog}
+											onToggleShareDialog={hook.handleToggleShareDialog}
+											onShareSession={hook.handleShareSession}
+											// #12: Resource usage
+											resourceUsage={hook.terminalResources}
 										/>
 									</div>
 								</div>

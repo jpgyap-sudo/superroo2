@@ -1,7 +1,7 @@
 "use client"
 
 import { useRef, useEffect, useCallback, useState, useMemo } from "react"
-import { Loader2, Save, Bug, MessageCircle, Zap, Search } from "lucide-react"
+import { Loader2, Save, Bug, MessageCircle, Zap, Search, Lightbulb } from "lucide-react"
 
 // ── Types ──────────────────────────────────────────────────────
 interface MonacoEditorProps {
@@ -15,6 +15,13 @@ interface MonacoEditorProps {
 	onCursorChange?: (line: number, column: number) => void
 	onSelectionChange?: (selectedText: string, line: number, column: number) => void
 	onMarkersChange?: (markers: any[]) => void
+	// #2: LSP integration
+	lspConnected?: boolean
+	onLspCompletion?: (lang: string, uri: string, line: number, column: number) => Promise<any>
+	onLspHover?: (lang: string, uri: string, line: number, column: number) => Promise<any>
+	onLspDefinition?: (lang: string, uri: string, line: number, column: number) => Promise<any>
+	onLspReferences?: (lang: string, uri: string, line: number, column: number) => Promise<any>
+	onLspCodeActions?: (lang: string, uri: string, line: number, column: number, diagnostics: any[]) => Promise<any>
 }
 
 interface InlineAction {
@@ -72,6 +79,13 @@ export default function MonacoEditor({
 	onCursorChange,
 	onSelectionChange,
 	onMarkersChange,
+	// #2: LSP integration
+	lspConnected = false,
+	onLspCompletion,
+	onLspHover,
+	onLspDefinition,
+	onLspReferences,
+	onLspCodeActions,
 }: MonacoEditorProps) {
 	const editorRef = useRef<any>(null)
 	const monacoRef = useRef<any>(null)
@@ -186,11 +200,7 @@ export default function MonacoEditor({
 					setInlineActions(null)
 				}
 
-				onSelectionChange?.(
-					selectedText,
-					selection.positionLineNumber,
-					selection.positionColumn,
-				)
+				onSelectionChange?.(selectedText, selection.positionLineNumber, selection.positionColumn)
 			})
 
 			// Listen for markers (errors/warnings)
@@ -208,11 +218,147 @@ export default function MonacoEditor({
 				setIsDirty(false)
 			})
 
+			// #2: LSP completion provider
+			if (onLspCompletion && lspConnected) {
+				monaco.languages.registerCompletionItemProvider(lang, {
+					provideCompletionItems: async (model: any, position: any) => {
+						try {
+							const uri = model.uri.toString()
+							const result = await onLspCompletion(lang, uri, position.lineNumber, position.column)
+							if (!result || !result.items) return { suggestions: [] }
+							return {
+								suggestions: result.items.map((item: any) => ({
+									label: item.label,
+									kind: mapLspKind(monaco, item.kind),
+									insertText: item.insertText || item.label,
+									detail: item.detail || "",
+									documentation: item.documentation || "",
+								})),
+							}
+						} catch {
+							return { suggestions: [] }
+						}
+					},
+				})
+			}
+
+			// #2: LSP hover provider
+			if (onLspHover && lspConnected) {
+				monaco.languages.registerHoverProvider(lang, {
+					provideHover: async (model: any, position: any) => {
+						try {
+							const uri = model.uri.toString()
+							const result = await onLspHover(lang, uri, position.lineNumber, position.column)
+							if (!result || !result.contents) return null
+							return {
+								contents: [{ value: result.contents }],
+								range: result.range || null,
+							}
+						} catch {
+							return null
+						}
+					},
+				})
+			}
+
+			// #2: LSP definition provider (Go to Definition)
+			if (onLspDefinition && lspConnected) {
+				monaco.languages.registerDefinitionProvider(lang, {
+					provideDefinition: async (model: any, position: any) => {
+						try {
+							const uri = model.uri.toString()
+							const result = await onLspDefinition(lang, uri, position.lineNumber, position.column)
+							if (!result || !result.uri) return null
+							return {
+								uri: monaco.Uri.parse(result.uri),
+								range: new monaco.Range(
+									result.range.start.line,
+									result.range.start.character,
+									result.range.end.line,
+									result.range.end.character,
+								),
+							}
+						} catch {
+							return null
+						}
+					},
+				})
+			}
+
+			// #2: LSP references provider (Find All References)
+			if (onLspReferences && lspConnected) {
+				monaco.languages.registerReferenceProvider(lang, {
+					provideReferences: async (model: any, position: any) => {
+						try {
+							const uri = model.uri.toString()
+							const result = await onLspReferences(lang, uri, position.lineNumber, position.column)
+							if (!result || !result.references) return []
+							return result.references.map((ref: any) => ({
+								uri: monaco.Uri.parse(ref.uri),
+								range: new monaco.Range(
+									ref.range.start.line,
+									ref.range.start.character,
+									ref.range.end.line,
+									ref.range.end.character,
+								),
+							}))
+						} catch {
+							return []
+						}
+					},
+				})
+			}
+
 			// Focus the editor
 			editorInstance.focus()
 		},
-		[onCursorChange, onSelectionChange, onMarkersChange, onSave],
+		[
+			onCursorChange,
+			onSelectionChange,
+			onMarkersChange,
+			onSave,
+			lang,
+			lspConnected,
+			onLspCompletion,
+			onLspHover,
+			onLspDefinition,
+			onLspReferences,
+			onLspCodeActions,
+		],
 	)
+
+	// #2: Helper to map LSP completion item kinds to Monaco kinds
+	function mapLspKind(monaco: any, kind: number | string): number {
+		if (typeof kind === "number") return kind
+		const kindMap: Record<string, number> = {
+			text: monaco.languages.CompletionItemKind.Text,
+			method: monaco.languages.CompletionItemKind.Method,
+			function: monaco.languages.CompletionItemKind.Function,
+			constructor: monaco.languages.CompletionItemKind.Constructor,
+			field: monaco.languages.CompletionItemKind.Field,
+			variable: monaco.languages.CompletionItemKind.Variable,
+			class: monaco.languages.CompletionItemKind.Class,
+			interface: monaco.languages.CompletionItemKind.Interface,
+			module: monaco.languages.CompletionItemKind.Module,
+			property: monaco.languages.CompletionItemKind.Property,
+			unit: monaco.languages.CompletionItemKind.Unit,
+			value: monaco.languages.CompletionItemKind.Value,
+			enum: monaco.languages.CompletionItemKind.Enum,
+			keyword: monaco.languages.CompletionItemKind.Keyword,
+			snippet: monaco.languages.CompletionItemKind.Snippet,
+			color: monaco.languages.CompletionItemKind.Color,
+			file: monaco.languages.CompletionItemKind.File,
+			reference: monaco.languages.CompletionItemKind.Reference,
+			folder: monaco.languages.CompletionItemKind.Folder,
+			enumMember: monaco.languages.CompletionItemKind.EnumMember,
+			constant: monaco.languages.CompletionItemKind.Constant,
+			struct: monaco.languages.CompletionItemKind.Struct,
+			event: monaco.languages.CompletionItemKind.Event,
+			operator: monaco.languages.CompletionItemKind.Operator,
+			typeParameter: monaco.languages.CompletionItemKind.TypeParameter,
+		}
+		return kindMap[kind] || monaco.languages.CompletionItemKind.Text
+	}
 
 	// ── Sync external value changes ────────────────────────────
 	useEffect(() => {
@@ -359,6 +505,17 @@ export default function MonacoEditor({
 							<Save className="w-3 h-3" />
 							Save
 						</button>
+					)}
+
+					{/* #2: LSP status indicator */}
+					{lspConnected !== undefined && (
+						<span
+							className={`flex items-center gap-1 text-[11px] ${lspConnected ? "text-purple-400" : "text-gray-600"}`}>
+							<span
+								className={`w-1.5 h-1.5 rounded-full ${lspConnected ? "bg-purple-400" : "bg-gray-600"}`}
+							/>
+							LSP
+						</span>
 					)}
 				</div>
 			</div>

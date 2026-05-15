@@ -1,6 +1,22 @@
 "use client"
 
-import { X, Search, Terminal, Save, GitBranch, Code, FileText, Zap } from "lucide-react"
+import {
+	X,
+	Search,
+	Terminal,
+	Save,
+	GitBranch,
+	Code,
+	FileText,
+	Zap,
+	SplitSquareHorizontal,
+	Bookmark,
+	Share2,
+	Bell,
+	Cpu,
+	Upload,
+	Slash,
+} from "lucide-react"
 
 interface KeyboardShortcutsModalProps {
 	onClose: () => void
@@ -17,6 +33,15 @@ const SHORTCUTS = [
 	{ key: "Escape", desc: "Close modals / panels", icon: X },
 	{ key: "Ctrl+Shift+F", desc: "Format code", icon: Code },
 	{ key: "Ctrl+Shift+E", desc: "Focus file explorer", icon: FileText },
+	// Terminal improvements
+	{ key: "Ctrl+Shift+5", desc: "Split terminal horizontally", icon: SplitSquareHorizontal },
+	{ key: "Ctrl+Shift+6", desc: "Split terminal vertically", icon: SplitSquareHorizontal },
+	{ key: "Ctrl+Shift+B", desc: "Toggle command snippets panel", icon: Bookmark },
+	{ key: "Ctrl+Shift+S", desc: "Share terminal session", icon: Share2 },
+	{ key: "Ctrl+Shift+N", desc: "Dismiss terminal notification", icon: Bell },
+	{ key: "Ctrl+Shift+M", desc: "Toggle resource monitor", icon: Cpu },
+	{ key: "Ctrl+Shift+U", desc: "Upload file to terminal", icon: Upload },
+	{ key: "Ctrl+Shift+/", desc: "Toggle slash commands menu", icon: Slash },
 ]
 
 export default function KeyboardShortcutsModal({ onClose }: KeyboardShortcutsModalProps) {

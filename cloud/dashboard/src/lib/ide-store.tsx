@@ -90,6 +90,66 @@ export interface TerminalSession {
 	createdAt: string
 }
 
+// #3: Terminal Session Persistence
+export interface PersistedTerminalSession {
+	id: string
+	name: string
+	outputBlocks: OutputBlock[]
+	createdAt: string
+	lastActivity: string
+	commandCount: number
+}
+
+// #4: Split Terminal Panels
+export interface SplitTerminalTab {
+	id: string
+	name: string
+	sessionId: string
+	outputBlocks: OutputBlock[]
+	terminalInput: string
+	recentCommands: string[]
+	isRecording: boolean
+	recordingBlocks: OutputBlock[]
+}
+
+// #9: Terminal Bell/Notification
+export interface TerminalNotification {
+	id: string
+	message: string
+	type: "info" | "success" | "error"
+	timestamp: string
+	dismissed: boolean
+}
+
+// #10: Command Bookmarking/Snippets
+export interface CommandSnippet {
+	id: string
+	name: string
+	command: string
+	description: string
+	category: string
+	createdAt: string
+	pinned: boolean
+}
+
+// #11: Terminal Sharing
+export interface SharedTerminalSession {
+	id: string
+	shareId: string
+	createdAt: string
+	expiresAt: string
+	blocks: OutputBlock[]
+	sharedBy: string
+}
+
+// #12: Terminal CPU/Memory Usage
+export interface TerminalResourceUsage {
+	cpu: number
+	memory: number
+	processCount: number
+	uptime: number
+}
+
 // ─── State ────────────────────────────────────────────────────────────────
 
 export interface IdeState {
@@ -111,6 +171,38 @@ export interface IdeState {
 	isRecording: boolean
 	recordingBlocks: OutputBlock[]
 	showRecordings: boolean
+
+	// #1: PTY/Shell Integration
+	ptySessionId: string | null
+	ptyConnected: boolean
+	ptyShell: string | null
+	ptyCwd: string | null
+
+	// #3: Terminal Session Persistence
+	persistedSessions: PersistedTerminalSession[]
+
+	// #4: Split Terminal Panels
+	splitTerminals: SplitTerminalTab[]
+	activeSplitTerminal: string | null
+
+	// #6: Terminal Output Search
+	terminalSearchQuery: string
+	terminalSearchResults: number[]
+	terminalSearchActiveIndex: number
+
+	// #9: Terminal Bell/Notification
+	terminalNotifications: TerminalNotification[]
+
+	// #10: Command Bookmarking/Snippets
+	commandSnippets: CommandSnippet[]
+	showSnippetsPanel: boolean
+
+	// #11: Terminal Sharing
+	sharedSessions: SharedTerminalSession[]
+	showShareDialog: boolean
+
+	// #12: Terminal Resource Usage
+	terminalResources: TerminalResourceUsage | null
 
 	// Files
 	files: WorkspaceFile[]
@@ -189,6 +281,38 @@ const initialState: IdeState = {
 	recordingBlocks: [],
 	showRecordings: false,
 
+	// #1: PTY
+	ptySessionId: null,
+	ptyConnected: false,
+	ptyShell: null,
+	ptyCwd: null,
+
+	// #3: Persisted sessions
+	persistedSessions: [],
+
+	// #4: Split terminals
+	splitTerminals: [],
+	activeSplitTerminal: null,
+
+	// #6: Terminal search
+	terminalSearchQuery: "",
+	terminalSearchResults: [],
+	terminalSearchActiveIndex: -1,
+
+	// #9: Notifications
+	terminalNotifications: [],
+
+	// #10: Snippets
+	commandSnippets: [],
+	showSnippetsPanel: false,
+
+	// #11: Sharing
+	sharedSessions: [],
+	showShareDialog: false,
+
+	// #12: Resources
+	terminalResources: null,
+
 	files: [],
 	openFiles: [],
 	activeFilePath: null,
@@ -255,6 +379,39 @@ export type IdeAction =
 	| { type: "SET_IS_RECORDING"; payload: boolean }
 	| { type: "SET_RECORDING_BLOCKS"; payload: OutputBlock[] }
 	| { type: "SET_SHOW_RECORDINGS"; payload: boolean }
+	// #1: PTY
+	| { type: "SET_PTY_SESSION_ID"; payload: string | null }
+	| { type: "SET_PTY_CONNECTED"; payload: boolean }
+	| { type: "SET_PTY_SHELL"; payload: string | null }
+	| { type: "SET_PTY_CWD"; payload: string | null }
+	// #3: Persisted sessions
+	| { type: "SET_PERSISTED_SESSIONS"; payload: PersistedTerminalSession[] }
+	| { type: "ADD_PERSISTED_SESSION"; payload: PersistedTerminalSession }
+	| { type: "REMOVE_PERSISTED_SESSION"; payload: string }
+	// #4: Split terminals
+	| { type: "SET_SPLIT_TERMINALS"; payload: SplitTerminalTab[] }
+	| { type: "ADD_SPLIT_TERMINAL"; payload: SplitTerminalTab }
+	| { type: "REMOVE_SPLIT_TERMINAL"; payload: string }
+	| { type: "SET_ACTIVE_SPLIT_TERMINAL"; payload: string | null }
+	| { type: "UPDATE_SPLIT_TERMINAL"; payload: { id: string; changes: Partial<SplitTerminalTab> } }
+	// #6: Terminal search
+	| { type: "SET_TERMINAL_SEARCH_QUERY"; payload: string }
+	| { type: "SET_TERMINAL_SEARCH_RESULTS"; payload: number[] }
+	| { type: "SET_TERMINAL_SEARCH_ACTIVE_INDEX"; payload: number }
+	// #9: Notifications
+	| { type: "SET_TERMINAL_NOTIFICATIONS"; payload: TerminalNotification[] }
+	| { type: "ADD_TERMINAL_NOTIFICATION"; payload: TerminalNotification }
+	| { type: "DISMISS_TERMINAL_NOTIFICATION"; payload: string }
+	// #10: Snippets
+	| { type: "SET_COMMAND_SNIPPETS"; payload: CommandSnippet[] }
+	| { type: "ADD_COMMAND_SNIPPET"; payload: CommandSnippet }
+	| { type: "REMOVE_COMMAND_SNIPPET"; payload: string }
+	| { type: "SET_SHOW_SNIPPETS_PANEL"; payload: boolean }
+	// #11: Sharing
+	| { type: "SET_SHARED_SESSIONS"; payload: SharedTerminalSession[] }
+	| { type: "SET_SHOW_SHARE_DIALOG"; payload: boolean }
+	// #12: Resources
+	| { type: "SET_TERMINAL_RESOURCES"; payload: TerminalResourceUsage | null }
 	| { type: "SET_FILES"; payload: WorkspaceFile[] }
 	| { type: "SET_OPEN_FILES"; payload: OpenFile[] }
 	| { type: "SET_ACTIVE_FILE_PATH"; payload: string | null }
@@ -289,12 +446,10 @@ export type IdeAction =
 function ideReducer(state: IdeState, action: IdeAction): IdeState {
 	switch (action.type) {
 		case "HYDRATE": {
-			// Safely merge hydrated state, ensuring critical fields have valid defaults
 			const payload = action.payload || {}
 			return {
 				...state,
 				...payload,
-				// Ensure Set type is preserved even if payload has a plain array
 				collapsedBlocks:
 					payload.collapsedBlocks instanceof Set ? payload.collapsedBlocks : state.collapsedBlocks,
 				_hydrated: true,
@@ -343,6 +498,74 @@ function ideReducer(state: IdeState, action: IdeAction): IdeState {
 			return { ...state, recordingBlocks: action.payload }
 		case "SET_SHOW_RECORDINGS":
 			return { ...state, showRecordings: action.payload }
+		// #1: PTY
+		case "SET_PTY_SESSION_ID":
+			return { ...state, ptySessionId: action.payload }
+		case "SET_PTY_CONNECTED":
+			return { ...state, ptyConnected: action.payload }
+		case "SET_PTY_SHELL":
+			return { ...state, ptyShell: action.payload }
+		case "SET_PTY_CWD":
+			return { ...state, ptyCwd: action.payload }
+		// #3: Persisted sessions
+		case "SET_PERSISTED_SESSIONS":
+			return { ...state, persistedSessions: action.payload }
+		case "ADD_PERSISTED_SESSION":
+			return { ...state, persistedSessions: [...state.persistedSessions, action.payload] }
+		case "REMOVE_PERSISTED_SESSION":
+			return { ...state, persistedSessions: state.persistedSessions.filter((s) => s.id !== action.payload) }
+		// #4: Split terminals
+		case "SET_SPLIT_TERMINALS":
+			return { ...state, splitTerminals: action.payload }
+		case "ADD_SPLIT_TERMINAL":
+			return { ...state, splitTerminals: [...state.splitTerminals, action.payload] }
+		case "REMOVE_SPLIT_TERMINAL":
+			return { ...state, splitTerminals: state.splitTerminals.filter((t) => t.id !== action.payload) }
+		case "SET_ACTIVE_SPLIT_TERMINAL":
+			return { ...state, activeSplitTerminal: action.payload }
+		case "UPDATE_SPLIT_TERMINAL":
+			return {
+				...state,
+				splitTerminals: state.splitTerminals.map((t) =>
+					t.id === action.payload.id ? { ...t, ...action.payload.changes } : t,
+				),
+			}
+		// #6: Terminal search
+		case "SET_TERMINAL_SEARCH_QUERY":
+			return { ...state, terminalSearchQuery: action.payload }
+		case "SET_TERMINAL_SEARCH_RESULTS":
+			return { ...state, terminalSearchResults: action.payload }
+		case "SET_TERMINAL_SEARCH_ACTIVE_INDEX":
+			return { ...state, terminalSearchActiveIndex: action.payload }
+		// #9: Notifications
+		case "SET_TERMINAL_NOTIFICATIONS":
+			return { ...state, terminalNotifications: action.payload }
+		case "ADD_TERMINAL_NOTIFICATION":
+			return { ...state, terminalNotifications: [...state.terminalNotifications, action.payload] }
+		case "DISMISS_TERMINAL_NOTIFICATION":
+			return {
+				...state,
+				terminalNotifications: state.terminalNotifications.map((n) =>
+					n.id === action.payload ? { ...n, dismissed: true } : n,
+				),
+			}
+		// #10: Snippets
+		case "SET_COMMAND_SNIPPETS":
+			return { ...state, commandSnippets: action.payload }
+		case "ADD_COMMAND_SNIPPET":
+			return { ...state, commandSnippets: [...state.commandSnippets, action.payload] }
+		case "REMOVE_COMMAND_SNIPPET":
+			return { ...state, commandSnippets: state.commandSnippets.filter((s) => s.id !== action.payload) }
+		case "SET_SHOW_SNIPPETS_PANEL":
+			return { ...state, showSnippetsPanel: action.payload }
+		// #11: Sharing
+		case "SET_SHARED_SESSIONS":
+			return { ...state, sharedSessions: action.payload }
+		case "SET_SHOW_SHARE_DIALOG":
+			return { ...state, showShareDialog: action.payload }
+		// #12: Resources
+		case "SET_TERMINAL_RESOURCES":
+			return { ...state, terminalResources: action.payload }
 		case "SET_FILES":
 			return { ...state, files: action.payload }
 		case "SET_OPEN_FILES":

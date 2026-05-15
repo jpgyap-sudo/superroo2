@@ -8,6 +8,11 @@ import {
 	type ChatMessage,
 	type OpenFile,
 	type WorkspaceTask,
+	type CommandSnippet,
+	type SplitTerminalTab,
+	type TerminalNotification,
+	type SharedTerminalSession,
+	type TerminalResourceUsage,
 } from "@/lib/ide-store"
 import {
 	apiFetch,
@@ -199,6 +204,23 @@ export function useIdeTerminal() {
 		recentWorkspaces,
 		workspaceTasks,
 		_hydrated,
+		// New PTY state
+		ptySessionId,
+		ptyConnected,
+		ptyShell,
+		ptyCwd,
+		persistedSessions,
+		splitTerminals,
+		activeSplitTerminal,
+		terminalSearchQuery,
+		terminalSearchResults,
+		terminalSearchActiveIndex,
+		terminalNotifications,
+		commandSnippets,
+		showSnippetsPanel,
+		sharedSessions,
+		showShareDialog,
+		terminalResources,
 	} = state
 
 	// ── Local-only state ─────────────────────────────────────────────────
@@ -243,6 +265,12 @@ export function useIdeTerminal() {
 	const [showExtensionsPanel, setShowExtensionsPanel] = useState(false)
 	const [editorProblems, setEditorProblems] = useState<any[]>([])
 	const [lspConnected, setLspConnected] = useState(false)
+	// Terminal search local state
+	const [terminalSearchLocalQuery, setTerminalSearchLocalQuery] = useState("")
+	// Snippet input
+	const [snippetNameInput, setSnippetNameInput] = useState("")
+	// Share dialog input
+	const [shareSessionId, setShareSessionId] = useState("")
 
 	// ── Refs for values that shouldn't trigger useCallback re-creation ────
 	const aiInputRef = useRef(aiInput)
@@ -303,6 +331,10 @@ export function useIdeTerminal() {
 	const fileSearchRef = useRef<HTMLInputElement>(null)
 	const lspWsRef = useRef<WebSocket | null>(null)
 
+	// ── PTY output buffer (accumulates output for the active session) ────
+	const [ptyOutputBuffer, setPtyOutputBuffer] = useState<string>("")
+	const ptyOutputBufferRef = useRef("")
+
 	// ── WebSocket ────────────────────────────────────────────────────────
 	const {
 		wsRef,
@@ -316,6 +348,50 @@ export function useIdeTerminal() {
 		},
 		onShowSmartSuggestions: (show) => {
 			dispatch({ type: "SET_SHOW_SMART_SUGGESTIONS", payload: show })
+		},
+		// PTY callbacks
+		onPtyOutput: (sessionId, data) => {
+			if (sessionId === ptySessionId) {
+				ptyOutputBufferRef.current += data
+				setPtyOutputBuffer(ptyOutputBufferRef.current)
+				// Also append to terminal output for display
+				dispatch({ type: "APPEND_TERMINAL_OUTPUT", payload: [data] })
+			}
+		},
+		onPtyExit: (sessionId, exitCode, signal) => {
+			if (sessionId === ptySessionId) {
+				dispatch({ type: "SET_PTY_CONNECTED", payload: false })
+				dispatch({
+					type: "APPEND_TERMINAL_OUTPUT",
+					payload: [`[Process exited with code ${exitCode} (signal: ${signal})]`],
+				})
+			}
+		},
+		onPtyCreated: (sessionId, shell, cwd) => {
+			dispatch({ type: "SET_PTY_SESSION_ID", payload: sessionId })
+			dispatch({ type: "SET_PTY_CONNECTED", payload: true })
+			dispatch({ type: "SET_PTY_SHELL", payload: shell })
+			dispatch({ type: "SET_PTY_CWD", payload: cwd })
+		},
+		onPtyBuffer: (sessionId, buffer) => {
+			if (sessionId === ptySessionId) {
+				ptyOutputBufferRef.current = buffer
+				setPtyOutputBuffer(buffer)
+			}
+		},
+		onPtyList: (sessions) => {
+			dispatch({
+				type: "SET_PERSISTED_SESSIONS",
+				payload: (sessions as any[]).map((s) => ({
+					id: s.id,
+					name: s.name || `Session ${s.id.slice(0, 8)}`,
+					outputBlocks: s.outputBlocks || [],
+					createdAt: typeof s.createdAt === "string" ? s.createdAt : new Date(s.createdAt).toISOString(),
+					lastActivity:
+						typeof s.lastActivity === "string" ? s.lastActivity : new Date(s.lastActivity).toISOString(),
+					commandCount: s.commandCount || 0,
+				})),
+			})
 		},
 	})
 
@@ -786,10 +862,245 @@ export function useIdeTerminal() {
 		[currentFilePath, openFiles, dispatch],
 	)
 
+	// ── PTY Terminal Operations ──────────────────────────────────────────
+
+	/** Create a new PTY session */
+	const handlePtyCreate = useCallback(
+		(options?: { shell?: string; cwd?: string; cols?: number; rows?: number }) => {
+			const sessionId = `pty-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+			wsSend({
+				type: "pty:create",
+				sessionId,
+				...options,
+			})
+		},
+		[wsSend],
+	)
+
+	/** Send input to the active PTY session */
+	const handlePtyInput = useCallback(
+		(data: string) => {
+			if (!ptySessionId) return
+			wsSend({
+				type: "pty:input",
+				sessionId: ptySessionId,
+				data,
+			})
+		},
+		[wsSend, ptySessionId],
+	)
+
+	/** Resize the active PTY session */
+	const handlePtyResize = useCallback(
+		(cols: number, rows: number) => {
+			if (!ptySessionId) return
+			wsSend({
+				type: "pty:resize",
+				sessionId: ptySessionId,
+				cols,
+				rows,
+			})
+		},
+		[wsSend, ptySessionId],
+	)
+
+	/** Kill the active PTY session */
+	const handlePtyKill = useCallback(() => {
+		if (!ptySessionId) return
+		wsSend({
+			type: "pty:kill",
+			sessionId: ptySessionId,
+		})
+		dispatch({ type: "SET_PTY_CONNECTED", payload: false })
+		dispatch({ type: "SET_PTY_SESSION_ID", payload: null })
+	}, [wsSend, ptySessionId, dispatch])
+
+	/** List all PTY sessions */
+	const handlePtyList = useCallback(() => {
+		wsSend({ type: "pty:list" })
+	}, [wsSend])
+
+	/** Get buffer from a PTY session */
+	const handlePtyGetBuffer = useCallback(
+		(sessionId: string) => {
+			wsSend({
+				type: "pty:getBuffer",
+				sessionId,
+			})
+		},
+		[wsSend],
+	)
+
+	// ── Split Terminal Operations (#4) ────────────────────────────────────
+
+	const handleAddSplitTerminal = useCallback(
+		(orientation: "horizontal" | "vertical" = "vertical") => {
+			const newTab: SplitTerminalTab = {
+				id: `split-${Date.now()}`,
+				name: `Terminal ${splitTerminals.length + 1}`,
+				sessionId: "",
+				outputBlocks: [],
+				terminalInput: "",
+				recentCommands: [],
+				isRecording: false,
+				recordingBlocks: [],
+			}
+			dispatch({ type: "ADD_SPLIT_TERMINAL", payload: newTab })
+		},
+		[splitTerminals.length, dispatch],
+	)
+
+	const handleRemoveSplitTerminal = useCallback(
+		(id: string) => {
+			dispatch({ type: "REMOVE_SPLIT_TERMINAL", payload: id })
+		},
+		[dispatch],
+	)
+
+	const handleSetActiveSplitTerminal = useCallback(
+		(id: string) => {
+			dispatch({ type: "SET_ACTIVE_SPLIT_TERMINAL", payload: id })
+		},
+		[dispatch],
+	)
+
+	const handleUpdateSplitTerminal = useCallback(
+		(id: string, changes: Partial<SplitTerminalTab>) => {
+			dispatch({ type: "UPDATE_SPLIT_TERMINAL", payload: { id, changes } })
+		},
+		[dispatch],
+	)
+
+	// ── Terminal Search/Filter (#6) ───────────────────────────────────────
+
+	const handleTerminalSearch = useCallback(
+		(query: string) => {
+			setTerminalSearchLocalQuery(query)
+			dispatch({ type: "SET_TERMINAL_SEARCH_QUERY", payload: query })
+			if (!query.trim()) {
+				dispatch({ type: "SET_TERMINAL_SEARCH_RESULTS", payload: [] })
+				dispatch({ type: "SET_TERMINAL_SEARCH_ACTIVE_INDEX", payload: -1 })
+				return
+			}
+			const lower = query.toLowerCase()
+			const results = outputBlocks
+				.map((block, idx) => ({ block, idx, text: block.content || "" }))
+				.filter(({ text }) => text.toLowerCase().includes(lower))
+				.map(({ idx }) => idx)
+			dispatch({ type: "SET_TERMINAL_SEARCH_RESULTS", payload: results })
+			dispatch({ type: "SET_TERMINAL_SEARCH_ACTIVE_INDEX", payload: results.length > 0 ? 0 : -1 })
+		},
+		[outputBlocks, dispatch],
+	)
+
+	const handleTerminalSearchNext = useCallback(() => {
+		if (terminalSearchResults.length === 0) return
+		const next = (terminalSearchActiveIndex + 1) % terminalSearchResults.length
+		dispatch({ type: "SET_TERMINAL_SEARCH_ACTIVE_INDEX", payload: next })
+	}, [terminalSearchResults, terminalSearchActiveIndex, dispatch])
+
+	const handleTerminalSearchPrev = useCallback(() => {
+		if (terminalSearchResults.length === 0) return
+		const prev = (terminalSearchActiveIndex - 1 + terminalSearchResults.length) % terminalSearchResults.length
+		dispatch({ type: "SET_TERMINAL_SEARCH_ACTIVE_INDEX", payload: prev })
+	}, [terminalSearchResults, terminalSearchActiveIndex, dispatch])
+
+	// ── Terminal Notifications (#9) ───────────────────────────────────────
+
+	const handleDismissNotification = useCallback(
+		(id: string) => {
+			dispatch({ type: "DISMISS_TERMINAL_NOTIFICATION", payload: id })
+		},
+		[dispatch],
+	)
+
+	// ── Command Snippets (#10) ────────────────────────────────────────────
+
+	const handleAddSnippet = useCallback(
+		(name: string, command: string) => {
+			const snippet: CommandSnippet = {
+				id: `snippet-${Date.now()}`,
+				name,
+				command,
+				description: "",
+				category: "custom",
+				createdAt: new Date().toISOString(),
+				pinned: false,
+			}
+			dispatch({ type: "ADD_COMMAND_SNIPPET", payload: snippet })
+		},
+		[dispatch],
+	)
+
+	const handleRemoveSnippet = useCallback(
+		(id: string) => {
+			dispatch({ type: "REMOVE_COMMAND_SNIPPET", payload: id })
+		},
+		[dispatch],
+	)
+
+	const handleToggleSnippetsPanel = useCallback(() => {
+		dispatch({ type: "SET_SHOW_SNIPPETS_PANEL", payload: !showSnippetsPanel })
+	}, [showSnippetsPanel, dispatch])
+
+	// ── Terminal Sharing (#11) ────────────────────────────────────────────
+
+	const handleToggleShareDialog = useCallback(() => {
+		dispatch({ type: "SET_SHOW_SHARE_DIALOG", payload: !showShareDialog })
+	}, [showShareDialog, dispatch])
+
+	const handleShareSession = useCallback(
+		(targetSessionId: string) => {
+			if (!ptySessionId) return
+			const shared: SharedTerminalSession = {
+				id: `shared-${Date.now()}`,
+				shareId: targetSessionId,
+				createdAt: new Date().toISOString(),
+				expiresAt: new Date(Date.now() + 3600000).toISOString(),
+				blocks: outputBlocks,
+				sharedBy: "current-user",
+			}
+			dispatch({ type: "SET_SHARED_SESSIONS", payload: [...sharedSessions, shared] })
+			dispatch({ type: "SET_SHOW_SHARE_DIALOG", payload: false })
+		},
+		[ptySessionId, sharedSessions, outputBlocks, dispatch],
+	)
+
+	// ── Terminal Resource Monitoring (#12) ────────────────────────────────
+
+	useEffect(() => {
+		// Poll CPU/memory usage every 5 seconds for the terminal
+		const interval = setInterval(async () => {
+			try {
+				const data = await apiFetch<{ cpu: number; memory: number; processes?: number }>("/system/resources")
+				const resources: TerminalResourceUsage = {
+					cpu: data.cpu || 0,
+					memory: data.memory || 0,
+					processCount: data.processes || 0,
+					uptime: 0,
+				}
+				dispatch({ type: "SET_TERMINAL_RESOURCES", payload: resources })
+			} catch {
+				// silent
+			}
+		}, 5000)
+		return () => clearInterval(interval)
+	}, [dispatch])
+
+	// ── Terminal command handler (with PTY support) ───────────────────────
+
 	const handleTerminalCommand = useCallback(
 		async (cmd: string) => {
 			if (!cmd.trim()) return
 			dispatch({ type: "SET_TERMINAL_INPUT", payload: "" })
+
+			if (ptyConnected && ptySessionId) {
+				// Send via PTY for real shell interaction
+				handlePtyInput(cmd + "\n")
+				return
+			}
+
+			// Fallback to REST-based command execution
 			dispatch({ type: "APPEND_TERMINAL_OUTPUT", payload: [`$ ${cmd}`] })
 			try {
 				const result = await sendTerminalCommand(cmd)
@@ -803,8 +1114,10 @@ export function useIdeTerminal() {
 				dispatch({ type: "APPEND_TERMINAL_OUTPUT", payload: [`Error: ${err.message}`] })
 			}
 		},
-		[dispatch],
+		[dispatch, ptyConnected, ptySessionId, handlePtyInput],
 	)
+
+	// ── Import / Open workspace ───────────────────────────────────────────
 
 	const handleImportGithub = useCallback(async () => {
 		if (!importGithubUrl.trim()) return
@@ -950,6 +1263,30 @@ export function useIdeTerminal() {
 		recentWorkspaces,
 		workspaceTasks,
 
+		// New state
+		ptySessionId,
+		ptyConnected,
+		ptyShell,
+		ptyCwd,
+		ptyOutputBuffer,
+		persistedSessions,
+		splitTerminals,
+		activeSplitTerminal,
+		terminalSearchQuery,
+		terminalSearchResults,
+		terminalSearchActiveIndex,
+		terminalSearchLocalQuery,
+		terminalNotifications,
+		commandSnippets,
+		showSnippetsPanel,
+		sharedSessions,
+		showShareDialog,
+		terminalResources,
+		snippetNameInput,
+		setSnippetNameInput,
+		shareSessionId,
+		setShareSessionId,
+
 		// Local state
 		activeMode,
 		setActiveMode,
@@ -1051,5 +1388,36 @@ export function useIdeTerminal() {
 		getAgentSuggestions,
 		isAgentCommand,
 		isAgentMention,
+
+		// PTY handlers
+		handlePtyCreate,
+		handlePtyInput,
+		handlePtyResize,
+		handlePtyKill,
+		handlePtyList,
+		handlePtyGetBuffer,
+
+		// Split terminal handlers
+		handleAddSplitTerminal,
+		handleRemoveSplitTerminal,
+		handleSetActiveSplitTerminal,
+		handleUpdateSplitTerminal,
+
+		// Search handlers
+		handleTerminalSearch,
+		handleTerminalSearchNext,
+		handleTerminalSearchPrev,
+
+		// Notification handlers
+		handleDismissNotification,
+
+		// Snippet handlers
+		handleAddSnippet,
+		handleRemoveSnippet,
+		handleToggleSnippetsPanel,
+
+		// Share handlers
+		handleToggleShareDialog,
+		handleShareSession,
 	}
 }

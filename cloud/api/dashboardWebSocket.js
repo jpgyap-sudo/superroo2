@@ -1,3 +1,5 @@
+const ptyServer = require("./pty-server")
+
 /**
  * Dashboard WebSocket — Real-Time Data Broadcasting
  *
@@ -139,6 +141,12 @@ function init(server, path = "/api/ws/dashboard") {
  * @param {{ type: string, channels?: string[] }} msg
  */
 function handleMessage(ws, msg) {
+	// Route PTY messages to the PTY server
+	if (msg.type && msg.type.startsWith("pty:")) {
+		ptyServer.handleMessage(ws, msg)
+		return
+	}
+
 	switch (msg.type) {
 		case "ping":
 			ws.send(JSON.stringify({ type: "pong", timestamp: Date.now() }))
@@ -152,7 +160,7 @@ function handleMessage(ws, msg) {
 					if (!subscribers.has(channel)) {
 						subscribers.set(channel, new Set())
 					}
-					/** @type {Set<DashWebSocket>} */ ;(subscribers.get(channel)).add(ws)
+					/** @type {Set<DashWebSocket>} */ subscribers.get(channel).add(ws)
 
 					// Send cached data immediately if available
 					if (lastData.has(channel)) {

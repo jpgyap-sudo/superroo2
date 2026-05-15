@@ -36,6 +36,7 @@ const rateLimiter = require("./rateLimiter")
 const logRotator = require("./logRotator")
 const telegramWebSocket = require("./telegramWebSocket")
 const dashboardWebSocket = require("./dashboardWebSocket")
+const ptyServer = require("./pty-server")
 const healingMetrics = require("./routes/healing-metrics")
 const monitoring = require("./routes/monitoring")
 const mlRoutes = require("./routes/ml")
@@ -1149,6 +1150,11 @@ telegramWebSocket.init(server, "/api/ws/telegram")
 // Replaces polling-based data fetching with push-based updates.
 // Dashboard views subscribe to channels and receive data as it changes.
 dashboardWebSocket.init(server, "/api/ws/dashboard")
+
+// ── PTY Server ─────────────────────────────────────────────────────────────
+// Real pseudo-terminal shell integration via node-pty + WebSocket.
+// Provides live shell sessions with streaming output, resize, and multi-session.
+ptyServer.init(dashboardWebSocket.getWss())
 
 // Track connected chat clients by workspace session
 const chatClients = new Map() // sessionId -> Set<WebSocket>
@@ -7489,6 +7495,16 @@ server.on("upgrade", (request, socket, head) => {
 			})
 		} else {
 			console.error("[api] Dashboard WebSocket server not initialized")
+			socket.destroy()
+		}
+	} else if (url.startsWith("/api/ws/pty") || url.startsWith("/ws/pty")) {
+		const dashWss = dashboardWebSocket.getWss()
+		if (dashWss) {
+			dashWss.handleUpgrade(request, socket, head, (ws) => {
+				dashWss.emit("connection", ws, request)
+			})
+		} else {
+			console.error("[api] PTY WebSocket server not initialized")
 			socket.destroy()
 		}
 	} else {
