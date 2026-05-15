@@ -31,6 +31,8 @@ import {
 	Activity,
 	Network,
 	Building2,
+	LogOut,
+	LogIn,
 } from "lucide-react"
 
 const NAV = [
@@ -59,8 +61,17 @@ const NAV = [
 	{ id: "auto-deploy", icon: Rocket, label: "Auto Deploy" },
 ]
 
-export function Sidebar({ page, setPage }: { page: string; setPage: (p: string) => void }) {
+export function Sidebar({
+	page,
+	setPage,
+	onLogout,
+}: {
+	page: string
+	setPage: (p: string) => void
+	onLogout?: () => void
+}) {
 	const [collapsed, setCollapsed] = useState(false)
+	const userEmail = typeof window !== "undefined" ? localStorage.getItem("superroo_auth_email") : null
 	const [mobileOpen, setMobileOpen] = useState(false)
 
 	// Close mobile sidebar when a nav item is clicked
@@ -116,7 +127,12 @@ export function Sidebar({ page, setPage }: { page: string; setPage: (p: string) 
 					<div className="flex h-8 w-8 items-center justify-center rounded bg-violet-600/20 text-violet-400 shrink-0">
 						<Sparkles className="h-4 w-4" />
 					</div>
-					{!collapsed && <span className="text-sm font-bold text-[#e2e8f0]">SuperRoo</span>}
+					{!collapsed && (
+						<div className="flex flex-col min-w-0 flex-1">
+							<span className="text-sm font-bold text-[#e2e8f0]">SuperRoo</span>
+							{userEmail && <span className="text-[10px] text-gray-500 truncate">{userEmail}</span>}
+						</div>
+					)}
 					{/* Close button on mobile — larger touch target */}
 					<button
 						onClick={(e) => {
@@ -158,6 +174,20 @@ export function Sidebar({ page, setPage }: { page: string; setPage: (p: string) 
 						)
 					})}
 				</nav>
+
+				{/* Logout button */}
+				<div className="border-t border-[#1e2535]">
+					<button
+						onClick={onLogout}
+						className={cn(
+							"flex w-full items-center gap-3 px-3 py-3 md:py-2.5 text-sm transition-colors active:scale-[0.98]",
+							"border-l-2 border-transparent text-gray-500 hover:bg-[#0f1117] hover:text-red-400",
+						)}
+						title="Sign out">
+						<LogOut className="h-4 w-4 shrink-0" />
+						{!collapsed && <span>Sign Out</span>}
+					</button>
+				</div>
 
 				{/* Version footer */}
 				{!collapsed && (

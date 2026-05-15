@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Sidebar } from "@/components/sidebar"
 import { Badge } from "@/components/ui/badge"
 import ErrorBoundary from "@/components/ErrorBoundary"
@@ -80,19 +80,39 @@ export default function Dashboard() {
 		return () => clearInterval(iv)
 	}, [])
 
-	// Check authentication on mount
+	// Check authentication on mount — verify token with server
 	useEffect(() => {
-		try {
-			const token = localStorage.getItem("superroo_auth_token")
-			if (token) {
-				setAuthenticated(true)
-			} else {
-				setAuthenticated(false)
+		async function checkAuth() {
+			try {
+				const token = localStorage.getItem("superroo_auth_token")
+				if (!token) {
+					setAuthenticated(false)
+					return
+				}
+				// Verify token is still valid with the server
+				const res = await fetch("/api/auth/verify", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ token }),
+				})
+				const data = await res.json()
+				if (res.ok && data.ok) {
+					setAuthenticated(true)
+				} else {
+					// Token expired or invalid — clear it and show login
+					localStorage.removeItem("superroo_auth_token")
+					localStorage.removeItem("superroo_auth_email")
+					localStorage.removeItem("superroo_user_id")
+					localStorage.removeItem("superroo_user_name")
+					setAuthenticated(false)
+				}
+			} catch {
+				// Network error — still show dashboard (offline mode)
+				const token = localStorage.getItem("superroo_auth_token")
+				setAuthenticated(!!token)
 			}
-		} catch {
-			// localStorage unavailable (private browsing, SSR, storage quota exceeded)
-			setAuthenticated(false)
 		}
+		checkAuth()
 	}, [])
 
 	// Register service worker for PWA
@@ -140,6 +160,23 @@ export default function Dashboard() {
 		return () => clearInterval(iv)
 	}, [])
 
+	const handleLogout = useCallback(() => {
+		// Invalidate server-side session
+		const token = localStorage.getItem("superroo_auth_token")
+		if (token) {
+			fetch("/api/auth/logout", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ token }),
+			}).catch(() => {}) // fire-and-forget
+		}
+		localStorage.removeItem("superroo_auth_token")
+		localStorage.removeItem("superroo_auth_email")
+		localStorage.removeItem("superroo_user_id")
+		localStorage.removeItem("superroo_user_name")
+		setAuthenticated(false)
+	}, [])
+
 	const PageComponent = PAGES[page] || Overview
 	const pageLabel =
 		{
@@ -182,7 +219,7 @@ export default function Dashboard() {
 
 	return (
 		<div className="flex h-screen overflow-hidden bg-[#070b14] text-[#e2e8f0]">
-			<Sidebar page={page} setPage={setPage} />
+			<Sidebar page={page} setPage={setPage} onLogout={handleLogout} />
 
 			<div className="flex flex-1 flex-col overflow-hidden min-w-0">
 				{/* Header — responsive: hide status dots on very small screens */}
