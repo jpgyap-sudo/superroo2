@@ -7034,6 +7034,192 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// GET /telegram/mapping — live status of all Telegram bot components
+		if (method === "GET" && (url === "/telegram/mapping" || normalizedUrl === "/telegram/mapping")) {
+			try {
+				const webhookInfo = TELEGRAM_BOT_TOKEN ? await telegramBot.getWebhookInfo(TELEGRAM_BOT_TOKEN).catch(() => null) : null
+				const webhookOnline = !!(webhookInfo && webhookInfo.ok && webhookInfo.result && webhookInfo.result.url)
+				const pendingUpdates = (webhookInfo && webhookInfo.result && webhookInfo.result.pending_update_count) || 0
+				const lastErrorDate = (webhookInfo && webhookInfo.result && webhookInfo.result.last_error_date) || null
+				const lastErrorMessage = (webhookInfo && webhookInfo.result && webhookInfo.result.last_error_message) || null
+
+				// Check if telegramBot module exports are present
+				const hasHandleUpdate = typeof telegramBot.handleUpdate === "function"
+				const hasSendMessage = typeof telegramBot.sendMessage === "function"
+				const hasEditMessageText = typeof telegramBot.editMessageText === "function"
+				const hasSendChatAction = typeof telegramBot.sendChatAction === "function"
+				const hasAnswerCallbackQuery = typeof telegramBot.answerCallbackQuery === "function"
+				const hasGetWebhookInfo = typeof telegramBot.getWebhookInfo === "function"
+				const hasSetWebhook = typeof telegramBot.setWebhook === "function"
+				const hasSplitLongMessage = typeof telegramBot.splitLongMessage === "function"
+				const hasTgEndpoints = !!(telegramBot.tgEndpoints && typeof telegramBot.tgEndpoints === "object")
+
+				// Check notifier
+				const notifier = safeRequire("./telegramNotifier")
+				const hasNotifier = !!(notifier && typeof notifier.sendTaskStarted === "function")
+
+				// Check task board
+				const taskBoard = safeRequire("./telegramTaskBoard")
+				const hasTaskBoard = !!(taskBoard && typeof taskBoard.showTaskBoard === "function")
+
+				// Check rate limiter
+				const hasRateLimiter = !!(telegramRateLimiter && typeof telegramRateLimiter.checkRateLimit === "function")
+				const hasWebhookRateLimiter = !!(telegramRateLimiter && typeof telegramRateLimiter.checkWebhook === "function")
+
+				// Check menu
+				const menu = safeRequire("./telegramMenu")
+				const hasMenu = !!(menu && typeof menu.handleMenuCallback === "function")
+
+				// Check learner
+				const learner = safeRequire("./telegramLearner")
+				const hasLearner = !!(learner && typeof learner.recordInteraction === "function")
+
+				// Check orchestrator bridge
+				const hasOrchestratorBridge = !!(tgOrchestratorBridge && typeof tgOrchestratorBridge.createTask === "function")
+
+				// Check queue
+				const hasQueue = !!(queue && typeof queue.add === "function")
+
+				// Check providers
+				const hasProviders = Array.isArray(PROVIDERS) && PROVIDERS.length > 0
+
+				// Check Redis
+				let redisOnline = false
+				try {
+					const redisPing = await new Promise(function (resolve) {
+						var redisClient = global.__redisClient
+						if (redisClient && typeof redisClient.ping === "function") {
+							redisClient.ping().then(function () { resolve(true) }).catch(function () { resolve(false) })
+						} else {
+							resolve(false)
+						}
+					})
+					redisOnline = redisPing
+				} catch (_) { redisOnline = false }
+
+				const mapping = {
+					webhook: {
+						label: "Telegram Webhook",
+						online: webhookOnline,
+						detail: webhookOnline ? (webhookInfo.result.url || "connected") : "Not configured",
+						pendingUpdates: pendingUpdates,
+						lastError: lastErrorMessage ? { date: lastErrorDate, message: lastErrorMessage } : null,
+					},
+					messageRouter: {
+						label: "Message Router (handleUpdate)",
+						online: hasHandleUpdate,
+						detail: hasHandleUpdate ? "handleUpdate() loaded" : "Missing handleUpdate export",
+					},
+					sendMessage: {
+						label: "sendMessage (Telegram API)",
+						online: hasSendMessage,
+						detail: hasSendMessage ? "sendMessage() loaded" : "Missing sendMessage export",
+					},
+					editMessage: {
+						label: "editMessageText (Telegram API)",
+						online: hasEditMessageText,
+						detail: hasEditMessageText ? "editMessageText() loaded" : "Missing editMessageText export",
+					},
+					chatAction: {
+						label: "sendChatAction (Typing Indicator)",
+						online: hasSendChatAction,
+						detail: hasSendChatAction ? "sendChatAction() loaded" : "Missing sendChatAction export",
+					},
+					callbackQuery: {
+						label: "answerCallbackQuery",
+						online: hasAnswerCallbackQuery,
+						detail: hasAnswerCallbackQuery ? "answerCallbackQuery() loaded" : "Missing answerCallbackQuery export",
+					},
+					splitMessage: {
+						label: "splitLongMessage",
+						online: hasSplitLongMessage,
+						detail: hasSplitLongMessage ? "splitLongMessage() loaded" : "Missing splitLongMessage export",
+					},
+					rateLimiter: {
+						label: "Rate Limiter",
+						online: hasRateLimiter,
+						detail: hasRateLimiter ? "checkRateLimit() loaded" : "Missing rate limiter",
+					},
+					webhookRateLimiter: {
+						label: "Webhook Rate Limiter",
+						online: hasWebhookRateLimiter,
+						detail: hasWebhookRateLimiter ? "checkWebhook() loaded" : "Missing webhook rate limiter",
+					},
+					notifier: {
+						label: "Telegram Notifier",
+						online: hasNotifier,
+						detail: hasNotifier ? "sendTaskStarted() loaded" : "Missing notifier module",
+					},
+					taskBoard: {
+						label: "Task Board GUI",
+						online: hasTaskBoard,
+						detail: hasTaskBoard ? "showTaskBoard() loaded" : "Missing task board module",
+					},
+					menu: {
+						label: "Telegram Menu",
+						online: hasMenu,
+						detail: hasMenu ? "handleMenuCallback() loaded" : "Missing menu module",
+					},
+					learner: {
+						label: "Telegram Learner (ML)",
+						online: hasLearner,
+						detail: hasLearner ? "recordInteraction() loaded" : "Missing learner module",
+					},
+					tgEndpoints: {
+						label: "TG Endpoints (Brain/Logs/Tests)",
+						online: hasTgEndpoints,
+						detail: hasTgEndpoints ? "tgEndpoints loaded" : "Missing tgEndpoints module",
+					},
+					orchestratorBridge: {
+						label: "Orchestrator Bridge",
+						online: hasOrchestratorBridge,
+						detail: hasOrchestratorBridge ? "createTask() connected" : "Orchestrator bridge not available",
+					},
+					taskQueue: {
+						label: "Task Queue (BullMQ)",
+						online: hasQueue,
+						detail: hasQueue ? "queue.add() loaded" : "Queue not available",
+					},
+					aiProviders: {
+						label: "AI Providers",
+						online: hasProviders,
+						detail: hasProviders ? PROVIDERS.length + " providers configured" : "No providers configured",
+					},
+					redis: {
+						label: "Redis",
+						online: redisOnline,
+						detail: redisOnline ? "Connected" : "Not connected",
+					},
+					botToken: {
+						label: "Bot Token",
+						online: !!TELEGRAM_BOT_TOKEN,
+						detail: TELEGRAM_BOT_TOKEN ? "Configured" : "TELEGRAM_BOT_TOKEN not set",
+					},
+				}
+
+				// Count online/offline
+				var onlineCount = 0
+				var offlineCount = 0
+				for (var k in mapping) {
+					if (mapping[k].online) onlineCount++
+					else offlineCount++
+				}
+
+				sendJson(res, 200, {
+					success: true,
+					mapping: mapping,
+					summary: {
+						total: onlineCount + offlineCount,
+						online: onlineCount,
+						offline: offlineCount,
+					},
+				})
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
 		// ── OpenClaw Telegram API Endpoints ────────────────────────────────────
 		// These endpoints are called by the OpenClaw-style classifier after intent
 		// classification and policy check. They provide real backend operations.

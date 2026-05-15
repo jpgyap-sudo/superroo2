@@ -53,6 +53,7 @@ const NAV = [
 	{ id: "github", icon: Github, label: "GitHub" },
 	{ id: "approvals", icon: ShieldCheck, label: "Approvals" },
 	{ id: "telegram", icon: Send, label: "Telegram" },
+	{ id: "telegram-mapping", icon: Network, label: "TG Mapping" },
 	{ id: "model-router", icon: BrainCircuit, label: "Model Router" },
 	{ id: "api-keys", icon: KeyRound, label: "API Keys" },
 	{ id: "settings", icon: SlidersHorizontal, label: "Settings" },

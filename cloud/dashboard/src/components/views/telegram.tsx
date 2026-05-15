@@ -568,7 +568,7 @@ export function TelegramView() {
 		// Try to get the actual chat ID from bot status or tasks
 		// If no chat ID is available, show validation error
 		const chatId = botStatus.online ? 1 : 0 // Use 1 as a sentinel for "online bot"
-		if (!chatId || chatId === 0) {
+		if (!chatId) {
 			setTestMessageError("No active Telegram chat session. Start a conversation with the bot first.")
 			return
 		}

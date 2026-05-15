@@ -25,6 +25,7 @@ import ModelRouterView from "@/components/views/model-router"
 import IdeTerminalView from "@/components/views/ide-terminal"
 import { ProjectsView } from "@/components/views/projects"
 import { TelegramView } from "@/components/views/telegram"
+import { TelegramMappingView } from "@/components/views/telegram-mapping"
 import { AutoDeployView } from "@/components/views/auto-deploy"
 import { MlView } from "@/components/views/ml"
 import { TenantsView } from "@/components/views/tenants"
@@ -51,6 +52,7 @@ const PAGES: Record<string, React.ComponentType> = {
 	"ide-terminal": IdeTerminalView,
 	projects: ProjectsView,
 	telegram: TelegramView,
+	"telegram-mapping": TelegramMappingView,
 	"auto-deploy": AutoDeployView,
 	ml: MlView,
 	tenants: TenantsView,
@@ -201,6 +203,7 @@ export default function Dashboard() {
 			"ide-terminal": "IDE Terminal",
 			projects: "Projects",
 			telegram: "Telegram",
+			"telegram-mapping": "TG Mapping",
 			"auto-deploy": "Auto Deploy",
 			ml: "ML Engine",
 			tenants: "Organizations",
