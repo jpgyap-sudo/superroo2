@@ -156,6 +156,22 @@ async function findPm2Path() {
 }
 
 /**
+ * Maps short/display names to full PM2 process names.
+ * The ecosystem.config.js uses "superroo-" prefix for all workers,
+ * but users naturally type "api", "worker", "dashboard" etc.
+ */
+const PM2_NAME_MAP = {
+	api: "superroo-api",
+	worker: "superroo-worker",
+	dashboard: "superroo-dashboard",
+	"mini-ide": "superroo-mini-ide",
+	miniide: "superroo-mini-ide",
+	"auto-deployer": "superroo-auto-deployer",
+	autodeployer: "superroo-auto-deployer",
+	indexer: "superroo-indexer",
+}
+
+/**
  * Reads logs for a target (PM2 worker or Docker container).
  *
  * @param {string} target - Worker name or "docker"
@@ -168,6 +184,11 @@ async function readLogs(target, lines) {
 
 	// Resolve PM2 path once per call
 	const pm2 = await findPm2Path()
+
+	// Map short names to full PM2 process names
+	if (target && target !== "all" && target !== "docker" && PM2_NAME_MAP[target.toLowerCase()]) {
+		target = PM2_NAME_MAP[target.toLowerCase()]
+	}
 
 	if (!target || target === "all") {
 		// Read PM2 logs for all workers
@@ -496,8 +517,11 @@ async function createPr(title, body, project, headBranch, baseBranch) {
  * @returns {Promise<Object>} { ok, restarted, message }
  */
 async function restartWorker(workerName) {
+	// Map short names to full PM2 process names before whitelist check
+	const mappedName = PM2_NAME_MAP[workerName.toLowerCase()] || workerName
+
 	// Validate worker is in whitelist
-	const normalizedWorker = workerName.toLowerCase()
+	const normalizedWorker = mappedName.toLowerCase()
 	const matched = ALLOWED_WORKERS.find(function (w) {
 		return w.toLowerCase() === normalizedWorker
 	})
