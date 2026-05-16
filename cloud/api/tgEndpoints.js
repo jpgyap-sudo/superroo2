@@ -19,6 +19,7 @@ const { exec } = require("child_process")
 const { promisify } = require("util")
 const fs = require("fs").promises
 const path = require("path")
+const { loadTerminalCore } = require("./lib/terminalCore")
 
 const execAsync = promisify(exec)
 
@@ -199,7 +200,7 @@ async function readLogs(target, lines) {
 				const procName = proc.name
 				if (proc.pm2_env && proc.pm2_env.pm_log_path) {
 					try {
-						const logData = await run("tail -" + numLines + " " + proc.pm2_env.pm_log_path)
+						const logData = await run("tail -n " + numLines + " " + proc.pm2_env.pm_log_path)
 						if (logData.stdout) {
 							result.logs.push("--- " + procName + " ---")
 							const lines_arr = logData.stdout.split("\n")
@@ -230,7 +231,7 @@ async function readLogs(target, lines) {
 					const logFiles = lsResult.stdout.split("\n").filter(Boolean)
 					for (const logFile of logFiles.slice(0, 10)) {
 						try {
-							const logData = await run("tail -" + numLines + " " + logFile)
+							const logData = await run("tail -n " + numLines + " " + logFile)
 							if (logData.stdout) {
 								const name = logFile.replace(/.*\//, "").replace(/\.(log|out)$/, "")
 								result.logs.push("--- " + name + " ---")
@@ -277,7 +278,7 @@ async function readLogs(target, lines) {
 			const errPathMatch = pm2Logs.stdout.match(/error log path\s+([^\n]+)/)
 
 			if (logPathMatch) {
-				const logData = await run("tail -" + numLines + " " + logPathMatch[1].trim())
+				const logData = await run("tail -n " + numLines + " " + logPathMatch[1].trim())
 				if (logData.stdout) {
 					result.logs.push("--- stdout ---")
 					const lines_arr = logData.stdout.split("\n")
@@ -287,7 +288,7 @@ async function readLogs(target, lines) {
 				}
 			}
 			if (errPathMatch) {
-				const errData = await run("tail -" + numLines + " " + errPathMatch[1].trim())
+				const errData = await run("tail -n " + numLines + " " + errPathMatch[1].trim())
 				if (errData.stdout) {
 					result.logs.push("--- stderr ---")
 					const lines_arr = errData.stdout.split("\n")
@@ -641,7 +642,7 @@ const brainInstances = new Map()
 function getOrCreateBrain(chatId) {
 	if (!brainInstances.has(String(chatId))) {
 		try {
-			const { TerminalBrain } = require("../../../packages/terminal-core/src/brain")
+			const { TerminalBrain } = loadTerminalCore()
 			const brain = new TerminalBrain({
 				workspaceRoot: PROJECTS_BASE,
 				sessionId: "tg-" + String(chatId),
