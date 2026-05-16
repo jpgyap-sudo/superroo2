@@ -65,7 +65,7 @@ function getTelegramAgentManager() {
 let _terminalBrainAvailable = false
 try {
 	// Verify the Terminal Brain packages are accessible
-	const { TerminalBrain } = require("../../../packages/terminal-core/src/brain")
+	const { TerminalBrain } = require("@superroo/terminal-core")
 	if (typeof TerminalBrain === "function") {
 		_terminalBrainAvailable = true
 		console.log("[telegram] Terminal Brain packages loaded successfully")

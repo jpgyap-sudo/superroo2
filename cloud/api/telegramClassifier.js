@@ -124,6 +124,28 @@ function keywordFallback(text) {
 		return "create_pr"
 	}
 
+	// Coding — implement, build, write, develop, refactor, etc.
+	// Placed AFTER create_branch/create_pr so "create branch" and "create PR" are
+	// matched first. Uses specific coding keywords that won't conflict with git ops.
+	if (
+		lower.includes("implement") ||
+		lower.includes("build") ||
+		lower.includes("write") ||
+		lower.includes("develop") ||
+		lower.includes("refactor") ||
+		lower.includes("improve") ||
+		lower.includes("wire up") ||
+		lower.includes("add feature") ||
+		lower.includes("new feature") ||
+		lower.includes("code a") ||
+		lower.includes("code this") ||
+		lower.includes("code the") ||
+		lower.includes("code for") ||
+		lower.includes("code to")
+	) {
+		return "coder"
+	}
+
 	// Restart worker
 	if (
 		lower.includes("restart") ||
@@ -248,6 +270,7 @@ async function classifyIntent(text, providers) {
 				// Validate kind is in allowed list
 				var allowedKinds = [
 					"chat",
+					"coder",
 					"debug_plan",
 					"read_logs",
 					"run_tests",
