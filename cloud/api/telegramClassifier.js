@@ -138,6 +138,7 @@ function keywordFallback(text) {
 		lower.includes("wire up") ||
 		lower.includes("add feature") ||
 		lower.includes("new feature") ||
+		lower.includes("coder") ||
 		lower.includes("code a") ||
 		lower.includes("code this") ||
 		lower.includes("code the") ||

@@ -4494,6 +4494,67 @@ async function handleNaturalLanguageInstruction(
 			return true
 		}
 
+		// ─── Explicit Agent Routing: "route to X agent" ────────────────────
+		// When the user explicitly says "route to coder agent" or "route to debugger agent",
+		// bypass the classifier and route directly to the requested agent.
+		var routeMatch = text.toLowerCase().match(/route\s+to\s+(?:the\s+)?(\w+)\s*(?:agent)?/i)
+		if (routeMatch) {
+			var requestedAgent = routeMatch[1].toLowerCase()
+			var agentRouteMap = {
+				coder: "superroo-coder-agent",
+				code: "superroo-coder-agent",
+				debugger: "superroo-debugger-agent",
+				debug: "superroo-debugger-agent",
+				deployer: "superroo-deployer-agent",
+				deploy: "superroo-deployer-agent",
+				tester: "superroo-tester-agent",
+				test: "superroo-tester-agent",
+				consultant: "superroo-consultant-agent",
+				ask: "superroo-consultant-agent",
+			}
+			var targetAgent = agentRouteMap[requestedAgent]
+			if (targetAgent) {
+				logTelegramUsage("nlp:route_agent", chatId, telegramUserId, {
+					requestedAgent: requestedAgent,
+					targetAgent: targetAgent,
+				})
+				// Queue a coding task with the requested agent
+				var routeTaskId =
+					"TG-" +
+					Date.now().toString(36).toUpperCase() +
+					"-" +
+					Math.random().toString(36).slice(2, 6).toUpperCase()
+				var routeJob = await queue.add("telegram-" + routeTaskId, {
+					task: text,
+					agentId: targetAgent,
+					commands: [],
+					network: "none",
+					telegram: {
+						chatId: chatId,
+						taskId: routeTaskId,
+					},
+				})
+				await sendInlineKeyboard(
+					botToken,
+					chatId,
+					"🔄 *Routing to " +
+						targetAgent +
+						"*\n\nTask ID: `" +
+						routeTaskId +
+						"`\n\nRouting your request to the " +
+						requestedAgent +
+						" agent. You'll receive updates here.",
+					[
+						[
+							{ text: "📊 Check Status", callback_data: "notify:status:" + routeTaskId },
+							{ text: "📋 Task Board", callback_data: "taskboard:list" },
+						],
+					],
+				)
+				return true
+			}
+		}
+
 		// ─── Smart NLP: Check for direct coding intents first ──────────────
 		// NL-First Chat Mode: Auto-detect coding intent without requiring /brain prefix.
 		// This runs BEFORE the LLM classifier for instant response on coding tasks.
@@ -4800,7 +4861,8 @@ async function handleNaturalLanguageInstruction(
 			delete_data: "superroo-deployer-agent",
 			shell: "superroo-debugger-agent",
 		}
-		var legacyIntent = openclawToLegacy[intentKind] || "superroo-debugger-agent"
+		// Default to coder agent for any unclassified intent (coder, chat, etc.)
+		var legacyIntent = openclawToLegacy[intentKind] || "superroo-coder-agent"
 
 		// Check if user has an active project selected
 		try {
