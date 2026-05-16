@@ -274,8 +274,8 @@ async function readLogs(target, lines) {
 		try {
 			const pm2Logs = await run(pm2 + " show " + target)
 			// Try to find the log path from pm2 show output
-			const logPathMatch = pm2Logs.stdout.match(/out log path\s+([^\n]+)/)
-			const errPathMatch = pm2Logs.stdout.match(/error log path\s+([^\n]+)/)
+			const logPathMatch = pm2Logs.stdout.match(/out log path\s+[│|]\s+(.+?)\s+[│|]/)
+			const errPathMatch = pm2Logs.stdout.match(/error log path\s+[│|]\s+(.+?)\s+[│|]/)
 
 			if (logPathMatch) {
 				const logData = await run("tail -n " + numLines + " " + logPathMatch[1].trim())
