@@ -4511,6 +4511,8 @@ async function handleNaturalLanguageInstruction(
 				test: "superroo-tester-agent",
 				consultant: "superroo-consultant-agent",
 				ask: "superroo-consultant-agent",
+				orchestrator: "superroo-orchestrator-agent",
+				orchestrate: "superroo-orchestrator-agent",
 			}
 			var targetAgent = agentRouteMap[requestedAgent]
 			if (targetAgent) {
@@ -4861,8 +4863,10 @@ async function handleNaturalLanguageInstruction(
 			delete_data: "superroo-deployer-agent",
 			shell: "superroo-debugger-agent",
 		}
-		// Default to coder agent for any unclassified intent (coder, chat, etc.)
-		var legacyIntent = openclawToLegacy[intentKind] || "superroo-coder-agent"
+		// Default to orchestrator agent for any unclassified intent.
+		// The orchestrator analyzes the request and delegates to the right
+		// sub-agent (coder, debugger, deployer, etc.) via multi-agent breakdown.
+		var legacyIntent = openclawToLegacy[intentKind] || "superroo-orchestrator-agent"
 
 		// Check if user has an active project selected
 		try {
