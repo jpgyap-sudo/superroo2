@@ -316,6 +316,7 @@ async function classifyIntent(text, providers) {
 		kind: fallbackKind,
 		message: text,
 		confidence: 0.5,
+		usedFallback: true,
 	}
 }
 

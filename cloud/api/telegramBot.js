@@ -1552,11 +1552,24 @@ async function askAI(botToken, message, providers, chatId, options) {
 			return p.providerId || p.name
 		})
 		.join(", ")
-	return (
-		"Sorry, I couldn't reach any AI provider (" +
-		(triedProviders || "none configured") +
-		"). Please check that API keys are configured and working in the dashboard (API Keys tab). If using DeepSeek, it may be experiencing high traffic — try again later or switch to OpenAI."
-	)
+	var isOllamaOnly = providers.length === 1 && providers[0].providerId === "ollama"
+	var msg
+	if (isOllamaOnly) {
+		msg =
+			"⚠️ *AI is running in local-only mode (Ollama).*\n\n" +
+			"I couldn't reach the local Ollama model (" +
+			(providers[0].model || "unknown") +
+			"). Make sure Ollama is running and the model is available.\n\n" +
+			"To enable cloud AI features, add your OpenAI or DeepSeek API key in the Dashboard → API Keys tab."
+	} else {
+		msg =
+			"Sorry, I couldn't reach any AI provider (" +
+			(triedProviders || "none configured") +
+			").\n\n" +
+			"Please check that API keys are configured and working in the Dashboard → API Keys tab. " +
+			"If using DeepSeek, it may be experiencing high traffic — try again later or switch to OpenAI."
+	}
+	return msg
 }
 
 // ─── Command Handlers ──────────────────────────────────────────────────────
@@ -4271,6 +4284,19 @@ async function handleNaturalLanguageInstruction(
 		var classified = await telegramClassifier.classifyIntent(text, providers || [])
 		var intentKind = classified.kind
 		var confidence = classified.confidence
+
+		// If classifier fell back to keyword matching (no LLM providers available),
+		// send a one-time warning so the user knows AI features are degraded.
+		if (classified.usedFallback) {
+			sendMessage(
+				botToken,
+				chatId,
+				"⚠️ *AI classification unavailable* — using basic keyword matching.\n\n" +
+					"No cloud AI providers (OpenAI/DeepSeek) are configured. " +
+					"Add an API key in the Dashboard → API Keys tab for full AI-powered intent detection.\n\n" +
+					"_Basic commands like /ask, /code, /status will still work._",
+			).catch(function () {})
+		}
 
 		// If classified as run_tests but message contains strong bug/error signals,
 		// the user is likely reporting a bug and mentioning tests as context — prefer debug_plan.

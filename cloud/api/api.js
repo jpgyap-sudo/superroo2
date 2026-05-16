@@ -19,6 +19,7 @@ const fs = require("fs").promises
 const fsSync = require("fs")
 const path = require("path")
 const { WebSocketServer } = require("ws")
+const { loadTerminalCore } = require("./lib/terminalCore")
 
 // ── Cloud Orchestrator ────────────────────────────────────────────────────────
 
@@ -2986,7 +2987,7 @@ const server = http.createServer(async (req, res) => {
 
 		// ── Terminal Brain routes ────────────────────────────────────────────
 
-		// Terminal Brain — integrates with packages/terminal-core/src/brain
+		// Terminal Brain — integrates with @superroo/terminal-core
 		// Provides context, memory, plan, execute, analyze, fix endpoints
 		if (normalizedUrl.startsWith("/terminal-brain/")) {
 			const action = normalizedUrl.slice("/terminal-brain/".length).split("?")[0].split("/")[0]
@@ -2994,7 +2995,7 @@ const server = http.createServer(async (req, res) => {
 			// Lazy-load TerminalBrain (it may not be installed in all environments)
 			let TerminalBrain
 			try {
-				TerminalBrain = require("../../../packages/terminal-core/src/brain").TerminalBrain
+				TerminalBrain = loadTerminalCore().TerminalBrain
 			} catch (e) {
 				// Fallback: return empty responses if terminal-core is not available
 				if (action === "context" || action === "memory") {
@@ -3880,6 +3881,16 @@ const server = http.createServer(async (req, res) => {
 						? `/skill ${cmd}`
 						: cmd
 			const isAgentCommand = mode !== "shell" || routedCommand.startsWith("/") || routedCommand.startsWith("@")
+			console.log(
+				"[ide-terminal-audit] " +
+					JSON.stringify({
+						mode,
+						command: routedCommand,
+						terminalId,
+						workspace: ws.workspaceDir,
+						timestamp: new Date().toISOString(),
+					}),
+			)
 
 			if (isAgentCommand) {
 				// Route through agent system instead of raw shell
@@ -3909,6 +3920,20 @@ const server = http.createServer(async (req, res) => {
 			}
 
 			// ── Raw shell execution (for non-agent commands) ──────────────
+			const shellApproval = evaluateApproval({ action: "shell", command: cmd, rules: [] })
+			if (shellApproval.decision === "block") {
+				const blockedOutput = [`$ ${cmd}`, `Blocked: ${shellApproval.reason}`]
+				term.output.push(...blockedOutput)
+				saveWorkspaceStore(global.__ideWorkspace)
+				sendJson(res, 403, {
+					ok: false,
+					message: "Shell command blocked by safety policy",
+					risk: shellApproval.risk,
+					output: blockedOutput,
+				})
+				return
+			}
+
 			term.output.push(`$ ${cmd}`)
 
 			try {
@@ -6998,7 +7023,6 @@ const server = http.createServer(async (req, res) => {
 				sendJson(res, 200, { ok: false, error: "Invalid update" })
 				return
 			}
-
 			// Build a list of available AI providers for the bot's /ask and @mention support
 			const availableProviders = []
 			for (const p of PROVIDERS) {
@@ -7016,6 +7040,35 @@ const server = http.createServer(async (req, res) => {
 					} catch {
 						// skip providers with decryption errors
 					}
+				}
+			}
+
+			// Fallback: If no cloud providers are available, try local Ollama
+			if (availableProviders.length === 0) {
+				const ollamaUrl = process.env.OLLAMA_URL || "http://localhost:11434"
+				try {
+					const ollamaRes = await fetch(ollamaUrl + "/api/tags", { signal: AbortSignal.timeout(3000) })
+					if (ollamaRes.ok) {
+						const ollamaData = await ollamaRes.json()
+						const models = (ollamaData.models || []).map((m) => m.name)
+						// Prefer qwen2.5:3b for classification/chat, fallback to any available model
+						const chatModel =
+							models.find((m) => m.startsWith("qwen2.5:3b")) ||
+							models.find((m) => m.startsWith("qwen2.5")) ||
+							models[0]
+						if (chatModel) {
+							availableProviders.push({
+								providerId: "ollama",
+								apiBaseUrl: ollamaUrl,
+								apiKey: "ollama", // Ollama doesn't need a real key
+								model: chatModel,
+							})
+							console.log("[api] Added Ollama fallback provider: " + chatModel)
+						}
+					}
+				} catch (ollamaErr) {
+					// Ollama not available — non-fatal
+					console.log("[api] Ollama not available as fallback provider: " + ollamaErr.message)
 				}
 			}
 
