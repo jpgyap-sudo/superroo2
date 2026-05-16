@@ -239,14 +239,64 @@ function getConversationHistoryForChat(chatId) {
 
 function isContinuationRequest(text) {
 	var lower = (text || "").toLowerCase().trim()
-	return /^(?:please\s+)?(?:proceed|continue|go ahead|do it|implement (?:it|this|these|the changes|the improvements)|make (?:it|this|these)|apply (?:it|this|these))(?:\b|$)/.test(
-		lower,
-	)
+	// Core continuation patterns
+	var coreMatch =
+		/^(?:please\s+)?(?:proceed|continue|go ahead|do it|implement (?:it|this|these|the changes|the improvements)|make (?:it|this|these)|apply (?:it|this|these))(?:\b|$)/.test(
+			lower,
+		)
+	if (coreMatch) return true
+
+	// ── Improvement 5: Broader continuation detection ──────────────────────
+	// Negative feedback patterns — user is unhappy with previous result
+	var negativePattern =
+		/^(?:that['']?s\s+)?(?:not\s+what\s+(?:i|we)\s+(?:wanted|meant|asked\s+for)|(?:still\s+)?(?:not\s+working|doesn['']?t\s+work|broken|wrong|incorrect)|try\s+again|fix\s+(?:it|this|the\s+\w+)|redo|rethink|different\s+approach)/.test(
+			lower,
+		)
+	if (negativePattern) return true
+
+	// Iteration patterns — user wants to refine or extend
+	var iterationPattern =
+		/^(?:also\s+)?(?:add\s+(?:also\s+)?|also\s+|one\s+more\s+thing|and\s+(?:also\s+)?|what\s+about|how\s+about|could\s+you\s+(?:also\s+)?|can\s+you\s+(?:also\s+)?)(?:\w)/.test(
+			lower,
+		)
+	if (iterationPattern) return true
+
+	// Reference patterns — user refers to previous context
+	var referencePattern =
+		/^(?:as\s+(?:i|we)\s+(?:said|mentioned|discussed)|regarding|following\s+(?:up\s+on|our)|per\s+(?:our|the)\s+(?:discussion|conversation)|like\s+(?:i|we)\s+(?:said|mentioned))/.test(
+			lower,
+		)
+	if (referencePattern) return true
+
+	return false
 }
 
 function isDirectCodingRequest(text) {
 	var lower = (text || "").toLowerCase().trim()
-	return /^(?:please\s+)?(?:implement|build|add|create|update|change|refactor|improve|wire)\b/.test(lower)
+	// Core direct coding patterns
+	var coreMatch = /^(?:please\s+)?(?:implement|build|add|create|update|change|refactor|improve|wire)\b/.test(lower)
+	if (coreMatch) return true
+
+	// ── Improvement 5: Additional coding intent patterns ────────────────────
+	// Fix/repair patterns
+	var fixPattern =
+		/^(?:please\s+)?(?:fix|repair|resolve|correct|patch|hotfix|tweak|adjust|modify|rewrite|redesign|restructure|optimize|enhance)\b/.test(
+			lower,
+		)
+	if (fixPattern) return true
+
+	// Remove/delete patterns
+	var removePattern = /^(?:please\s+)?(?:remove|delete|drop|strip|eliminate|clean\s+up|clear)\b/.test(lower)
+	if (removePattern) return true
+
+	// Setup/configure patterns
+	var setupPattern =
+		/^(?:please\s+)?(?:setup|set\s+up|configure|install|integrate|migrate|convert|transform|generate|scaffold)\b/.test(
+			lower,
+		)
+	if (setupPattern) return true
+
+	return false
 }
 
 function getLatestActionableContext(chatId, quotedText) {
@@ -271,13 +321,27 @@ function buildContinuationInstruction(chatId, rawText, quotedText) {
 	if (!isContinuationRequest(rawText)) return ""
 	var context = getLatestActionableContext(chatId, quotedText)
 	if (!context) return ""
+
+	// ── Improvement 10: Smart context carry-over ───────────────────────────
+	// Include smart context (last project, last intent, last fix) in the
+	// continuation instruction so the worker has full context without needing
+	// the user to re-specify.
+	var smartCtx = getSmartContext(chatId)
+	var smartParts = []
+	if (smartCtx.lastProject) smartParts.push("Active project: " + smartCtx.lastProject)
+	if (smartCtx.lastIntent) smartParts.push("Last intent: " + smartCtx.lastIntent)
+	if (smartCtx.lastFixApplied) smartParts.push("Last fix applied: " + smartCtx.lastFixApplied.slice(0, 200))
+	if (smartCtx.lastError) smartParts.push("Last error: " + smartCtx.lastError.slice(0, 200))
+	var smartSuffix = smartParts.length > 0 ? "\n\n*Smart Context:*\n" + smartParts.join("\n") : ""
+
 	return (
 		"Implement the requested follow-up from this prior discussion.\n\n" +
 		"User follow-up: " +
 		rawText +
 		"\n\n" +
 		"Prior context:\n" +
-		context.slice(0, 1800)
+		context.slice(0, 1800) +
+		smartSuffix
 	)
 }
 
@@ -1822,6 +1886,49 @@ async function handleCode(botToken, chatId, args, queue, orchestratorBridge, quo
 	// Resolve active project from session — this tells the worker which repo to code in
 	var session = getSession(chatId)
 	var activeProject = session ? session.activeProject : null
+
+	// ── Improvement 3: Project selection when no active project is set ──────
+	// If no active project, show inline keyboard with project selection
+	if (!activeProject) {
+		try {
+			var projResult = await auth.handleTelegramProjects({ telegramUserId: chatId, telegramChatId: chatId })
+			var projects = projResult && projResult.projects ? projResult.projects : []
+			if (projects.length > 0) {
+				var projectButtons = projects.slice(0, 8).map(function (p) {
+					return {
+						text: (p.is_active ? "✅ " : "") + (p.name || p.repoName || "Unnamed"),
+						callback_data: "browser:select:" + p.id,
+					}
+				})
+				// Wrap in rows of 2
+				var keyboardRows = []
+				for (var i = 0; i < projectButtons.length; i += 2) {
+					keyboardRows.push(projectButtons.slice(i, i + 2))
+				}
+				keyboardRows.push([{ text: "📋 Task Board", callback_data: "taskboard:list" }])
+				await sendInlineKeyboard(
+					botToken,
+					chatId,
+					"📁 *No Active Project Selected*\n\n" +
+						"Please select a project to code in:\n\n" +
+						"_Instruction:_ " +
+						instruction.slice(0, 100),
+					keyboardRows,
+				)
+				return
+			}
+		} catch (e) {
+			console.log("[telegram] /code: could not fetch projects, using default")
+		}
+	}
+
+	// ── Improvement 8: Cache resolved project in smart context ──────────────
+	if (activeProject) {
+		updateSmartContext(chatId, {
+			lastProject: activeProject.repoName || activeProject.name || "superroo2",
+		})
+	}
+
 	var repoName = activeProject ? activeProject.repoName : "superroo2"
 	var projectPath = activeProject ? activeProject.localPath : null
 
@@ -2258,6 +2365,122 @@ async function handleDeploy(botToken, chatId, args, queue, orchestratorBridge) {
 		[
 			[
 				{ text: "📊 Monitor Status", callback_data: `notify:status:${task.id}` },
+				{ text: "📋 Task Board", callback_data: "taskboard:list" },
+			],
+		],
+	)
+}
+
+/**
+ * Handles /undo [taskId] - reverts the last commit for a task.
+ * Queues a BullMQ job that runs git revert on the worker.
+ * @param {string} botToken
+ * @param {number|string} chatId
+ * @param {string[]} args - [optional taskId]
+ * @param {Object} queue - BullMQ queue
+ * @param {Object} orchestratorBridge - Cloud Orchestrator bridge
+ */
+async function handleUndo(botToken, chatId, args, queue, orchestratorBridge) {
+	var taskId = args[0]
+	if (!taskId) {
+		// Show recent tasks for the user to pick from
+		var tasks = userTasks.get(chatId) || []
+		var recentTasks = tasks.slice(-5).reverse()
+		if (recentTasks.length > 0) {
+			var taskButtons = recentTasks.map(function (t) {
+				return {
+					text:
+						(t.status === "completed" ? "✅ " : "⏳ ") + t.id + " — " + (t.instruction || "").slice(0, 40),
+					callback_data: "notify:undo:" + t.id,
+				}
+			})
+			var keyboardRows = []
+			for (var i = 0; i < taskButtons.length; i++) {
+				keyboardRows.push([taskButtons[i]])
+			}
+			await sendInlineKeyboard(
+				botToken,
+				chatId,
+				"↩️ *Undo Last Commit*\n\nSelect a task to revert:\n\n" +
+					"_This will run `git revert HEAD` for the selected task's branch._",
+				keyboardRows,
+			)
+		} else {
+			await sendInlineKeyboard(
+				botToken,
+				chatId,
+				"Please specify a task ID to undo.\n\nExample: `/undo TG-221`\n\n_This will revert the last commit for that task._",
+				telegramPolicy.getContextualButtons("undo_error", { showStatus: true }),
+			)
+		}
+		return
+	}
+
+	// Send typing indicator
+	sendChatAction(botToken, chatId, "typing").catch(function () {})
+
+	var tasks = userTasks.get(chatId) || []
+	var task = tasks.find(function (t) {
+		return t.id === taskId.toUpperCase()
+	})
+
+	var undoTaskId = "UNDO-" + taskId + "-" + Date.now().toString(36).toUpperCase()
+	var branchName = task ? task.branchName : "tg/" + taskId.toLowerCase()
+	var instruction = task ? task.instruction : taskId
+
+	var job = await queue.add("telegram-" + undoTaskId, {
+		task: "Undo last commit for task " + taskId + ": " + (instruction || ""),
+		agentId: "superroo-coder-agent",
+		commands: [],
+		network: "none",
+		goal: "Revert the last commit for task " + taskId + ". Run `git revert HEAD` on branch " + branchName + ".",
+		repo: "superroo2",
+		telegram: {
+			chatId: chatId,
+			taskId: undoTaskId,
+			branchName: branchName,
+			conversationSummary: "",
+		},
+	})
+
+	// Update task status if found
+	if (task) {
+		task.status = "undoing"
+	}
+
+	// Record in Cloud Orchestrator if bridge is available
+	if (orchestratorBridge) {
+		orchestratorBridge
+			.createTask({
+				tgTaskId: undoTaskId,
+				chatId: chatId,
+				instruction: "Undo: " + (instruction || ""),
+				agentType: "superroo-coder-agent",
+				branchName: branchName,
+				source: "/undo",
+			})
+			.catch(function (err) {
+				console.error("[telegram] Failed to record /undo task in orchestrator:", err.message)
+			})
+	}
+
+	await sendInlineKeyboard(
+		botToken,
+		chatId,
+		"↩️ *Undo Queued*\n\n" +
+			"Task: `" +
+			taskId +
+			"`\n" +
+			"Branch: `" +
+			branchName +
+			"`\n" +
+			"Undo Job: `" +
+			undoTaskId +
+			"`\n\n" +
+			"_The worker will revert the last commit and notify you when done._",
+		[
+			[
+				{ text: "📊 Monitor Status", callback_data: `notify:status:${undoTaskId}` },
 				{ text: "📋 Task Board", callback_data: "taskboard:list" },
 			],
 		],
@@ -5254,6 +5477,7 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 					handleProjects: handleProjects,
 					handleStatus: handleStatus,
 					handleDeploy: handleDeploy,
+					handleUndo: handleUndo,
 					handleLogs: handleLogs,
 					handleBrain: handleBrain,
 					handleSettings: handleSettings,
@@ -6304,6 +6528,9 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 		} else if (command === "/deploy") {
 			logTelegramUsage("/deploy", chatId, telegramUserId, { args: cmdArgs.join(" ") })
 			await handleDeploy(botToken, chatId, cmdArgs, queue, orchestratorBridge)
+		} else if (command === "/undo") {
+			logTelegramUsage("/undo", chatId, telegramUserId, { args: cmdArgs.join(" ") })
+			await handleUndo(botToken, chatId, cmdArgs, queue, orchestratorBridge)
 		} else if (command === "/status") {
 			logTelegramUsage("/status", chatId, telegramUserId, { args: cmdArgs.join(" ") })
 			await handleStatus(botToken, chatId, cmdArgs, queue)

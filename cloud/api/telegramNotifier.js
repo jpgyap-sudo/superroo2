@@ -218,6 +218,35 @@ async function sendTaskStarted(botToken, chatId, taskId, instruction, agentType)
 }
 
 // ---------------------------------------------------------------------------
+// 1b. Task Progress Notification — stage-specific updates
+// ---------------------------------------------------------------------------
+async function sendTaskProgress(botToken, chatId, taskId, instruction, progressInfo) {
+	const stageEmoji = {
+		analyzing: "🔍",
+		generating: "✍️",
+		coding: "💻",
+		testing: "🧪",
+		finalizing: "📦",
+		deploying: "🚀",
+	}
+	const emoji = stageEmoji[progressInfo.stage] || "⚙️"
+	const stageLabel = progressInfo.stage
+		? progressInfo.stage.charAt(0).toUpperCase() + progressInfo.stage.slice(1)
+		: "Working"
+
+	const text =
+		`${emoji} *${stageLabel}...*\n\n` +
+		`*Task:* \`${taskId}\`\n` +
+		`*Stage:* ${stageLabel}\n` +
+		(progressInfo.message ? `${progressInfo.message}\n\n` : "\n") +
+		`_Elapsed: ${progressInfo.elapsed || "0s"}_`
+
+	const buttons = [[{ text: "⏳ Check Status", callback_data: `notify:status:${taskId}` }]]
+
+	return await sendInlineKeyboard(botToken, chatId, text, buttons)
+}
+
+// ---------------------------------------------------------------------------
 // 2. Task Complete Notification (with diff summary and action buttons)
 // ---------------------------------------------------------------------------
 async function sendTaskComplete(botToken, chatId, taskId, instruction, result) {
@@ -247,13 +276,18 @@ async function sendTaskComplete(botToken, chatId, taskId, instruction, result) {
 	}
 	if (row1.length > 0) buttons.push(row1)
 
-	buttons.push([
-		{ text: "📊 Full Status", callback_data: `notify:status:${taskId}` },
-		{ text: "❌ Reject", callback_data: `notify:reject:${taskId}` },
-	])
+	// Post-completion action bar — one-click actions after task completes
+	const actionRow = []
+	actionRow.push({ text: "📄 Diff", callback_data: `notify:diff:${taskId}` })
+	actionRow.push({ text: "🧪 Test", callback_data: `notify:test:${taskId}` })
+	actionRow.push({ text: "🚀 Deploy", callback_data: `notify:deploy:${taskId}` })
+	actionRow.push({ text: "📊 Status", callback_data: `notify:status:${taskId}` })
+	buttons.push(actionRow)
 
-	// Task Board navigation
-	buttons.push([{ text: "📋 Task Board", callback_data: "taskboard:list" }])
+	buttons.push([
+		{ text: "❌ Reject", callback_data: `notify:reject:${taskId}` },
+		{ text: "📋 Task Board", callback_data: "taskboard:list" },
+	])
 
 	// Cloud IDE integration — open task in the cloud dashboard
 	buttons.push([{ text: "☁️ Open in Cloud IDE", url: DASHBOARD_URL + "/ide?task=" + taskId }])
@@ -275,12 +309,16 @@ async function sendTaskFailed(botToken, chatId, taskId, instruction, error) {
 		`*Task:* \`${taskId}\`\n` +
 		`*Instruction:* ${instruction.slice(0, 200)}${instruction.length > 200 ? "..." : ""}\n` +
 		`*Error:* ${(error || "Unknown error").slice(0, 300)}\n\n` +
-		`_You can retry or check the logs for details._`
+		`_You can retry, auto-fix, or check the logs for details._`
 
 	const buttons = [
 		[
 			{ text: "🔄 Retry", callback_data: `notify:retry:${taskId}` },
+			{ text: "🔧 Auto-Fix", callback_data: `notify:autofix:${taskId}` },
+		],
+		[
 			{ text: "📋 View Logs", callback_data: `notify:logs:${taskId}` },
+			{ text: "📊 Status", callback_data: `notify:status:${taskId}` },
 		],
 		[{ text: "📋 Task Board", callback_data: "taskboard:list" }],
 		[{ text: "☁️ Open in Cloud IDE", url: DASHBOARD_URL + "/ide?task=" + taskId }],
@@ -659,70 +697,274 @@ async function handleNotificationCallback(botToken, callbackQuery) {
 		}
 
 		case "diff": {
-			// Show diff summary — in a real scenario this would fetch the actual diff
-			await editMessageText(
-				botToken,
-				chatId,
-				messageId,
-				`📄 *Diff for ${taskId}*\n\n` +
-					`_Fetching diff details..._\n\n` +
-					`Use \`/diff ${taskId}\` in chat to see the full diff.\n\n` +
-					`*Actions:*\n` +
-					`• \`/approve ${taskId}\` — Approve changes\n` +
-					`• \`/reject ${taskId}\` — Reject changes`,
-				[
+			// Fetch the actual diff from the worker result via the API
+			try {
+				const diffUrl = DASHBOARD_URL + "/api/tasks/" + encodeURIComponent(taskId) + "/diff"
+				const diffRes = await fetch(diffUrl, { timeout: 5000 })
+				let diffText = ""
+				if (diffRes.ok) {
+					const diffData = await diffRes.json()
+					diffText = diffData.diff || diffData.summary || "No diff details available."
+				} else {
+					diffText = "Diff not available for this task. Use `/diff " + taskId + "` in chat to check."
+				}
+				await editMessageText(
+					botToken,
+					chatId,
+					messageId,
+					`📄 *Diff for ${taskId}*\n\n` +
+						"```\n" +
+						diffText.slice(0, 1500) +
+						"\n```\n\n" +
+						`*Actions:*\n` +
+						`• \`/approve ${taskId}\` — Approve changes\n` +
+						`• \`/reject ${taskId}\` — Reject changes`,
 					[
-						{ text: "✅ Approve", callback_data: `notify:approve:${taskId}` },
-						{ text: "❌ Reject", callback_data: `notify:reject:${taskId}` },
+						[
+							{ text: "✅ Approve", callback_data: `notify:approve:${taskId}` },
+							{ text: "❌ Reject", callback_data: `notify:reject:${taskId}` },
+						],
 					],
-				],
-			)
+				)
+			} catch (err) {
+				await editMessageText(
+					botToken,
+					chatId,
+					messageId,
+					`📄 *Diff for ${taskId}*\n\n` +
+						`_Could not fetch diff: ${err.message}_\n\n` +
+						`Use \`/diff ${taskId}\` in chat to see the full diff.`,
+					[
+						[
+							{ text: "✅ Approve", callback_data: `notify:approve:${taskId}` },
+							{ text: "❌ Reject", callback_data: `notify:reject:${taskId}` },
+						],
+					],
+				)
+			}
 			return true
 		}
 
 		case "status": {
-			await editMessageText(
-				botToken,
-				chatId,
-				messageId,
-				`📊 *Status for ${taskId}*\n\n` +
-					`_Checking status..._\n\n` +
-					`Use \`/status ${taskId}\` in chat for detailed status.`,
-				[[{ text: "🔙 Back", callback_data: `notify:back:${taskId}` }]],
-			)
+			try {
+				const statusUrl = DASHBOARD_URL + "/api/tasks/" + encodeURIComponent(taskId) + "/status"
+				const statusRes = await fetch(statusUrl, { timeout: 5000 })
+				let statusText = ""
+				if (statusRes.ok) {
+					const statusData = await statusRes.json()
+					statusText =
+						`*Status:* ${statusData.status || "unknown"}\n` +
+						(statusData.stage ? `*Stage:* ${statusData.stage}\n` : "") +
+						(statusData.elapsed ? `*Elapsed:* ${statusData.elapsed}\n` : "") +
+						(statusData.message ? `\n${statusData.message}` : "")
+				} else {
+					statusText = `_Status check returned ${statusRes.status}_\n\nUse \`/status ${taskId}\` in chat for detailed status.`
+				}
+				await editMessageText(botToken, chatId, messageId, `📊 *Status for ${taskId}*\n\n` + statusText, [
+					[{ text: "🔙 Back", callback_data: `notify:back:${taskId}` }],
+				])
+			} catch (err) {
+				await editMessageText(
+					botToken,
+					chatId,
+					messageId,
+					`📊 *Status for ${taskId}*\n\n` +
+						`_Could not check status: ${err.message}_\n\n` +
+						`Use \`/status ${taskId}\` in chat for detailed status.`,
+					[[{ text: "🔙 Back", callback_data: `notify:back:${taskId}` }]],
+				)
+			}
 			return true
 		}
 
 		case "logs": {
-			await editMessageText(
-				botToken,
-				chatId,
-				messageId,
-				`📋 *Logs for ${taskId}*\n\n` + `_Fetching logs..._\n\n` + `Use \`/logs\` in chat to view recent logs.`,
-				[[{ text: "🔙 Back", callback_data: `notify:back:${taskId}` }]],
-			)
+			try {
+				const logsUrl = DASHBOARD_URL + "/api/logs?task=" + encodeURIComponent(taskId) + "&limit=20"
+				const logsRes = await fetch(logsUrl, { timeout: 5000 })
+				let logsText = ""
+				if (logsRes.ok) {
+					const logsData = await logsRes.json()
+					const logLines = Array.isArray(logsData.logs)
+						? logsData.logs
+						: Array.isArray(logsData)
+							? logsData
+							: []
+					logsText = logLines
+						.slice(0, 15)
+						.map(function (l) {
+							return l.message || l.text || JSON.stringify(l)
+						})
+						.join("\n")
+					if (!logsText) logsText = "No logs available for this task."
+				} else {
+					logsText = "Logs not available. Use `/logs` in chat to view recent logs."
+				}
+				await editMessageText(
+					botToken,
+					chatId,
+					messageId,
+					`📋 *Logs for ${taskId}*\n\n` + "```\n" + logsText.slice(0, 1500) + "\n```",
+					[[{ text: "🔙 Back", callback_data: `notify:back:${taskId}` }]],
+				)
+			} catch (err) {
+				await editMessageText(
+					botToken,
+					chatId,
+					messageId,
+					`📋 *Logs for ${taskId}*\n\n` +
+						`_Could not fetch logs: ${err.message}_\n\n` +
+						`Use \`/logs\` in chat to view recent logs.`,
+					[[{ text: "🔙 Back", callback_data: `notify:back:${taskId}` }]],
+				)
+			}
 			return true
 		}
 
 		case "retry": {
-			await editMessageText(
-				botToken,
-				chatId,
-				messageId,
-				`🔄 *Retrying ${taskId}*\n\n` + `_Re-queuing the task..._\n\n` + `I'll notify you when it's done.`,
-			)
+			// Re-queue the task by creating a new BullMQ job with the same data
+			if (_queue) {
+				const retryTaskId = taskId + "-retry-" + Date.now().toString(36)
+				await _queue.add("telegram-" + retryTaskId, {
+					task: "Retry: " + taskId,
+					agentId: "superroo-coder-agent",
+					commands: [],
+					network: "none",
+					goal: "Retry task " + taskId,
+					repo: "superroo2",
+					telegram: {
+						chatId: chatId,
+						taskId: retryTaskId,
+						branchName: "tg/retry-" + taskId.toLowerCase(),
+						conversationSummary: "",
+					},
+				})
+				await editMessageText(
+					botToken,
+					chatId,
+					messageId,
+					`🔄 *Retrying ${taskId}*\n\n` +
+						`_Re-queued as \`${retryTaskId}\`_\n\n` +
+						`I'll notify you when it's done.`,
+					[[{ text: "📊 Check Status", callback_data: `notify:status:${retryTaskId}` }]],
+				)
+			} else {
+				await editMessageText(
+					botToken,
+					chatId,
+					messageId,
+					`🔄 *Retry Failed*\n\n` +
+						`_Queue is not available. Please try again later or use \`/code\` to create a new task._`,
+				)
+			}
 			return true
 		}
 
 		case "test": {
-			await editMessageText(
-				botToken,
-				chatId,
-				messageId,
-				`🧪 *Running Tests for ${taskId}*\n\n` +
-					`_Tests are being executed..._\n\n` +
-					`I'll notify you with the results.`,
-			)
+			// Queue a test job via BullMQ
+			if (_queue) {
+				const testTaskId = taskId + "-test-" + Date.now().toString(36)
+				await _queue.add("telegram-" + testTaskId, {
+					task: "Run tests for: " + taskId,
+					agentId: "superroo-tester-agent",
+					commands: [],
+					network: "none",
+					goal: "Run tests related to task " + taskId,
+					telegram: {
+						chatId: chatId,
+						taskId: testTaskId,
+					},
+				})
+				await editMessageText(
+					botToken,
+					chatId,
+					messageId,
+					`🧪 *Running Tests for ${taskId}*\n\n` +
+						`_Tests queued as \`${testTaskId}\`_\n\n` +
+						`I'll notify you with the results.`,
+					[[{ text: "📊 Check Status", callback_data: `notify:status:${testTaskId}` }]],
+				)
+			} else {
+				await editMessageText(
+					botToken,
+					chatId,
+					messageId,
+					`🧪 *Test Queue Unavailable*\n\n` +
+						`_Queue is not available. Use \`/test ${taskId}\` in chat to run tests._`,
+				)
+			}
+			return true
+		}
+
+		case "deploy": {
+			// Queue a deploy job via BullMQ
+			if (_queue) {
+				const deployTaskId = taskId + "-deploy-" + Date.now().toString(36)
+				await _queue.add("telegram-" + deployTaskId, {
+					task: "Deploy: " + taskId,
+					agentId: "superroo-deployer-agent",
+					commands: [],
+					network: "none",
+					goal: "Deploy task " + taskId,
+					telegram: {
+						chatId: chatId,
+						taskId: deployTaskId,
+					},
+				})
+				await editMessageText(
+					botToken,
+					chatId,
+					messageId,
+					`🚀 *Deploying ${taskId}*\n\n` +
+						`_Deploy queued as \`${deployTaskId}\`_\n\n` +
+						`I'll notify you when it's done.`,
+					[[{ text: "📊 Check Status", callback_data: `notify:status:${deployTaskId}` }]],
+				)
+			} else {
+				await editMessageText(
+					botToken,
+					chatId,
+					messageId,
+					`🚀 *Deploy Queue Unavailable*\n\n` +
+						`_Queue is not available. Use \`/deploy ${taskId}\` in chat to deploy._`,
+				)
+			}
+			return true
+		}
+
+		case "autofix": {
+			// Queue a debug job to auto-fix the failed task
+			if (_queue) {
+				const fixTaskId = "FIX-" + taskId + "-" + Date.now().toString(36)
+				await _queue.add("debug-" + fixTaskId, {
+					task: "Auto-fix: " + taskId,
+					agentId: "superroo-debugger-agent",
+					commands: [],
+					network: "none",
+					goal: "Auto-fix task " + taskId,
+					repo: "superroo2",
+					telegram: {
+						chatId: chatId,
+						taskId: fixTaskId,
+					},
+				})
+				await editMessageText(
+					botToken,
+					chatId,
+					messageId,
+					`🔧 *Auto-Fix Triggered for ${taskId}*\n\n` +
+						`_Debug team is analyzing the failure and will attempt to fix it._\n\n` +
+						`Task ID: \`${fixTaskId}\``,
+					[[{ text: "📊 Check Status", callback_data: `notify:status:${fixTaskId}` }]],
+				)
+			} else {
+				await editMessageText(
+					botToken,
+					chatId,
+					messageId,
+					`🔧 *Auto-Fix Unavailable*\n\n` +
+						`_Queue is not available. Use \`/debug\` in chat to manually debug the issue._`,
+				)
+			}
 			return true
 		}
 
@@ -797,6 +1039,45 @@ async function handleNotificationCallback(botToken, callbackQuery) {
 			return true
 		}
 
+		case "undo": {
+			// Queue an undo job via BullMQ — reverts the last commit for the task
+			if (_queue) {
+				const undoTaskId = "UNDO-" + taskId + "-" + Date.now().toString(36)
+				await _queue.add("telegram-" + undoTaskId, {
+					task: "Undo last commit for task " + taskId,
+					agentId: "superroo-coder-agent",
+					commands: [],
+					network: "none",
+					goal: "Revert the last commit for task " + taskId + ". Run `git revert HEAD`.",
+					repo: "superroo2",
+					telegram: {
+						chatId: chatId,
+						taskId: undoTaskId,
+						branchName: "tg/undo-" + taskId.toLowerCase(),
+						conversationSummary: "",
+					},
+				})
+				await editMessageText(
+					botToken,
+					chatId,
+					messageId,
+					`↩️ *Undo Queued for ${taskId}*\n\n` +
+						`_Undo job: \`${undoTaskId}\`_\n\n` +
+						`The worker will revert the last commit and notify you when done.`,
+					[[{ text: "📊 Check Status", callback_data: `notify:status:${undoTaskId}` }]],
+				)
+			} else {
+				await editMessageText(
+					botToken,
+					chatId,
+					messageId,
+					`↩️ *Undo Unavailable*\n\n` +
+						`_Queue is not available. Use \`/undo ${taskId}\` in chat to revert._`,
+				)
+			}
+			return true
+		}
+
 		default:
 			return false
 	}
@@ -823,6 +1104,7 @@ function clearNotifications(chatId) {
 module.exports = {
 	// Send functions
 	sendTaskStarted,
+	sendTaskProgress,
 	sendTaskComplete,
 	sendTaskFailed,
 	sendApprovalRequest,

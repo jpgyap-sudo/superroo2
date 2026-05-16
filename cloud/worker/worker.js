@@ -212,22 +212,45 @@ async function processJob(job) {
 		if (job.data.projectPath && job.data.goal) {
 			console.log(`[worker] Running coder job ${job.id} on project: ${job.data.projectPath}`)
 
-			// ── Progress updates for long-running coding tasks ─────────────
+			// ── Progressive notification stages for long-running coding tasks ──
+			const STAGES = [
+				{ stage: "analyzing", at: 5, message: "🔍 Analyzing your request and understanding the codebase..." },
+				{ stage: "generating", at: 30, message: "✍️ Generating code changes based on the analysis..." },
+				{ stage: "coding", at: 60, message: "💻 Writing code and applying changes..." },
+				{ stage: "testing", at: 120, message: "🧪 Running tests to verify the changes..." },
+				{ stage: "finalizing", at: 180, message: "📦 Finalizing and preparing the result..." },
+			]
+			let lastStageIndex = -1
 			const progressInterval = setInterval(() => {
 				if (job.data.telegram && job.data.telegram.chatId) {
 					const elapsed = Math.floor((Date.now() - job.timestamp) / 1000)
 					const mins = Math.floor(elapsed / 60)
 					const secs = elapsed % 60
-					sendTelegramNotification("task_progress", job.id, job.data.goal || "Coding task", {
-						chatId: job.data.telegram.chatId,
-						progress: {
-							elapsed: `${mins}m ${secs}s`,
-							stage: "coding",
-							message: `🤖 Coder agent is working on your request... (${mins}m ${secs}s elapsed)`,
-						},
-					})
+
+					// Find the current stage based on elapsed time
+					let currentStageIndex = -1
+					for (let i = STAGES.length - 1; i >= 0; i--) {
+						if (elapsed >= STAGES[i].at) {
+							currentStageIndex = i
+							break
+						}
+					}
+
+					// Only send notification when stage changes
+					if (currentStageIndex !== lastStageIndex) {
+						lastStageIndex = currentStageIndex
+						const stageInfo = STAGES[currentStageIndex] || STAGES[STAGES.length - 1]
+						sendTelegramNotification("task_progress", job.id, job.data.goal || "Coding task", {
+							chatId: job.data.telegram.chatId,
+							progress: {
+								elapsed: `${mins}m ${secs}s`,
+								stage: stageInfo.stage,
+								message: stageInfo.message + ` (${mins}m ${secs}s elapsed)`,
+							},
+						})
+					}
 				}
-			}, 30000)
+			}, 15000) // check every 15s for stage transitions
 			const clearProgress = () => clearInterval(progressInterval)
 
 			// ── Two-phase flow: preview → approve → apply ──────────────────
