@@ -172,7 +172,11 @@ function logTelegramUsage(command, chatId, userId, details) {
 /** Map<chatId, { sessionId, authenticatedAt, otpVerified, otpSecret? }> */
 const activeSessions = new Map()
 
-/** Map<chatId, { pendingApprovalId, taskId, branchName, diff }> */
+/**
+ * Map<requestId, { chatId, kind, text, classified, telegramUserId, quotedText, createdAt }>
+ * Stores blocked action context so the approval callback can retrieve it.
+ * Entries expire after 10 minutes.
+ */
 const pendingApprovals = new Map()
 
 /** Map<chatId, CodingTask[]> */
@@ -4282,12 +4286,42 @@ async function handleNaturalLanguageInstruction(
 		// ─── OpenClaw: Policy Check ─────────────────────────────────────────
 		// Check if the action can run without approval.
 		// Blocked actions (deploy, delete_data, shell) require dashboard approval.
+		// Instead of just sending a text message, show inline Approve/Deny buttons
+		// so the user can approve directly in Telegram.
 		if (!telegramPolicy.canRunWithoutApproval(intentKind)) {
 			var blockedMsg = telegramPolicy.getBlockedReason(intentKind)
 			logTelegramWarning("nlp:blocked", chatId, telegramUserId, "Policy blocked " + intentKind, {
 				text: text.slice(0, 100),
 			})
-			await sendMessage(botToken, chatId, blockedMsg)
+
+			// Generate a unique request ID and store the context for the approval callback
+			var requestId =
+				Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).slice(2, 6).toUpperCase()
+			pendingApprovals.set(requestId, {
+				chatId: chatId,
+				kind: intentKind,
+				text: text,
+				classified: classified,
+				telegramUserId: telegramUserId,
+				quotedText: quotedText,
+				createdAt: Date.now(),
+			})
+
+			// Auto-expire after 10 minutes
+			setTimeout(
+				function () {
+					pendingApprovals.delete(requestId)
+				},
+				10 * 60 * 1000,
+			)
+
+			// Show inline keyboard with Approve/Deny buttons
+			await sendInlineKeyboard(
+				botToken,
+				chatId,
+				blockedMsg,
+				telegramPolicy.getApprovalKeyboard(intentKind, requestId),
+			)
 			return true
 		}
 
@@ -4379,10 +4413,16 @@ async function handleNaturalLanguageInstruction(
 					var logText = logsResult.logs.slice(0, 30).join("\n")
 					var aiReply = await askAI(
 						botToken,
-						"The user asked: \"" + text + "\"\n\nHere are the recent logs for '" + target + "':\n```\n" + logText + "\n```\n\nAnalyze these logs and answer the user's question in natural language. Explain what the logs show, any errors or warnings, and the overall health of the service.",
+						'The user asked: "' +
+							text +
+							"\"\n\nHere are the recent logs for '" +
+							target +
+							"':\n```\n" +
+							logText +
+							"\n```\n\nAnalyze these logs and answer the user's question in natural language. Explain what the logs show, any errors or warnings, and the overall health of the service.",
 						providers,
 						chatId,
-						{ temperature: 0.3, maxTokens: 800 }
+						{ temperature: 0.3, maxTokens: 800 },
 					)
 					await sendMessage(botToken, chatId, aiReply)
 				} else {
@@ -5309,6 +5349,112 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 				var rbsavepointId = cqData.slice(9)
 				logTelegramUsage("callback:rollback", cqChatId, cqUserId, { savepointId: rbsavepointId })
 				await handleRollbackCallback(botToken, cqChatId, cqMessageId, rbsavepointId)
+				return
+			}
+
+			// ─── Approval Action Callbacks ─────────────────────────────────────
+			// approve_action:<kind>:<requestId> — User approved a blocked action
+			if (cqData.startsWith("approve_action:")) {
+				var aaParts = cqData.split(":")
+				var aaKind = aaParts[1] || ""
+				var aaRequestId = aaParts[2] || ""
+				logTelegramUsage("callback:approve_action", cqChatId, cqUserId, {
+					kind: aaKind,
+					requestId: aaRequestId,
+				})
+
+				// Retrieve the stored context
+				var aaContext = pendingApprovals.get(aaRequestId)
+				if (!aaContext) {
+					await editMessageText(
+						botToken,
+						cqChatId,
+						cqMessageId,
+						"*Approval Expired* ⏰\n\nThis approval request has expired. Please send your request again.",
+						{ reply_markup: { inline_keyboard: [] } },
+					)
+					return
+				}
+
+				// Verify the user who pressed the button is the same one who made the request
+				if (aaContext.telegramUserId !== cqUserId) {
+					await answerCallbackQuery(botToken, cq.id, "Only the original requester can approve this action.")
+					return
+				}
+
+				// Remove from pending so it can't be approved twice
+				pendingApprovals.delete(aaRequestId)
+
+				// Update the message to show it was approved
+				await editMessageText(
+					botToken,
+					cqChatId,
+					cqMessageId,
+					"*Action Approved* ✅\n\n" +
+						telegramPolicy.getActionLabel(aaKind) +
+						" has been approved. Processing now...",
+					{ reply_markup: { inline_keyboard: [] } },
+				)
+
+				// Route to the appropriate handler based on the action kind
+				try {
+					if (aaKind === "deploy") {
+						// Deploy requires OTP — redirect to /deploy flow
+						await handleDeploy(botToken, cqChatId, [aaContext.text], queue, orchestratorBridge)
+					} else if (aaKind === "delete_data") {
+						await sendMessage(
+							botToken,
+							cqChatId,
+							"*Data Deletion* 🗑️\n\nData deletion is a destructive action. " +
+								"Please use the SuperRoo Cloud Dashboard to proceed.\n\n" +
+								"Dashboard: https://dev.abcx124.xyz",
+						)
+					} else if (aaKind === "shell") {
+						await sendMessage(
+							botToken,
+							cqChatId,
+							"*Shell Access* 💻\n\nShell access requires the dashboard. " +
+								"Please use the SuperRoo Cloud Dashboard for shell operations.\n\n" +
+								"Dashboard: https://dev.abcx124.xyz",
+						)
+					} else {
+						// For any other blocked action, re-route through NLP with the original text
+						await handleNaturalLanguageInstruction(
+							botToken,
+							cqChatId,
+							aaContext.text,
+							aaContext.telegramUserId,
+							queue,
+							providers,
+							orchestratorBridge,
+							aaContext.quotedText,
+						)
+					}
+				} catch (err) {
+					logTelegramError("callback:approve_action", cqChatId, cqUserId, err, { kind: aaKind })
+					await sendMessage(botToken, cqChatId, "*Error processing approved action* ❌\n\n" + err.message)
+				}
+				return
+			}
+
+			// deny_action:<kind>:<requestId> — User denied a blocked action
+			if (cqData.startsWith("deny_action:")) {
+				var daParts = cqData.split(":")
+				var daKind = daParts[1] || ""
+				var daRequestId = daParts[2] || ""
+				logTelegramUsage("callback:deny_action", cqChatId, cqUserId, { kind: daKind, requestId: daRequestId })
+
+				// Remove from pending
+				pendingApprovals.delete(daRequestId)
+
+				// Update the message to show it was denied
+				await editMessageText(
+					botToken,
+					cqChatId,
+					cqMessageId,
+					"*Action Denied* ❌\n\n" + telegramPolicy.getActionLabel(daKind) + " has been denied.",
+					{ reply_markup: { inline_keyboard: [] } },
+				)
 				return
 			}
 

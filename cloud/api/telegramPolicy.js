@@ -27,6 +27,7 @@ var requireCodingApproval = process.env.REQUIRE_CODING_APPROVAL === "true"
  */
 var safeActions = new Set([
 	"chat",
+	"coder",
 	"debug_plan",
 	"read_logs",
 	"run_tests",
@@ -121,6 +122,7 @@ function getBlockedReason(kind) {
 function getActionLabel(kind) {
 	var labels = {
 		chat: "💬 Chat",
+		coder: "💻 Code",
 		debug_plan: "🔍 Debug Plan",
 		read_logs: "📋 Read Logs",
 		run_tests: "🧪 Run Tests",
@@ -134,6 +136,26 @@ function getActionLabel(kind) {
 	return labels[kind] || "❓ Unknown"
 }
 
+/**
+ * Returns an inline keyboard with Approve/Deny buttons for a blocked action.
+ * The callback data encodes the action kind and a unique request ID so the
+ * handler can retrieve the original context when the user taps a button.
+ *
+ * @param {string} kind - The action kind (deploy, delete_data, shell)
+ * @param {string} requestId - Unique ID for this approval request
+ * @returns {Array} Array of button rows for sendInlineKeyboard
+ */
+function getApprovalKeyboard(kind, requestId) {
+	var label = getActionLabel(kind)
+	return [
+		[
+			{ text: "✅ Approve " + label, callback_data: "approve_action:" + kind + ":" + requestId },
+			{ text: "❌ Deny", callback_data: "deny_action:" + kind + ":" + requestId },
+		],
+		[{ text: "📊 Dashboard", url: "https://dev.abcx124.xyz" }],
+	]
+}
+
 // ─── Exports ────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -141,4 +163,5 @@ module.exports = {
 	isBlocked,
 	getBlockedReason,
 	getActionLabel,
+	getApprovalKeyboard,
 }
