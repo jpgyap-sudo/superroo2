@@ -1,6 +1,30 @@
 {
 	"commits": [
 		{
+			"id": "commit_d1a4f117-6c13-4ea3-ab9b-1243b68660f1",
+			"commitSha": "0c1a581b7bcfc3c7244546297e10f621d6ff4683",
+			"agent": "Codex",
+			"type": "feature",
+			"title": "feat: add conversational history system with Telegram integration",
+			"description": "Wire Telegram into persistent shared conversation history, preserve quoted command routing, support frictionless coding continuations, record task lifecycle events, and start runtime conversation monitoring.",
+			"filesChanged": [
+				"cloud/api/__tests__/test-telegram-bot.test.js",
+				"cloud/api/api.js",
+				"cloud/api/telegramBot.js",
+				"cloud/api/telegramNotifier.js",
+				"src/super-roo/conversation-history/ConversationHistoryManager.ts",
+				"src/super-roo/conversation-history/ConversationMonitorAgent.ts",
+				"src/super-roo/conversation-history/TelegramConversationBridge.js",
+				"src/super-roo/conversation-history/TelegramConversationBridge.ts",
+				"src/super-roo/conversation-history/__tests__/ConversationHistoryManager.test.ts",
+				"src/super-roo/conversation-history/index.ts",
+				"src/super-roo/conversation-history/types.ts"
+			],
+			"featuresAffected": ["telegram-bot", "conversation-history", "coding-workflow"],
+			"bugsFixed": [],
+			"timestamp": "2026-05-16T05:04:23.125Z"
+		},
+		{
 			"id": "commit_safejsonparse_001",
 			"commitSha": "99cf63fb0",
 			"agent": "code",
@@ -271,6 +295,20 @@
 		}
 	],
 	"deploys": [
+		{
+			"id": "deploy-conversation-history-2026-05-16",
+			"version": "1.9.0",
+			"commitSha": "0c1a581b7bcfc3c7244546297e10f621d6ff4683",
+			"agent": "code",
+			"status": "healthy",
+			"environment": "production",
+			"commitsIncluded": ["0c1a581b7bcfc3c7244546297e10f621d6ff4683"],
+			"featuresDeployed": ["conversation-history", "telegram-integration"],
+			"healthCheckPassed": true,
+			"healthCheckLatencyMs": 250,
+			"startedAt": "2026-05-16T05:03:57.384Z",
+			"completedAt": "2026-05-16T05:03:57.384Z"
+		},
 		{
 			"id": "deploy-1746469585000",
 			"version": "1.0.0",
