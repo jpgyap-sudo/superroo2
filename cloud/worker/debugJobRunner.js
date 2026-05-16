@@ -62,7 +62,12 @@ async function getProviderKey(providerId) {
 
 async function callLLM(systemPrompt, userPrompt) {
 	const providers = [
-		{ envKey: process.env.OPENAI_API_KEY, vaultId: "openai", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
+		{
+			envKey: process.env.OPENAI_API_KEY,
+			vaultId: "openai",
+			baseUrl: "https://api.openai.com/v1",
+			model: "gpt-4o-mini",
+		},
 		{ envKey: null, vaultId: "deepseek", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat" },
 	]
 
@@ -98,7 +103,7 @@ async function callLLM(systemPrompt, userPrompt) {
 
 // ── Project resolver ──────────────────────────────────────────────────────────
 
-async function resolveProjectPath(repoName) {
+async function resolveProjectPath(repoName, fallbackPath) {
 	try {
 		const raw = await fs.readFile(PROJECTS_FILE, "utf8")
 		const projects = JSON.parse(raw)
@@ -107,10 +112,13 @@ async function resolveProjectPath(repoName) {
 				(p.repoName || "").toLowerCase() === repoName.toLowerCase() ||
 				(p.name || "").toLowerCase() === repoName.toLowerCase(),
 		)
-		return project?.localPath || null
+		if (project?.localPath) return project.localPath
 	} catch {
-		return null
+		// projects.json not available, fall through to fallback
 	}
+	// Fallback to projectPath from job data if projects.json lookup fails
+	if (fallbackPath) return fallbackPath
+	return null
 }
 
 // ── Telegram notification ─────────────────────────────────────────────────────
@@ -122,6 +130,38 @@ function sendNotification(chatId, title, message) {
 		type: "notification",
 		taskId: "debug-" + Date.now(),
 		result: { title, message },
+	})
+	const url = new URL("/telegram/notify", API_BASE_URL)
+	const req = http.request(url.toString(), {
+		method: "POST",
+		headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) },
+		timeout: 5000,
+	})
+	req.on("error", () => {})
+	req.write(payload)
+	req.end()
+}
+
+/**
+ * Send a debug_complete notification with rich fields for the Telegram bot
+ * to render Approve/View Diff buttons and root cause / fix summary.
+ */
+function sendDebugCompleteNotification(chatId, taskId, goal, debugResult) {
+	if (!chatId) return
+	const payload = JSON.stringify({
+		chatId: String(chatId),
+		type: "debug_complete",
+		taskId: taskId || "debug-" + Date.now(),
+		instruction: goal || "Debug task",
+		result: {
+			success: debugResult.success,
+			rootCause: debugResult.rootCause || "",
+			fixSummary: debugResult.fixSummary || "",
+			branch: debugResult.branch || "",
+			commit: debugResult.commit || "",
+			attempts: debugResult.attempts || 0,
+			error: debugResult.error || null,
+		},
 	})
 	const url = new URL("/telegram/notify", API_BASE_URL)
 	const req = http.request(url.toString(), {
@@ -152,15 +192,16 @@ async function getDefaultBranch(cwd) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function runDebugJob(job) {
-	const { goal, repo = "superroo2", telegram = {} } = job.data
+	const { goal, repo = "superroo2", telegram = {}, projectPath: jobProjectPath } = job.data
 	const chatId = telegram.chatId || ""
 	const jobId = job.id
+	const taskId = telegram.taskId || "debug-" + jobId
 	const tag = `[debug:${jobId}]`
 
 	console.log(`${tag} Starting | goal: ${goal} | repo: ${repo}`)
 	sendNotification(chatId, "🔍 Super Debug Team Activated", `Goal: ${goal}\nRepo: ${repo}\n\nStarting analysis...`)
 
-	const projectPath = await resolveProjectPath(repo)
+	const projectPath = await resolveProjectPath(repo, jobProjectPath)
 	if (!projectPath) {
 		const err = `Project "${repo}" not found or has no local path.`
 		console.error(`${tag} ${err}`)
@@ -189,7 +230,9 @@ async function runDebugJob(job) {
 				triage += `(git triage unavailable: ${e.message})`
 			}
 			try {
-				const { stdout } = await execAsync("tail -50 /opt/superroo2/cloud/logs/api-error.log", { timeout: 10000 })
+				const { stdout } = await execAsync("tail -50 /opt/superroo2/cloud/logs/api-error.log", {
+					timeout: 10000,
+				})
 				triage += `\n\nRecent API errors:\n${stdout}`
 			} catch {
 				// log file may not exist yet
@@ -285,13 +328,17 @@ async function runDebugJob(job) {
 					await gitRun("add -A", projectPath)
 					await gitRun(`commit -m "debug(auto): ${goal.slice(0, 60)}" --allow-empty`, projectPath)
 					const commitHash = await gitRun("rev-parse --short HEAD", projectPath)
-					sendNotification(
-						chatId,
-						"✅ Debug Complete",
-						`Goal: ${goal}\nAttempts: ${attempt}\nCommit: \`${commitHash}\`\nBranch: \`${branch}\`\n\nTests passed. Review and merge when ready.`,
-					)
+					const debugResult = {
+						success: true,
+						branch,
+						commit: commitHash,
+						attempts: attempt,
+						rootCause: hypothesis,
+						fixSummary: `Fixed in ${attempt} attempt(s). Branch: ${branch}, Commit: ${commitHash}`,
+					}
+					sendDebugCompleteNotification(chatId, taskId, goal, debugResult)
 					console.log(`${tag} Success. Commit: ${commitHash} on ${branch}`)
-					return { success: true, branch, commit: commitHash, attempts: attempt }
+					return debugResult
 				} catch (e) {
 					console.log(`${tag} Commit failed: ${e.message}`)
 					lastError = e.message
@@ -322,13 +369,16 @@ async function runDebugJob(job) {
 		}
 	}
 
-	sendNotification(
-		chatId,
-		"❌ Debug Failed",
-		`Goal: ${goal}\nAttempts: ${MAX_ATTEMPTS}\nLast error: ${lastError || "Unknown"}\n\nAll attempts exhausted. Check logs for details.`,
-	)
+	const finalResult = {
+		success: false,
+		attempts: MAX_ATTEMPTS,
+		error: lastError || "Unknown",
+		rootCause: "",
+		fixSummary: `All ${MAX_ATTEMPTS} attempts exhausted. Last error: ${lastError || "Unknown"}`,
+	}
+	sendDebugCompleteNotification(chatId, taskId, goal, finalResult)
 	console.log(`${tag} All ${MAX_ATTEMPTS} attempts failed`)
-	return { success: false, attempts: MAX_ATTEMPTS, error: lastError }
+	return finalResult
 }
 
 module.exports = { runDebugJob }

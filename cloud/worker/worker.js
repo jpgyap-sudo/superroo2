@@ -371,6 +371,23 @@ worker.on("completed", (job, result) => {
 	if (job.data && job.data.telegram && job.data.telegram.chatId) {
 		const taskName = job.data.task || "Untitled task"
 
+		// ── Debug agent jobs: send debug_complete notification ────────────
+		if (job.data.agentId === "superroo-debugger-agent" && result) {
+			sendTelegramNotification("debug_complete", job.id, taskName, {
+				chatId: job.data.telegram.chatId,
+				result: {
+					success: result.success === true,
+					rootCause: result.rootCause || "",
+					fixSummary: result.fixSummary || "",
+					branch: result.branch || "",
+					commit: result.commit || "",
+					attempts: result.attempts || 0,
+					error: result.error || null,
+				},
+			})
+			return
+		}
+
 		// Use rich notification data if available (from coder jobs), otherwise generic
 		const notifyData = (result && result._telegramNotify) || {}
 

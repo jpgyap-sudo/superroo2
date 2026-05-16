@@ -4383,6 +4383,7 @@ async function handleNaturalLanguageInstruction(
 			try {
 				var debugTaskId = "DBG-" + Date.now().toString(36).toUpperCase()
 				var debugRepo = "superroo2"
+				var debugProjectPath = null
 				try {
 					var projResult = await auth.handleTelegramProjects({ telegramUserId, telegramChatId: chatId })
 					var activeProj =
@@ -4394,7 +4395,10 @@ async function handleNaturalLanguageInstruction(
 					if (!activeProj && projResult && projResult.projects && projResult.projects.length > 0) {
 						activeProj = projResult.projects[0]
 					}
-					if (activeProj) debugRepo = activeProj.repoName || activeProj.name || debugRepo
+					if (activeProj) {
+						debugRepo = activeProj.repoName || activeProj.name || debugRepo
+						debugProjectPath = activeProj.localPath || null
+					}
 				} catch (e) {
 					console.log("[telegram] debug_plan: could not resolve active project, using default")
 				}
@@ -4403,10 +4407,12 @@ async function handleNaturalLanguageInstruction(
 					agentId: "superroo-debugger-agent",
 					goal: text,
 					repo: debugRepo,
+					projectPath: debugProjectPath,
 					commands: [],
 					telegram: {
 						chatId: chatId,
 						userId: telegramUserId,
+						taskId: debugTaskId,
 					},
 				})
 				await sendInlineKeyboard(
@@ -6315,6 +6321,7 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 			await sendChatAction(botToken, chatId, "typing")
 			var debugText = cmdArgs.join(" ") || text
 			try {
+				// First, generate the AI debug plan for immediate feedback
 				var debugResult = await tgEndpoints.debugPlan(debugText)
 				var debugReply = telegramEngineer.formatDebugPlan(debugResult)
 
@@ -6336,6 +6343,62 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 				}
 
 				await sendMessage(botToken, chatId, debugReply)
+
+				// Also queue a BullMQ debug job so the debug team actually executes the fix
+				if (queue && typeof queue.add === "function") {
+					var debugTaskId = "DBG-" + Date.now().toString(36).toUpperCase()
+					var debugRepo = "superroo2"
+					var debugProjectPath = null
+					try {
+						var projResult = await auth.handleTelegramProjects({ telegramUserId, telegramChatId: chatId })
+						var activeProj =
+							projResult &&
+							projResult.projects &&
+							projResult.projects.find(function (p) {
+								return p.is_active
+							})
+						if (!activeProj && projResult && projResult.projects && projResult.projects.length > 0) {
+							activeProj = projResult.projects[0]
+						}
+						if (activeProj) {
+							debugRepo = activeProj.repoName || activeProj.name || debugRepo
+							debugProjectPath = activeProj.localPath || null
+						}
+					} catch (e) {
+						console.log("[telegram] /debug: could not resolve active project, using default")
+					}
+					await queue.add("debug-" + debugTaskId, {
+						task: debugText,
+						agentId: "superroo-debugger-agent",
+						goal: debugText,
+						repo: debugRepo,
+						projectPath: debugProjectPath,
+						commands: [],
+						telegram: {
+							chatId: chatId,
+							userId: telegramUserId,
+							taskId: debugTaskId,
+						},
+					})
+					await sendInlineKeyboard(
+						botToken,
+						chatId,
+						"🔍 *Super Debug Team Activated*\n\n" +
+							"Task ID: `" +
+							debugTaskId +
+							"`\n" +
+							"Repo: `" +
+							debugRepo +
+							"`\n\n" +
+							"The debug team is analyzing the issue and will send progress updates here.",
+						[
+							[
+								{ text: "📊 Check Status", callback_data: `notify:status:${debugTaskId}` },
+								{ text: "📋 Task Board", callback_data: "taskboard:list" },
+							],
+						],
+					)
+				}
 			} catch (err) {
 				logTelegramError("/debug", chatId, telegramUserId, err, { debugText: debugText })
 				await sendMessage(botToken, chatId, "*Debug Plan Error* ❌\n\n" + err.message)
