@@ -1784,10 +1784,11 @@ async function handleConsultant(botToken, chatId, question, providers, options) 
 async function handleCode(botToken, chatId, args, queue, orchestratorBridge, quotedText) {
 	var instruction = enrichCodeInstruction(chatId, args.join(" "), quotedText)
 	if (!instruction) {
-		await sendMessage(
+		await sendInlineKeyboard(
 			botToken,
 			chatId,
 			"Please provide an instruction.\n\nExample: `/code fix the login timeout bug`",
+			telegramPolicy.getContextualButtons("code_error"),
 		)
 		return
 	}
@@ -1882,7 +1883,12 @@ async function handleStatus(botToken, chatId, args, queue) {
 			return t.id === taskId
 		})
 		if (!task) {
-			await sendMessage(botToken, chatId, "Task `" + taskId + "` not found.")
+			await sendInlineKeyboard(
+				botToken,
+				chatId,
+				"Task `" + taskId + "` not found.",
+				telegramPolicy.getContextualButtons("status", { showTaskBoard: true }),
+			)
 			return
 		}
 
@@ -1897,7 +1903,7 @@ async function handleStatus(botToken, chatId, args, queue) {
 		var emojiMap = { waiting: "", queued: "", active: "", running: "", completed: "", failed: "" }
 		var emoji = emojiMap[liveStatus] || ""
 
-		await sendMessage(
+		await sendInlineKeyboard(
 			botToken,
 			chatId,
 			emoji +
@@ -1913,6 +1919,7 @@ async function handleStatus(botToken, chatId, args, queue) {
 				task.changedFiles +
 				"\n*Lines added:* " +
 				task.linesAdded,
+			telegramPolicy.getContextualButtons("task_status", { taskId: taskId }),
 		)
 	} else {
 		var counts = { waiting: 0, active: 0, completed: 0, failed: 0 }
@@ -1930,7 +1937,7 @@ async function handleStatus(botToken, chatId, args, queue) {
 			return t.status !== "completed" && t.status !== "failed"
 		})
 
-		await sendMessage(
+		await sendInlineKeyboard(
 			botToken,
 			chatId,
 			"*SuperRoo System Status*\n\n" +
@@ -1950,6 +1957,7 @@ async function handleStatus(botToken, chatId, args, queue) {
 				(getSession(chatId) ? "Active" : "Expired") +
 				"\n\n" +
 				"Use `/code <instruction>` to create a new coding task.",
+			telegramPolicy.getContextualButtons("status"),
 		)
 	}
 }
@@ -2158,20 +2166,22 @@ async function handleTest(botToken, chatId, args, queue) {
 async function handleDeploy(botToken, chatId, args, queue, orchestratorBridge) {
 	var taskId = args[0]
 	if (!taskId) {
-		await sendMessage(
+		await sendInlineKeyboard(
 			botToken,
 			chatId,
 			"Please specify a task ID.\n\nExample: `/deploy TG-221`\n\n*Note:* Deploy requires OTP authentication via Google Authenticator.",
+			telegramPolicy.getContextualButtons("deploy_error", { showOTP: true, showStatus: true }),
 		)
 		return
 	}
 
 	var session = getSession(chatId)
 	if (!session || !session.otpVerified) {
-		await sendMessage(
+		await sendInlineKeyboard(
 			botToken,
 			chatId,
 			"*OTP Required*\n\nDeploy requires Google Authenticator verification.\n\nUse `/otp` to set up and verify your OTP first.",
+			telegramPolicy.getContextualButtons("deploy_error", { showOTP: true, showStatus: true }),
 		)
 		return
 	}
@@ -2181,15 +2191,21 @@ async function handleDeploy(botToken, chatId, args, queue, orchestratorBridge) {
 		return t.id === taskId.toUpperCase()
 	})
 	if (!task) {
-		await sendMessage(botToken, chatId, "Task `" + taskId + "` not found.")
+		await sendInlineKeyboard(
+			botToken,
+			chatId,
+			"Task `" + taskId + "` not found.",
+			telegramPolicy.getContextualButtons("deploy_error", { taskId: taskId, showStatus: true }),
+		)
 		return
 	}
 
 	if (task.status !== "approved") {
-		await sendMessage(
+		await sendInlineKeyboard(
 			botToken,
 			chatId,
 			"Task `" + task.id + "` must be approved before deploying.\nUse `/approve " + task.id + "` first.",
+			telegramPolicy.getContextualButtons("deploy_error", { taskId: task.id, showStatus: true }),
 		)
 		return
 	}
@@ -3768,7 +3784,7 @@ async function handleSmartNLP(botToken, chatId, text, telegramUserId, queue, pro
 }
 
 async function handleAbout(botToken, chatId) {
-	await sendMessage(
+	await sendInlineKeyboard(
 		botToken,
 		chatId,
 		"*SuperRoo Bot* 🤖\n\n" +
@@ -3783,6 +3799,7 @@ async function handleAbout(botToken, chatId) {
 			"• Secure deploy with Google Authenticator OTP\n\n" +
 			"*Dashboard:* https://dev.abcx124.xyz\n" +
 			"*Support:* Use `/ask <question>` or tag @superroo_bot in group chat",
+		telegramPolicy.getContextualButtons("about"),
 	)
 }
 
@@ -3793,7 +3810,12 @@ async function handleFriction(botToken, chatId) {
 async function handleHistory(botToken, chatId) {
 	var active = telegramConversationBridge.getActiveConversation(chatId)
 	if (!active) {
-		await sendMessage(botToken, chatId, "*Conversation History*\n\nNo active shared conversation yet.")
+		await sendInlineKeyboard(
+			botToken,
+			chatId,
+			"*Conversation History*\n\nNo active shared conversation yet.",
+			telegramPolicy.getContextualButtons("history"),
+		)
 		return
 	}
 	var latestMessages = (active.messages || []).slice(-5)
@@ -3810,7 +3832,7 @@ async function handleHistory(botToken, chatId) {
 		var msg = latestMessages[i]
 		lines.push("• " + msg.role + ": " + msg.content.slice(0, 120))
 	}
-	await sendMessage(
+	await sendInlineKeyboard(
 		botToken,
 		chatId,
 		lines
@@ -3818,6 +3840,7 @@ async function handleHistory(botToken, chatId) {
 				return line !== null
 			})
 			.join("\n"),
+		telegramPolicy.getContextualButtons("history"),
 	)
 }
 
@@ -4397,7 +4420,12 @@ async function handleNaturalLanguageInstruction(
 				}
 			} catch (err) {
 				logTelegramError("nlp:debug_plan", chatId, telegramUserId, err, { text: text.slice(0, 100) })
-				await sendMessage(botToken, chatId, "*Debug Error* ❌\n\n" + err.message)
+				await sendInlineKeyboard(
+					botToken,
+					chatId,
+					"*Debug Error* ❌\n\n" + err.message,
+					telegramPolicy.getContextualButtons("error", { lastCommand: "debug" }),
+				)
 			}
 			return true
 		}
@@ -4424,14 +4452,31 @@ async function handleNaturalLanguageInstruction(
 						chatId,
 						{ temperature: 0.3, maxTokens: 800 },
 					)
-					await sendMessage(botToken, chatId, aiReply)
+					await sendInlineKeyboard(
+						botToken,
+						chatId,
+						aiReply,
+						telegramPolicy.getContextualButtons("logs", { target: target }),
+					)
 				} else {
 					var logsReply = telegramEngineer.formatLogsResult(logsResult)
-					await sendMessage(botToken, chatId, logsReply)
+					await sendInlineKeyboard(
+						botToken,
+						chatId,
+						logsReply,
+						telegramPolicy.getContextualButtons("logs", { target: target }),
+					)
 				}
 			} catch (err) {
 				logTelegramError("nlp:read_logs", chatId, telegramUserId, err, { target: classified.target })
-				await sendMessage(botToken, chatId, "*Logs Error* ❌\n\n" + err.message)
+				await sendInlineKeyboard(
+					botToken,
+					chatId,
+					"*Logs Error* ❌\n\n" + err.message,
+					telegramPolicy.getContextualButtons("error", {
+						lastCommand: "logs:" + (classified.target || "all"),
+					}),
+				)
 			}
 			return true
 		}
@@ -4442,10 +4487,22 @@ async function handleNaturalLanguageInstruction(
 				var testProject = classified.project || ""
 				var testResult = await tgEndpoints.runTests(testProject)
 				var testReply = telegramEngineer.formatTestResult(testResult)
-				await sendMessage(botToken, chatId, testReply)
+				await sendInlineKeyboard(
+					botToken,
+					chatId,
+					testReply,
+					telegramPolicy.getContextualButtons("tests", { target: testProject }),
+				)
 			} catch (err) {
 				logTelegramError("nlp:run_tests", chatId, telegramUserId, err, { project: classified.project })
-				await sendMessage(botToken, chatId, "*Test Error* ❌\n\n" + err.message)
+				await sendInlineKeyboard(
+					botToken,
+					chatId,
+					"*Test Error* ❌\n\n" + err.message,
+					telegramPolicy.getContextualButtons("error", {
+						lastCommand: "tests:" + (classified.project || ""),
+					}),
+				)
 			}
 			return true
 		}
@@ -4456,10 +4513,22 @@ async function handleNaturalLanguageInstruction(
 				var workerName = classified.target || "superroo-api"
 				var restartResult = await tgEndpoints.restartWorker(workerName)
 				var restartReply = telegramEngineer.formatRestartResult(restartResult)
-				await sendMessage(botToken, chatId, restartReply)
+				await sendInlineKeyboard(
+					botToken,
+					chatId,
+					restartReply,
+					telegramPolicy.getContextualButtons("restart", { target: workerName }),
+				)
 			} catch (err) {
 				logTelegramError("nlp:restart_worker", chatId, telegramUserId, err, { target: classified.target })
-				await sendMessage(botToken, chatId, "*Restart Error* ❌\n\n" + err.message)
+				await sendInlineKeyboard(
+					botToken,
+					chatId,
+					"*Restart Error* ❌\n\n" + err.message,
+					telegramPolicy.getContextualButtons("error", {
+						lastCommand: "restart:" + (classified.target || "superroo-api"),
+					}),
+				)
 			}
 			return true
 		}
@@ -4525,10 +4594,11 @@ async function handleNaturalLanguageInstruction(
 			}
 
 			if (!activeProject) {
-				await sendMessage(
+				await sendInlineKeyboard(
 					botToken,
 					chatId,
 					"*No Active Project* 📁\n\nPlease select a project first so I know which workspace to work on.\n\nUse `/projects` to view and select your projects.\n\n*Already selected?* Use `/session` to check your current session.",
+					telegramPolicy.getContextualButtons("no_project"),
 				)
 				return true
 			}
@@ -5455,6 +5525,228 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 					"*Action Denied* ❌\n\n" + telegramPolicy.getActionLabel(daKind) + " has been denied.",
 					{ reply_markup: { inline_keyboard: [] } },
 				)
+				return
+			}
+
+			// ─── Quick Action Callbacks ─────────────────────────────────────────
+			// quick:status — Show system status
+			if (cqData === "quick:status") {
+				logTelegramUsage("callback:quick_status", cqChatId, cqUserId)
+				await handleStatus(botToken, cqChatId, [], queue)
+				await answerCallbackQuery(botToken, cq.id)
+				return
+			}
+
+			// quick:status:<taskId> — Show specific task status
+			if (cqData.startsWith("quick:status:")) {
+				var qsTaskId = cqData.slice(13)
+				logTelegramUsage("callback:quick_status_task", cqChatId, cqUserId, { taskId: qsTaskId })
+				await handleStatus(botToken, cqChatId, [qsTaskId], queue)
+				await answerCallbackQuery(botToken, cq.id)
+				return
+			}
+
+			// quick:logs:<target> — Read logs for a worker
+			if (cqData.startsWith("quick:logs:")) {
+				var qlTarget = cqData.slice(11)
+				logTelegramUsage("callback:quick_logs", cqChatId, cqUserId, { target: qlTarget })
+				await sendChatAction(botToken, cqChatId, "typing")
+				try {
+					var qlResult = await tgEndpoints.readLogs(qlTarget)
+					var qlReply = telegramEngineer.formatLogsResult(qlResult)
+					await sendInlineKeyboard(
+						botToken,
+						cqChatId,
+						qlReply,
+						telegramPolicy.getContextualButtons("logs", { target: qlTarget }),
+					)
+				} catch (err) {
+					await sendInlineKeyboard(
+						botToken,
+						cqChatId,
+						"*Logs Error* ❌\n\n" + err.message,
+						telegramPolicy.getContextualButtons("error", { lastCommand: "logs:" + qlTarget }),
+					)
+				}
+				await answerCallbackQuery(botToken, cq.id)
+				return
+			}
+
+			// quick:tests:<project> — Run tests
+			if (cqData.startsWith("quick:tests:")) {
+				var qtProject = cqData.slice(12)
+				logTelegramUsage("callback:quick_tests", cqChatId, cqUserId, { project: qtProject })
+				await sendChatAction(botToken, cqChatId, "typing")
+				try {
+					var qtResult = await tgEndpoints.runTests(qtProject)
+					var qtReply = telegramEngineer.formatTestResult(qtResult)
+					await sendInlineKeyboard(
+						botToken,
+						cqChatId,
+						qtReply,
+						telegramPolicy.getContextualButtons("tests", { target: qtProject }),
+					)
+				} catch (err) {
+					await sendInlineKeyboard(
+						botToken,
+						cqChatId,
+						"*Test Error* ❌\n\n" + err.message,
+						telegramPolicy.getContextualButtons("error", { lastCommand: "tests:" + qtProject }),
+					)
+				}
+				await answerCallbackQuery(botToken, cq.id)
+				return
+			}
+
+			// quick:restart:<worker> — Restart a worker
+			if (cqData.startsWith("quick:restart:")) {
+				var qrWorker = cqData.slice(14)
+				logTelegramUsage("callback:quick_restart", cqChatId, cqUserId, { worker: qrWorker })
+				await sendChatAction(botToken, cqChatId, "typing")
+				try {
+					var qrResult = await tgEndpoints.restartWorker(qrWorker)
+					var qrReply = telegramEngineer.formatRestartResult(qrResult)
+					await sendInlineKeyboard(
+						botToken,
+						cqChatId,
+						qrReply,
+						telegramPolicy.getContextualButtons("restart", { target: qrWorker }),
+					)
+				} catch (err) {
+					await sendInlineKeyboard(
+						botToken,
+						cqChatId,
+						"*Restart Error* ❌\n\n" + err.message,
+						telegramPolicy.getContextualButtons("error", { lastCommand: "restart:" + qrWorker }),
+					)
+				}
+				await answerCallbackQuery(botToken, cq.id)
+				return
+			}
+
+			// quick:help — Show help
+			if (cqData === "quick:help") {
+				logTelegramUsage("callback:quick_help", cqChatId, cqUserId)
+				await handleHelp(botToken, cqChatId)
+				await answerCallbackQuery(botToken, cq.id)
+				return
+			}
+
+			// quick:projects — Show projects
+			if (cqData === "quick:projects") {
+				logTelegramUsage("callback:quick_projects", cqChatId, cqUserId)
+				await handleProjects(botToken, cqChatId, cqUserId)
+				await answerCallbackQuery(botToken, cq.id)
+				return
+			}
+
+			// quick:code — Prompt user to create a new code task
+			if (cqData === "quick:code") {
+				logTelegramUsage("callback:quick_code", cqChatId, cqUserId)
+				await sendInlineKeyboard(
+					botToken,
+					cqChatId,
+					"*New Code Task* 💻\n\nUse `/code <your instruction>` to create a new coding task.\n\nExample: `/code fix the login timeout bug`",
+					telegramPolicy.getContextualButtons("code_error"),
+				)
+				await answerCallbackQuery(botToken, cq.id)
+				return
+			}
+
+			// quick:otp — Show OTP setup instructions
+			if (cqData === "quick:otp") {
+				logTelegramUsage("callback:quick_otp", cqChatId, cqUserId)
+				await handleOTP(botToken, cqChatId, [])
+				await answerCallbackQuery(botToken, cq.id)
+				return
+			}
+
+			// quick:ask — Prompt user to ask a question
+			if (cqData === "quick:ask") {
+				logTelegramUsage("callback:quick_ask", cqChatId, cqUserId)
+				await sendMessage(
+					botToken,
+					cqChatId,
+					"*Ask a Question* 💬\n\nUse `/ask <your question>` to ask me anything.\n\nExample: `/ask what is the current system status?`",
+				)
+				await answerCallbackQuery(botToken, cq.id)
+				return
+			}
+
+			// quick:examples — Show example commands
+			if (cqData === "quick:examples") {
+				logTelegramUsage("callback:quick_examples", cqChatId, cqUserId)
+				await sendMessage(
+					botToken,
+					cqChatId,
+					"*Example Commands* 📋\n\n" +
+						"• `/code fix the login timeout bug` — Start a coding task\n" +
+						"• `/status` — Check system status\n" +
+						"• `/logs 30` — View recent logs\n" +
+						"• `/deploy TG-123` — Deploy a task\n" +
+						"• `/projects` — View your projects\n" +
+						"• `/ask what is the API error?` — Ask a question\n" +
+						"• `/about` — Bot information",
+				)
+				await answerCallbackQuery(botToken, cq.id)
+				return
+			}
+
+			// quick:retry:<command> — Retry a command via Terminal Brain
+			if (cqData.startsWith("quick:retry:")) {
+				var qrCmd = cqData.slice(12)
+				logTelegramUsage("callback:quick_retry", cqChatId, cqUserId, { command: qrCmd.slice(0, 60) })
+				if (qrCmd.startsWith("logs:")) {
+					var retryTarget = qrCmd.slice(5) || "all"
+					await sendChatAction(botToken, cqChatId, "typing")
+					try {
+						var retryLogsResult = await tgEndpoints.readLogs(retryTarget)
+						var retryLogsReply = telegramEngineer.formatLogsResult(retryLogsResult)
+						await sendInlineKeyboard(
+							botToken,
+							cqChatId,
+							retryLogsReply,
+							telegramPolicy.getContextualButtons("logs", { target: retryTarget }),
+						)
+					} catch (err) {
+						await sendMessage(botToken, cqChatId, "*Retry Error* ❌\n\n" + err.message)
+					}
+				} else if (qrCmd.startsWith("tests:")) {
+					var retryProject = qrCmd.slice(6) || ""
+					await sendChatAction(botToken, cqChatId, "typing")
+					try {
+						var retryTestResult = await tgEndpoints.runTests(retryProject)
+						var retryTestReply = telegramEngineer.formatTestResult(retryTestResult)
+						await sendInlineKeyboard(
+							botToken,
+							cqChatId,
+							retryTestReply,
+							telegramPolicy.getContextualButtons("tests", { target: retryProject }),
+						)
+					} catch (err) {
+						await sendMessage(botToken, cqChatId, "*Retry Error* ❌\n\n" + err.message)
+					}
+				} else if (qrCmd.startsWith("restart:")) {
+					var retryWorker = qrCmd.slice(8) || "superroo-api"
+					await sendChatAction(botToken, cqChatId, "typing")
+					try {
+						var retryRestartResult = await tgEndpoints.restartWorker(retryWorker)
+						var retryRestartReply = telegramEngineer.formatRestartResult(retryRestartResult)
+						await sendInlineKeyboard(
+							botToken,
+							cqChatId,
+							retryRestartReply,
+							telegramPolicy.getContextualButtons("restart", { target: retryWorker }),
+						)
+					} catch (err) {
+						await sendMessage(botToken, cqChatId, "*Retry Error* ❌\n\n" + err.message)
+					}
+				} else if (qrCmd.startsWith("debug")) {
+					await sendMessage(botToken, cqChatId, "Please describe what you'd like to debug.")
+				} else {
+					await sendMessage(botToken, cqChatId, "Retry not available for this command.")
+				}
+				await answerCallbackQuery(botToken, cq.id)
 				return
 			}
 
