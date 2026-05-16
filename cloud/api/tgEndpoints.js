@@ -121,14 +121,58 @@ async function debugPlan(text, project) {
  * @param {number} [lines] - Number of lines to fetch
  * @returns {Promise<Object>} { logs, target, source }
  */
+/**
+ * Tries to find PM2 via common paths when it's not in the default PATH.
+ * PM2 is typically installed globally via npm and may not be in the PATH
+ * when the API process is started by PM2 itself (inherited PATH issue).
+ */
+async function findPm2Path() {
+	const commonPaths = [
+		"/usr/local/bin/pm2",
+		"/usr/bin/pm2",
+		"/usr/lib/node_modules/pm2/bin/pm2",
+		"/root/.npm-global/bin/pm2",
+		"/home/*/.npm-global/bin/pm2",
+		"/snap/bin/pm2",
+	]
+	for (const pm2Path of commonPaths) {
+		try {
+			await run("test -x " + pm2Path)
+			return pm2Path
+		} catch {
+			// Try next path
+		}
+	}
+	// Try to resolve via `which` or `where`
+	try {
+		const whichResult = await run("command -v pm2 2>/dev/null || which pm2 2>/dev/null")
+		if (whichResult.stdout.trim()) {
+			return whichResult.stdout.trim()
+		}
+	} catch {
+		// Fall through
+	}
+	return "pm2" // fallback to bare command
+}
+
+/**
+ * Reads logs for a target (PM2 worker or Docker container).
+ *
+ * @param {string} target - Worker name or "docker"
+ * @param {number} [lines] - Number of lines to fetch
+ * @returns {Promise<Object>} { logs, target, source }
+ */
 async function readLogs(target, lines) {
 	const numLines = lines || DEFAULT_LOG_LINES
 	const result = { logs: [], target: target || "all", source: "" }
 
+	// Resolve PM2 path once per call
+	const pm2 = await findPm2Path()
+
 	if (!target || target === "all") {
 		// Read PM2 logs for all workers
 		try {
-			const pm2Logs = await run("pm2 jlist")
+			const pm2Logs = await run(pm2 + " jlist")
 			const processes = JSON.parse(pm2Logs.stdout)
 			for (const proc of processes) {
 				const procName = proc.name
@@ -149,7 +193,45 @@ async function readLogs(target, lines) {
 			}
 			result.source = "pm2"
 		} catch (e) {
-			result.logs.push("Failed to read PM2 logs: " + e.message)
+			// PM2 not available — try reading log files directly from known paths
+			result.logs.push("⚠️ PM2 not accessible from this process. Trying direct log file read...")
+			result.logs.push("  (Error: " + e.message + ")")
+			result.source = "pm2:fallback"
+
+			// Fallback: try reading PM2 log files from the default log directory
+			const pm2LogDir = process.env.PM2_LOG_DIR || "/root/.pm2/logs"
+			try {
+				await run("test -d " + pm2LogDir)
+				const lsResult = await run(
+					"ls " + pm2LogDir + "/*.log 2>/dev/null || ls " + pm2LogDir + "/*.out 2>/dev/null",
+				)
+				if (lsResult.stdout) {
+					const logFiles = lsResult.stdout.split("\n").filter(Boolean)
+					for (const logFile of logFiles.slice(0, 10)) {
+						try {
+							const logData = await run("tail -" + numLines + " " + logFile)
+							if (logData.stdout) {
+								const name = logFile.replace(/.*\//, "").replace(/\.(log|out)$/, "")
+								result.logs.push("--- " + name + " ---")
+								const lines_arr = logData.stdout.split("\n")
+								for (let i = 0; i < lines_arr.length; i++) {
+									result.logs.push(lines_arr[i])
+								}
+							}
+						} catch (logErr) {
+							result.logs.push("--- " + logFile.replace(/.*\//, "") + " (unreadable) ---")
+						}
+					}
+				} else {
+					result.logs.push("No PM2 log files found in " + pm2LogDir)
+				}
+			} catch (dirErr) {
+				result.logs.push("PM2 log directory not found: " + pm2LogDir)
+				result.logs.push("")
+				result.logs.push("💡 Tip: PM2 may not be installed or the log path is different.")
+				result.logs.push("   Try: `pm2 status` to check if PM2 is running.")
+				result.logs.push("   Try: `pm2 logs` to see logs directly.")
+			}
 		}
 	} else if (target === "docker") {
 		// Read Docker container logs
@@ -160,12 +242,15 @@ async function readLogs(target, lines) {
 			}
 			result.source = "docker"
 		} catch (e) {
-			result.logs.push("Failed to read Docker logs: " + e.message)
+			result.logs.push("⚠️ Failed to read Docker logs: " + e.message)
+			result.logs.push("")
+			result.logs.push("💡 Tip: Docker may not be running or the current user lacks permission.")
+			result.logs.push("   Try: `docker ps` to check if Docker is accessible.")
 		}
 	} else {
 		// Read PM2 logs for a specific worker
 		try {
-			const pm2Logs = await run("pm2 show " + target)
+			const pm2Logs = await run(pm2 + " show " + target)
 			// Try to find the log path from pm2 show output
 			const logPathMatch = pm2Logs.stdout.match(/out log path\s+([^\n]+)/)
 			const errPathMatch = pm2Logs.stdout.match(/error log path\s+([^\n]+)/)
@@ -192,7 +277,10 @@ async function readLogs(target, lines) {
 			}
 			result.source = "pm2:" + target
 		} catch (e) {
-			result.logs.push("Failed to read logs for '" + target + "': " + e.message)
+			result.logs.push("⚠️ Failed to read logs for '" + target + "': " + e.message)
+			result.logs.push("")
+			result.logs.push("💡 Tip: The worker '" + target + "' may not exist or PM2 is not accessible.")
+			result.logs.push("   Try: `pm2 status` to list available workers.")
 		}
 	}
 

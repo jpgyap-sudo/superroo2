@@ -243,8 +243,14 @@ function formatError(err, command) {
 	return lines.join("\n")
 }
 
-/** Session timeout: 30 minutes */
-const SESSION_TTL_MS = 30 * 60 * 1000
+/**
+ * Session timeout: 24 hours.
+ * The local session is a cache of the auth module session (which is persistent).
+ * A short TTL (30 min) caused confusion — users would get "Authentication Required"
+ * even though their auth module session was still valid. The local session should
+ * be long-lived to avoid false expiry; the auth module is the source of truth.
+ */
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000
 
 // ─── TOTP (Google Authenticator) ───────────────────────────────────────────
 
