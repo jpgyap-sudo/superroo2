@@ -296,6 +296,20 @@
 	],
 	"deploys": [
 		{
+			"id": "deploy_86e6593a-0303-4b2e-a5b9-9c768ffd83fb",
+			"version": "1.9.1",
+			"commitSha": "0d1b81ceb",
+			"agent": "Codex",
+			"status": "pending",
+			"environment": "production",
+			"commitsIncluded": ["0c1a581b7bcfc3c7244546297e10f621d6ff4683", "0d1b81ceb"],
+			"featuresDeployed": ["telegram-bot", "conversation-history", "coding-workflow"],
+			"healthCheckPassed": null,
+			"healthCheckLatencyMs": null,
+			"startedAt": "2026-05-16T05:07:23.939Z",
+			"completedAt": null
+		},
+		{
 			"id": "deploy-conversation-history-2026-05-16",
 			"version": "1.9.0",
 			"commitSha": "0c1a581b7bcfc3c7244546297e10f621d6ff4683",

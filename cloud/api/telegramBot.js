@@ -5598,26 +5598,6 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 
 	if (!rawText) return
 
-	// ─── Record User Message in Conversation History ────────────────────
-	try {
-		tgConversationBridge.recordUserMessage(
-			chatId,
-			{
-				text: rawText,
-				messageId: msg.message_id,
-				userId: String(telegramUserId),
-				username: (msg.from && msg.from.username) || null,
-			},
-			{
-				projectId: session && session.activeProject ? session.activeProject.id : null,
-				projectName: session && session.activeProject ? session.activeProject.name : null,
-			},
-		)
-	} catch (convErr) {
-		// Non-fatal — conversation recording is advisory
-		console.log("[telegram] Failed to record user message in conversation history:", convErr.message)
-	}
-
 	// ─── Rate Limit Check ───────────────────────────────────────────────
 	// Prevent abuse by limiting commands per sliding window.
 	// Callback queries are excluded since they're user-triggered actions.
