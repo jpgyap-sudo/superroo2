@@ -24,6 +24,12 @@ interface CodeEditorProps {
 	onCursorChange?: (line: number, column: number) => void
 	onSelectionChange?: (selectedText: string, line: number, column: number) => void
 	onMarkersChange?: (markers: any[]) => void
+	onLspCompletion?: (lang: string, uri: string, line: number, column: number) => Promise<any>
+	onLspHover?: (lang: string, uri: string, line: number, column: number) => Promise<any>
+	onLspDefinition?: (lang: string, uri: string, line: number, column: number) => Promise<any>
+	onLspReferences?: (lang: string, uri: string, line: number, column: number) => Promise<any>
+	onLspOpenDocument?: (lang: string, uri: string, text: string, version: number) => Promise<any>
+	onLspChangeDocument?: (lang: string, uri: string, text: string, version: number) => Promise<any>
 }
 
 export default function CodeEditor(props: CodeEditorProps) {

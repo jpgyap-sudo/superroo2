@@ -163,7 +163,6 @@ export interface IdeState {
 
 	// Terminal
 	terminalInput: string
-	terminalOutput: string[]
 	outputBlocks: OutputBlock[]
 	collapsedBlocks: Set<string>
 	recentCommands: string[]
@@ -203,6 +202,16 @@ export interface IdeState {
 
 	// #12: Terminal Resource Usage
 	terminalResources: TerminalResourceUsage | null
+
+	// Terminal Theme & Accessibility
+	terminalTheme: "dark" | "light" | "high-contrast"
+	terminalFontSize: number
+
+	// Inline Error Fixes
+	fixableErrors: Map<
+		string,
+		{ lineIndex: number; lineText: string; errorType: string; fixSuggestion: string | null }[]
+	>
 
 	// Files
 	files: WorkspaceFile[]
@@ -259,7 +268,7 @@ const initialState: IdeState = {
 	proactiveSuggestions: [],
 
 	terminalInput: "",
-	terminalOutput: [
+	outputBlocks: toOutputBlocks([
 		"Welcome to SuperRoo IDE Terminal",
 		"Type a command to get started...",
 		"",
@@ -272,8 +281,7 @@ const initialState: IdeState = {
 		"║  @coder <task> — Delegate to Coder agent    ║",
 		"╚══════════════════════════════════════════════╝",
 		"",
-	],
-	outputBlocks: [],
+	]),
 	collapsedBlocks: new Set(),
 	recentCommands: [],
 	recordings: [],
@@ -312,6 +320,13 @@ const initialState: IdeState = {
 
 	// #12: Resources
 	terminalResources: null,
+
+	// Terminal Theme & Accessibility
+	terminalTheme: "dark",
+	terminalFontSize: 12,
+
+	// Inline Error Fixes
+	fixableErrors: new Map(),
 
 	files: [],
 	openFiles: [],
@@ -379,6 +394,10 @@ function toOutputBlocks(lines: string[], startIndex = 0): OutputBlock[] {
 			collapsed: false,
 		}
 	})
+}
+
+function toTerminalLines(blocks: OutputBlock[]): string[] {
+	return blocks.map((block) => block.content)
 }
 
 // ─── Actions ──────────────────────────────────────────────────────────────
@@ -465,6 +484,15 @@ export type IdeAction =
 	| { type: "SET_WORKSPACE_TASKS"; payload: WorkspaceTask[] }
 	| { type: "SET_HERMES_STATS"; payload: any }
 	| { type: "SET_DEPLOYMENTS"; payload: any[] }
+	| { type: "SET_TERMINAL_THEME"; payload: "dark" | "light" | "high-contrast" }
+	| { type: "SET_TERMINAL_FONT_SIZE"; payload: number }
+	| {
+			type: "SET_FIXABLE_ERRORS"
+			payload: {
+				blockId: string
+				errors: { lineIndex: number; lineText: string; errorType: string; fixSuggestion: string | null }[]
+			}
+	  }
 
 // ─── Reducer ──────────────────────────────────────────────────────────────
 
@@ -472,9 +500,13 @@ function ideReducer(state: IdeState, action: IdeAction): IdeState {
 	switch (action.type) {
 		case "HYDRATE": {
 			const payload = action.payload || {}
+			const legacyTerminalOutput = (payload as Partial<IdeState> & { terminalOutput?: string[] }).terminalOutput
 			return {
 				...state,
 				...payload,
+				outputBlocks:
+					payload.outputBlocks ||
+					(Array.isArray(legacyTerminalOutput) ? toOutputBlocks(legacyTerminalOutput) : state.outputBlocks),
 				collapsedBlocks:
 					payload.collapsedBlocks instanceof Set ? payload.collapsedBlocks : state.collapsedBlocks,
 				_hydrated: true,
@@ -506,11 +538,10 @@ function ideReducer(state: IdeState, action: IdeAction): IdeState {
 		case "SET_TERMINAL_INPUT":
 			return { ...state, terminalInput: action.payload }
 		case "SET_TERMINAL_OUTPUT":
-			return { ...state, terminalOutput: action.payload, outputBlocks: toOutputBlocks(action.payload) }
+			return { ...state, outputBlocks: toOutputBlocks(action.payload) }
 		case "APPEND_TERMINAL_OUTPUT":
 			return {
 				...state,
-				terminalOutput: [...state.terminalOutput, ...action.payload],
 				outputBlocks: [...state.outputBlocks, ...toOutputBlocks(action.payload, state.outputBlocks.length)],
 			}
 		case "SET_OUTPUT_BLOCKS":
@@ -651,6 +682,15 @@ function ideReducer(state: IdeState, action: IdeAction): IdeState {
 			return { ...state, hermesStats: action.payload }
 		case "SET_DEPLOYMENTS":
 			return { ...state, deployments: action.payload }
+		case "SET_TERMINAL_THEME":
+			return { ...state, terminalTheme: action.payload }
+		case "SET_TERMINAL_FONT_SIZE":
+			return { ...state, terminalFontSize: action.payload }
+		case "SET_FIXABLE_ERRORS": {
+			const next = new Map(state.fixableErrors)
+			next.set(action.payload.blockId, action.payload.errors)
+			return { ...state, fixableErrors: next }
+		}
 		default:
 			return state
 	}
@@ -660,10 +700,11 @@ function ideReducer(state: IdeState, action: IdeAction): IdeState {
 
 /** Serialize state to JSON, converting Sets to arrays */
 function serialize(state: IdeState): string {
-	const { collapsedBlocks, ...rest } = state
+	const { collapsedBlocks, fixableErrors, ...rest } = state
 	return JSON.stringify({
 		...rest,
 		_collapsedBlocks: Array.from(collapsedBlocks),
+		_fixableErrors: Array.from(fixableErrors.entries()),
 	})
 }
 
@@ -672,10 +713,11 @@ function deserialize(raw: string): Partial<IdeState> {
 	try {
 		const parsed = JSON.parse(raw)
 		if (!parsed || typeof parsed !== "object") return {}
-		const { _collapsedBlocks, ...rest } = parsed
+		const { _collapsedBlocks, _fixableErrors, ...rest } = parsed
 		return {
 			...rest,
 			collapsedBlocks: new Set<string>(Array.isArray(_collapsedBlocks) ? _collapsedBlocks : []),
+			fixableErrors: new Map<string, any>(Array.isArray(_fixableErrors) ? _fixableErrors : []),
 		}
 	} catch {
 		return {}
@@ -744,7 +786,7 @@ export function useAiMessages() {
 
 export function useTerminalOutput() {
 	const { state } = useIde()
-	return state.terminalOutput
+	return toTerminalLines(state.outputBlocks)
 }
 
 export function useOpenFiles() {

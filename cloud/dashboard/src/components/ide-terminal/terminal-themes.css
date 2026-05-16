@@ -1,0 +1,46 @@
+/* Terminal Themes — CSS Custom Properties */
+
+.theme-dark {
+	--terminal-bg: #0d1117;
+	--terminal-header-bg: #161b22;
+	--terminal-border: #1e2535;
+	--terminal-text: #e6edf3;
+	--terminal-text-secondary: #8b949e;
+	--terminal-text-muted: #484f58;
+	--terminal-error: #f85149;
+	--terminal-warning: #d29922;
+	--terminal-success: #3fb950;
+	--terminal-accent: #58a6ff;
+	--terminal-hover-bg: #1e2535;
+	--terminal-active-bg: #30363d;
+}
+
+.theme-light {
+	--terminal-bg: #ffffff;
+	--terminal-header-bg: #f6f8fa;
+	--terminal-border: #d0d7de;
+	--terminal-text: #1f2328;
+	--terminal-text-secondary: #656d76;
+	--terminal-text-muted: #8c959f;
+	--terminal-error: #cf222e;
+	--terminal-warning: #9a6700;
+	--terminal-success: #1a7f37;
+	--terminal-accent: #0969da;
+	--terminal-hover-bg: #eaeef2;
+	--terminal-active-bg: #d0d7de;
+}
+
+.theme-high-contrast {
+	--terminal-bg: #000000;
+	--terminal-header-bg: #000000;
+	--terminal-border: #ffffff;
+	--terminal-text: #ffffff;
+	--terminal-text-secondary: #ffffff;
+	--terminal-text-muted: #ffffff;
+	--terminal-error: #ff0000;
+	--terminal-warning: #ffff00;
+	--terminal-success: #00ff00;
+	--terminal-accent: #00ffff;
+	--terminal-hover-bg: #000000;
+	--terminal-active-bg: #000000;
+}

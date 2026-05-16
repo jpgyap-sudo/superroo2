@@ -68,6 +68,8 @@ interface TerminalPanelProps {
 	// PTY / Connection
 	ptyConnected?: boolean
 	ptySessionId?: string | null
+	ptyShell?: string | null
+	ptyCwd?: string | null
 
 	// #6: Search
 	terminalSearchQuery?: string
@@ -102,6 +104,17 @@ interface TerminalPanelProps {
 	// #9: Notifications
 	notifications?: { id: string; message: string; type: string }[]
 	onDismissNotification?: (id: string) => void
+
+	// Theme
+	terminalTheme?: "dark" | "light" | "high-contrast"
+	terminalFontSize?: number
+
+	// Inline Error Fixes
+	fixableErrors?: Map<
+		string,
+		{ lineIndex: number; lineText: string; errorType: string; fixSuggestion: string | null }[]
+	>
+	onTriggerInlineFix?: (blockId: string, errorText: string) => void
 }
 
 const COMMON_COMMANDS = [
@@ -137,13 +150,13 @@ function parseOutputLine(line: string, index: number): OutputBlock {
 function getStatusColor(type: string): string {
 	switch (type) {
 		case "error":
-			return "text-[#f85149]"
+			return "text-[var(--terminal-error)]"
 		case "warning":
-			return "text-[#d29922]"
+			return "text-[var(--terminal-warning)]"
 		case "success":
-			return "text-[#3fb950]"
+			return "text-[var(--terminal-success)]"
 		default:
-			return "text-[#8b949e]"
+			return "text-[var(--terminal-text-secondary)]"
 	}
 }
 
@@ -169,6 +182,8 @@ export default function TerminalPanel({
 	onSuggestionClick,
 	ptyConnected,
 	ptySessionId,
+	ptyShell,
+	ptyCwd,
 	terminalSearchQuery = "",
 	terminalSearchResults,
 	terminalSearchActiveIndex,
@@ -191,6 +206,10 @@ export default function TerminalPanel({
 	resourceUsage,
 	notifications,
 	onDismissNotification,
+	terminalTheme = "dark",
+	terminalFontSize = 12,
+	fixableErrors,
+	onTriggerInlineFix,
 }: TerminalPanelProps) {
 	const [showSuggestions, setShowSuggestions] = useState(false)
 	const [filteredCommands, setFilteredCommands] = useState<string[]>([])
@@ -285,9 +304,10 @@ export default function TerminalPanel({
 	return (
 		<div
 			ref={terminalRef as React.RefObject<HTMLDivElement>}
-			className={`flex flex-col bg-[#0d1117] rounded border border-[#1e2535] overflow-hidden transition-all ${
-				dragOver ? "border-[#58a6ff] border-2" : ""
+			className={`theme-${terminalTheme} flex flex-col bg-[var(--terminal-bg)] rounded border border-[var(--terminal-border)] overflow-hidden transition-all ${
+				dragOver ? "border-[var(--terminal-accent)] border-2" : ""
 			}`}
+			style={{ fontSize: terminalFontSize }}
 			onDragOver={handleDragOver}
 			onDragLeave={handleDragLeave}
 			onDrop={handleDrop}>
@@ -313,6 +333,12 @@ export default function TerminalPanel({
 						<span className="flex items-center gap-1 text-[10px] text-[#3fb950]">
 							<span className="w-1.5 h-1.5 rounded-full bg-[#3fb950]" />
 							PTY
+						</span>
+					)}
+					{ptyShell && <span className="text-[10px] text-[#8b949e]">{ptyShell}</span>}
+					{ptyCwd && (
+						<span className="max-w-[220px] truncate text-[10px] text-[#6e7681]" title={ptyCwd}>
+							{ptyCwd}
 						</span>
 					)}
 					{isRecording && (
@@ -560,6 +586,19 @@ export default function TerminalPanel({
 									<div
 										className={`flex-1 ${block.collapsed ? "line-clamp-1" : ""} ${getStatusColor(block.type)}`}>
 										{block.content}
+										{fixableErrors?.has(block.id) && !block.collapsed && (
+											<div className="flex flex-wrap gap-1 mt-1">
+												{fixableErrors.get(block.id)?.map((err, errIdx) => (
+													<button
+														key={errIdx}
+														className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] rounded bg-[var(--terminal-accent)]/20 text-[var(--terminal-accent)] hover:bg-[var(--terminal-accent)]/30 transition-colors"
+														title={err.fixSuggestion || "Fix this error"}
+														onClick={() => onTriggerInlineFix?.(block.id, err.lineText)}>
+														🔧 Fix {err.errorType}
+													</button>
+												))}
+											</div>
+										)}
 									</div>
 									<div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
 										{/* #10: Quick snippet */}

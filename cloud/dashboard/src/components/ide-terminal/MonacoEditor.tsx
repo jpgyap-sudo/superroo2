@@ -22,6 +22,8 @@ interface MonacoEditorProps {
 	onLspDefinition?: (lang: string, uri: string, line: number, column: number) => Promise<any>
 	onLspReferences?: (lang: string, uri: string, line: number, column: number) => Promise<any>
 	onLspCodeActions?: (lang: string, uri: string, line: number, column: number, diagnostics: any[]) => Promise<any>
+	onLspOpenDocument?: (lang: string, uri: string, text: string, version: number) => Promise<any>
+	onLspChangeDocument?: (lang: string, uri: string, text: string, version: number) => Promise<any>
 }
 
 interface InlineAction {
@@ -86,6 +88,8 @@ export default function MonacoEditor({
 	onLspDefinition,
 	onLspReferences,
 	onLspCodeActions,
+	onLspOpenDocument,
+	onLspChangeDocument,
 }: MonacoEditorProps) {
 	const editorRef = useRef<any>(null)
 	const monacoRef = useRef<any>(null)
@@ -176,6 +180,11 @@ export default function MonacoEditor({
 			editorInstance.onDidChangeCursorPosition((e: any) => {
 				onCursorChange?.(e.position.lineNumber, e.position.column)
 			})
+
+			// Send LSP document open
+			if (onLspOpenDocument && filePath && lspConnected) {
+				onLspOpenDocument(lang, filePath, value, 1).catch(() => {})
+			}
 
 			// Listen for selection changes (for inline actions)
 			editorInstance.onDidChangeCursorSelection((e: any) => {
@@ -324,6 +333,9 @@ export default function MonacoEditor({
 			onLspDefinition,
 			onLspReferences,
 			onLspCodeActions,
+			onLspOpenDocument,
+			filePath,
+			value,
 		],
 	)
 
@@ -377,9 +389,12 @@ export default function MonacoEditor({
 			if (val !== undefined) {
 				setIsDirty(val !== value)
 				onChange?.(val)
+				if (onLspChangeDocument && filePath && lspConnected) {
+					onLspChangeDocument(lang, filePath, val, 1).catch(() => {})
+				}
 			}
 		},
-		[value, onChange],
+		[value, onChange, onLspChangeDocument, filePath, lspConnected, lang],
 	)
 
 	// ── Editor options ─────────────────────────────────────────

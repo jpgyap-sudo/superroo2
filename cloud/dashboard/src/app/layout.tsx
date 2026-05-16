@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next"
 import type { ReactNode } from "react"
 import "./globals.css"
+import "@/components/ide-terminal/terminal-themes.css"
 import { IdeProvider } from "@/lib/ide-store"
 
 export const metadata: Metadata = {

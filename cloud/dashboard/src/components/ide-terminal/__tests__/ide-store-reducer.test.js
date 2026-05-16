@@ -20,7 +20,6 @@ function createInitialState() {
 		aiTab: "chat",
 		proactiveSuggestions: [],
 		terminalInput: "",
-		terminalOutput: [],
 		outputBlocks: [],
 		collapsedBlocks: new Set(),
 		recentCommands: [],
@@ -116,11 +115,10 @@ function ideReducer(state, action) {
 		case "SET_TERMINAL_INPUT":
 			return { ...state, terminalInput: action.payload }
 		case "SET_TERMINAL_OUTPUT":
-			return { ...state, terminalOutput: action.payload, outputBlocks: toOutputBlocks(action.payload) }
+			return { ...state, outputBlocks: toOutputBlocks(action.payload) }
 		case "APPEND_TERMINAL_OUTPUT":
 			return {
 				...state,
-				terminalOutput: [...state.terminalOutput, ...action.payload],
 				outputBlocks: [...state.outputBlocks, ...toOutputBlocks(action.payload, state.outputBlocks.length)],
 			}
 		case "SET_OUTPUT_BLOCKS":
@@ -287,22 +285,29 @@ section("ideReducer — Terminal")
 
 test("APPEND_TERMINAL_OUTPUT adds lines", () => {
 	const state = createInitialState()
-	state.terminalOutput = ["line1"]
+	state.outputBlocks = toOutputBlocks(["line1"])
 	const result = ideReducer(state, { type: "APPEND_TERMINAL_OUTPUT", payload: ["line2", "line3"] })
-	assert.strictEqual(result.terminalOutput.length, 3)
-	assert.deepStrictEqual(result.terminalOutput, ["line1", "line2", "line3"])
-	assert.strictEqual(result.outputBlocks.length, 2)
-	assert.strictEqual(result.outputBlocks[0].content, "line2")
+	assert.strictEqual(result.outputBlocks.length, 3)
+	assert.deepStrictEqual(
+		result.outputBlocks.map((block) => block.content),
+		["line1", "line2", "line3"],
+	)
 })
 
 test("SET_TERMINAL_OUTPUT replaces all output", () => {
 	const state = createInitialState()
-	state.terminalOutput = ["old"]
+	state.outputBlocks = toOutputBlocks(["old"])
 	const result = ideReducer(state, { type: "SET_TERMINAL_OUTPUT", payload: ["new"] })
-	assert.strictEqual(result.terminalOutput.length, 1)
-	assert.strictEqual(result.terminalOutput[0], "new")
 	assert.strictEqual(result.outputBlocks.length, 1)
 	assert.strictEqual(result.outputBlocks[0].content, "new")
+})
+
+test("SET_OUTPUT_BLOCKS is the canonical terminal state", () => {
+	const state = createInitialState()
+	const blocks = toOutputBlocks(["from blocks"])
+	const result = ideReducer(state, { type: "SET_OUTPUT_BLOCKS", payload: blocks })
+	assert.strictEqual(result.outputBlocks.length, 1)
+	assert.strictEqual(result.outputBlocks[0].content, "from blocks")
 })
 
 test("SET_TERMINAL_INPUT updates input", () => {
@@ -471,7 +476,7 @@ test("serialize + deserialize round-trip preserves data", () => {
 	state.branch = "auto-improvement"
 	state.collapsedBlocks = new Set(["block-1", "block-2"])
 	state.aiMessages = [{ id: "m1", role: "user", content: "hello" }]
-	state.terminalOutput = ["line1", "line2"]
+	state.outputBlocks = toOutputBlocks(["line1", "line2"])
 
 	const json = serialize(state)
 	const restored = deserialize(json)
@@ -481,7 +486,7 @@ test("serialize + deserialize round-trip preserves data", () => {
 	assert.ok(restored.collapsedBlocks instanceof Set)
 	assert.strictEqual(restored.collapsedBlocks.size, 2)
 	assert.strictEqual(restored.aiMessages.length, 1)
-	assert.strictEqual(restored.terminalOutput.length, 2)
+	assert.strictEqual(restored.outputBlocks.length, 2)
 })
 
 module.exports = { ideReducer, serialize, deserialize }

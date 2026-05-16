@@ -169,7 +169,6 @@ export function useIdeTerminal() {
 		aiTab,
 		proactiveSuggestions,
 		terminalInput,
-		terminalOutput,
 		outputBlocks,
 		collapsedBlocks,
 		recentCommands,
@@ -222,6 +221,7 @@ export function useIdeTerminal() {
 		showShareDialog,
 		terminalResources,
 	} = state
+	const terminalOutput = outputBlocks.map((block) => block.content)
 
 	// ── Local-only state ─────────────────────────────────────────────────
 	const [activeMode, setActiveMode] = useState("Auto")
@@ -341,6 +341,7 @@ export function useIdeTerminal() {
 		wsConnected,
 		wsReconnecting,
 		sendMessage: wsSend,
+		canSendAi,
 	} = useWebSocket({
 		dispatch,
 		onSuggestions: (suggestions) => {
@@ -395,18 +396,10 @@ export function useIdeTerminal() {
 		},
 	})
 
-	// ── Rate limiting for AI send ────────────────────────────────────────
-	const lastSendTimeRef = useRef(0)
-	const SEND_COOLDOWN_MS = 1000
+	// ── LSP WebSocket (with reconnect + request/response) ────────────────
+	const lspPendingRef = useRef<Map<string, { resolve: (value: any) => void; reject: (err: any) => void }>>(new Map())
+	let lspRequestId = 0
 
-	const canSend = useCallback((): boolean => {
-		const now = Date.now()
-		if (now - lastSendTimeRef.current < SEND_COOLDOWN_MS) return false
-		lastSendTimeRef.current = now
-		return true
-	}, [])
-
-	// ── LSP WebSocket (with reconnect) ───────────────────────────────────
 	useEffect(() => {
 		const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
 		const wsUrl = `${protocol}//${window.location.host}/api/ws/lsp`
@@ -420,13 +413,27 @@ export function useIdeTerminal() {
 				ws.onmessage = (event) => {
 					try {
 						const data = JSON.parse(event.data)
-						if (data.type === "status") setLspConnected(data.available)
+						if (data.type === "status") {
+							setLspConnected(data.available)
+						} else if (data.id !== undefined) {
+							const pending = lspPendingRef.current.get(String(data.id))
+							if (pending) {
+								lspPendingRef.current.delete(String(data.id))
+								if (data.error) pending.reject(new Error(data.error))
+								else pending.resolve(data.result)
+							}
+						}
 					} catch {
 						/* ignore */
 					}
 				}
 				ws.onclose = () => {
 					setLspConnected(false)
+					// Reject all pending requests
+					lspPendingRef.current.forEach((pending) => {
+						pending.reject(new Error("LSP connection closed"))
+					})
+					lspPendingRef.current.clear()
 					reconnectTimer = setTimeout(connectLsp, 3000)
 				}
 				lspWsRef.current = ws
@@ -445,6 +452,124 @@ export function useIdeTerminal() {
 				lspWsRef.current = null
 			}
 		}
+	}, [])
+
+	// ── Inline Error Fix Detection ───────────────────────────────────────
+	const ERROR_PATTERNS_BROWSER = [
+		{ regex: /TS\d{1,6}:\s*(.+)/i, type: "typescript", fix: "Check TypeScript types and imports" },
+		{
+			regex: /Cannot find module\s+'(.+?)'/i,
+			type: "dependency",
+			fix: "Install missing dependency with pnpm install",
+		},
+		{ regex: /MODULE_NOT_FOUND/i, type: "dependency", fix: "Install missing dependency with pnpm install" },
+		{ regex: /Build failed/i, type: "build_failure", fix: "Fix build errors and retry" },
+		{ regex: /error during build/i, type: "build_failure", fix: "Fix build errors and retry" },
+		{ regex: /Failed to compile/i, type: "build_failure", fix: "Fix compilation errors and retry" },
+		{
+			regex: /Missing\s+environment\s+variable/i,
+			type: "missing_env",
+			fix: "Set required environment variables in .env",
+		},
+		{
+			regex: /Permission denied/i,
+			type: "permission",
+			fix: "Check file permissions or run with appropriate privileges",
+		},
+		{
+			regex: /ECONNREFUSED|ENOTFOUND|ETIMEDOUT/i,
+			type: "network",
+			fix: "Check network connectivity and service availability",
+		},
+	]
+
+	useEffect(() => {
+		const timeout = setTimeout(() => {
+			for (const block of outputBlocks) {
+				if (block.type !== "error") continue
+				const lines = block.content.split("\n")
+				const errors: {
+					lineIndex: number
+					lineText: string
+					errorType: string
+					fixSuggestion: string | null
+				}[] = []
+				const seen = new Set<string>()
+				for (let i = 0; i < lines.length; i++) {
+					const line = lines[i]
+					for (const pattern of ERROR_PATTERNS_BROWSER) {
+						if (pattern.regex.test(line)) {
+							const key = `${pattern.type}:${line.slice(0, 100)}`
+							if (seen.has(key)) continue
+							seen.add(key)
+							errors.push({
+								lineIndex: i,
+								lineText: line,
+								errorType: pattern.type,
+								fixSuggestion: pattern.fix,
+							})
+						}
+					}
+				}
+				if (errors.length > 0) {
+					dispatch({
+						type: "SET_FIXABLE_ERRORS",
+						payload: { blockId: block.id, errors },
+					})
+				}
+			}
+		}, 500)
+		return () => clearTimeout(timeout)
+	}, [outputBlocks, dispatch])
+
+	// ── LSP Request Helpers ──────────────────────────────────────────────
+	function sendLspRequest(
+		type: string,
+		lang: string,
+		uri: string,
+		line: number,
+		column: number,
+		extra?: Record<string, unknown>,
+	): Promise<any> {
+		return new Promise((resolve, reject) => {
+			if (!lspWsRef.current || lspWsRef.current.readyState !== WebSocket.OPEN) {
+				reject(new Error("LSP not connected"))
+				return
+			}
+			const id = ++lspRequestId
+			lspPendingRef.current.set(String(id), { resolve, reject })
+			lspWsRef.current.send(JSON.stringify({ type, lang, uri, line, column, id, ...extra }))
+			setTimeout(() => {
+				if (lspPendingRef.current.has(String(id))) {
+					lspPendingRef.current.delete(String(id))
+					reject(new Error("LSP request timed out"))
+				}
+			}, 5000)
+		})
+	}
+
+	const onLspCompletion = useCallback((lang: string, uri: string, line: number, column: number) => {
+		return sendLspRequest("completion", lang, uri, line, column)
+	}, [])
+
+	const onLspHover = useCallback((lang: string, uri: string, line: number, column: number) => {
+		return sendLspRequest("hover", lang, uri, line, column)
+	}, [])
+
+	const onLspDefinition = useCallback((lang: string, uri: string, line: number, column: number) => {
+		return sendLspRequest("definition", lang, uri, line, column)
+	}, [])
+
+	const onLspReferences = useCallback((lang: string, uri: string, line: number, column: number) => {
+		return sendLspRequest("references", lang, uri, line, column)
+	}, [])
+
+	const onLspOpenDocument = useCallback((lang: string, uri: string, text: string, version: number) => {
+		return sendLspRequest("open", lang, uri, 0, 0, { text, version })
+	}, [])
+
+	const onLspChangeDocument = useCallback((lang: string, uri: string, text: string, version: number) => {
+		return sendLspRequest("change", lang, uri, 0, 0, { text, version })
 	}, [])
 
 	// ── Load workspace data on mount ─────────────────────────────────────
@@ -652,7 +777,7 @@ export function useIdeTerminal() {
 
 	// ── AI Send (with rate limiting + ref-based deps) ────────────────────
 	const handleAiSend = useCallback(async () => {
-		if (!canSend()) return
+		if (!canSendAi()) return
 
 		const SESSION_KEY = "superroo-chat-session"
 		let sessionId = ""
@@ -806,7 +931,7 @@ export function useIdeTerminal() {
 				dispatch({ type: "SET_AI_SENDING", payload: false })
 			}
 		}
-	}, [dispatch, canSend, wsSend])
+	}, [dispatch, canSendAi, wsSend])
 
 	// ── File operations ──────────────────────────────────────────────────
 	const handleFileSelect = useCallback(
@@ -1385,6 +1510,7 @@ export function useIdeTerminal() {
 		wsRef: wsRef,
 		wsConnected,
 		wsReconnecting,
+		sendMessage: wsSend,
 
 		// Handlers
 		handleAiInputChange,
@@ -1401,6 +1527,14 @@ export function useIdeTerminal() {
 		getAgentSuggestions,
 		isAgentCommand,
 		isAgentMention,
+
+		// LSP callbacks
+		onLspCompletion,
+		onLspHover,
+		onLspDefinition,
+		onLspReferences,
+		onLspOpenDocument,
+		onLspChangeDocument,
 
 		// PTY handlers
 		handlePtyCreate,

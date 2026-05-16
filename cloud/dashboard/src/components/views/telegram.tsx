@@ -565,9 +565,9 @@ export function TelegramView() {
 
 	const handleSendTestMessage = async () => {
 		setTestMessageError(null)
-		// Try to get the actual chat ID from bot status or tasks
-		// If no chat ID is available, show validation error
-		const chatId = botStatus.online ? 1 : 0 // Use 1 as a sentinel for "online bot"
+		// The backend endpoint still expects a numeric chat id; widen the sentinel type
+		// until the API exposes a real active chat id.
+		const chatId: number = botStatus.online ? 1 : 0
 		if (!chatId) {
 			setTestMessageError("No active Telegram chat session. Start a conversation with the bot first.")
 			return

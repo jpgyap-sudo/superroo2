@@ -155,7 +155,6 @@ export default function IdeTerminalView() {
 		aiTab,
 		proactiveSuggestions,
 		terminalInput,
-		terminalOutput,
 		outputBlocks,
 		collapsedBlocks,
 		recentCommands,
@@ -190,6 +189,7 @@ export default function IdeTerminalView() {
 		recentWorkspaces,
 		workspaceTasks,
 	} = state
+	const terminalOutput = outputBlocks.map((block) => block.content)
 
 	// ── All logic extracted into hook ─────────────────────────────────────
 	const hook = useIdeTerminal()
@@ -425,6 +425,12 @@ export default function IdeTerminalView() {
 										language={hook.currentFileLanguage}
 										readOnly={false}
 										onSave={hook.handleFileSave}
+										onLspCompletion={hook.onLspCompletion}
+										onLspHover={hook.onLspHover}
+										onLspDefinition={hook.onLspDefinition}
+										onLspReferences={hook.onLspReferences}
+										onLspOpenDocument={hook.onLspOpenDocument}
+										onLspChangeDocument={hook.onLspChangeDocument}
 									/>
 								</ErrorBoundary>
 							) : (
@@ -569,6 +575,8 @@ export default function IdeTerminalView() {
 											// #1: PTY connection
 											ptyConnected={hook.ptyConnected}
 											ptySessionId={hook.ptySessionId}
+											ptyShell={hook.ptyShell}
+											ptyCwd={hook.ptyCwd}
 											// #4: Split terminals
 											splitTerminals={hook.splitTerminals}
 											activeSplitTerminal={hook.activeSplitTerminal}
@@ -597,6 +605,20 @@ export default function IdeTerminalView() {
 											onShareSession={hook.handleShareSession}
 											// #12: Resource usage
 											resourceUsage={hook.terminalResources}
+											terminalTheme={state.terminalTheme}
+											terminalFontSize={state.terminalFontSize}
+											fixableErrors={state.fixableErrors}
+											onTriggerInlineFix={(blockId, errorText) => {
+												const fixable = state.fixableErrors.get(blockId)
+												if (fixable && fixable.length > 0) {
+													// Send fix request via WS
+													hook.sendMessage({
+														type: "chat",
+														message: `/fix ${errorText}`,
+														context: { errorType: fixable[0].errorType },
+													})
+												}
+											}}
 										/>
 									</div>
 								</div>

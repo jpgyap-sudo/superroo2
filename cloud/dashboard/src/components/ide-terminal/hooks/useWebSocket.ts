@@ -7,7 +7,8 @@ import type { IdeAction } from "@/lib/ide-store"
 
 const SESSION_KEY = "superroo-chat-session"
 const WS_TIMEOUT_MS = 120_000 // 120 seconds
-const RECONNECT_DELAY = 3000
+const RECONNECT_BASE_DELAY = 1000
+const RECONNECT_MAX_DELAY = 10000
 const PING_INTERVAL = 30000
 
 function getSessionId(): string {
@@ -43,6 +44,8 @@ interface UseWebSocketReturn {
 	wsConnected: boolean
 	wsReconnecting: boolean
 	sendMessage: (payload: object) => boolean
+	canSendAi: () => boolean
+	aiRateLimitStatus: { retryAfterMs: number; tokens: number } | null
 }
 
 export function useWebSocket({
@@ -61,6 +64,61 @@ export function useWebSocket({
 	const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 	const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 	const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+	const reconnectAttemptRef = useRef(0)
+	const pendingInputQueueRef = useRef<string[]>([])
+	const ptySessionIdRef = useRef<string | null>(null)
+
+	// ── Adaptive AI rate limiting (token bucket) ────────────────────────
+	const tokenBucketRef = useRef({
+		tokens: 3,
+		maxTokens: 5,
+		lastRefill: Date.now(),
+		backoffMs: 0,
+		errorCount: 0,
+	})
+	const [aiRateLimitStatus, setAiRateLimitStatus] = useState<{ retryAfterMs: number; tokens: number } | null>(null)
+
+	const canSendAi = useCallback((): boolean => {
+		const bucket = tokenBucketRef.current
+		const now = Date.now()
+		const elapsed = now - bucket.lastRefill
+		const tokensToAdd = Math.floor(elapsed / 2000)
+		if (tokensToAdd > 0) {
+			bucket.tokens = Math.min(bucket.tokens + tokensToAdd, bucket.maxTokens)
+			bucket.lastRefill = now
+		}
+		if (bucket.backoffMs > 0 && now < bucket.backoffMs) {
+			setAiRateLimitStatus({ retryAfterMs: bucket.backoffMs - now, tokens: bucket.tokens })
+			return false
+		}
+		if (bucket.tokens >= 1) {
+			bucket.tokens -= 1
+			setAiRateLimitStatus(null)
+			return true
+		}
+		setAiRateLimitStatus({ retryAfterMs: 0, tokens: 0 })
+		return false
+	}, [])
+
+	const recordAiError = useCallback(() => {
+		const bucket = tokenBucketRef.current
+		bucket.errorCount += 1
+		bucket.backoffMs = Date.now() + Math.min(1000 * Math.pow(2, bucket.errorCount), 30000)
+		bucket.maxTokens = 1
+		setAiRateLimitStatus({ retryAfterMs: bucket.backoffMs - Date.now(), tokens: bucket.tokens })
+	}, [])
+
+	const recordAiSuccess = useCallback(() => {
+		const bucket = tokenBucketRef.current
+		if (bucket.errorCount > 0) {
+			bucket.errorCount = Math.max(0, bucket.errorCount - 1)
+		}
+		if (bucket.errorCount === 0) {
+			bucket.backoffMs = 0
+			bucket.maxTokens = 5
+		}
+		setAiRateLimitStatus(null)
+	}, [])
 
 	// Clear the streaming timeout
 	const clearStreamTimeout = useCallback(() => {
@@ -101,6 +159,20 @@ export function useWebSocket({
 			ws.onopen = () => {
 				setWsConnected(true)
 				setWsReconnecting(false)
+				reconnectAttemptRef.current = 0
+
+				// Re-attach to existing PTY session if we have one
+				if (ptySessionIdRef.current) {
+					ws.send(JSON.stringify({ type: "pty:attach", sessionId: ptySessionIdRef.current }))
+				}
+
+				// Flush any pending input
+				if (pendingInputQueueRef.current.length > 0) {
+					for (const data of pendingInputQueueRef.current) {
+						ws.send(JSON.stringify({ type: "pty:input", sessionId: ptySessionIdRef.current, data }))
+					}
+					pendingInputQueueRef.current = []
+				}
 
 				// Start ping interval
 				pingIntervalRef.current = setInterval(() => {
@@ -135,6 +207,7 @@ export function useWebSocket({
 						case "done": {
 							// Clear the timeout — streaming completed successfully
 							clearStreamTimeout()
+							recordAiSuccess()
 							dispatch({ type: "SET_AI_SENDING", payload: false })
 							if (data.suggestions?.length) {
 								dispatch({ type: "SET_PROACTIVE_SUGGESTIONS", payload: data.suggestions })
@@ -153,6 +226,7 @@ export function useWebSocket({
 						}
 						case "error": {
 							clearStreamTimeout()
+							recordAiError()
 							dispatch({ type: "SET_AI_SENDING", payload: false })
 							const errMsg: ChatMessage = {
 								id: `msg-${Date.now()}`,
@@ -179,10 +253,12 @@ export function useWebSocket({
 							break
 						}
 						case "pty:created": {
+							ptySessionIdRef.current = data.sessionId
 							onPtyCreated?.(data.sessionId, data.shell, data.cwd)
 							break
 						}
 						case "pty:buffer": {
+							ptySessionIdRef.current = data.sessionId
 							onPtyBuffer?.(data.sessionId, data.buffer)
 							break
 						}
@@ -204,9 +280,14 @@ export function useWebSocket({
 					clearInterval(pingIntervalRef.current)
 					pingIntervalRef.current = null
 				}
+				const delay = Math.min(
+					RECONNECT_BASE_DELAY * Math.pow(2, reconnectAttemptRef.current),
+					RECONNECT_MAX_DELAY,
+				)
+				reconnectAttemptRef.current += 1
 				reconnectTimerRef.current = setTimeout(() => {
 					connect()
-				}, RECONNECT_DELAY)
+				}, delay)
 			}
 
 			ws.onerror = () => {
@@ -216,7 +297,9 @@ export function useWebSocket({
 			wsRef.current = ws
 		} catch {
 			setWsReconnecting(true)
-			reconnectTimerRef.current = setTimeout(() => connect(), RECONNECT_DELAY)
+			const delay = Math.min(RECONNECT_BASE_DELAY * Math.pow(2, reconnectAttemptRef.current), RECONNECT_MAX_DELAY)
+			reconnectAttemptRef.current += 1
+			reconnectTimerRef.current = setTimeout(() => connect(), delay)
 		}
 	}, [
 		dispatch,
@@ -263,8 +346,13 @@ export function useWebSocket({
 			wsRef.current.send(JSON.stringify(payload))
 			return true
 		}
+		// Queue PTY input if disconnected
+		const typed = payload as Record<string, unknown>
+		if (typed.type === "pty:input" && typeof typed.data === "string") {
+			pendingInputQueueRef.current.push(typed.data)
+		}
 		return false
 	}, [])
 
-	return { wsRef, wsConnected, wsReconnecting, sendMessage }
+	return { wsRef, wsConnected, wsReconnecting, sendMessage, canSendAi, aiRateLimitStatus }
 }
