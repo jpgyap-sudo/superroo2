@@ -3,14 +3,29 @@
 	"description": "Terminal Brain Layer — Core types and utilities for the smart terminal system.",
 	"version": "0.0.1",
 	"type": "module",
+	"main": "./dist/index.cjs",
 	"exports": {
-		".": "./src/types.ts"
+		".": {
+			"types": "./src/index.ts",
+			"import": "./dist/index.js",
+			"require": {
+				"types": "./dist/index.d.cts",
+				"default": "./dist/index.cjs"
+			}
+		}
 	},
 	"scripts": {
-		"clean": "rimraf .turbo"
+		"check-types": "tsc --noEmit",
+		"build": "tsup",
+		"clean": "rimraf dist .turbo"
+	},
+	"dependencies": {
+		"@superroo/brain-router": "workspace:^",
+		"pg": "^8.20.0"
 	},
 	"devDependencies": {
 		"@superroo/config-typescript": "workspace:^",
-		"@types/node": "^24.1.0"
+		"@types/node": "^24.1.0",
+		"tsup": "^8.4.0"
 	}
 }

@@ -6,99 +6,50 @@
  * can run through the Plan → Run → Verify loop.
  */
 
-import type { PlannedCommand, CommandIntent, ProjectContext } from "./types"
+import type { PlannedCommand, CommandIntent, ProjectContext, IntentMatch } from "./types.js"
+import { LocalOllamaProvider } from "../../brain-router/src/LocalOllamaProvider.js"
 
 // ─── Intent Detection ────────────────────────────────────────────────────
-
-interface IntentMatch {
-	intent: CommandIntent
-	confidence: number
-}
 
 const INTENT_PATTERNS: Array<{ intent: CommandIntent; patterns: RegExp[] }> = [
 	{
 		intent: "build",
-		patterns: [
-			/\bbuild\b/i,
-			/\bcompile\b/i,
-			/\btypecheck\b/i,
-			/\btype.?check\b/i,
-			/\bbundle\b/i,
-		],
+		patterns: [/\bbuild\b/i, /\bcompile\b/i, /\btypecheck\b/i, /\btype.?check\b/i, /\bbundle\b/i],
 	},
 	{
 		intent: "test",
-		patterns: [
-			/\btest(s|ing)?\b/i,
-			/\brun tests\b/i,
-			/\bvitest\b/i,
-			/\bjest\b/i,
-			/\bcheck tests\b/i,
-		],
+		patterns: [/\btest(s|ing)?\b/i, /\brun tests\b/i, /\bvitest\b/i, /\bjest\b/i, /\bcheck tests\b/i],
 	},
 	{
 		intent: "dev",
-		patterns: [
-			/\bdev\b/i,
-			/\bdevelop\b/i,
-			/\bstart\b/i,
-			/\brun\s+(the\s+)?(app|server|frontend|backend)\b/i,
-		],
+		patterns: [/\bdev\b/i, /\bdevelop\b/i, /\bstart\b/i, /\brun\s+(the\s+)?(app|server|frontend|backend)\b/i],
 	},
 	{
 		intent: "deploy",
-		patterns: [
-			/\bdeploy\b/i,
-			/\brelease\b/i,
-			/\bship\b/i,
-			/\bpublish\b/i,
-			/\bpush to prod\b/i,
-		],
+		patterns: [/\bdeploy\b/i, /\brelease\b/i, /\bship\b/i, /\bpublish\b/i, /\bpush to prod\b/i],
 	},
 	{
 		intent: "install",
-		patterns: [
-			/\binstall\b/i,
-			/\badd\s+dependency\b/i,
-			/\bnpm\s+i\b/i,
-			/\bpnpm\s+add\b/i,
-			/\byarn\s+add\b/i,
-		],
+		patterns: [/\binstall\b/i, /\badd\s+dependency\b/i, /\bnpm\s+i\b/i, /\bpnpm\s+add\b/i, /\byarn\s+add\b/i],
 	},
 	{
 		intent: "lint",
-		patterns: [
-			/\blint\b/i,
-			/\beslint\b/i,
-			/\bprettier\b/i,
-			/\bformat\b/i,
-		],
+		patterns: [/\blint\b/i, /\beslint\b/i, /\bprettier\b/i, /\bformat\b/i],
 	},
 	{
 		intent: "docker",
-		patterns: [
-			/\bdocker\b/i,
-			/\bcontainer\b/i,
-			/\bcompose\b/i,
-		],
+		patterns: [/\bdocker\b/i, /\bcontainer\b/i, /\bcompose\b/i],
 	},
 	{
 		intent: "git",
-		patterns: [
-			/\bgit\b/i,
-			/\bcommit\b/i,
-			/\bpush\b/i,
-			/\bpull\b/i,
-			/\bmerge\b/i,
-			/\brebase\b/i,
-		],
+		patterns: [/\bgit\b/i, /\bcommit\b/i, /\bpush\b/i, /\bpull\b/i, /\bmerge\b/i, /\brebase\b/i],
 	},
 ]
 
 /**
- * Detect the intent of a natural language query.
+ * Detect the intent of a natural language query using regex fallback.
  */
-export function detectIntent(query: string): IntentMatch {
+export function detectIntentRegex(query: string): IntentMatch {
 	const best: IntentMatch = { intent: "unknown", confidence: 0 }
 
 	for (const entry of INTENT_PATTERNS) {
@@ -120,6 +71,63 @@ export function detectIntent(query: string): IntentMatch {
 	return best
 }
 
+let _ollamaProvider: LocalOllamaProvider | null = null
+
+function getOllamaProvider(): LocalOllamaProvider {
+	if (!_ollamaProvider) {
+		_ollamaProvider = new LocalOllamaProvider({
+			model: process.env.OLLAMA_CHEAP_TEXT_MODEL ?? "qwen2.5:0.5b",
+			requestTimeoutMs: 5000,
+		})
+	}
+	return _ollamaProvider
+}
+
+/**
+ * Detect the intent of a natural language query.
+ * Tries Ollama LLM first, falls back to regex if unavailable.
+ */
+export async function detectIntent(query: string): Promise<IntentMatch> {
+	try {
+		const provider = getOllamaProvider()
+		const prompt = `Classify the following user query into exactly one intent: build, test, dev, deploy, install, lint, typecheck, docker, git, file_ops, unknown.
+
+Return ONLY a JSON object with no markdown formatting, no backticks, and no extra text:
+{"intent":"...","confidence":0.0}
+
+User query: "${query.replace(/"/g, '\\"')}"`
+
+		const response = await provider.generate(prompt)
+		const jsonMatch = response.match(/\{[\s\S]*?\}/)
+		if (jsonMatch) {
+			const parsed = JSON.parse(jsonMatch[0]) as { intent?: string; confidence?: number }
+			const intent = parsed.intent as CommandIntent
+			const confidence = typeof parsed.confidence === "number" ? parsed.confidence : 0.5
+			if (
+				confidence >= 0.5 &&
+				[
+					"build",
+					"test",
+					"dev",
+					"deploy",
+					"install",
+					"lint",
+					"typecheck",
+					"docker",
+					"git",
+					"file_ops",
+					"unknown",
+				].includes(intent)
+			) {
+				return { intent, confidence }
+			}
+		}
+	} catch {
+		// Ollama unavailable or parse error — fall through to regex
+	}
+	return detectIntentRegex(query)
+}
+
 // ─── Command Planning ────────────────────────────────────────────────────
 
 let commandCounter = 0
@@ -132,11 +140,7 @@ function nextId(): string {
 /**
  * Plan a sequence of commands based on intent and project context.
  */
-export function planCommands(
-	intent: CommandIntent,
-	context: ProjectContext,
-	nlQuery?: string,
-): PlannedCommand[] {
+export function planCommands(intent: CommandIntent, context: ProjectContext, nlQuery?: string): PlannedCommand[] {
 	const commands: PlannedCommand[] = []
 
 	switch (intent) {

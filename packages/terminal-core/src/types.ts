@@ -42,6 +42,11 @@ export type CommandIntent =
 	| "file_ops"
 	| "unknown"
 
+export interface IntentMatch {
+	intent: CommandIntent
+	confidence: number
+}
+
 export interface PlannedCommand {
 	id: string
 	intent: CommandIntent
@@ -182,10 +187,48 @@ export interface AgentHandoff {
 	context: Record<string, unknown>
 }
 
+// ─── DB Row Types ────────────────────────────────────────────────────────
+
+export interface TerminalSessionRow {
+	id: string
+	workspace_id: string
+	user_id: string | null
+	started_at: string
+	ended_at: string | null
+	status: "active" | "closed"
+	metadata: Record<string, unknown>
+}
+
+export interface TerminalCommandRow {
+	id: string
+	session_id: string
+	command: string
+	exit_code: number | null
+	output_summary: string
+	error_summary: string | null
+	files_changed: string[]
+	started_at: string
+	finished_at: string | null
+	duration_ms: number | null
+}
+
+export interface TerminalErrorRow {
+	id: string
+	command_id: string
+	error_type: string
+	error_message: string
+	root_cause: string
+	related_files: string[]
+	fix_suggested: string | null
+	fix_applied: boolean
+	fix_succeeded: boolean
+	created_at: string
+}
+
 // ─── API Types ───────────────────────────────────────────────────────────
 
 export interface TerminalBrainRequest {
-	action: "execute" | "plan" | "analyze" | "fix" | "memory" | "context"
+	action: "execute" | "plan" | "analyze" | "fix" | "memory" | "context" | "snippets"
 	command?: string
 	nlQuery?: string
 	sessionId?: string

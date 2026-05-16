@@ -16,29 +16,34 @@ import type {
 	CommandIntent,
 	TerminalBrainRequest,
 	TerminalBrainResponse,
-} from "./types"
+} from "./types.js"
 
-import { scanWorkspace, quickScan } from "../../repo-scanner/src/scanner"
-import { planCommands, detectIntent, planBuildFix, planSafeDeploy } from "./planner"
-import { executeCommand } from "../../command-runner/src/runner"
-import { analyzeOutput, getPrimaryError } from "../../log-parser/src/parser"
-import { checkCommand } from "../../safety-guard/src/guard"
-import { getTerminalMemory } from "./memory"
+import { scanWorkspace, quickScan } from "../../repo-scanner/src/scanner.js"
+import { planCommands, detectIntent, detectIntentRegex, planBuildFix, planSafeDeploy } from "./planner.js"
+import { executeCommand } from "../../command-runner/src/runner.js"
+import { analyzeOutput, getPrimaryError } from "../../log-parser/src/parser.js"
+import { checkCommand } from "../../safety-guard/src/guard.js"
+import { TerminalMemory, getTerminalMemory, PersistentTerminalMemory, type ITerminalMemory } from "./memory.js"
 
 export interface BrainOptions {
 	workspaceRoot: string
 	sessionId?: string
+	memory?: ITerminalMemory
+	userId?: string
 }
 
 export class TerminalBrain {
 	private context: ProjectContext | null = null
 	private workspaceRoot: string
 	private sessionId: string
-	private memory = getTerminalMemory()
+	private memory: ITerminalMemory
+	private userId?: string
 
 	constructor(opts: BrainOptions) {
 		this.workspaceRoot = opts.workspaceRoot
-		this.sessionId = opts.sessionId || this.memory.createSession("default").id
+		this.memory = opts.memory || getTerminalMemory()
+		this.sessionId = opts.sessionId || `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+		this.userId = opts.userId
 	}
 
 	// ─── Context Loading ────────────────────────────────────────────────
@@ -73,6 +78,8 @@ export class TerminalBrain {
 				return this.handleFix(request)
 			case "memory":
 				return this.handleMemory(request)
+			case "snippets":
+				return this.handleSnippets(request)
 			default:
 				return { ok: false, error: `Unknown action: ${request.action}` }
 		}
@@ -87,11 +94,11 @@ export class TerminalBrain {
 				ok: true,
 				context,
 				memory: {
-					sessions: this.memory.getSessions(),
-					commands: this.memory.getCommands(this.sessionId),
-					errors: this.memory.getRecentErrors(10),
-					fixes: this.memory.getFixes(),
-					deployments: this.memory.getDeployments(),
+					sessions: await this.memory.getSessions(),
+					commands: await this.memory.getCommands(this.sessionId),
+					errors: await this.memory.getRecentErrors(10),
+					fixes: await this.memory.getFixes(),
+					deployments: await this.memory.getDeployments(),
 				},
 			}
 		} catch (err) {
@@ -108,7 +115,7 @@ export class TerminalBrain {
 			}
 
 			const query = request.nlQuery || request.command || ""
-			const intent = detectIntent(query)
+			const intent = await detectIntent(query)
 
 			let planned: PlannedCommand[]
 
@@ -126,7 +133,9 @@ export class TerminalBrain {
 					plan: `Planned ${planned.length} step(s) for intent: ${intent.intent} (${Math.round(intent.confidence * 100)}% confidence)`,
 					command: planned.map((c) => c.command).join(" && "),
 					exitCode: null,
-					output: planned.map((c, i) => `  ${i + 1}. [${c.requiresApproval ? "⚠️" : "✅"}] ${c.description}`).join("\n"),
+					output: planned
+						.map((c, i) => `  ${i + 1}. [${c.requiresApproval ? "⚠️" : "✅"}] ${c.description}`)
+						.join("\n"),
 					errors: [],
 					fixes: [],
 					verification: "Plan created — awaiting execution",
@@ -172,12 +181,13 @@ export class TerminalBrain {
 			}
 
 			// Record command in memory
-			const cmdRecord = this.memory.recordCommand(this.sessionId, command)
+			const cmdRecord = await this.memory.recordCommand(this.sessionId, command)
 
 			// Execute
+			const detected = await detectIntent(command)
 			const planned: PlannedCommand = {
 				id: cmdRecord.id,
-				intent: detectIntent(command).intent,
+				intent: detected.intent,
 				command,
 				description: `Execute: ${command}`,
 				requiresApproval: false,
@@ -190,7 +200,7 @@ export class TerminalBrain {
 			const primaryError = errors.length > 0 ? errors[0] : null
 
 			// Complete command record
-			this.memory.completeCommand(
+			await this.memory.completeCommand(
 				cmdRecord.id,
 				result.exitCode ?? -1,
 				result.output.slice(0, 10).join("\n"),
@@ -201,7 +211,7 @@ export class TerminalBrain {
 			// Record error if found
 			let errorId: string | null = null
 			if (primaryError) {
-				const errRecord = this.memory.recordError(
+				const errRecord = await this.memory.recordError(
 					cmdRecord.id,
 					primaryError.errorType,
 					primaryError.errorMessage,
@@ -223,7 +233,8 @@ export class TerminalBrain {
 					output: result.output.slice(0, 20).join("\n"),
 					errors,
 					fixes: [],
-					verification: result.exitCode === 0 ? "Command completed successfully" : `Exit code: ${result.exitCode}`,
+					verification:
+						result.exitCode === 0 ? "Command completed successfully" : `Exit code: ${result.exitCode}`,
 					status,
 					memory: {
 						sessionId: this.sessionId,
@@ -251,7 +262,9 @@ export class TerminalBrain {
 					plan: "Analyze terminal output for errors",
 					command: "",
 					exitCode: null,
-					output: errors.map((e) => `[${e.errorType}] ${e.rootCause} (${Math.round(e.confidence * 100)}%)`).join("\n"),
+					output: errors
+						.map((e) => `[${e.errorType}] ${e.rootCause} (${Math.round(e.confidence * 100)}%)`)
+						.join("\n"),
 					errors,
 					fixes: errors.filter((e) => e.fixSuggestion).map((e) => e.fixSuggestion!),
 					verification: primary ? `Primary error: ${primary.errorType}` : "No errors detected",
@@ -327,18 +340,62 @@ export class TerminalBrain {
 		return {
 			ok: true,
 			memory: {
-				sessions: this.memory.getSessions(),
-				commands: this.memory.getCommands(this.sessionId),
-				errors: this.memory.getRecentErrors(50),
-				fixes: this.memory.getFixes(),
-				deployments: this.memory.getDeployments(),
+				sessions: await this.memory.getSessions(),
+				commands: await this.memory.getCommands(this.sessionId),
+				errors: await this.memory.getRecentErrors(50),
+				fixes: await this.memory.getFixes(),
+				deployments: await this.memory.getDeployments(),
 			},
+		}
+	}
+
+	// ─── Snippets Handler ───────────────────────────────────────────────
+
+	private async handleSnippets(request: TerminalBrainRequest): Promise<TerminalBrainResponse> {
+		try {
+			const workspaceId = request.workspaceId || this.workspaceRoot
+			const popular = await this.memory.getPopularCommands(workspaceId, 10)
+			const recent = await this.memory.getRecentCommands(workspaceId, 10)
+			return {
+				ok: true,
+				memory: {
+					sessions: [],
+					commands: recent.map((r) => ({
+						id: `snippet-${r.startedAt}`,
+						sessionId: "",
+						command: r.command,
+						exitCode: null,
+						outputSummary: "",
+						errorSummary: null,
+						filesChanged: [],
+						startedAt: r.startedAt,
+						finishedAt: null,
+						durationMs: null,
+					})) as any,
+					errors: [],
+					fixes: [],
+					deployments: [],
+				},
+				feedback: {
+					plan: `Found ${popular.length} popular and ${recent.length} recent commands`,
+					command: "",
+					exitCode: null,
+					output: popular.map((p) => `${p.command} (${p.count} uses)`).join("\n"),
+					errors: [],
+					fixes: [],
+					verification: "Snippet discovery complete",
+					status: "success",
+					memory: { sessionId: this.sessionId, commandId: "", errorId: null },
+				},
+			}
+		} catch (err) {
+			return { ok: false, error: `Snippet discovery failed: ${err}` }
 		}
 	}
 
 	// ─── Stats ──────────────────────────────────────────────────────────
 
-	getStats() {
+	async getStats() {
 		return this.memory.getStats()
 	}
 }

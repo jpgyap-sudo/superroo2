@@ -13,7 +13,7 @@ import type {
 	AgentFixRecord,
 	DeploymentLogRecord,
 	ErrorType,
-} from "./types"
+} from "./types.js"
 
 // ─── In-Memory Store ─────────────────────────────────────────────────────
 
@@ -119,6 +119,36 @@ export class TerminalMemory {
 		return commands.length > 0 ? commands[0] : undefined
 	}
 
+	getActiveSessionForUser(_userId: string): TerminalSession | undefined {
+		// In-memory store doesn't track users — return most recent active session
+		const all = Array.from(this.data.sessions.values())
+		return all.find((s) => s.status === "active")
+	}
+
+	getPopularCommands(_workspaceId: string, limit = 10): { command: string; count: number }[] {
+		const counts = new Map<string, number>()
+		for (const cmd of this.data.commands.values()) {
+			counts.set(cmd.command, (counts.get(cmd.command) || 0) + 1)
+		}
+		return Array.from(counts.entries())
+			.map(([command, count]) => ({ command, count }))
+			.sort((a, b) => b.count - a.count)
+			.slice(0, limit)
+	}
+
+	getRecentCommands(_workspaceId: string, limit = 10): { command: string; startedAt: number }[] {
+		const seen = new Set<string>()
+		const result: { command: string; startedAt: number }[] = []
+		for (const cmd of Array.from(this.data.commands.values()).sort((a, b) => b.startedAt - a.startedAt)) {
+			if (!seen.has(cmd.command)) {
+				seen.add(cmd.command)
+				result.push({ command: cmd.command, startedAt: cmd.startedAt })
+				if (result.length >= limit) break
+			}
+		}
+		return result
+	}
+
 	// ─── Errors ─────────────────────────────────────────────────────────
 
 	recordError(
@@ -197,11 +227,7 @@ export class TerminalMemory {
 
 	// ─── Deployments ────────────────────────────────────────────────────
 
-	recordDeployment(
-		version: string,
-		commitSha: string,
-		status: DeploymentLogRecord["status"],
-	): DeploymentLogRecord {
+	recordDeployment(version: string, commitSha: string, status: DeploymentLogRecord["status"]): DeploymentLogRecord {
 		const record: DeploymentLogRecord = {
 			id: `td-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
 			version,
@@ -250,7 +276,8 @@ export class TerminalMemory {
 			if (data.commands) data.commands.forEach((c: TerminalCommandRecord) => this.data.commands.set(c.id, c))
 			if (data.errors) data.errors.forEach((e: TerminalErrorRecord) => this.data.errors.set(e.id, e))
 			if (data.fixes) data.fixes.forEach((f: AgentFixRecord) => this.data.fixes.set(f.id, f))
-			if (data.deployments) data.deployments.forEach((d: DeploymentLogRecord) => this.data.deployments.set(d.id, d))
+			if (data.deployments)
+				data.deployments.forEach((d: DeploymentLogRecord) => this.data.deployments.set(d.id, d))
 		} catch {
 			// Invalid JSON — start fresh
 		}
@@ -281,15 +308,214 @@ export class TerminalMemory {
 	}
 }
 
+// ─── Terminal Memory Interface ───────────────────────────────────────────
+
+export interface ITerminalMemory {
+	createSession(workspaceId: string, userId?: string): Promise<TerminalSession> | TerminalSession
+	closeSession(sessionId: string): Promise<void> | void
+	getSession(sessionId: string): Promise<TerminalSession | undefined> | TerminalSession | undefined
+	getSessions(workspaceId?: string, userId?: string): Promise<TerminalSession[]> | TerminalSession[]
+	getActiveSessionForUser(userId: string): Promise<TerminalSession | undefined> | TerminalSession | undefined
+
+	recordCommand(sessionId: string, command: string): Promise<TerminalCommandRecord> | TerminalCommandRecord
+	completeCommand(
+		commandId: string,
+		exitCode: number,
+		outputSummary: string,
+		errorSummary: string | null,
+		filesChanged: string[],
+	): Promise<void> | void
+	getCommands(sessionId?: string): Promise<TerminalCommandRecord[]> | TerminalCommandRecord[]
+	getLastCommand(sessionId: string): Promise<TerminalCommandRecord | undefined> | TerminalCommandRecord | undefined
+	getPopularCommands(
+		workspaceId: string,
+		limit?: number,
+	): Promise<{ command: string; count: number }[]> | { command: string; count: number }[]
+	getRecentCommands(
+		workspaceId: string,
+		limit?: number,
+	): Promise<{ command: string; startedAt: number }[]> | { command: string; startedAt: number }[]
+
+	recordError(
+		commandId: string,
+		errorType: ErrorType,
+		errorMessage: string,
+		rootCause: string,
+		relatedFiles: string[],
+		fixSuggested: string | null,
+	): Promise<TerminalErrorRecord> | TerminalErrorRecord
+	markFixApplied(errorId: string, succeeded: boolean): Promise<void> | void
+	getErrors(commandId?: string): Promise<TerminalErrorRecord[]> | TerminalErrorRecord[]
+	getRecentErrors(limit?: number): Promise<TerminalErrorRecord[]> | TerminalErrorRecord[]
+
+	recordFix(
+		errorId: string,
+		summary: string,
+		filesChanged: string[],
+		patch: string,
+		result: AgentFixRecord["result"],
+	): Promise<AgentFixRecord> | AgentFixRecord
+	getFixes(errorId?: string): Promise<AgentFixRecord[]> | AgentFixRecord[]
+
+	recordDeployment(
+		version: string,
+		commitSha: string,
+		status: DeploymentLogRecord["status"],
+	): Promise<DeploymentLogRecord> | DeploymentLogRecord
+	updateDeploymentStatus(deployId: string, status: DeploymentLogRecord["status"], logs?: string): Promise<void> | void
+	getDeployments(): Promise<DeploymentLogRecord[]> | DeploymentLogRecord[]
+
+	toJSON(): Promise<string> | string
+	fromJSON(json: string): Promise<void> | void
+
+	getStats():
+		| Promise<{
+				totalSessions: number
+				totalCommands: number
+				totalErrors: number
+				totalFixes: number
+				totalDeployments: number
+				successRate: number
+		  }>
+		| {
+				totalSessions: number
+				totalCommands: number
+				totalErrors: number
+				totalFixes: number
+				totalDeployments: number
+				successRate: number
+		  }
+}
+
+// ─── Persistent Terminal Memory (PostgreSQL) ─────────────────────────────
+
+import { PgTerminalStore } from "./db.js"
+
+export class PersistentTerminalMemory implements ITerminalMemory {
+	private store: PgTerminalStore
+
+	constructor(store: PgTerminalStore) {
+		this.store = store
+	}
+
+	createSession(workspaceId: string, userId?: string) {
+		return this.store.createSession(workspaceId, userId)
+	}
+	closeSession(sessionId: string) {
+		return this.store.closeSession(sessionId)
+	}
+	getSession(sessionId: string) {
+		return this.store.getSession(sessionId)
+	}
+	getSessions(workspaceId?: string, userId?: string) {
+		return this.store.getSessions(workspaceId, userId)
+	}
+	getActiveSessionForUser(userId: string) {
+		return this.store.getActiveSessionForUser(userId)
+	}
+
+	recordCommand(sessionId: string, command: string) {
+		return this.store.recordCommand(sessionId, command)
+	}
+	completeCommand(
+		commandId: string,
+		exitCode: number,
+		outputSummary: string,
+		errorSummary: string | null,
+		filesChanged: string[],
+	) {
+		return this.store.completeCommand(commandId, exitCode, outputSummary, errorSummary, filesChanged)
+	}
+	getCommands(sessionId?: string) {
+		return this.store.getCommands(sessionId)
+	}
+	getLastCommand(sessionId: string) {
+		return this.store.getLastCommand(sessionId)
+	}
+	getPopularCommands(workspaceId: string, limit?: number) {
+		return this.store.getPopularCommands(workspaceId, limit)
+	}
+	getRecentCommands(workspaceId: string, limit?: number) {
+		return this.store.getRecentCommands(workspaceId, limit)
+	}
+
+	recordError(
+		commandId: string,
+		errorType: ErrorType,
+		errorMessage: string,
+		rootCause: string,
+		relatedFiles: string[],
+		fixSuggested: string | null,
+	) {
+		return this.store.recordError(commandId, errorType, errorMessage, rootCause, relatedFiles, fixSuggested)
+	}
+	markFixApplied(errorId: string, succeeded: boolean) {
+		return this.store.markFixApplied(errorId, succeeded)
+	}
+	getErrors(commandId?: string) {
+		return this.store.getErrors(commandId)
+	}
+	getRecentErrors(limit?: number) {
+		return this.store.getRecentErrors(limit)
+	}
+
+	recordFix(
+		errorId: string,
+		summary: string,
+		filesChanged: string[],
+		patch: string,
+		result: AgentFixRecord["result"],
+	) {
+		return this.store.recordFix(errorId, summary, filesChanged, patch, result)
+	}
+	getFixes(errorId?: string) {
+		return this.store.getFixes(errorId)
+	}
+
+	recordDeployment(version: string, commitSha: string, status: DeploymentLogRecord["status"]) {
+		return this.store.recordDeployment(version, commitSha, status)
+	}
+	updateDeploymentStatus(deployId: string, status: DeploymentLogRecord["status"], logs?: string) {
+		return this.store.updateDeploymentStatus(deployId, status, logs)
+	}
+	getDeployments() {
+		return this.store.getDeployments()
+	}
+
+	async toJSON(): Promise<string> {
+		const sessions = await this.store.getSessions()
+		const commands = await this.store.getCommands()
+		const errors = await this.store.getErrors()
+		const fixes = await this.store.getFixes()
+		const deployments = await this.store.getDeployments()
+		return JSON.stringify({ sessions, commands, errors, fixes, deployments })
+	}
+
+	async fromJSON(_json: string): Promise<void> {
+		// No-op for persistent store — data is already in the DB
+	}
+
+	getStats() {
+		return this.store.getStats()
+	}
+}
+
 // ─── Singleton ───────────────────────────────────────────────────────────
 
-let _instance: TerminalMemory | null = null
+let _instance: TerminalMemory | PersistentTerminalMemory | null = null
 
 export function getTerminalMemory(): TerminalMemory {
 	if (!_instance) {
 		_instance = new TerminalMemory()
 	}
-	return _instance
+	return _instance as TerminalMemory
+}
+
+export function getPersistentTerminalMemory(store: PgTerminalStore): PersistentTerminalMemory {
+	if (!_instance || !(_instance instanceof PersistentTerminalMemory)) {
+		_instance = new PersistentTerminalMemory(store)
+	}
+	return _instance as PersistentTerminalMemory
 }
 
 export function resetTerminalMemory(): void {

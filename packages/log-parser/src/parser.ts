@@ -195,13 +195,7 @@ const ERROR_PATTERNS: ErrorPattern[] = [
 	// Permission errors
 	{
 		type: "permission",
-		patterns: [
-			/Permission denied/i,
-			/EACCES/i,
-			/EPERM/i,
-			/not\s+authorized/i,
-			/access\s+denied/i,
-		],
+		patterns: [/Permission denied/i, /EACCES/i, /EPERM/i, /not\s+authorized/i, /access\s+denied/i],
 		confidence: 0.85,
 		extractRootCause: (match) => match[0] || "Permission denied",
 		extractFiles: () => [],
@@ -290,4 +284,38 @@ export function classifyError(errorMessage: string): ErrorType {
 		}
 	}
 	return "unknown"
+}
+
+export interface InteractiveError {
+	lineIndex: number
+	lineText: string
+	error: ErrorAnalysis
+}
+
+export function parseOutputForInteractiveFixes(lines: string[]): InteractiveError[] {
+	const results: InteractiveError[] = []
+	const seen = new Set<string>()
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i]
+		for (const pattern of ERROR_PATTERNS) {
+			for (const re of pattern.patterns) {
+				const match = re.exec(line)
+				if (match) {
+					const key = `${pattern.type}:${match[0].slice(0, 100)}`
+					if (seen.has(key)) continue
+					seen.add(key)
+					const error: ErrorAnalysis = {
+						errorType: pattern.type,
+						errorMessage: match[0],
+						rootCause: pattern.extractRootCause(match, lines),
+						relatedFiles: pattern.extractFiles(match, lines),
+						confidence: pattern.confidence,
+						fixSuggestion: pattern.suggestFix(match, lines),
+					}
+					results.push({ lineIndex: i, lineText: line, error })
+				}
+			}
+		}
+	}
+	return results
 }

@@ -131,3 +131,77 @@ CREATE TABLE IF NOT EXISTS learned_skills (
 
 CREATE INDEX IF NOT EXISTS learned_skills_embedding_hnsw_idx
 ON learned_skills USING hnsw (embedding vector_cosine_ops);
+
+-- ─── Terminal Memory Tables ────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS terminal_sessions (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  user_id TEXT,
+  started_at TIMESTAMPTZ DEFAULT now(),
+  ended_at TIMESTAMPTZ,
+  status TEXT NOT NULL DEFAULT 'active',
+  metadata JSONB DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS terminal_sessions_workspace_idx ON terminal_sessions(workspace_id);
+CREATE INDEX IF NOT EXISTS terminal_sessions_user_idx ON terminal_sessions(user_id);
+CREATE INDEX IF NOT EXISTS terminal_sessions_status_idx ON terminal_sessions(status);
+
+CREATE TABLE IF NOT EXISTS terminal_commands (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES terminal_sessions(id) ON DELETE CASCADE,
+  command TEXT NOT NULL,
+  exit_code INTEGER,
+  output_summary TEXT,
+  error_summary TEXT,
+  files_changed TEXT[] DEFAULT '{}',
+  started_at TIMESTAMPTZ DEFAULT now(),
+  finished_at TIMESTAMPTZ,
+  duration_ms INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS terminal_commands_session_idx ON terminal_commands(session_id);
+CREATE INDEX IF NOT EXISTS terminal_commands_started_at_idx ON terminal_commands(started_at DESC);
+
+CREATE TABLE IF NOT EXISTS terminal_errors (
+  id TEXT PRIMARY KEY,
+  command_id TEXT NOT NULL REFERENCES terminal_commands(id) ON DELETE CASCADE,
+  error_type TEXT NOT NULL,
+  error_message TEXT NOT NULL,
+  root_cause TEXT,
+  related_files TEXT[] DEFAULT '{}',
+  fix_suggested TEXT,
+  fix_applied BOOLEAN DEFAULT false,
+  fix_succeeded BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS terminal_errors_command_idx ON terminal_errors(command_id);
+CREATE INDEX IF NOT EXISTS terminal_errors_type_idx ON terminal_errors(error_type);
+
+CREATE TABLE IF NOT EXISTS terminal_fixes (
+  id TEXT PRIMARY KEY,
+  error_id TEXT NOT NULL REFERENCES terminal_errors(id) ON DELETE CASCADE,
+  summary TEXT NOT NULL,
+  files_changed TEXT[] DEFAULT '{}',
+  patch TEXT,
+  result TEXT NOT NULL DEFAULT 'success',
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS terminal_fixes_error_idx ON terminal_fixes(error_id);
+
+CREATE TABLE IF NOT EXISTS terminal_deployments (
+  id TEXT PRIMARY KEY,
+  version TEXT NOT NULL,
+  commit_sha TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'deploying',
+  checks TEXT[] DEFAULT '{}',
+  logs TEXT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  finished_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS terminal_deployments_status_idx ON terminal_deployments(status);
+CREATE INDEX IF NOT EXISTS terminal_deployments_created_at_idx ON terminal_deployments(created_at DESC);
