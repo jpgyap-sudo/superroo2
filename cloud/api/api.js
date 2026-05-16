@@ -326,6 +326,7 @@ const ORCHESTRATOR_DB_PATH =
 const connection = new IORedis(REDIS_URL, {
 	maxRetriesPerRequest: null,
 })
+global.__redisClient = connection
 
 const queue = new Queue(QUEUE_NAME, { connection })
 

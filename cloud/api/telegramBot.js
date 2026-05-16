@@ -5795,6 +5795,7 @@ loadConversationHistory()
 
 module.exports = {
 	sendMessage,
+	splitLongMessage,
 	deleteMessage,
 	sendChatAction,
 	sendInlineKeyboard,
