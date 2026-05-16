@@ -7630,6 +7630,63 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// ── Central Brain proxy routes ──────────────────────────────────────
+		// Proxies /brain/* requests to the Central Brain daemon (port 3417)
+		// Used by Cloud IDE terminal, Telegram brain commands, and CLI
+		if (normalizedUrl.startsWith("/brain/")) {
+			try {
+				const brainUrl = process.env.CENTRAL_BRAIN_URL || "http://100.64.175.88:3417"
+				const brainToken = process.env.CENTRAL_BRAIN_TOKEN || process.env.BRAIN_TOKEN || "dev-brain-token"
+				const parsedBrainUrl = new URL(brainUrl)
+				const brainPath = normalizedUrl
+				const isBrainHttps = parsedBrainUrl.protocol === "https:"
+				const brainMod = isBrainHttps ? require("https") : require("http")
+
+				const bodyStr = ["POST", "PUT", "PATCH"].includes(method) ? JSON.stringify(req.body || {}) : null
+
+				const brainResult = await new Promise((resolve, reject) => {
+					const opts = {
+						hostname: parsedBrainUrl.hostname,
+						port: parsedBrainUrl.port || (isBrainHttps ? 443 : 80),
+						path: brainPath,
+						method,
+						headers: {
+							"Content-Type": "application/json",
+							Authorization: `Bearer ${brainToken}`,
+						},
+						timeout: 120000,
+					}
+					if (bodyStr) opts.headers["Content-Length"] = Buffer.byteLength(bodyStr)
+
+					const brainReq = brainMod.request(opts, (brainRes) => {
+						let data = ""
+						brainRes.on("data", (chunk) => { data += chunk })
+						brainRes.on("end", () => {
+							try {
+								resolve(JSON.parse(data))
+							} catch {
+								resolve({ ok: false, error: `Invalid JSON from Central Brain: ${data.slice(0, 200)}` })
+							}
+						})
+					})
+					brainReq.on("error", (err) => {
+						resolve({ ok: false, error: `Central Brain unreachable: ${err.message}` })
+					})
+					brainReq.on("timeout", () => {
+						brainReq.destroy()
+						resolve({ ok: false, error: "Central Brain request timed out after 120s" })
+					})
+					if (bodyStr) brainReq.write(bodyStr)
+					brainReq.end()
+				})
+
+				sendJson(res, 200, brainResult)
+			} catch (err) {
+				sendJson(res, 502, { ok: false, error: `Central Brain proxy error: ${err.message}` })
+			}
+			return
+		}
+
 		sendJson(res, 404, { error: "not_found", detail: `No route for ${method} ${url}` })
 	} catch (err) {
 		console.error(`[api] Error handling ${method} ${url}:`, err.message)
