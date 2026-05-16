@@ -607,7 +607,11 @@ export function Overview() {
 								key={x.label}
 								onClick={async () => {
 									try {
-										await fetch(`/api/actions/${x.action}`, { method: "POST" })
+										const token = localStorage.getItem("superroo_auth_token")
+										await fetch(`/api/actions/${x.action}`, {
+											method: "POST",
+											headers: token ? { Authorization: `Bearer ${token}` } : {},
+										})
 									} catch {
 										// silent
 									}
