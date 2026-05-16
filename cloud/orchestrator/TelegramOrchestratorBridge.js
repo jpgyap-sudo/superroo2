@@ -31,7 +31,7 @@ class TelegramOrchestratorBridge {
 	 * @param {string} [input.branchName]
 	 * @returns {object} Task in telegramBot-compatible format
 	 */
-	createTask(input) {
+	async createTask(input) {
 		const taskId =
 			"TG-" + Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).slice(2, 6).toUpperCase()
 		const branchName = input.branchName || "tg/" + taskId.toLowerCase()
@@ -50,7 +50,7 @@ class TelegramOrchestratorBridge {
 			},
 		})
 
-		// Return in telegramBot-compatible format
+		// Return in telegramBot-compatible format (wrapped in Promise for .catch() support)
 		return {
 			id: taskId,
 			orchestratorTaskId: task.id,
