@@ -71,7 +71,16 @@ function keywordFallback(text) {
 		lower.includes("not working") ||
 		lower.includes("broken") ||
 		lower.includes("crash") ||
-		lower.includes("bug")
+		lower.includes("bug") ||
+		// Common misspellings
+		lower.includes("debuge") ||
+		lower.includes("debuging") ||
+		lower.includes("bug fix") ||
+		lower.includes("fixx") ||
+		lower.includes("eror") ||
+		lower.includes("erorr") ||
+		lower.includes("brokne") ||
+		lower.includes("crashed")
 	) {
 		return "debug_plan"
 	}
@@ -83,7 +92,14 @@ function keywordFallback(text) {
 		lower.includes("show log") ||
 		lower.includes("view log") ||
 		lower.includes("check log") ||
-		lower.includes("recent log")
+		lower.includes("recent log") ||
+		// Common misspellings
+		lower.includes("show logs") ||
+		lower.includes("view logs") ||
+		lower.includes("check logs") ||
+		lower.includes("recent logs") ||
+		lower.includes("see log") ||
+		lower.includes("see logs")
 	) {
 		return "read_logs"
 	}
@@ -97,7 +113,13 @@ function keywordFallback(text) {
 		lower.includes("run suite") ||
 		lower.includes("execute test") ||
 		lower.includes("unit test") ||
-		lower.includes("vitest")
+		lower.includes("vitest") ||
+		// Common misspellings
+		lower.includes("run test") ||
+		lower.includes("runing test") ||
+		lower.includes("running test") ||
+		lower.includes("run the tests") ||
+		lower.includes("execute tests")
 	) {
 		return "run_tests"
 	}
@@ -107,7 +129,11 @@ function keywordFallback(text) {
 		lower.includes("create branch") ||
 		lower.includes("new branch") ||
 		lower.includes("checkout branch") ||
-		lower.includes("git branch")
+		lower.includes("git branch") ||
+		// Common misspellings
+		lower.includes("creat branch") ||
+		lower.includes("make branch") ||
+		lower.includes("branche")
 	) {
 		return "create_branch"
 	}
@@ -119,7 +145,12 @@ function keywordFallback(text) {
 		lower.includes("pull request") ||
 		lower.includes("open pr") ||
 		lower.includes("new pr") ||
-		lower.includes("make pr")
+		lower.includes("make pr") ||
+		// Common misspellings
+		lower.includes("creat pr") ||
+		lower.includes("pull reques") ||
+		lower.includes("pull requst") ||
+		lower.includes("pr request")
 	) {
 		return "create_pr"
 	}
@@ -134,6 +165,8 @@ function keywordFallback(text) {
 		lower.includes("develop") ||
 		lower.includes("refactor") ||
 		lower.includes("improve") ||
+		lower.includes("improvement") ||
+		lower.includes("improvements") ||
 		lower.includes("fix") ||
 		lower.includes("wire up") ||
 		lower.includes("add feature") ||
@@ -143,7 +176,33 @@ function keywordFallback(text) {
 		lower.includes("code this") ||
 		lower.includes("code the") ||
 		lower.includes("code for") ||
-		lower.includes("code to")
+		lower.includes("code to") ||
+		// Common misspellings
+		lower.includes("implemnt") ||
+		lower.includes("implemen") ||
+		lower.includes("impliment") ||
+		lower.includes("builld") ||
+		lower.includes("buid") ||
+		lower.includes("writ") ||
+		lower.includes("wite") ||
+		lower.includes("develp") ||
+		lower.includes("develo") ||
+		lower.includes("refacter") ||
+		lower.includes("improv") ||
+		lower.includes("improvment") ||
+		lower.includes("improvments") ||
+		lower.includes("improvemen") ||
+		lower.includes("add featur") ||
+		lower.includes("new featur") ||
+		lower.includes("cod a") ||
+		lower.includes("cod this") ||
+		lower.includes("cod the") ||
+		lower.includes("cod for") ||
+		lower.includes("cod to") ||
+		lower.includes("make a") ||
+		lower.includes("make the") ||
+		lower.includes("creat a") ||
+		lower.includes("creat the")
 	) {
 		return "coder"
 	}
@@ -154,7 +213,13 @@ function keywordFallback(text) {
 		lower.includes("reboot") ||
 		lower.includes("reload") ||
 		lower.includes("start worker") ||
-		lower.includes("stop worker")
+		lower.includes("stop worker") ||
+		// Common misspellings
+		lower.includes("restar") ||
+		lower.includes("restartt") ||
+		lower.includes("restrat") ||
+		lower.includes("rebbot") ||
+		lower.includes("relaod")
 	) {
 		return "restart_worker"
 	}

@@ -207,11 +207,14 @@ async function sendTaskStarted(botToken, chatId, taskId, instruction, agentType)
 		`*Task:* \`${taskId}\`\n` +
 		`*Agent:* ${agentType || "auto"}\n` +
 		`*Instruction:* ${instruction.slice(0, 200)}${instruction.length > 200 ? "..." : ""}\n\n` +
-		`_Processing... I'll notify you when it's done._`
+		`_⏳ Queued and processing..._\n` +
+		`_You'll be notified when it completes._`
 
 	const buttons = [
-		[{ text: "⏳ Check Status", callback_data: `notify:status:${taskId}` }],
-		[{ text: "📋 Task Board", callback_data: "taskboard:list" }],
+		[
+			{ text: "⏳ Check Status", callback_data: `notify:status:${taskId}` },
+			{ text: "📋 Task Board", callback_data: "taskboard:list" },
+		],
 	]
 
 	return await sendInlineKeyboard(botToken, chatId, text, buttons)
@@ -758,10 +761,14 @@ async function handleNotificationCallback(botToken, callbackQuery) {
 						(statusData.elapsed ? `*Elapsed:* ${statusData.elapsed}\n` : "") +
 						(statusData.message ? `\n${statusData.message}` : "")
 				} else {
+					// Fallback: check local userTasks map for basic status
 					statusText = `_Status check returned ${statusRes.status}_\n\nUse \`/status ${taskId}\` in chat for detailed status.`
 				}
 				await editMessageText(botToken, chatId, messageId, `📊 *Status for ${taskId}*\n\n` + statusText, [
-					[{ text: "🔙 Back", callback_data: `notify:back:${taskId}` }],
+					[
+						{ text: "🔄 Refresh", callback_data: `notify:status:${taskId}` },
+						{ text: "📋 Task Board", callback_data: "taskboard:list" },
+					],
 				])
 			} catch (err) {
 				await editMessageText(
@@ -771,7 +778,12 @@ async function handleNotificationCallback(botToken, callbackQuery) {
 					`📊 *Status for ${taskId}*\n\n` +
 						`_Could not check status: ${err.message}_\n\n` +
 						`Use \`/status ${taskId}\` in chat for detailed status.`,
-					[[{ text: "🔙 Back", callback_data: `notify:back:${taskId}` }]],
+					[
+						[
+							{ text: "🔄 Retry", callback_data: `notify:status:${taskId}` },
+							{ text: "📋 Task Board", callback_data: "taskboard:list" },
+						],
+					],
 				)
 			}
 			return true

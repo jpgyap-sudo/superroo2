@@ -213,10 +213,10 @@ const conversationHistory = new Map()
 const CONVERSATION_HISTORY_FILE = path.join(__dirname, "..", "data", "conversation-history.json")
 
 /** Max messages to keep per chat in memory */
-const MAX_CONVERSATION_MESSAGES = 50
+const MAX_CONVERSATION_MESSAGES = 100
 
 /** Max messages to include in AI context window */
-const MAX_CONTEXT_MESSAGES = 20
+const MAX_CONTEXT_MESSAGES = 40
 
 /**
  * Keeps the user's literal input separate from quoted reply context.
@@ -267,6 +267,22 @@ function isContinuationRequest(text) {
 			lower,
 		)
 	if (referencePattern) return true
+
+	// ── Improvement 7: Multi-turn vague request detection ──────────────────
+	// Vague improvement/change requests that reference prior context
+	// e.g., "make improvements", "make all necessary improvements", "do the needful"
+	var vagueRequestPattern =
+		/^(?:please\s+)?(?:make\s+(?:all\s+)?(?:the\s+)?(?:necessary\s+)?(?:improvements?|changes?|updates?|fixes?|adjustments?)|do\s+(?:the\s+)?(?:needful|what'?s?\s+needed|what\s+is\s+needed)|handle\s+(?:it|this|that)|take\s+(?:care\s+of\s+)?(?:it|this|that)|proceed\s+(?:with\s+)?(?:it|this|that|the\s+plan)|move\s+(?:forward|ahead)|let'?s?\s+(?:go|do\s+it|start)|start\s+(?:working|coding|implementing)|finish\s+(?:it|this|that|the\s+job|the\s+work)|complete\s+(?:it|this|that|the\s+task)|wrap\s+(?:it|this|that)\s+up|finalize\s+(?:it|this|that))/i.test(
+			lower,
+		)
+	if (vagueRequestPattern) return true
+
+	// Short affirmative patterns — "yes", "yeah", "ok", "okay", "sure", "yep", "go for it"
+	var affirmativePattern =
+		/^(?:yes|yeah|yep|yup|ok|okay|sure|alright|fine|go\s+(?:for\s+)?it|do\s+it|lets?\s+go|sounds?\s+good|looks?\s+good)$/i.test(
+			lower,
+		)
+	if (affirmativePattern) return true
 
 	return false
 }
@@ -6351,10 +6367,22 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 			})
 			console.error("[telegram] Callback query error:", err.message)
 			try {
-				await sendMessage(
+				// Send error recovery message with inline buttons to get back on track
+				await sendInlineKeyboard(
 					botToken,
 					cqChatId,
-					formatError(err, "callback:" + (cqData.split(":")[0] || "unknown")),
+					"⚠️ *Something went wrong*\n\n" +
+						"An error occurred while processing your request. Please try again or use the menu below.\n\n" +
+						"Error: `" +
+						(err.message || "Unknown error") +
+						"`",
+					[
+						[
+							{ text: "🏠 Main Menu", callback_data: "menu:main" },
+							{ text: "📋 Task Board", callback_data: "taskboard:list" },
+						],
+						[{ text: "🆘 Help", callback_data: "menu:help" }],
+					],
 				)
 			} catch (sendErr) {
 				console.error("[telegram] Failed to send callback error message:", sendErr.message)
@@ -6782,7 +6810,27 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 			await sendChatAction(botToken, chatId, "typing")
 			try {
 				var taskBoardTasks = userTasks.get(chatId) || []
-				await telegramTaskBoard.showTaskBoard(botToken, chatId, null, taskBoardTasks, null, orchestratorBridge)
+				// Show task board with inline task creation buttons
+				await sendInlineKeyboard(
+					botToken,
+					chatId,
+					"📋 *Task Board*\n\n" +
+						"Manage your tasks below. Tap a button to create a new task or view the task board.",
+					[
+						[
+							{ text: "💻 New Code Task", callback_data: "menu:new_task" },
+							{ text: "📋 View Task Board", callback_data: "taskboard:list" },
+						],
+						[
+							{ text: "🐛 New Debug Task", callback_data: "menu:new_debug" },
+							{ text: "🧪 New Test Task", callback_data: "menu:new_test" },
+						],
+						[
+							{ text: "🚀 New Deploy", callback_data: "menu:new_deploy" },
+							{ text: "↩️ New Undo", callback_data: "menu:new_undo" },
+						],
+					],
+				)
 			} catch (err) {
 				logTelegramError("/task", chatId, telegramUserId, err)
 				await sendMessage(botToken, chatId, "*Task Board Error* ❌\n\n" + err.message)
