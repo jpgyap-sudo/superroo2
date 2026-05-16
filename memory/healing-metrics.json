@@ -1,0 +1,92 @@
+{
+	"byCategory": {
+		"API_AUTH_FAILURE": {
+			"successCount": 12,
+			"failureCount": 3,
+			"totalAttempts": 15
+		},
+		"NETWORK_TIMEOUT": {
+			"successCount": 8,
+			"failureCount": 5,
+			"totalAttempts": 13
+		},
+		"DB_SCHEMA_MISMATCH": {
+			"successCount": 4,
+			"failureCount": 2,
+			"totalAttempts": 6
+		},
+		"WORKER_CRASH": {
+			"successCount": 6,
+			"failureCount": 1,
+			"totalAttempts": 7
+		},
+		"TEST_FAILURE": {
+			"successCount": 15,
+			"failureCount": 8,
+			"totalAttempts": 23
+		},
+		"MEMORY_LEAK": {
+			"successCount": 2,
+			"failureCount": 4,
+			"totalAttempts": 6
+		},
+		"CONFIGURATION_ERROR": {
+			"successCount": 9,
+			"failureCount": 1,
+			"totalAttempts": 10
+		},
+		"UNKNOWN": {
+			"successCount": 3,
+			"failureCount": 6,
+			"totalAttempts": 9
+		}
+	},
+	"byPlanType": {
+		"API_AUTH_FAILURE": {
+			"successCount": 12,
+			"failureCount": 3,
+			"totalAttempts": 15
+		},
+		"NETWORK_TIMEOUT": {
+			"successCount": 8,
+			"failureCount": 5,
+			"totalAttempts": 13
+		},
+		"DB_SCHEMA_MISMATCH": {
+			"successCount": 4,
+			"failureCount": 2,
+			"totalAttempts": 6
+		},
+		"WORKER_CRASH": {
+			"successCount": 6,
+			"failureCount": 1,
+			"totalAttempts": 7
+		},
+		"TEST_FAILURE": {
+			"successCount": 15,
+			"failureCount": 8,
+			"totalAttempts": 23
+		},
+		"MEMORY_LEAK": {
+			"successCount": 2,
+			"failureCount": 4,
+			"totalAttempts": 6
+		},
+		"CONFIGURATION_ERROR": {
+			"successCount": 9,
+			"failureCount": 1,
+			"totalAttempts": 10
+		},
+		"UNKNOWN": {
+			"successCount": 3,
+			"failureCount": 6,
+			"totalAttempts": 9
+		}
+	},
+	"overall": {
+		"successCount": 59,
+		"failureCount": 30,
+		"totalAttempts": 89
+	},
+	"lastUpdated": 1746978400000
+}

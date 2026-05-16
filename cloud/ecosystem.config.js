@@ -1,0 +1,182 @@
+/**
+ * SuperRoo Cloud — PM2 Ecosystem
+ *
+ * Crash-resilient PM2 configuration with:
+ * - Exponential backoff restart delays
+ * - Memory limits to prevent OOM
+ * - Max restart limits to avoid crash loops
+ * - Graceful shutdown timeouts
+ *
+ * Usage:
+ *   cd /opt/superroo2/cloud
+ *   pm2 start ecosystem.config.js
+ *   pm2 save
+ */
+
+module.exports = {
+	apps: [
+		{
+			name: "superroo-api",
+			script: "./api/api.js",
+			cwd: "/opt/superroo2/cloud",
+			instances: 1,
+			exec_mode: "fork",
+			autorestart: true,
+			watch: false,
+			max_memory_restart: "256M",
+			// Crash resilience: exponential backoff restart
+			// Increased min_uptime to 30s so PM2 doesn't restart too aggressively
+			// when the process takes time to acquire the port after a crash
+			exp_backoff_restart_delay: 2000,
+			max_restarts: 15,
+			restart_delay: 10000,
+			min_uptime: 30000,
+			// Graceful shutdown
+			kill_timeout: 30000,
+			env: {
+				NODE_ENV: "production",
+				REDIS_URL: "redis://127.0.0.1:6379",
+				SUPERROO_QUEUE_NAME: "superroo-jobs",
+				API_PORT: "8787",
+				SUPERROO_VAULT_KEY: "D16PFwmjzXtmpEfFSYrAepsaveOB+fLuneeuQrvTYVw=",
+				TELEGRAM_BOT_TOKEN: "8645986629:AAGFH6aC6y_F39dLfAB2q95-1s-kKALm0RQ",
+				SMTP_HOST: "smtp.gmail.com",
+				SMTP_PORT: "587",
+				SMTP_USER: "marketing.homeu1@gmail.com",
+				SMTP_PASS: "ouhx sjib hyoj aayv",
+				SMTP_FROM: "marketing.homeu1@gmail.com",
+				// Cloud Orchestrator
+				ORCHESTRATOR_DB_PATH: "/opt/superroo2/cloud/orchestrator/data/orchestrator.db",
+				ORCHESTRATOR_MODE: "safe",
+				ORCHESTRATOR_SELF_IMPROVE: "false",
+				ORCHESTRATOR_LOOP_INTERVAL: "5000",
+			},
+			log_file: "/opt/superroo2/cloud/logs/api-combined.log",
+			out_file: "/opt/superroo2/cloud/logs/api-out.log",
+			error_file: "/opt/superroo2/cloud/logs/api-error.log",
+			log_date_format: "YYYY-MM-DD HH:mm:ss Z",
+			merge_logs: true,
+		},
+		{
+			name: "superroo-worker",
+			script: "./worker/worker.js",
+			cwd: "/opt/superroo2/cloud",
+			instances: 1,
+			exec_mode: "fork",
+			autorestart: true,
+			watch: false,
+			max_memory_restart: "512M",
+			// Crash resilience: exponential backoff restart
+			exp_backoff_restart_delay: 2000,
+			max_restarts: 10,
+			restart_delay: 5000,
+			min_uptime: 15000,
+			// Graceful shutdown (matches worker.js shutdown handler)
+			kill_timeout: 30000,
+			env: {
+				NODE_ENV: "production",
+				REDIS_URL: "redis://127.0.0.1:6379",
+				SUPERROO_QUEUE_NAME: "superroo-jobs",
+				WORKER_CONCURRENCY: "2",
+				SUPERROO_ROOT: "/opt/superroo2",
+				SANDBOX_IMAGE: "superroo-sandbox:latest",
+				// Sandbox runner config
+				JOB_TIMEOUT_MS: "600000",
+				SANDBOX_MAX_RETRIES: "2",
+				SANDBOX_MEMORY: "512m",
+				SANDBOX_CPUS: "1",
+				// Worker resilience config
+				WORKER_MAX_REDIS_FAILURES: "5",
+				WORKER_HEALTH_CHECK_INTERVAL_MS: "30000",
+				// Telegram notification config
+				BOSS_TELEGRAM_CHAT_ID: "8485794779",
+				API_BASE_URL: "http://127.0.0.1:8787",
+				SUPERROO_VAULT_KEY: "D16PFwmjzXtmpEfFSYrAepsaveOB+fLuneeuQrvTYVw=",
+			},
+			log_file: "/opt/superroo2/cloud/logs/worker-combined.log",
+			out_file: "/opt/superroo2/cloud/logs/worker-out.log",
+			error_file: "/opt/superroo2/cloud/logs/worker-error.log",
+			log_date_format: "YYYY-MM-DD HH:mm:ss Z",
+			merge_logs: true,
+		},
+		{
+			name: "superroo-dashboard",
+			script: "./.next/standalone/server.js",
+			cwd: "/opt/superroo2/cloud/dashboard",
+			instances: 1,
+			exec_mode: "fork",
+			autorestart: true,
+			watch: false,
+			max_memory_restart: "256M",
+			exp_backoff_restart_delay: 1000,
+			max_restarts: 10,
+			restart_delay: 5000,
+			min_uptime: 10000,
+			kill_timeout: 15000,
+			env: {
+				NODE_ENV: "production",
+				PORT: "3001",
+			},
+			log_file: "/opt/superroo2/cloud/logs/dashboard-combined.log",
+			out_file: "/opt/superroo2/cloud/logs/dashboard-out.log",
+			error_file: "/opt/superroo2/cloud/logs/dashboard-error.log",
+			log_date_format: "YYYY-MM-DD HH:mm:ss Z",
+			merge_logs: true,
+		},
+		{
+			name: "superroo-mini-ide",
+			script: "./mini-ide/server.js",
+			cwd: "/opt/superroo2/cloud",
+			instances: 1,
+			exec_mode: "fork",
+			autorestart: true,
+			watch: false,
+			max_memory_restart: "256M",
+			exp_backoff_restart_delay: 1000,
+			max_restarts: 10,
+			restart_delay: 5000,
+			min_uptime: 10000,
+			kill_timeout: 15000,
+			env: {
+				NODE_ENV: "production",
+				MINI_IDE_PORT: "8081",
+				TELEGRAM_BOT_TOKEN: "8645986629:AAGFH6aC6y_F39dLfAB2q95-1s-kKALm0RQ",
+				CORS_ORIGIN: "https://dev.abcx124.xyz",
+				SUPERROO_API_URL: "http://127.0.0.1:8787",
+				SUPERROO_API_KEY: "",
+				WORKSPACE_ROOT: "/srv/superroo/workspaces",
+				UPLOAD_DIR: "/opt/superroo2/cloud/mini-ide/uploads",
+				SESSION_TTL_MINUTES: "30",
+			},
+			log_file: "/opt/superroo2/cloud/logs/mini-ide-combined.log",
+			out_file: "/opt/superroo2/cloud/logs/mini-ide-out.log",
+			error_file: "/opt/superroo2/cloud/logs/mini-ide-error.log",
+			log_date_format: "YYYY-MM-DD HH:mm:ss Z",
+			merge_logs: true,
+		},
+		{
+			name: "superroo-auto-deployer",
+			script: "./worker/autoDeployer.js",
+			cwd: "/opt/superroo2/cloud",
+			instances: 1,
+			exec_mode: "fork",
+			autorestart: true,
+			watch: false,
+			max_memory_restart: "128M",
+			exp_backoff_restart_delay: 2000,
+			max_restarts: 10,
+			restart_delay: 5000,
+			min_uptime: 10000,
+			kill_timeout: 15000,
+			env: {
+				NODE_ENV: "production",
+				AUTO_DEPLOYER_PORT: "8790",
+			},
+			log_file: "/opt/superroo2/cloud/logs/auto-deployer-combined.log",
+			out_file: "/opt/superroo2/cloud/logs/auto-deployer-out.log",
+			error_file: "/opt/superroo2/cloud/logs/auto-deployer-error.log",
+			log_date_format: "YYYY-MM-DD HH:mm:ss Z",
+			merge_logs: true,
+		},
+	],
+}

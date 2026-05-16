@@ -1,0 +1,46 @@
+{
+	"id": "telegram-agent",
+	"name": "Telegram AI Agent",
+	"category": "communication",
+	"description": "Intelligent conversational agent for Telegram that understands natural language, maintains conversation context, analyzes project code, and routes coding/debugging/deploy/testing tasks to specialized agents.",
+	"version": "1.0.0",
+	"enabled": true,
+	"modelPolicy": {
+		"preferred": "codex",
+		"fallbacks": ["claude-sonnet", "gpt-5.5", "kimi"],
+		"maxTokens": 8000
+	},
+	"skills": [
+		"skills/conversation-flow.md",
+		"skills/intent-analysis.md",
+		"skills/code-context.md",
+		"skills/telegram-response.md"
+	],
+	"workflows": [
+		"workflows/analyze-and-respond.md",
+		"workflows/route-to-agent.md",
+		"workflows/research-and-answer.md"
+	],
+	"resources": [
+		"resources/superroo-architecture.md",
+		"resources/project-context.md"
+	],
+	"memory": {
+		"enabled": true,
+		"scope": "conversation"
+	},
+	"outputs": "outputs/",
+	"safety": {
+		"requiresApproval": false,
+		"canEditFiles": false,
+		"canPublish": false,
+		"canDeploy": false,
+		"blockedCommands": ["rm -rf /", ".env", "reboot", "shutdown", "docker prune"],
+		"approvalTriggers": ["delete", "deploy", "merge", "production"]
+	},
+	"runtime": {
+		"sandbox": true,
+		"timeoutSeconds": 300,
+		"maxRetries": 1
+	}
+}

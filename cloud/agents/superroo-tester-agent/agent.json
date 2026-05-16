@@ -1,0 +1,23 @@
+{
+	"id": "superroo-tester-agent",
+	"name": "SuperRoo Tester Agent",
+	"category": "development",
+	"description": "Runs tests, Playwright checks, build checks, and reports regressions.",
+	"version": "1.0.0",
+	"enabled": false,
+	"modelPolicy": { "preferred": "gpt-5.5", "fallbacks": ["claude-sonnet"], "maxTokens": 4000 },
+	"skills": ["skills/test-planning.md"],
+	"workflows": ["workflows/test-suite-run.md"],
+	"resources": ["resources/test-report-template.md"],
+	"memory": { "enabled": true, "scope": "project" },
+	"outputs": "outputs/",
+	"safety": {
+		"requiresApproval": false,
+		"canEditFiles": false,
+		"canPublish": false,
+		"canDeploy": false,
+		"blockedCommands": ["rm -rf /", ".env"],
+		"approvalTriggers": ["write", "deploy", "delete"]
+	},
+	"runtime": { "sandbox": true, "timeoutSeconds": 900, "maxRetries": 1 }
+}

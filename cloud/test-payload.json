@@ -1,0 +1,12 @@
+{
+	"task": "sandbox test with fake repo",
+	"commands": [
+		"git clone https://github.com/octocat/Hello-World.git test-repo",
+		"cd test-repo && ls -la",
+		"git status",
+		"node -v",
+		"pnpm -v",
+		"git --version"
+	],
+	"network": "host"
+}

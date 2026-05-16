@@ -1,0 +1,6 @@
+packages:
+    - "src" # Should be apps/vscode
+    - "webview-ui" # Should be apps/vscode-webview
+    - "apps/*"
+    - "cloud/dashboard"
+    - "packages/*"

@@ -1,0 +1,42 @@
+[Unit]
+Description=SuperRoo headless coding agent
+After=docker.service network-online.target
+Wants=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=superroo
+Group=superroo
+WorkingDirectory=/opt/superroo2
+EnvironmentFile=/etc/superroo/superroo.env
+ExecStart=/usr/bin/env pnpm daemon
+
+# Crash resilience: restart with backoff
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# Graceful shutdown: give processes time to drain
+TimeoutStopSec=60
+KillSignal=SIGTERM
+KillMode=control-group
+SendSIGKILL=yes
+
+# Security hardening — relaxed for Docker access
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/superroo2 /var/lib/superroo /tmp /var/run/docker.sock
+
+# Allow Docker socket access (needed for sandbox containers)
+SupplementaryGroups=docker
+
+# Resource limits to prevent OOM on the host
+LimitNOFILE=65536
+LimitNPROC=4096
+TasksMax=512
+
+[Install]
+WantedBy=multi-user.target

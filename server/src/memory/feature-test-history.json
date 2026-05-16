@@ -1,0 +1,40 @@
+{
+	"tests": [
+		{
+			"id": "test_initial_001",
+			"featureId": "feat_product_features_tab",
+			"testedAt": "2026-05-04T01:00:00.000Z",
+			"testedBy": "Tester Agent",
+			"result": "pass",
+			"issuesFound": [],
+			"notes": "Initial smoke test passed. All checklist items verified."
+		},
+		{
+			"id": "test_initial_002",
+			"featureId": "feat_product_updates_tab",
+			"testedAt": "2026-05-04T01:00:00.000Z",
+			"testedBy": "Tester Agent",
+			"result": "pass",
+			"issuesFound": [],
+			"notes": "Initial smoke test passed. Timeline displays correctly."
+		},
+		{
+			"id": "test_initial_003",
+			"featureId": "feat_memory_log_tab",
+			"testedAt": "2026-05-04T01:00:00.000Z",
+			"testedBy": "Tester Agent",
+			"result": "pass",
+			"issuesFound": [],
+			"notes": "Initial smoke test passed. File selector and JSON viewer work."
+		},
+		{
+			"id": "test_initial_004",
+			"featureId": "feat_product_updates_recording",
+			"testedAt": "2026-05-04T01:00:00.000Z",
+			"testedBy": "Tester Agent",
+			"result": "pass",
+			"issuesFound": [],
+			"notes": "Update recording verified. All update types supported."
+		}
+	]
+}

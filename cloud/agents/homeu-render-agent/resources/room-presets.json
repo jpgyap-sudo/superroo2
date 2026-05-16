@@ -1,0 +1,17 @@
+{
+	"luxury_living_room": {
+		"lighting": "warm daylight with soft shadows",
+		"materials": ["natural stone", "wood veneer", "linen", "brass"],
+		"camera": "wide interior design magazine shot"
+	},
+	"hotel_lobby": {
+		"lighting": "large ambient lobby lighting, premium reflections",
+		"materials": ["marble", "metal", "upholstery", "wood"],
+		"camera": "architectural interior perspective"
+	},
+	"modern_dining": {
+		"lighting": "soft afternoon window light",
+		"materials": ["stone tabletop", "wood", "boucle", "metal accents"],
+		"camera": "clean editorial dining room angle"
+	}
+}

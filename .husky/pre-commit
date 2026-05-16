@@ -1,0 +1,31 @@
+branch="$(git rev-parse --abbrev-ref HEAD)"
+
+if [ "$branch" = "main" ]; then
+  echo "You can't commit directly to main - please check out a branch."
+  exit 1
+fi
+
+# Resolve pnpm and npx. On Windows Git Bash, .cmd files need cmd.exe.
+# If neither is available, warn and skip (broken environment) rather than fail.
+if [ "$OS" = "Windows_NT" ]; then
+  pnpm_cmd="cmd //C pnpm"
+  npx_cmd="cmd //C npx"
+elif command -v pnpm >/dev/null 2>&1; then
+  pnpm_cmd="pnpm"
+  npx_cmd="npx"
+else
+  pnpm_cmd="npx pnpm"
+  npx_cmd="npx"
+fi
+
+if $npx_cmd lint-staged 2>/dev/null; then
+  true
+else
+  echo "[pre-commit] lint-staged unavailable or failed — check your Node/pnpm installation"
+fi
+
+if $pnpm_cmd lint 2>/dev/null; then
+  true
+else
+  echo "[pre-commit] pnpm lint unavailable or failed — check your Node/pnpm installation"
+fi

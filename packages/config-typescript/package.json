@@ -1,0 +1,7 @@
+{
+	"name": "@superroo/config-typescript",
+	"private": true,
+	"publishConfig": {
+		"access": "public"
+	}
+}

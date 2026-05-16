@@ -1,0 +1,23 @@
+{
+	"id": "github-pr-agent",
+	"name": "GitHub PR Agent",
+	"category": "development",
+	"description": "Creates branches, commits sandbox-approved fixes, and opens GitHub pull requests for review.",
+	"version": "1.0.0",
+	"enabled": false,
+	"modelPolicy": { "preferred": "gpt-5.5", "fallbacks": ["claude-sonnet"], "maxTokens": 4000 },
+	"skills": ["skills/pr-discipline.md"],
+	"workflows": ["workflows/create-safe-pr.md"],
+	"resources": ["resources/pr-template.md"],
+	"memory": { "enabled": true, "scope": "project" },
+	"outputs": "outputs/",
+	"safety": {
+		"requiresApproval": true,
+		"canEditFiles": true,
+		"canPublish": false,
+		"canDeploy": false,
+		"blockedCommands": ["rm -rf /", ".env", "git push origin main", "git push --force"],
+		"approvalTriggers": ["merge", "deploy", "force push", "main"]
+	},
+	"runtime": { "sandbox": true, "timeoutSeconds": 600, "maxRetries": 1 }
+}

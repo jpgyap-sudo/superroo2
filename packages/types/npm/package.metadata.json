@@ -1,0 +1,22 @@
+{
+	"name": "@superroo/types",
+	"version": "1.115.0",
+	"description": "TypeScript type definitions for SuperRoo.",
+	"publishConfig": {
+		"access": "public",
+		"name": "@superroo/types",
+		"registry": "https://registry.npmjs.org/"
+	},
+	"author": "SuperRoo Team",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/SuperRooInc/SuperRoo.git"
+	},
+	"bugs": {
+		"url": "https://github.com/SuperRooInc/SuperRoo/issues"
+	},
+	"homepage": "https://superroo.com",
+	"keywords": ["roo", "superroo", "ai"],
+	"files": ["dist"]
+}

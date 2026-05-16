@@ -1,0 +1,23 @@
+{
+	"id": "skill-generator-agent",
+	"name": "Skill Generator Agent",
+	"category": "meta-agent",
+	"description": "Analyzes failed runs, user corrections, and agent performance to generate new skills, workflows, resources, checklists, and agent upgrades.",
+	"version": "1.0.0",
+	"enabled": false,
+	"modelPolicy": { "preferred": "gpt-5.5", "fallbacks": ["claude-sonnet", "kimi"], "maxTokens": 6000 },
+	"skills": ["skills/skill-gap-analysis.md", "skills/resource-generation.md", "skills/workflow-improvement.md"],
+	"workflows": ["workflows/failed-job-learning-loop.md", "workflows/weekly-agent-review.md"],
+	"resources": ["resources/agent-quality-rubric.md", "resources/md-file-template.md", "resources/approval-policy.md"],
+	"memory": { "enabled": true, "scope": "global" },
+	"outputs": "outputs/",
+	"safety": {
+		"requiresApproval": true,
+		"canEditFiles": true,
+		"canPublish": false,
+		"canDeploy": false,
+		"blockedCommands": ["rm -rf /", ".env", "overwrite agent.json", "auto merge"],
+		"approvalTriggers": ["overwrite", "delete", "publish", "enable autonomous", "modify live agent"]
+	},
+	"runtime": { "sandbox": true, "timeoutSeconds": 600, "maxRetries": 1 }
+}

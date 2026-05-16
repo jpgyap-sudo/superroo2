@@ -1,0 +1,5 @@
+{
+	"extends": "@superroo/config-typescript/vscode-library.json",
+	"include": ["src"],
+	"exclude": ["node_modules"]
+}

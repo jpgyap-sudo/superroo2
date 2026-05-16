@@ -1,0 +1,23 @@
+{
+	"id": "superroo-debugger-agent",
+	"name": "SuperRoo Debugger Agent",
+	"category": "development",
+	"description": "Debugs code issues inside Docker sandbox and proposes safe fixes via PR.",
+	"version": "1.0.0",
+	"enabled": true,
+	"modelPolicy": { "preferred": "codex", "fallbacks": ["claude-sonnet", "gpt-5.5", "kimi"], "maxTokens": 6000 },
+	"skills": ["skills/error-triage.md", "skills/safe-fix.md"],
+	"workflows": ["workflows/debug-in-sandbox.md"],
+	"resources": ["resources/debug-checklist.md"],
+	"memory": { "enabled": true, "scope": "project" },
+	"outputs": "outputs/",
+	"safety": {
+		"requiresApproval": true,
+		"canEditFiles": true,
+		"canPublish": false,
+		"canDeploy": false,
+		"blockedCommands": ["rm -rf /", ".env", "reboot", "shutdown", "docker prune"],
+		"approvalTriggers": ["delete", "deploy", "merge", "production"]
+	},
+	"runtime": { "sandbox": true, "timeoutSeconds": 900, "maxRetries": 2 }
+}

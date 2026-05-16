@@ -1,0 +1,12 @@
+{
+	"name": "superroo-cloud",
+	"version": "1.0.0",
+	"description": "SuperRoo Cloud API and Worker",
+	"private": true,
+	"dependencies": {
+		"better-sqlite3": "^11.7.0",
+		"bullmq": "^5.76.5",
+		"ioredis": "^5.10.1",
+		"ws": "^8.16.0"
+	}
+}

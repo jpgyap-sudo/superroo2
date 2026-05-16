@@ -1,0 +1,10 @@
+{
+	"notes": [
+		{
+			"id": "note_initial_001",
+			"timestamp": "2026-05-04T01:00:00.000Z",
+			"agent": "product-feature",
+			"note": "Use this memory system before debugging. Check product-features.json for feature status, feature-test-history.json for test results, and bug-feature-map.json for known bugs before making changes."
+		}
+	]
+}

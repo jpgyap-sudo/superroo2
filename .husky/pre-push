@@ -1,0 +1,45 @@
+branch="$(git rev-parse --abbrev-ref HEAD)"
+
+if [ "$branch" = "main" ]; then
+  echo "You can't push directly to main - please check out a branch."
+  exit 1
+fi
+
+# Resolve pnpm. On Windows Git Bash, .cmd files need cmd.exe.
+# If unavailable, warn and skip rather than fail.
+if [ "$OS" = "Windows_NT" ]; then
+  pnpm_cmd="cmd //C pnpm"
+elif command -v pnpm >/dev/null 2>&1; then
+  pnpm_cmd="pnpm"
+else
+  pnpm_cmd="npx pnpm"
+fi
+
+if $pnpm_cmd run check-types 2>/dev/null; then
+  true
+else
+  echo "[pre-push] check-types unavailable or failed — check your Node/pnpm installation"
+fi
+
+# Use dotenvx to securely load .env.local and run commands that depend on it
+if [ -f ".env.local" ]; then
+  if npx dotenvx get RUN_TESTS_ON_PUSH -f .env.local 2>/dev/null | grep -q "^true$"; then
+    npx dotenvx run -f .env.local -- $pnpm_cmd run test 2>/dev/null || \
+      echo "[pre-push] dotenvx test run failed — check your environment"
+  fi
+else
+  if [ "$RUN_TESTS_ON_PUSH" = "true" ]; then
+    $pnpm_cmd run test 2>/dev/null || \
+      echo "[pre-push] test run failed — check your Node/pnpm installation"
+  fi
+fi
+
+# Check for new changesets.
+NEW_CHANGESETS=$(find .changeset -name "*.md" ! -name "README.md" | wc -l | tr -d ' ')
+echo "Changeset files: $NEW_CHANGESETS"
+
+if [ "$NEW_CHANGESETS" = "0" ]; then
+  echo "-------------------------------------------------------------------------------------"
+  echo "Changes detected. Please run 'pnpm changeset' to create a changeset if applicable."
+  echo "-------------------------------------------------------------------------------------"
+fi

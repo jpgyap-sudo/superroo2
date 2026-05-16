@@ -1,0 +1,39 @@
+{
+	"$schema": "https://turbo.build/schema.json",
+	"tasks": {
+		"lint": {},
+		"check-types": {},
+		"test": {
+			"dependsOn": ["@superroo/types#build"]
+		},
+		"format": {},
+		"clean": {
+			"cache": false
+		},
+		"build": {
+			"outputs": ["dist/**"],
+			"inputs": ["src/**", "package.json", "tsconfig.json", "tsup.config.ts", "vite.config.ts"]
+		},
+		"bundle": {
+			"dependsOn": ["@superroo/build#build"],
+			"outputs": ["dist/**"],
+			"inputs": ["src/**", "esbuild.mjs", "package.json"]
+		},
+		"bundle:nightly": {
+			"dependsOn": ["@superroo/build#build"],
+			"outputs": ["dist/**"],
+			"inputs": ["src/**", "esbuild.mjs", "package.json"]
+		},
+		"vsix": {
+			"dependsOn": ["bundle"],
+			"outputs": ["../bin/*.vsix"]
+		},
+		"vsix:nightly": {
+			"dependsOn": ["bundle:nightly"],
+			"outputs": ["../bin/*.vsix"]
+		},
+		"watch:tsc": {
+			"cache": false
+		}
+	}
+}

@@ -1,0 +1,67 @@
+{
+  "id": "terminal-agent",
+  "name": "Terminal Brain Agent",
+  "version": "1.0.0",
+  "description": "Smart terminal agent with project context, command planning, safe execution, error analysis, and terminal memory. Routes commands through the Terminal Brain Layer for context-aware execution.",
+  "capabilities": [
+    "project-context-loading",
+    "command-planning",
+    "safe-execution",
+    "error-analysis",
+    "terminal-memory",
+    "debug-handoff",
+    "deploy-verification",
+    "repo-scanning",
+    "env-checking"
+  ],
+  "skills": [
+    "command-planning",
+    "error-triage",
+    "safe-fix",
+    "deploy-verify"
+  ],
+  "resources": [
+    "agents/terminal-agent/terminal-agent.md",
+    "packages/terminal-core/src/types.ts",
+    "packages/repo-scanner/src/scanner.ts",
+    "packages/safety-guard/src/guard.ts"
+  ],
+  "workflows": [
+    "plan-run-verify",
+    "error-to-debug-handoff",
+    "deploy-with-verification"
+  ],
+  "memory": {
+    "type": "terminal-memory",
+    "tables": [
+      "terminal_sessions",
+      "terminal_commands",
+      "terminal_errors",
+      "agent_fixes",
+      "deployment_logs"
+    ]
+  },
+  "safety": {
+    "requireApproval": [
+      "rm -rf",
+      "drop database",
+      "docker system prune -a",
+      "git reset --hard",
+      "git push --force",
+      "chmod -R 777",
+      "killall",
+      "reboot"
+    ],
+    "autoRun": [
+      "ls",
+      "pwd",
+      "cat",
+      "pnpm install",
+      "pnpm build",
+      "pnpm test",
+      "docker ps",
+      "docker logs",
+      "git status"
+    ]
+  }
+}

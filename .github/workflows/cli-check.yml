@@ -1,0 +1,32 @@
+name: SuperRoo CLI Check
+
+on:
+  push:
+    branches: [main, superroo-changes, fix/superroo-audit-cli]
+  pull_request:
+    branches: [main]
+
+jobs:
+  cli:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 10.10.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.2
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck extension package
+        run: pnpm --filter superroo check-types
+
+      - name: Bundle deploy entrypoints
+        run: pnpm --filter superroo bundle
+
+      - name: Run CLI help from bundle
+        run: node src/dist/cli/index.js --help

@@ -1,0 +1,74 @@
+.pnpm-store
+dist
+out
+out-*
+node_modules
+package-lock.json
+coverage/
+mock/
+
+.DS_Store
+
+# IDEs
+.idea
+
+# Builds
+.next/
+bin/
+*.vsix
+*.tsbuildinfo
+superroo.bundle
+
+# Local prompts and rules
+/local-prompts
+AGENTS.local.md
+
+# Test environment
+.test_env
+.vscode-test/
+
+# Docs
+docs/_site/
+
+# Dotenv
+.env
+.env.*
+!.env.*.sample
+!.env.example
+
+# Logging
+logs
+*.log
+
+# Runtime databases
+data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Vite development
+.vite-port
+
+# Turborepo
+.turbo
+
+# IntelliJ and Qodo plugin folders
+.idea/
+.qodo/
+.vercel
+.roo/mcp.json
+
+# Qdrant
+qdrant_storage/
+
+# Architect plans
+plans/
+
+# Cloud agent runtime state (tracks enabled/disabled toggles)
+cloud/agent-state.json
+
+roo-cli-*.tar.gz*
+
+# Temp / scratch dirs
+tmp/
+temp/

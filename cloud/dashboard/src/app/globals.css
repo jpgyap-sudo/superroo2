@@ -1,0 +1,52 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+	--background: #070b14;
+	--foreground: #e2e8f0;
+}
+
+* {
+	-webkit-tap-highlight-color: transparent;
+}
+
+body {
+	background: var(--background);
+	color: var(--foreground);
+	font-family: "Inter", system-ui, sans-serif;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	overscroll-behavior: none;
+	-webkit-overflow-scrolling: touch;
+}
+
+/* Prevent text size adjustment on orientation change */
+html {
+	-webkit-text-size-adjust: 100%;
+}
+
+/* Improve tap targets on mobile */
+@media (max-width: 767px) {
+	button,
+	a,
+	select,
+	input,
+	textarea {
+		touch-action: manipulation;
+	}
+}
+
+::-webkit-scrollbar {
+	width: 6px;
+}
+::-webkit-scrollbar-track {
+	background: transparent;
+}
+::-webkit-scrollbar-thumb {
+	background: #1e2535;
+	border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+	background: #374151;
+}

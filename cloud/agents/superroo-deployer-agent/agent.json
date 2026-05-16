@@ -1,0 +1,33 @@
+{
+	"id": "superroo-deployer-agent",
+	"name": "SuperRoo Deployer Agent",
+	"category": "infrastructure",
+	"description": "Automates VPS deployment for SuperRoo cloud services (dashboard, API, worker). Has full root SSH access to the production VPS via id_superroo_vps key. Handles nginx config, PM2 services, static asset serving, and health verification.",
+	"version": "1.0.0",
+	"enabled": true,
+	"modelPolicy": { "preferred": "codex", "fallbacks": ["claude-sonnet", "gpt-5.5", "kimi"], "maxTokens": 8000 },
+	"skills": ["skills/vps-deploy.md"],
+	"workflows": ["workflows/full-deploy.md"],
+	"resources": ["resources/deploy-checklist.md"],
+	"memory": {
+		"enabled": true,
+		"scope": "project",
+		"files": ["memory/vps-memory.md"]
+	},
+	"outputs": "outputs/",
+	"safety": {
+		"requiresApproval": true,
+		"canEditFiles": true,
+		"canPublish": false,
+		"canDeploy": true,
+		"blockedCommands": ["rm -rf /", "reboot", "shutdown", "docker system prune -a"],
+		"approvalTriggers": ["production", "nginx-reload", "pm2-restart", "certbot"]
+	},
+	"runtime": { "sandbox": false, "timeoutSeconds": 600, "maxRetries": 2 },
+	"ssh": {
+		"host": "104.248.225.250",
+		"user": "root",
+		"keyPath": "C:\\Users\\User\\.ssh\\id_superroo_vps",
+		"alias": "superroo-vps"
+	}
+}
