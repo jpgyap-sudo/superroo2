@@ -787,6 +787,9 @@ async function showError(botToken, chatId, errorMessage) {
  * Returns { handled: boolean, action: string, data: string|null }
  */
 async function handleMenuCallback(botToken, chatId, messageId, data, context) {
+	// Defensive guard: ensure context is always an object
+	context = context || {}
+
 	// Answer the callback query to remove loading state
 	// (cq.id is not available here since we receive pre-extracted params)
 

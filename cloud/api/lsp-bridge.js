@@ -66,12 +66,32 @@ function init() {
 		startServer(lang, config)
 	}
 
-	log("info", "LSP Bridge initialized", {
-		languages: Array.from(servers.keys()),
-	})
+	const started = Array.from(servers.keys())
+	if (started.length > 0) {
+		log("info", "LSP Bridge initialized", { languages: started })
+	} else {
+		log("debug", "LSP Bridge initialized — no language servers available", {})
+	}
 }
 
 function startServer(lang, config) {
+	// Check if the LSP binary exists before attempting to spawn
+	const commandExists = (() => {
+		try {
+			require("child_process").execSync(
+				process.platform === "win32" ? `where ${config.command}` : `which ${config.command}`,
+				{ stdio: "ignore" },
+			)
+			return true
+		} catch {
+			return false
+		}
+	})()
+	if (!commandExists) {
+		log("debug", `LSP binary not found for ${lang} (${config.command}) — skipping`, {})
+		return
+	}
+
 	try {
 		const proc = spawn(config.command, config.args, {
 			stdio: ["pipe", "pipe", "pipe"],
@@ -208,17 +228,19 @@ function startServer(lang, config) {
 			initializationOptions: {},
 			rootUri: null,
 			workspaceFolders: null,
-		}).then((result) => {
-			serverState.capabilities = result.capabilities
-			log("info", `${lang} language server initialized`, {
-				capabilities: Object.keys(result.capabilities || {}),
-			})
-
-			// Send initialized notification
-			sendLspNotification(lang, "initialized", {})
-		}).catch((err) => {
-			log("error", `Failed to initialize ${lang} language server`, { error: err.message })
 		})
+			.then((result) => {
+				serverState.capabilities = result.capabilities
+				log("info", `${lang} language server initialized`, {
+					capabilities: Object.keys(result.capabilities || {}),
+				})
+
+				// Send initialized notification
+				sendLspNotification(lang, "initialized", {})
+			})
+			.catch((err) => {
+				log("error", `Failed to initialize ${lang} language server`, { error: err.message })
+			})
 	} catch (err) {
 		log("error", `Error starting ${lang} language server`, { error: err.message })
 	}

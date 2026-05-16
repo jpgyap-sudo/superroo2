@@ -1,0 +1,23 @@
+{
+	"id": "superroo-orchestrator-agent",
+	"name": "SuperRoo Orchestrator Agent",
+	"category": "orchestration",
+	"description": "Orchestrates multi-step tasks by breaking them into subtasks, delegating to specialized agents (coder, debugger, tester, deployer), and aggregating results.",
+	"version": "1.0.0",
+	"enabled": true,
+	"modelPolicy": { "preferred": "codex", "fallbacks": ["claude-sonnet", "gpt-5.5", "kimi"], "maxTokens": 8000 },
+	"skills": ["skills/task-decomposition.md", "skills/agent-routing.md", "skills/result-aggregation.md"],
+	"workflows": ["workflows/orchestrate-task.md"],
+	"resources": ["resources/orchestrator-checklist.md"],
+	"memory": { "enabled": true, "scope": "session" },
+	"outputs": "outputs/",
+	"safety": {
+		"requiresApproval": true,
+		"canEditFiles": false,
+		"canPublish": false,
+		"canDeploy": false,
+		"blockedCommands": ["rm -rf /", ".env", "reboot", "shutdown", "docker prune"],
+		"approvalTriggers": ["delete", "deploy", "merge", "production"]
+	},
+	"runtime": { "sandbox": false, "timeoutSeconds": 1800, "maxRetries": 2 }
+}

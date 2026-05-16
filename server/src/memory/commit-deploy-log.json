@@ -304,6 +304,91 @@
 			],
 			"featuresAffected": ["autonomous-loop", "cloud-orchestrator", "api"],
 			"timestamp": "2026-05-11T19:37:00.000Z"
+		},
+		{
+			"id": "commit_8v6vu4lo3s7",
+			"commitSha": "7e07a230d",
+			"agent": "Kimi",
+			"type": "feature",
+			"title": "feat(terminal-core): persistent memory, LLM intent detection, types + tsup build",
+			"description": "Add PgTerminalStore, async detectIntent with Ollama fallback, ITerminalMemory updates, terminal session tables, parseOutputForInteractiveFixes, tsup dual CJS/ESM build",
+			"filesChanged": [
+				"packages/terminal-core/src/db.ts",
+				"packages/terminal-core/src/index.ts",
+				"packages/terminal-core/tsup.config.ts",
+				"packages/terminal-core/package.json",
+				"packages/terminal-core/src/brain.ts",
+				"packages/terminal-core/src/memory.ts",
+				"packages/terminal-core/src/planner.ts",
+				"packages/terminal-core/src/types.ts",
+				"packages/log-parser/src/parser.ts",
+				"sql/001_pgvector_schema.sql"
+			],
+			"featuresAffected": ["terminal-memory", "llm-intent-detection", "terminal-core-build"],
+			"bugsFixed": [],
+			"timestamp": "2026-05-16T12:15:02.234Z"
+		},
+		{
+			"id": "commit_gd9mnort0k7",
+			"commitSha": "e5b3199e7",
+			"agent": "Kimi",
+			"type": "feature",
+			"title": "feat(cloud-api): PTY session re-attachment, node-pty required, terminal-brain routes",
+			"description": "Add pty:attach message type, remove child_process fallback, move node-pty to required deps, update Dockerfile with build tools, async terminal-brain routes",
+			"filesChanged": [
+				"cloud/api/pty-server.js",
+				"cloud/api/routes/terminal-brain.js",
+				"cloud/docker/Dockerfile.api",
+				"cloud/package.json",
+				"cloud/api/__tests__/test-terminal-brain-package.test.js",
+				"cloud/test-smart-terminal-e2e.js"
+			],
+			"featuresAffected": ["pty-websocket-resilience", "terminal-brain-api", "docker-build"],
+			"bugsFixed": [],
+			"timestamp": "2026-05-16T12:15:02.234Z"
+		},
+		{
+			"id": "commit_ci85q2pna3r",
+			"commitSha": "4a75212a7",
+			"agent": "Kimi",
+			"type": "feature",
+			"title": "feat(dashboard): terminal themes, inline fixes, LSP integration, WS resilience",
+			"description": "Add terminal themes CSS, inline error fix buttons, LSP handlers in useIdeTerminal, exponential backoff reconnection, adaptive rate limiting, sendMessage export",
+			"filesChanged": [
+				"cloud/dashboard/src/app/layout.tsx",
+				"cloud/dashboard/src/components/ide-terminal/CodeEditor.tsx",
+				"cloud/dashboard/src/components/ide-terminal/MonacoEditor.tsx",
+				"cloud/dashboard/src/components/ide-terminal/TerminalPanel.tsx",
+				"cloud/dashboard/src/components/ide-terminal/__tests__/ide-store-reducer.test.js",
+				"cloud/dashboard/src/components/ide-terminal/hooks/useIdeTerminal.ts",
+				"cloud/dashboard/src/components/ide-terminal/hooks/useWebSocket.ts",
+				"cloud/dashboard/src/components/views/ide-terminal.tsx",
+				"cloud/dashboard/src/components/views/telegram.tsx",
+				"cloud/dashboard/src/lib/ide-store.tsx",
+				"cloud/dashboard/src/components/ide-terminal/terminal-themes.css",
+				"cloud/dashboard/e2e/ide-terminal-modes.spec.ts"
+			],
+			"featuresAffected": [
+				"terminal-themes",
+				"inline-error-fixes",
+				"lsp-integration",
+				"websocket-resilience",
+				"adaptive-rate-limiting"
+			],
+			"bugsFixed": [],
+			"timestamp": "2026-05-16T12:15:02.234Z"
+		},
+		{
+			"id": "commit_3o915o5v8qh",
+			"commitSha": "55ba1cf13",
+			"agent": "Kimi",
+			"type": "config",
+			"title": "chore(deps): update lockfile for terminal-core workspace deps",
+			"description": "Update pnpm-lock.yaml for new @superroo/terminal-core workspace dependencies",
+			"filesChanged": ["pnpm-lock.yaml"],
+			"featuresAffected": ["terminal-core-build"],
+			"bugsFixed": [],
+			"timestamp": "2026-05-16T12:15:02.234Z"
 		}
 	],
 	"deploys": [
