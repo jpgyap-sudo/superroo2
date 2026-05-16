@@ -38,6 +38,10 @@ const telegramPolicy = require("./telegramPolicy")
 const telegramEngineer = require("./telegramEngineer")
 const tgEndpoints = require("./tgEndpoints")
 const telegramRateLimiter = require("./telegramRateLimiter")
+const telegramConversationBridge = require("../../src/super-roo/conversation-history/TelegramConversationBridge")
+
+// Conversation History Bridge — tracks all conversations for friction analysis
+const tgConversationBridge = require("../../src/super-roo/conversation-history/TelegramConversationBridge")
 
 // Smart Menu System — GUI-driven navigation replacing slash commands
 const telegramMenu = require("./telegramMenu")
@@ -92,6 +96,8 @@ const PUBLIC_COMMANDS = [
 	"/tests",
 	"/restart",
 	"/aceteam",
+	"/friction",
+	"/history",
 ]
 
 /** Mini App URL for login */
@@ -206,6 +212,75 @@ const MAX_CONVERSATION_MESSAGES = 50
 
 /** Max messages to include in AI context window */
 const MAX_CONTEXT_MESSAGES = 20
+
+/**
+ * Keeps the user's literal input separate from quoted reply context.
+ * Commands must be parsed from rawText; contextualText is only for AI/NLP understanding.
+ */
+function buildMessageTexts(rawText, quotedText) {
+	var cleanRawText = (rawText || "").trim()
+	if (!quotedText) {
+		return { rawText: cleanRawText, contextualText: cleanRawText }
+	}
+	return {
+		rawText: cleanRawText,
+		contextualText: "[Quoted message: " + quotedText.slice(0, 500) + "]\n\nUser reply: " + cleanRawText,
+	}
+}
+
+function getConversationHistoryForChat(chatId) {
+	return conversationHistory.get(chatId) || conversationHistory.get(String(chatId)) || []
+}
+
+function isContinuationRequest(text) {
+	var lower = (text || "").toLowerCase().trim()
+	return /^(?:please\s+)?(?:proceed|continue|go ahead|do it|implement (?:it|this|these|the changes|the improvements)|make (?:it|this|these)|apply (?:it|this|these))(?:\b|$)/.test(
+		lower,
+	)
+}
+
+function isDirectCodingRequest(text) {
+	var lower = (text || "").toLowerCase().trim()
+	return /^(?:please\s+)?(?:implement|build|add|create|update|change|refactor|improve|wire)\b/.test(lower)
+}
+
+function getLatestActionableContext(chatId, quotedText) {
+	if (quotedText) return quotedText
+	var history = getConversationHistoryForChat(chatId)
+	for (var i = history.length - 1; i >= 0; i--) {
+		var entry = history[i]
+		if (entry && entry.role === "assistant" && entry.content) {
+			return entry.content
+		}
+	}
+	try {
+		var persisted = telegramConversationBridge.getLatestAssistantMessage(chatId)
+		if (persisted && persisted.content) return persisted.content
+	} catch (err) {
+		console.log("[telegram] Shared conversation lookup failed:", err.message)
+	}
+	return ""
+}
+
+function buildContinuationInstruction(chatId, rawText, quotedText) {
+	if (!isContinuationRequest(rawText)) return ""
+	var context = getLatestActionableContext(chatId, quotedText)
+	if (!context) return ""
+	return (
+		"Implement the requested follow-up from this prior discussion.\n\n" +
+		"User follow-up: " +
+		rawText +
+		"\n\n" +
+		"Prior context:\n" +
+		context.slice(0, 1800)
+	)
+}
+
+function enrichCodeInstruction(chatId, instruction, quotedText) {
+	var trimmed = (instruction || "").trim()
+	var continuation = buildContinuationInstruction(chatId, trimmed, quotedText)
+	return continuation || trimmed
+}
 
 /**
  * Structured error response helper.
@@ -469,6 +544,7 @@ async function sendMessage(botToken, chatId, text, opts) {
 	opts = opts || {}
 	var chunks = splitLongMessage(text)
 	const url = TELEGRAM_API_BASE + botToken + "/sendMessage"
+	var lastResult = null
 
 	for (var ci = 0; ci < chunks.length; ci++) {
 		var chunk = chunks[ci]
@@ -507,6 +583,12 @@ async function sendMessage(botToken, chatId, text, opts) {
 						continue
 					}
 					console.error("[telegram] sendMessage error: " + res.status + " " + err.slice(0, 200))
+				} else {
+					try {
+						lastResult = await res.json()
+					} catch (_) {
+						lastResult = null
+					}
 				}
 				break // Success
 			} catch (err) {
@@ -521,6 +603,22 @@ async function sendMessage(botToken, chatId, text, opts) {
 			})
 		}
 	}
+
+	if (!opts.skipHistory) {
+		try {
+			telegramConversationBridge.recordBotResponse(chatId, {
+				text: text,
+				messageId: lastResult && lastResult.result ? lastResult.result.message_id : undefined,
+				model: opts.model,
+				hadError: opts.hadError,
+				errorDetails: opts.errorDetails,
+			})
+		} catch (err) {
+			console.log("[telegram] Shared response history write failed:", err.message)
+		}
+	}
+
+	return lastResult
 }
 
 /**
@@ -1082,6 +1180,7 @@ function buildSystemPrompt() {
 		"- Maintain continuity: if you gave advice in a previous message, refer back to it when the user follows up.\n" +
 		"- Ask clarifying questions if the user's intent is ambiguous, but first check if the answer is in the conversation history.\n" +
 		"- When the user asks about a task that was just created (coding, debugging, deploy), acknowledge it and provide status.\n" +
+		"- Never claim a task was routed, created, or started unless the system provided a real task ID in this turn.\n" +
 		"- Be conversational and natural — don't restart the conversation from scratch each time.\n" +
 		"- **Summarize context**: If the conversation is long, briefly summarize what was discussed before answering.\n" +
 		"- **Proactive follow-ups**: At the end of your response, suggest 2-3 relevant next steps or questions the user might want to explore.\n\n" +
@@ -1361,7 +1460,21 @@ async function askAI(botToken, message, providers, chatId, options) {
 			var data = await res.json()
 			var reply = data.choices[0].message.content || "(no response)"
 
-			// ── Step 7: Record to conversation context ────────────────────
+			// ── Step 7a: Record to conversation history bridge ────────────
+			if (chatId !== undefined && chatId !== null) {
+				try {
+					tgConversationBridge.recordBotResponse(chatId, {
+						text: reply,
+						latencyMs: options._startTime ? Date.now() - options._startTime : undefined,
+						tokenCount: data.usage ? data.usage.total_tokens : undefined,
+						model: provider.model || undefined,
+					})
+				} catch (convErr) {
+					console.log("[telegram] Failed to record bot response in conversation history:", convErr.message)
+				}
+			}
+
+			// ── Step 7b: Record to conversation context ───────────────────
 			if (chatId !== undefined && chatId !== null) {
 				addToConversationContext(chatId, "user", message)
 				addToConversationContext(chatId, "assistant", reply)
@@ -1663,8 +1776,8 @@ async function handleConsultant(botToken, chatId, question, providers, options) 
 /**
  * Handles /code <instruction> - creates a coding task.
  */
-async function handleCode(botToken, chatId, args, queue, orchestratorBridge) {
-	var instruction = args.join(" ")
+async function handleCode(botToken, chatId, args, queue, orchestratorBridge, quotedText) {
+	var instruction = enrichCodeInstruction(chatId, args.join(" "), quotedText)
 	if (!instruction) {
 		await sendMessage(
 			botToken,
@@ -1672,6 +1785,9 @@ async function handleCode(botToken, chatId, args, queue, orchestratorBridge) {
 			"Please provide an instruction.\n\nExample: `/code fix the login timeout bug`",
 		)
 		return
+	}
+	if (!queue || typeof queue.add !== "function") {
+		throw new Error("Coding queue is unavailable; task was not created.")
 	}
 
 	// Send typing indicator to show the bot is working
@@ -1718,6 +1834,17 @@ async function handleCode(botToken, chatId, args, queue, orchestratorBridge) {
 		createdAt: new Date().toISOString(),
 		jobId: job.id,
 	})
+
+	try {
+		telegramConversationBridge.recordSystemEvent(chatId, "task_created", "Queued coding task " + taskId, {
+			taskId: taskId,
+			agentType: "superroo-coder-agent",
+			jobId: job.id,
+			instruction: instruction,
+		})
+	} catch (err) {
+		console.log("[telegram] Shared task history write failed:", err.message)
+	}
 
 	// Also record in Cloud Orchestrator if bridge is available
 	if (orchestratorBridge) {
@@ -3273,6 +3400,8 @@ const KNOWN_COMMANDS = [
 	"/ask",
 	"/task",
 	"/tasks",
+	"/friction",
+	"/history",
 ]
 
 /** Brain subcommands for correction */
@@ -3649,6 +3778,41 @@ async function handleAbout(botToken, chatId) {
 			"• Secure deploy with Google Authenticator OTP\n\n" +
 			"*Dashboard:* https://dev.abcx124.xyz\n" +
 			"*Support:* Use `/ask <question>` or tag @superroo_bot in group chat",
+	)
+}
+
+async function handleFriction(botToken, chatId) {
+	await sendMessage(botToken, chatId, telegramConversationBridge.generateFrictionReport())
+}
+
+async function handleHistory(botToken, chatId) {
+	var active = telegramConversationBridge.getActiveConversation(chatId)
+	if (!active) {
+		await sendMessage(botToken, chatId, "*Conversation History*\n\nNo active shared conversation yet.")
+		return
+	}
+	var latestMessages = (active.messages || []).slice(-5)
+	var lines = [
+		"*Conversation History*",
+		"",
+		"*Conversation:* `" + active.id + "`",
+		"*Messages:* " + active.messageCount,
+		active.projectName ? "*Project:* " + active.projectName : null,
+		"",
+		"*Latest:*",
+	]
+	for (var i = 0; i < latestMessages.length; i++) {
+		var msg = latestMessages[i]
+		lines.push("• " + msg.role + ": " + msg.content.slice(0, 120))
+	}
+	await sendMessage(
+		botToken,
+		chatId,
+		lines
+			.filter(function (line) {
+				return line !== null
+			})
+			.join("\n"),
 	)
 }
 
@@ -4045,12 +4209,25 @@ async function handleNaturalLanguageInstruction(
 	queue,
 	providers,
 	orchestratorBridge,
+	quotedText,
 ) {
 	try {
 		var authSession = await checkAuthSession(telegramUserId, chatId)
 		if (!authSession) {
 			// If not authenticated, treat as /ask
 			return false
+		}
+
+		// Frictionless coding: obvious implementation requests and "continue/do it"
+		// follow-ups should create real queue-backed coding tasks immediately.
+		var continuationInstruction = buildContinuationInstruction(chatId, text, quotedText)
+		if (continuationInstruction) {
+			await handleCode(botToken, chatId, [continuationInstruction], queue, orchestratorBridge, quotedText)
+			return true
+		}
+		if (isDirectCodingRequest(text)) {
+			await handleCode(botToken, chatId, [text], queue, orchestratorBridge, quotedText)
+			return true
 		}
 
 		// ─── Smart NLP: Check for direct coding intents first ──────────────
@@ -4350,6 +4527,17 @@ async function handleNaturalLanguageInstruction(
 				createdAt: new Date().toISOString(),
 				jobId: job.id,
 			})
+
+			try {
+				telegramConversationBridge.recordSystemEvent(chatId, "task_created", "Queued task " + taskId, {
+					taskId: taskId,
+					agentType: legacyIntent,
+					jobId: job.id,
+					instruction: text,
+				})
+			} catch (err) {
+				console.log("[telegram] Shared NLP task history write failed:", err.message)
+			}
 
 			// Also record in Cloud Orchestrator if bridge is available
 			if (orchestratorBridge) {
@@ -5404,11 +5592,31 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 
 	var msg = update.message
 	var chatId = msg.chat.id
-	var text = (msg.text || "").trim()
+	var rawText = (msg.text || "").trim()
 	var entities = msg.entities || []
 	var telegramUserId = msg.from ? msg.from.id : chatId
 
-	if (!text) return
+	if (!rawText) return
+
+	// ─── Record User Message in Conversation History ────────────────────
+	try {
+		tgConversationBridge.recordUserMessage(
+			chatId,
+			{
+				text: rawText,
+				messageId: msg.message_id,
+				userId: String(telegramUserId),
+				username: (msg.from && msg.from.username) || null,
+			},
+			{
+				projectId: session && session.activeProject ? session.activeProject.id : null,
+				projectName: session && session.activeProject ? session.activeProject.name : null,
+			},
+		)
+	} catch (convErr) {
+		// Non-fatal — conversation recording is advisory
+		console.log("[telegram] Failed to record user message in conversation history:", convErr.message)
+	}
 
 	// ─── Rate Limit Check ───────────────────────────────────────────────
 	// Prevent abuse by limiting commands per sliding window.
@@ -5427,8 +5635,30 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 	// If the user quoted/replied to a message, prepend that context so the AI
 	// understands what "this", "that", "the task above", etc. refers to.
 	var quotedText = msg.reply_to_message && (msg.reply_to_message.text || msg.reply_to_message.caption)
-	if (quotedText) {
-		text = "[Quoted message: " + quotedText.slice(0, 500) + "]\n\nUser reply: " + text
+	var messageTexts = buildMessageTexts(rawText, quotedText)
+	var text = messageTexts.rawText
+	var contextualText = messageTexts.contextualText
+
+	try {
+		var historySession = getSession(chatId)
+		var historyProject = historySession && historySession.activeProject
+		telegramConversationBridge.recordUserMessage(
+			chatId,
+			{
+				text: contextualText,
+				messageId: msg.message_id,
+				userId: String(telegramUserId),
+				username: msg.from && msg.from.username,
+			},
+			historyProject
+				? {
+						projectId: historyProject.id,
+						projectName: historyProject.name || historyProject.repoName,
+					}
+				: undefined,
+		)
+	} catch (err) {
+		console.log("[telegram] Shared user history write failed:", err.message)
 	}
 
 	// Check if this is a group chat
@@ -5564,6 +5794,12 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 		} else if (command === "/about") {
 			logTelegramUsage("/about", chatId, telegramUserId)
 			await handleAbout(botToken, chatId)
+		} else if (command === "/friction") {
+			logTelegramUsage("/friction", chatId, telegramUserId)
+			await handleFriction(botToken, chatId)
+		} else if (command === "/history") {
+			logTelegramUsage("/history", chatId, telegramUserId)
+			await handleHistory(botToken, chatId)
 		} else if (command === "/otp") {
 			logTelegramUsage("/otp", chatId, telegramUserId)
 			await handleOTP(botToken, chatId, cmdArgs)
@@ -5593,7 +5829,7 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 			await handleBrain(botToken, chatId, cmdArgs, providers || [])
 		} else if (command === "/code") {
 			logTelegramUsage("/code", chatId, telegramUserId, { args: cmdArgs.join(" ") })
-			await handleCode(botToken, chatId, cmdArgs, queue, orchestratorBridge)
+			await handleCode(botToken, chatId, cmdArgs, queue, orchestratorBridge, quotedText)
 		} else if (command === "/diff") {
 			logTelegramUsage("/diff", chatId, telegramUserId, { args: cmdArgs.join(" ") })
 			await handleDiff(botToken, chatId, cmdArgs)
@@ -5736,6 +5972,16 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 				logTelegramError("/task", chatId, telegramUserId, err)
 				await sendMessage(botToken, chatId, "*Task Board Error* ❌\n\n" + err.message)
 			}
+		} else if (command === "/report") {
+			logTelegramUsage("/report", chatId, telegramUserId)
+			await sendChatAction(botToken, chatId, "typing")
+			try {
+				var reportText = tgConversationBridge.generateFrictionReport()
+				await sendMessage(botToken, chatId, reportText)
+			} catch (err) {
+				logTelegramError("/report", chatId, telegramUserId, err)
+				await sendMessage(botToken, chatId, "*Report Error* ❌\n\n" + err.message)
+			}
 		} else {
 			// ─── Check for Email OTP Login Flow ────────────────────────────
 			// If the user is in the middle of an email OTP login, intercept
@@ -5771,10 +6017,11 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 				queue,
 				providers || [],
 				orchestratorBridge,
+				quotedText,
 			)
 			if (!handled) {
 				// If not routed as a coding instruction, treat as AI assistant conversation
-				await handleAsk(botToken, chatId, text.split(/\s+/), providers || [])
+				await handleAsk(botToken, chatId, contextualText.split(/\s+/), providers || [])
 			}
 		}
 	} catch (err) {
@@ -5817,6 +6064,11 @@ module.exports = {
 	buildConversationSummary,
 	getConversationContext,
 	addToConversationContext,
+	buildMessageTexts,
+	isContinuationRequest,
+	isDirectCodingRequest,
+	buildContinuationInstruction,
+	enrichCodeInstruction,
 	// Mini App workflow handlers
 	handlePreviewPlan,
 	handleApprovePlan,

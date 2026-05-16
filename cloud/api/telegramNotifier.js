@@ -20,6 +20,7 @@
 // ---------------------------------------------------------------------------
 const TELEGRAM_API_BASE = "https://api.telegram.org/bot"
 const DASHBOARD_URL = "https://dev.abcx124.xyz"
+const telegramConversationBridge = require("../../src/super-roo/conversation-history/TelegramConversationBridge")
 
 // ---------------------------------------------------------------------------
 // BullMQ Queue Reference (set by api.js after queue creation)
@@ -191,6 +192,7 @@ async function answerCallbackQuery(botToken, callbackQueryId, text) {
 // 1. Task Started Notification
 // ---------------------------------------------------------------------------
 async function sendTaskStarted(botToken, chatId, taskId, instruction, agentType) {
+	telegramConversationBridge.recordSystemEvent(chatId, "task_started", "Task " + taskId + " started")
 	const agentEmoji = {
 		coder: "💻",
 		debugger: "🪲",
@@ -219,6 +221,7 @@ async function sendTaskStarted(botToken, chatId, taskId, instruction, agentType)
 // 2. Task Complete Notification (with diff summary and action buttons)
 // ---------------------------------------------------------------------------
 async function sendTaskComplete(botToken, chatId, taskId, instruction, result) {
+	telegramConversationBridge.recordSystemEvent(chatId, "task_completed", "Task " + taskId + " completed")
 	const statusEmoji = result.success !== false ? "✅" : "⚠️"
 	const statusText = result.success !== false ? "Completed Successfully" : "Completed with Warnings"
 
@@ -262,6 +265,11 @@ async function sendTaskComplete(botToken, chatId, taskId, instruction, result) {
 // 3. Task Failed Notification
 // ---------------------------------------------------------------------------
 async function sendTaskFailed(botToken, chatId, taskId, instruction, error) {
+	telegramConversationBridge.recordSystemEvent(
+		chatId,
+		"task_failed",
+		"Task " + taskId + " failed: " + (error || "Unknown error"),
+	)
 	const text =
 		`❌ *Task Failed*\n\n` +
 		`*Task:* \`${taskId}\`\n` +
@@ -285,6 +293,7 @@ async function sendTaskFailed(botToken, chatId, taskId, instruction, error) {
 // 4. Approval Request Notification (with inline approve/reject buttons)
 // ---------------------------------------------------------------------------
 async function sendApprovalRequest(botToken, chatId, taskId, instruction, diffInfo) {
+	telegramConversationBridge.recordSystemEvent(chatId, "approval_requested", "Approval requested for task " + taskId)
 	// Store the pending approval
 	const approvalKey = `${chatId}:${taskId}`
 	pendingApprovals.set(approvalKey, {
@@ -327,6 +336,11 @@ async function sendApprovalRequest(botToken, chatId, taskId, instruction, diffIn
 // 5. Deploy Notification
 // ---------------------------------------------------------------------------
 async function sendDeployNotification(botToken, chatId, taskId, instruction, deployInfo) {
+	telegramConversationBridge.recordSystemEvent(
+		chatId,
+		"deploy_" + deployInfo.status,
+		"Deploy " + deployInfo.status + " for task " + taskId,
+	)
 	const statusEmoji = deployInfo.status === "success" ? "🚀" : deployInfo.status === "failed" ? "❌" : "🔄"
 	const statusText =
 		deployInfo.status === "success"

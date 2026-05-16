@@ -6,7 +6,10 @@
 
 const assert = require("assert")
 const path = require("path")
+const fs = require("fs")
 const botPath = path.join(__dirname, "..", "telegramBot.js")
+const testHistoryDir = path.join(__dirname, "..", "..", "data", "test-conversation-history")
+process.env.CONVERSATION_HISTORY_DATA_DIR = testHistoryDir
 
 // Mock fetch globally for Telegram API calls
 const originalFetch = global.fetch
@@ -41,6 +44,7 @@ async function runTests() {
 	let failures = []
 
 	section("telegramBot")
+	fs.rmSync(testHistoryDir, { recursive: true, force: true })
 
 	delete require.cache[require.resolve(botPath)]
 	const bot = require(botPath)
@@ -414,6 +418,98 @@ async function runTests() {
 		failures.push(t30)
 	}
 
+	const t31 = test("buildMessageTexts preserves slash commands in quoted replies", () => {
+		const result = bot.buildMessageTexts("/code please proceed with improvements", "Prior recommendations")
+		assert.strictEqual(result.rawText, "/code please proceed with improvements")
+		assert.ok(result.contextualText.includes("Prior recommendations"))
+		assert.ok(result.contextualText.includes("User reply: /code please proceed with improvements"))
+	})
+	if (t31.passed) passed++
+	else {
+		failed++
+		failures.push(t31)
+	}
+
+	const t32 = test("isContinuationRequest detects common follow-up wording", () => {
+		assert.strictEqual(bot.isContinuationRequest("proceed with improvements"), true)
+		assert.strictEqual(bot.isContinuationRequest("please continue"), true)
+		assert.strictEqual(bot.isContinuationRequest("what improvements are possible?"), false)
+	})
+	if (t32.passed) passed++
+	else {
+		failed++
+		failures.push(t32)
+	}
+
+	const t33 = test("buildContinuationInstruction uses quoted context", () => {
+		const instruction = bot.buildContinuationInstruction(
+			12345,
+			"please proceed with improvements",
+			"1. Add health monitoring\n2. Add degradation alerts",
+		)
+		assert.ok(instruction.includes("User follow-up: please proceed with improvements"))
+		assert.ok(instruction.includes("Add health monitoring"))
+	})
+	if (t33.passed) passed++
+	else {
+		failed++
+		failures.push(t33)
+	}
+
+	const t34 = test("isDirectCodingRequest detects implementation verbs", () => {
+		assert.strictEqual(bot.isDirectCodingRequest("implement the improvements"), true)
+		assert.strictEqual(bot.isDirectCodingRequest("please add feature health checks"), true)
+		assert.strictEqual(bot.isDirectCodingRequest("tell me about the product generator"), false)
+	})
+	if (t34.passed) passed++
+	else {
+		failed++
+		failures.push(t34)
+	}
+
+	const t35 = test("enrichCodeInstruction expands vague quoted follow-ups", () => {
+		const instruction = bot.enrichCodeInstruction(
+			12345,
+			"please proceed with improvements",
+			"Improve feature registry integration",
+		)
+		assert.ok(instruction.includes("Implement the requested follow-up"))
+		assert.ok(instruction.includes("Improve feature registry integration"))
+	})
+	if (t35.passed) passed++
+	else {
+		failed++
+		failures.push(t35)
+	}
+
+	const t36 = test("shared conversation bridge persists latest assistant context", () => {
+		const bridge = require("../../../src/super-roo/conversation-history/TelegramConversationBridge")
+		const conv = bridge.recordUserMessage(45678, { text: "what should we improve?" })
+		assert.ok(conv)
+		bridge.recordBotResponse(45678, { text: "Improve task routing and persistence." })
+		const latest = bridge.getLatestAssistantMessage(45678)
+		assert.ok(latest)
+		assert.strictEqual(latest.content, "Improve task routing and persistence.")
+	})
+	if (t36.passed) passed++
+	else {
+		failed++
+		failures.push(t36)
+	}
+
+	const t37 = test("shared conversation bridge runtime monitor updates stats", () => {
+		const bridge = require("../../../src/super-roo/conversation-history/TelegramConversationBridge")
+		const before = bridge.getQuickStats()
+		const after = bridge.runRuntimeAnalysis()
+		assert.ok(after.lastAnalysisAt)
+		assert.ok(after.totalConversations >= before.totalConversations)
+	})
+	if (t37.passed) passed++
+	else {
+		failed++
+		failures.push(t37)
+	}
+
 	// ── Results ──────────────────────────────────────────────────────────────
 
 	console.log("\n" + "=".repeat(60))
@@ -426,6 +522,7 @@ async function runTests() {
 		}
 	}
 
+	fs.rmSync(testHistoryDir, { recursive: true, force: true })
 	return { passed, failed, failures }
 }
 

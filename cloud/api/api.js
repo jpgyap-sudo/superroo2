@@ -36,6 +36,7 @@ const rateLimiter = require("./rateLimiter")
 const logRotator = require("./logRotator")
 const telegramWebSocket = require("./telegramWebSocket")
 const dashboardWebSocket = require("./dashboardWebSocket")
+const telegramConversationBridge = require("../../src/super-roo/conversation-history/TelegramConversationBridge")
 const ptyServer = require("./pty-server")
 const healingMetrics = require("./routes/healing-metrics")
 const monitoring = require("./routes/monitoring")
@@ -8146,6 +8147,16 @@ Promise.all([loadEncryptedSecrets(), auth.loadStore(), tenantManager.loadStore()
 	} catch (err) {
 		console.error("[api] Failed to start monitoring engine (non-fatal):", err.message)
 		writeApiLog("warn", "cloud-api", "Monitoring engine failed to start", { error: err.message })
+	}
+
+	try {
+		telegramConversationBridge.startRuntimeMonitor(60 * 60 * 1000)
+		console.log("[api] Telegram conversation runtime monitor started (interval: 60m)")
+	} catch (err) {
+		console.error("[api] Failed to start Telegram conversation runtime monitor (non-fatal):", err.message)
+		writeApiLog("warn", "cloud-api", "Telegram conversation runtime monitor failed to start", {
+			error: err.message,
+		})
 	}
 
 	// Initialize the Cloud Orchestrator (non-blocking — API starts regardless)
