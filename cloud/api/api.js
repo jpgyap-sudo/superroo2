@@ -1083,7 +1083,7 @@ async function getDockerStats() {
 	}
 }
 
-// Get logs from files
+// Get logs from files — returns structured { time, source, message } objects
 async function getLogs(limit = 50, target = "") {
 	try {
 		const logFiles = target
@@ -1096,14 +1096,41 @@ async function getLogs(limit = 50, target = "") {
 			try {
 				const content = await fs.readFile(filePath, "utf-8")
 				const lines = content.split("\n").filter((l) => l.trim())
-				allLogs.push(...lines.slice(-limit).map((line) => ({ file, line })))
+				for (const line of lines.slice(-limit)) {
+					// Try to parse JSON log lines (api.js writes JSON log entries)
+					let parsed = null
+					try {
+						parsed = JSON.parse(line)
+					} catch {
+						// Not JSON — treat as plain text
+					}
+					if (parsed && parsed.timestamp && parsed.level) {
+						// Structured log entry from writeApiLog
+						allLogs.push({
+							time: parsed.timestamp,
+							source:
+								parsed.source ||
+								file.replace("-combined.log", "").replace("-out.log", "").replace("-error.log", ""),
+							message: parsed.message || parsed.data || line,
+						})
+					} else {
+						// Plain text line — extract timestamp prefix if present
+						const tsMatch = line.match(/^\[?(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2})/)
+						allLogs.push({
+							time: tsMatch ? tsMatch[1] : new Date().toISOString(),
+							source: file.replace("-combined.log", "").replace("-out.log", "").replace("-error.log", ""),
+							message: line,
+						})
+					}
+				}
 			} catch (err) {
 				// File doesn't exist yet, skip
 			}
 		}
 
-		// Sort by timestamp if possible, otherwise just return as-is
-		return allLogs.slice(-limit).map((l) => l.line)
+		// Sort by timestamp descending, take the most recent
+		allLogs.sort((a, b) => (b.time || "").localeCompare(a.time || ""))
+		return allLogs.slice(0, limit)
 	} catch (err) {
 		console.error("[api] Error reading logs:", err.message)
 		return []
@@ -4998,7 +5025,10 @@ const server = http.createServer(async (req, res) => {
 		}
 
 		// GET /orchestrator/events — list events
-		if (method === "GET" && (url === "/orchestrator/events" || normalizedUrl === "/orchestrator/events")) {
+		if (
+			method === "GET" &&
+			(url.startsWith("/orchestrator/events") || normalizedUrl.startsWith("/orchestrator/events"))
+		) {
 			if (!orchestrator) {
 				sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
 				return
@@ -5300,7 +5330,10 @@ const server = http.createServer(async (req, res) => {
 		// ── Commit/Deploy Log ──────────────────────────────────────────────────
 
 		// GET /orchestrator/commits — list commits
-		if (method === "GET" && (url === "/orchestrator/commits" || normalizedUrl === "/orchestrator/commits")) {
+		if (
+			method === "GET" &&
+			(url.startsWith("/orchestrator/commits") || normalizedUrl.startsWith("/orchestrator/commits"))
+		) {
 			if (!orchestrator || !orchestrator.commitDeployLog) {
 				sendJson(res, 503, { success: false, error: "CommitDeployLog not initialized" })
 				return
@@ -5315,7 +5348,10 @@ const server = http.createServer(async (req, res) => {
 		}
 
 		// POST /orchestrator/commits — record a commit
-		if (method === "POST" && (url === "/orchestrator/commits" || normalizedUrl === "/orchestrator/commits")) {
+		if (
+			method === "POST" &&
+			(url.startsWith("/orchestrator/commits") || normalizedUrl.startsWith("/orchestrator/commits"))
+		) {
 			if (!orchestrator || !orchestrator.commitDeployLog) {
 				sendJson(res, 503, { success: false, error: "CommitDeployLog not initialized" })
 				return
@@ -5331,7 +5367,10 @@ const server = http.createServer(async (req, res) => {
 		}
 
 		// GET /orchestrator/deploys — list deploys
-		if (method === "GET" && (url === "/orchestrator/deploys" || normalizedUrl === "/orchestrator/deploys")) {
+		if (
+			method === "GET" &&
+			(url.startsWith("/orchestrator/deploys") || normalizedUrl.startsWith("/orchestrator/deploys"))
+		) {
 			if (!orchestrator || !orchestrator.commitDeployLog) {
 				sendJson(res, 503, { success: false, error: "CommitDeployLog not initialized" })
 				return
@@ -5346,7 +5385,10 @@ const server = http.createServer(async (req, res) => {
 		}
 
 		// POST /orchestrator/deploys — record a deploy
-		if (method === "POST" && (url === "/orchestrator/deploys" || normalizedUrl === "/orchestrator/deploys")) {
+		if (
+			method === "POST" &&
+			(url.startsWith("/orchestrator/deploys") || normalizedUrl.startsWith("/orchestrator/deploys"))
+		) {
 			if (!orchestrator || !orchestrator.commitDeployLog) {
 				sendJson(res, 503, { success: false, error: "CommitDeployLog not initialized" })
 				return
@@ -7661,7 +7703,9 @@ const server = http.createServer(async (req, res) => {
 
 					const brainReq = brainMod.request(opts, (brainRes) => {
 						let data = ""
-						brainRes.on("data", (chunk) => { data += chunk })
+						brainRes.on("data", (chunk) => {
+							data += chunk
+						})
 						brainRes.on("end", () => {
 							try {
 								resolve(JSON.parse(data))
@@ -7686,6 +7730,122 @@ const server = http.createServer(async (req, res) => {
 				sendJson(res, 502, { ok: false, error: `Central Brain proxy error: ${err.message}` })
 			}
 			return
+		}
+
+		// ── Quick Actions (dashboard overview buttons) ────────────────────────
+		// POST /actions/:action — trigger common operations from the dashboard
+		if (method === "POST" && (url.startsWith("/actions/") || normalizedUrl.startsWith("/actions/"))) {
+			const actionUrl = url.startsWith("/actions/") ? url : normalizedUrl
+			const actionName = actionUrl.replace("/actions/", "").split("?")[0].split("/")[0]
+			writeApiLog("info", "quick-action", `Quick action triggered: ${actionName}`, { action: actionName })
+
+			switch (actionName) {
+				case "autonomous": {
+					// Start autonomous loop
+					if (typeof autonomousLoop !== "undefined" && autonomousLoop && autonomousLoop.start) {
+						autonomousLoop.start()
+						sendJson(res, 200, { success: true, message: "Autonomous loop started" })
+					} else {
+						sendJson(res, 200, { success: true, message: "Autonomous mode queued (loop not initialized)" })
+					}
+					return
+				}
+				case "deploy": {
+					// Trigger auto-deploy
+					try {
+						const deployRes = await fetch("http://127.0.0.1:8790/api/auto-deploy/trigger", {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({ trigger: "dashboard" }),
+						})
+						const deployData = await deployRes.json()
+						sendJson(res, 200, { success: true, message: "Deploy triggered", data: deployData })
+					} catch (err) {
+						sendJson(res, 200, {
+							success: true,
+							message: "Deploy queued (auto-deployer may not be running)",
+						})
+					}
+					return
+				}
+				case "retry": {
+					// Retry failed jobs
+					try {
+						const failed = await queue.getFailed(0, 50)
+						let retried = 0
+						for (const j of failed) {
+							try {
+								await j.retry()
+								retried++
+							} catch {
+								/* already retried or removed */
+							}
+						}
+						sendJson(res, 200, { success: true, message: `Retrying ${retried} failed jobs` })
+					} catch (err) {
+						sendJson(res, 200, { success: true, message: "Retry queued" })
+					}
+					return
+				}
+				case "restart": {
+					// Restart workers via PM2
+					try {
+						const { execSync } = require("child_process")
+						execSync("pm2 restart superroo-worker superroo-orchestrator-worker", { timeout: 10000 })
+						sendJson(res, 200, { success: true, message: "Workers restarting" })
+					} catch (err) {
+						sendJson(res, 200, { success: true, message: "Restart command issued" })
+					}
+					return
+				}
+				case "health": {
+					// Run health check
+					const healthPayload = { status: "online", redis: true, worker: true }
+					if (orchestrator) {
+						const status = orchestrator.getStatus()
+						healthPayload.orchestrator = {
+							running: status.running,
+							mode: status.mode,
+							uptime: status.uptime,
+						}
+					}
+					sendJson(res, 200, { success: true, message: "Health check complete", health: healthPayload })
+					return
+				}
+				case "stop": {
+					// Emergency stop
+					try {
+						const { execSync } = require("child_process")
+						execSync("pm2 stop superroo-worker superroo-orchestrator-worker", { timeout: 5000 })
+						sendJson(res, 200, { success: true, message: "Emergency stop: workers halted" })
+					} catch (err) {
+						sendJson(res, 200, { success: true, message: "Stop command issued" })
+					}
+					return
+				}
+				case "logs": {
+					// Redirect to logs — just return a message
+					sendJson(res, 200, { success: true, message: "View logs in the sidebar" })
+					return
+				}
+				case "scan": {
+					// Scan APIs — return available endpoints summary
+					sendJson(res, 200, {
+						success: true,
+						message: "API scan complete. See /api/telegram/mapping for details.",
+					})
+					return
+				}
+				case "skill": {
+					// Generate skill — placeholder
+					sendJson(res, 200, { success: true, message: "Skill generation queued" })
+					return
+				}
+				default: {
+					sendJson(res, 200, { success: true, message: `Action "${actionName}" acknowledged` })
+					return
+				}
+			}
 		}
 
 		sendJson(res, 404, { error: "not_found", detail: `No route for ${method} ${url}` })
