@@ -6557,6 +6557,55 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// GET /telegram/tasks/:id/status — get task status from userTasks memory
+		if (method === "GET" && url.match(/^\/telegram\/tasks\/([^/]+)\/status$/)) {
+			const taskId = url.match(/^\/telegram\/tasks\/([^/]+)\/status$/)[1]
+			try {
+				// Look up task in userTasks
+				let foundTask = null
+				if (telegramBot.userTasks) {
+					for (const [, chatTasks] of telegramBot.userTasks.entries()) {
+						for (const t of chatTasks) {
+							if (t.id === taskId) {
+								foundTask = t
+								break
+							}
+						}
+						if (foundTask) break
+					}
+				}
+				if (foundTask) {
+					sendJson(res, 200, {
+						success: true,
+						taskId,
+						status: foundTask.status || "unknown",
+						stage: foundTask.stage || null,
+						elapsed: foundTask.createdAt
+							? Math.floor((Date.now() - new Date(foundTask.createdAt).getTime()) / 1000) + "s"
+							: null,
+						message: foundTask.result?.outputSummary || foundTask.error || null,
+					})
+				} else {
+					sendJson(res, 200, {
+						success: true,
+						taskId,
+						status: "not_found",
+						message:
+							"Task " + taskId + " not found in active tasks. It may have been completed or expired.",
+					})
+				}
+			} catch (err) {
+				writeApiLog("error", "telegram-status", "Failed to get task status", { error: err.message, taskId })
+				sendJson(res, 200, {
+					success: true,
+					taskId,
+					status: "error",
+					message: "Unable to check status: " + err.message,
+				})
+			}
+			return
+		}
+
 		// POST /telegram/tasks/run-tests — run test suite
 		if (
 			method === "POST" &&

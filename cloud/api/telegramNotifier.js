@@ -750,7 +750,8 @@ async function handleNotificationCallback(botToken, callbackQuery) {
 
 		case "status": {
 			try {
-				const statusUrl = DASHBOARD_URL + "/api/tasks/" + encodeURIComponent(taskId) + "/status"
+				// Use the internal API route that exists (same pattern as diff/approve/reject)
+				const statusUrl = DASHBOARD_URL + "/telegram/tasks/" + encodeURIComponent(taskId) + "/status"
 				const statusRes = await fetch(statusUrl, { timeout: 5000 })
 				let statusText = ""
 				if (statusRes.ok) {
@@ -777,7 +778,7 @@ async function handleNotificationCallback(botToken, callbackQuery) {
 					messageId,
 					`📊 *Status for ${taskId}*\n\n` +
 						`_Could not check status: ${err.message}_\n\n` +
-						`Use \`/status ${taskId}\` in chat for detailed status.`,
+						`Use \/status ${taskId} in chat for detailed status.`,
 					[
 						[
 							{ text: "🔄 Retry", callback_data: `notify:status:${taskId}` },
