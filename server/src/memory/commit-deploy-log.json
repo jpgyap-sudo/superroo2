@@ -501,6 +501,25 @@
 			"healthCheckLatencyMs": 250,
 			"startedAt": "2026-05-14T03:13:00.000Z",
 			"completedAt": "2026-05-14T03:13:30.000Z"
+		},
+		{
+			"id": "deploy-nlp-coder-routing-2026-05-16",
+			"version": "1795dbee1",
+			"commitSha": "1795dbee1",
+			"agent": "code",
+			"type": "fix",
+			"title": "fix: route natural language coding requests to coder agent instead of debugger",
+			"description": "Added 'coder' intent kind to classifier allowed list, keyword fallback, and NLP routing so natural language coding requests go to superroo-coder-agent instead of superroo-debugger-agent",
+			"filesChanged": ["cloud/api/telegramClassifier.js", "cloud/api/telegramBot.js"],
+			"featuresAffected": ["telegram-bot", "coding-workflow", "nlp-routing"],
+			"status": "healthy",
+			"environment": "production",
+			"commitsIncluded": ["1795dbee1"],
+			"featuresDeployed": ["telegram-bot", "coding-workflow", "nlp-routing"],
+			"healthCheckPassed": true,
+			"healthCheckLatencyMs": 250,
+			"startedAt": "2026-05-16T13:32:00.000Z",
+			"completedAt": "2026-05-16T13:33:00.000Z"
 		}
 	]
 }
