@@ -4373,8 +4373,22 @@ async function handleNaturalLanguageInstruction(
 			try {
 				var target = classified.target || "all"
 				var logsResult = await tgEndpoints.readLogs(target)
-				var logsReply = telegramEngineer.formatLogsResult(logsResult)
-				await sendMessage(botToken, chatId, logsReply)
+				// If the user asked a natural language question (e.g. "why is the api having issues?"),
+				// analyze the logs with AI and reply in context. Otherwise fall back to raw log dump.
+				if (text && text.length > 10 && !text.startsWith("/")) {
+					var logText = logsResult.logs.slice(0, 30).join("\n")
+					var aiReply = await askAI(
+						botToken,
+						"The user asked: \"" + text + "\"\n\nHere are the recent logs for '" + target + "':\n```\n" + logText + "\n```\n\nAnalyze these logs and answer the user's question in natural language. Explain what the logs show, any errors or warnings, and the overall health of the service.",
+						providers,
+						chatId,
+						{ temperature: 0.3, maxTokens: 800 }
+					)
+					await sendMessage(botToken, chatId, aiReply)
+				} else {
+					var logsReply = telegramEngineer.formatLogsResult(logsResult)
+					await sendMessage(botToken, chatId, logsReply)
+				}
 			} catch (err) {
 				logTelegramError("nlp:read_logs", chatId, telegramUserId, err, { target: classified.target })
 				await sendMessage(botToken, chatId, "*Logs Error* ❌\n\n" + err.message)
