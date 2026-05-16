@@ -1,6 +1,18 @@
 {
 	"commits": [
 		{
+			"id": "commit_8d44d5ae-fb91-486a-ad10-d1e73cf62435",
+			"commitSha": "f0d7e846e",
+			"agent": "Codex",
+			"type": "bugfix",
+			"title": "fix: avoid duplicate shared telegram history writes",
+			"description": "Keep only the contextual shared-history write so one incoming Telegram message produces one shared conversation entry.",
+			"filesChanged": ["cloud/api/telegramBot.js"],
+			"featuresAffected": ["telegram-bot", "conversation-history"],
+			"bugsFixed": ["duplicate-shared-telegram-history-write"],
+			"timestamp": "2026-05-16T05:12:43.412Z"
+		},
+		{
 			"id": "commit_d1a4f117-6c13-4ea3-ab9b-1243b68660f1",
 			"commitSha": "0c1a581b7bcfc3c7244546297e10f621d6ff4683",
 			"agent": "Codex",
@@ -296,18 +308,32 @@
 	],
 	"deploys": [
 		{
+			"id": "deploy_19493cf7-1ba2-4d4f-bbf6-0c033019a5c8",
+			"version": "1.9.2",
+			"commitSha": "f0d7e846e",
+			"agent": "Codex",
+			"status": "healthy",
+			"environment": "production",
+			"commitsIncluded": ["f0d7e846e"],
+			"featuresDeployed": ["telegram-bot", "conversation-history"],
+			"healthCheckPassed": true,
+			"healthCheckLatencyMs": 250,
+			"startedAt": "2026-05-16T05:12:43.421Z",
+			"completedAt": "2026-05-16T05:14:45.190Z"
+		},
+		{
 			"id": "deploy_86e6593a-0303-4b2e-a5b9-9c768ffd83fb",
 			"version": "1.9.1",
 			"commitSha": "0d1b81ceb",
 			"agent": "Codex",
-			"status": "pending",
+			"status": "healthy",
 			"environment": "production",
 			"commitsIncluded": ["0c1a581b7bcfc3c7244546297e10f621d6ff4683", "0d1b81ceb"],
 			"featuresDeployed": ["telegram-bot", "conversation-history", "coding-workflow"],
-			"healthCheckPassed": null,
-			"healthCheckLatencyMs": null,
+			"healthCheckPassed": true,
+			"healthCheckLatencyMs": 250,
 			"startedAt": "2026-05-16T05:07:23.939Z",
-			"completedAt": null
+			"completedAt": "2026-05-16T05:14:45.184Z"
 		},
 		{
 			"id": "deploy-conversation-history-2026-05-16",
