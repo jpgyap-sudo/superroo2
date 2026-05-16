@@ -65,7 +65,13 @@ function detectShell() {
 function createSession(sessionId, ws, options = {}) {
 	if (sessions.has(sessionId)) {
 		log("warn", `Session ${sessionId} already exists, reusing`, { sessionId })
-		return sessions.get(sessionId)
+		const existing = sessions.get(sessionId)
+		// Rebind WebSocket if the old one is closed
+		if (ws && (!existing.ws || existing.ws.readyState !== ws.OPEN)) {
+			existing.ws = ws
+			log("info", `Rebound WebSocket for session ${sessionId}`, { sessionId })
+		}
+		return existing
 	}
 
 	const shell = options.shell || detectShell()
@@ -73,38 +79,19 @@ function createSession(sessionId, ws, options = {}) {
 	const cols = options.cols || 80
 	const rows = options.rows || 24
 
-	let ptyProcess
-	try {
-		// Try node-pty first (preferred for real PTY)
-		const pty = require("node-pty")
-		ptyProcess = pty.spawn(shell, [], {
-			name: "xterm-256color",
-			cols,
-			rows,
-			cwd,
-			env: {
-				...process.env,
-				TERM: "xterm-256color",
-				SUPERROO_PTY_SESSION: sessionId,
-				SUPERROO_PTY: "1",
-			},
-		})
-	} catch (err) {
-		// Fallback: spawn a regular child process with pipes (no real PTY but still live streaming)
-		log("warn", "node-pty not available, falling back to child_process.spawn", { error: err.message })
-		ptyProcess = spawn(shell, [], {
-			stdio: ["pipe", "pipe", "pipe"],
-			cwd,
-			env: {
-				...process.env,
-				TERM: "xterm-256color",
-				SUPERROO_PTY_SESSION: sessionId,
-				SUPERROO_PTY: "1",
-			},
-		})
-		// Add a fake resize method for API compatibility
-		ptyProcess.resize = () => {}
-	}
+	const pty = require("node-pty")
+	const ptyProcess = pty.spawn(shell, [], {
+		name: "xterm-256color",
+		cols,
+		rows,
+		cwd,
+		env: {
+			...process.env,
+			TERM: "xterm-256color",
+			SUPERROO_PTY_SESSION: sessionId,
+			SUPERROO_PTY: "1",
+		},
+	})
 
 	const session = {
 		id: sessionId,
@@ -117,6 +104,7 @@ function createSession(sessionId, ws, options = {}) {
 		createdAt: Date.now(),
 		lastActivity: Date.now(),
 		buffer: "",
+		pendingOutput: "",
 	}
 
 	// ── PTY stdout → WebSocket ──────────────────────────────
@@ -124,14 +112,28 @@ function createSession(sessionId, ws, options = {}) {
 		session.lastActivity = Date.now()
 		const text = data.toString()
 		session.buffer += text
-		// Keep buffer manageable (last 100KB)
-		if (session.buffer.length > 102400) {
-			session.buffer = session.buffer.slice(-102400)
+		// Keep buffer manageable (last 1MB)
+		const MAX_BUFFER_SIZE = parseInt(process.env.PTY_BUFFER_SIZE_MB || "1", 10) * 1024 * 1024
+		if (session.buffer.length > MAX_BUFFER_SIZE) {
+			session.buffer = session.buffer.slice(-MAX_BUFFER_SIZE)
 		}
 
-		if (ws.readyState === ws.OPEN) {
+		const targetWs = session.ws
+		if (targetWs && targetWs.readyState === targetWs.OPEN) {
 			try {
-				ws.send(
+				// Flush any pending output first
+				if (session.pendingOutput) {
+					targetWs.send(
+						JSON.stringify({
+							type: "pty:output",
+							sessionId,
+							data: session.pendingOutput,
+							timestamp: Date.now(),
+						}),
+					)
+					session.pendingOutput = ""
+				}
+				targetWs.send(
 					JSON.stringify({
 						type: "pty:output",
 						sessionId,
@@ -141,6 +143,12 @@ function createSession(sessionId, ws, options = {}) {
 				)
 			} catch {
 				/* ws closed */
+			}
+		} else {
+			// Buffer output while client is disconnected
+			session.pendingOutput += text
+			if (session.pendingOutput.length > 102400) {
+				session.pendingOutput = session.pendingOutput.slice(-102400)
 			}
 		}
 	}
@@ -192,6 +200,51 @@ function handleMessage(ws, message) {
 		const { type, sessionId, ...payload } = data
 
 		switch (type) {
+			case "pty:attach": {
+				const session = sessions.get(sessionId)
+				if (session) {
+					session.ws = ws
+					ws.send(
+						JSON.stringify({
+							type: "pty:created",
+							sessionId: session.id,
+							shell: session.shell,
+							cwd: session.cwd,
+							timestamp: Date.now(),
+						}),
+					)
+					if (session.pendingOutput) {
+						ws.send(
+							JSON.stringify({
+								type: "pty:output",
+								sessionId: session.id,
+								data: session.pendingOutput,
+								timestamp: Date.now(),
+							}),
+						)
+						session.pendingOutput = ""
+					}
+					ws.send(
+						JSON.stringify({
+							type: "pty:buffer",
+							sessionId: session.id,
+							buffer: session.buffer,
+							timestamp: Date.now(),
+						}),
+					)
+				} else {
+					ws.send(
+						JSON.stringify({
+							type: "pty:error",
+							sessionId,
+							error: `Session ${sessionId} not found`,
+							timestamp: Date.now(),
+						}),
+					)
+				}
+				break
+			}
+
 			case "pty:create": {
 				const session = createSession(sessionId || `pty-${Date.now()}`, ws, payload)
 				ws.send(
@@ -289,6 +342,27 @@ function handleMessage(ws, message) {
 						type: "pty:buffer",
 						sessionId,
 						buffer: session.buffer,
+						timestamp: Date.now(),
+					}),
+				)
+				break
+			}
+
+			case "pty:scrollback": {
+				const session = sessions.get(sessionId)
+				if (!session) return
+				const offset = payload.offset || 0
+				const limit = payload.limit || 10000
+				const lines = session.buffer.split("\n")
+				const slice = lines.slice(Math.max(0, lines.length - offset - limit), lines.length - offset).join("\n")
+				ws.send(
+					JSON.stringify({
+						type: "pty:scrollback",
+						sessionId,
+						data: slice,
+						offset,
+						limit,
+						totalLines: lines.length,
 						timestamp: Date.now(),
 					}),
 				)

@@ -17,15 +17,29 @@
 
 const express = require("express")
 const router = express.Router()
+const { loadTerminalCore } = require("../lib/terminalCore")
+
+// ─── Persistent memory setup ─────────────────────────────────────────────
+
+let pgStore = null
+try {
+	const { PgTerminalStore } = loadTerminalCore()
+	if (process.env.DATABASE_URL && PgTerminalStore) {
+		pgStore = new PgTerminalStore({ connectionString: process.env.DATABASE_URL })
+	}
+} catch {
+	// PostgreSQL not available — fall back to in-memory
+}
 
 // ─── In-memory brain instances (one per session) ─────────────────────────
 
 const brains = new Map()
 
-function getOrCreateBrain(sessionId, workspaceRoot) {
+function getOrCreateBrain(sessionId, workspaceRoot, userId) {
 	if (!brains.has(sessionId)) {
-		const { TerminalBrain } = require("../../../packages/terminal-core/src/brain")
-		const brain = new TerminalBrain({ workspaceRoot, sessionId })
+		const { TerminalBrain, getPersistentTerminalMemory, getTerminalMemory } = loadTerminalCore()
+		const memory = pgStore ? getPersistentTerminalMemory(pgStore) : getTerminalMemory()
+		const brain = new TerminalBrain({ workspaceRoot, sessionId, memory, userId })
 		brains.set(sessionId, brain)
 	}
 	return brains.get(sessionId)
@@ -36,7 +50,8 @@ function getOrCreateBrain(sessionId, workspaceRoot) {
 router.use((req, res, next) => {
 	const sessionId = req.headers["x-session-id"] || req.query.sessionId || `session-${Date.now()}`
 	const workspaceRoot = req.headers["x-workspace-root"] || process.env.WORKSPACE_ROOT || process.cwd()
-	req.brain = getOrCreateBrain(sessionId, workspaceRoot)
+	const userId = req.headers["x-user-id"] || req.query.userId || undefined
+	req.brain = getOrCreateBrain(sessionId, workspaceRoot, userId)
 	req.sessionId = sessionId
 	next()
 })
@@ -135,6 +150,18 @@ router.post("/fix", async (req, res) => {
 			return res.status(400).json({ ok: false, error: "No output provided" })
 		}
 		const result = await req.brain.process({ action: "fix", command: output })
+		res.json(result)
+	} catch (err) {
+		res.status(500).json({ ok: false, error: err.message })
+	}
+})
+
+// ─── POST /snippets — Discover smart snippets ────────────────────────────
+
+router.post("/snippets", async (req, res) => {
+	try {
+		const { workspaceId } = req.body
+		const result = await req.brain.process({ action: "snippets", workspaceId })
 		res.json(result)
 	} catch (err) {
 		res.status(500).json({ ok: false, error: err.message })

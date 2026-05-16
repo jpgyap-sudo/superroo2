@@ -2,7 +2,8 @@
 # Build context: repo root (needs cloud/, src/ for orchestrator modules)
 FROM node:20-alpine AS base
 
-RUN apk add --no-cache curl
+# Install build tools for native modules (node-pty) + curl for healthchecks
+RUN apk add --no-cache curl python3 make g++ linux-headers
 
 WORKDIR /opt/superroo2
 
