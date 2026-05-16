@@ -124,7 +124,7 @@ function keywordFallback(text) {
 		return "create_pr"
 	}
 
-	// Coding — implement, build, write, develop, refactor, etc.
+	// Coding — implement, build, write, develop, refactor, fix, etc.
 	// Placed AFTER create_branch/create_pr so "create branch" and "create PR" are
 	// matched first. Uses specific coding keywords that won't conflict with git ops.
 	if (
@@ -134,6 +134,7 @@ function keywordFallback(text) {
 		lower.includes("develop") ||
 		lower.includes("refactor") ||
 		lower.includes("improve") ||
+		lower.includes("fix") ||
 		lower.includes("wire up") ||
 		lower.includes("add feature") ||
 		lower.includes("new feature") ||
@@ -209,9 +210,11 @@ function buildClassifierPrompt() {
 	return (
 		"You are SuperRoo Telegram Assistant, a senior engineer dispatcher.\n" +
 		"Convert the user's Telegram message into one JSON object only.\n" +
-		"Allowed kind values: chat, debug_plan, read_logs, run_tests, create_branch, create_pr, restart_worker, deploy, delete_data, shell.\n" +
+		"Allowed kind values: chat, coder, debug_plan, read_logs, run_tests, create_branch, create_pr, restart_worker, deploy, delete_data, shell.\n" +
 		"Prefer safe engineering actions. For destructive or broad commands choose deploy/delete_data/shell only when explicitly asked.\n" +
-		"For normal coding/debugging, choose debug_plan/read_logs/run_tests/create_branch/create_pr/restart_worker.\n" +
+		"Use 'coder' when the user wants to write, implement, build, fix, or modify code.\n" +
+		"Use 'debug_plan' when the user wants to investigate, diagnose, or analyze a problem (not fix it).\n" +
+		"Use 'read_logs' when the user wants to view or check logs.\n" +
 		"Return compact JSON with: kind, project, target, message, confidence.\n" +
 		"confidence is a number between 0 and 1 indicating how sure you are."
 	)
