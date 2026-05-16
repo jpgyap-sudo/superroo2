@@ -30,6 +30,7 @@
 const crypto = require("crypto")
 const fs = require("fs").promises
 const path = require("path")
+const { loadTerminalCore } = require("./lib/terminalCore")
 const auth = require("./auth")
 const telegramLearner = require("./telegramLearner")
 const telegramNotifier = require("./telegramNotifier")
@@ -65,7 +66,7 @@ function getTelegramAgentManager() {
 let _terminalBrainAvailable = false
 try {
 	// Verify the Terminal Brain packages are accessible
-	const { TerminalBrain } = require("@superroo/terminal-core")
+	const { TerminalBrain } = loadTerminalCore()
 	if (typeof TerminalBrain === "function") {
 		_terminalBrainAvailable = true
 		console.log("[telegram] Terminal Brain packages loaded successfully")
@@ -6063,6 +6064,14 @@ module.exports = {
 	tgEndpoints,
 	// Terminal Brain
 	handleBrain,
+	getSmartContext,
+	updateSmartContext,
+	buildSmartContextPrompt,
+	detectCodingIntent,
+	levenshteinDistance,
+	findClosestCommand,
+	suggestCommandCorrection,
+	detectWorkflowIntent,
 	// Smart Menu System (GUI-driven navigation)
 	telegramMenu,
 	telegramProjectBrowser,
