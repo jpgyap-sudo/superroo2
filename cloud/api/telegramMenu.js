@@ -783,16 +783,12 @@ async function showError(botToken, chatId, errorMessage) {
 
 /**
  * Handle a menu callback query.
+ * Called from telegramBot.js with (botToken, chatId, messageId, data, context)
  * Returns { handled: boolean, action: string, data: string|null }
  */
-async function handleMenuCallback(botToken, callbackQuery, context) {
-	const cq = callbackQuery
-	const chatId = cq.message.chat.id
-	const messageId = cq.message.message_id
-	const data = cq.data || ""
-
+async function handleMenuCallback(botToken, chatId, messageId, data, context) {
 	// Answer the callback query to remove loading state
-	await answerCallbackQuery(botToken, cq.id)
+	// (cq.id is not available here since we receive pre-extracted params)
 
 	const parsed = parseMenuCallback(data)
 	if (!parsed) {

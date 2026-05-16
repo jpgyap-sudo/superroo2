@@ -195,44 +195,28 @@ test("isMenuCallback detects menu callbacks", function () {
 })
 
 test("handleMenuCallback returns correct structure for main menu", async function () {
-	const result = await telegramMenu.handleMenuCallback("fake-token", {
-		message: { chat: { id: 12345 }, message_id: 1 },
-		data: "menu:main",
-		id: "cq-menu-1",
-	}, {})
+	const result = await telegramMenu.handleMenuCallback("fake-token", 12345, 1, "menu:main", {})
 	assert(result, "handleMenuCallback returned null")
 	assert(result.handled === true, "main menu should be handled")
 	assert(result.action === "main", "action should be 'main'")
 })
 
 test("handleMenuCallback returns correct structure for settings", async function () {
-	const result = await telegramMenu.handleMenuCallback("fake-token", {
-		message: { chat: { id: 12345 }, message_id: 1 },
-		data: "menu:settings",
-		id: "cq-menu-2",
-	}, {})
+	const result = await telegramMenu.handleMenuCallback("fake-token", 12345, 1, "menu:settings", {})
 	assert(result, "handleMenuCallback returned null")
 	assert(result.handled === true, "settings should be handled")
 	assert(result.action === "settings", "action should be 'settings'")
 })
 
 test("handleMenuCallback returns correct structure for agents", async function () {
-	const result = await telegramMenu.handleMenuCallback("fake-token", {
-		message: { chat: { id: 12345 }, message_id: 1 },
-		data: "menu:agents",
-		id: "cq-menu-3",
-	}, {})
+	const result = await telegramMenu.handleMenuCallback("fake-token", 12345, 1, "menu:agents", {})
 	assert(result, "handleMenuCallback returned null")
 	assert(result.handled === true, "agents should be handled")
 	assert(result.action === "agents", "action should be 'agents'")
 })
 
 test("handleMenuCallback returns unhandled for unknown action", async function () {
-	const result = await telegramMenu.handleMenuCallback("fake-token", {
-		message: { chat: { id: 12345 }, message_id: 1 },
-		data: "menu:unknown_action",
-		id: "cq-menu-4",
-	}, {})
+	const result = await telegramMenu.handleMenuCallback("fake-token", 12345, 1, "menu:unknown_action", {})
 	assert(result, "handleMenuCallback returned null")
 	assert(result.handled === false, "unknown action should be unhandled")
 })
