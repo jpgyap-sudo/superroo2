@@ -4965,11 +4965,22 @@ async function handleNaturalLanguageInstruction(
 
 			var conversationSummary = buildConversationSummary(chatId)
 
+			// ── Pass goal and projectPath so the worker routes to the real coder loop ──
+			// Without these, the job falls through to the generic Docker sandbox which
+			// only runs pwd/node -v/pnpm -v/ls -la and produces no actual code changes.
+			// This mirrors how handleCode() creates coding jobs (see telegramBot.js:1951).
+			var repoName = activeProject ? activeProject.repoName || activeProject.name : "superroo2"
+			var projectPath = activeProject ? activeProject.localPath : null
+
 			var job = await queue.add("telegram-" + taskId, {
 				task: text,
 				agentId: legacyIntent,
 				commands: [],
 				network: "none",
+				// Pass goal + projectPath so worker.js:212 routes to the real coder loop
+				goal: text,
+				repo: repoName,
+				projectPath: projectPath,
 				telegram: {
 					chatId: chatId,
 					taskId: taskId,
