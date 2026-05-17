@@ -4980,9 +4980,17 @@ async function handleNaturalLanguageInstruction(
 			return true
 		}
 
-		// ─── OpenClaw: LLM-Powered Intent Classification ────────────────────
-		// Use the classifier to detect intent with LLM, fallback to keyword matching.
-		var classified = await telegramClassifier.classifyIntent(text, providers || [])
+		// ─── VPS Query Pre-check ────────────────────────────────────────────
+		// If inferShellCommand can map the message, force shell intent before the
+		// LLM classifier runs — avoids flaky misclassification (e.g. "coder").
+		var classified
+		if (inferShellCommand(text)) {
+			classified = { kind: "shell", confidence: 1.0, message: text }
+		} else {
+			// ─── OpenClaw: LLM-Powered Intent Classification ──────────────────
+			// Use the classifier to detect intent with LLM, fallback to keyword matching.
+			classified = await telegramClassifier.classifyIntent(text, providers || [])
+		}
 		var intentKind = classified.kind
 		var confidence = classified.confidence
 

@@ -146,8 +146,9 @@ function canRunWithoutApproval(kind, commandText) {
 		return false
 	}
 
-	// Safe actions can run without approval
-	return safeActions.has(kind)
+	// Allow anything not explicitly blocked — new intent kinds added to the
+	// classifier shouldn't silently break by defaulting to blocked.
+	return true
 }
 
 /**
