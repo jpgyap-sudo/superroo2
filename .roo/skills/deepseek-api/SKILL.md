@@ -123,7 +123,36 @@ export const deepSeekModels = {
 		cacheReadsPrice: 0.028,
 	},
 	"deepseek-reasoner": {
-		// Same as above + preserveReasoning: true
+		maxTokens: 8192,
+		contextWindow: 128_000,
+		supportsImages: false,
+		supportsPromptCache: true,
+		preserveReasoning: true,
+		inputPrice: 0.28,
+		outputPrice: 0.42,
+		cacheWritesPrice: 0.28,
+		cacheReadsPrice: 0.028,
+	},
+	"deepseek-chat-v4-flash": {
+		maxTokens: 8192,
+		contextWindow: 64_000,
+		supportsImages: false,
+		supportsPromptCache: true,
+		inputPrice: 0.15,
+		outputPrice: 0.25,
+		cacheWritesPrice: 0.15,
+		cacheReadsPrice: 0.015,
+	},
+	"deepseek-chat-v4-pro": {
+		maxTokens: 8192,
+		contextWindow: 128_000,
+		supportsImages: false,
+		supportsPromptCache: true,
+		preserveReasoning: true,
+		inputPrice: 0.55,
+		outputPrice: 0.85,
+		cacheWritesPrice: 0.55,
+		cacheReadsPrice: 0.055,
 	},
 }
 ```
@@ -181,7 +210,19 @@ The cloud API at [`cloud/api/api.js`](../../cloud/api/api.js:1246) configures De
 {
     id: "deepseek",
     name: "DeepSeek",
-    models: [{ id: "deepseek-chat", name: "DeepSeek V3" }],
+    description: "DeepSeek V3, V4 Flash, V4 Pro, and R1 reasoning models",
+    envName: "DEEPSEEK_API_KEY",
+    website: "https://deepseek.com",
+    docsUrl: "https://platform.deepseek.com/docs",
+    apiBaseUrl: "https://api.deepseek.com/v1",
+    defaultModel: "deepseek-chat-v4-flash",
+    models: [
+        { id: "deepseek-chat", name: "DeepSeek V3" },
+        { id: "deepseek-reasoner", name: "DeepSeek R1" },
+        { id: "deepseek-chat-v4-flash", name: "DeepSeek V4 Flash" },
+        { id: "deepseek-chat-v4-pro", name: "DeepSeek V4 Pro" },
+    ],
+    capabilities: ["chat", "reasoning"],
 }
 ```
 

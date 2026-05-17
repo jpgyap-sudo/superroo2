@@ -258,8 +258,8 @@ export function defaultBotConfig(): BotConfig {
 	const daemonUrl = process.env.SUPERROO_DAEMON_URL || "http://127.0.0.1:3417"
 	const daemonToken = process.env.SUPERROO_DAEMON_TOKEN
 
-	// Bot username extracted from token (first part before colon)
-	const botUsername = token ? (token.split(":")[0] ?? "superroo_bot") : "superroo_bot"
+	// Bot username from env (token prefix is the numeric ID, not the username)
+	const botUsername = process.env.TELEGRAM_BOT_USERNAME || "superroo_bot"
 
 	return {
 		token: token ?? "",

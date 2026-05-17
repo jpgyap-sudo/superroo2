@@ -1,209 +1,22 @@
 {
-	"storedAt": "2026-05-17T10:19:06.294Z",
-	"brainUrl": "http://127.0.0.1:3417",
-	"apiUrl": "http://127.0.0.1:8787",
-	"sourceFile": "memory/lessons-learned.md",
-	"totalLessons": 18,
-	"successfulStores": 0,
-	"failedStores": 18,
-	"results": [
-		{
-			"title": "Safe JSON Parsing in Database Registries",
-			"hermes": {
-				"success": false,
-				"error": "fetch failed"
-			},
-			"codex": {
-				"success": false,
-				"error": "fetch failed"
-			}
-		},
-		{
-			"title": "Tensor Division by Zero Protection",
-			"hermes": {
-				"success": false,
-				"error": "fetch failed"
-			},
-			"codex": {
-				"success": false,
-				"error": "fetch failed"
-			}
-		},
-		{
-			"title": "Intent-to-Agent Routing Fix",
-			"hermes": {
-				"success": false,
-				"error": "fetch failed"
-			},
-			"codex": {
-				"success": false,
-				"error": "fetch failed"
-			}
-		},
-		{
-			"title": "Webview Hydration Recovery",
-			"hermes": {
-				"success": false,
-				"error": "fetch failed"
-			},
-			"codex": {
-				"success": false,
-				"error": "fetch failed"
-			}
-		},
-		{
-			"title": "PM2 Process Name Mapping",
-			"hermes": {
-				"success": false,
-				"error": "fetch failed"
-			},
-			"codex": {
-				"success": false,
-				"error": "fetch failed"
-			}
-		},
-		{
-			"title": "Docker Build Context Dependencies",
-			"hermes": {
-				"success": false,
-				"error": "fetch failed"
-			},
-			"codex": {
-				"success": false,
-				"error": "fetch failed"
-			}
-		},
-		{
-			"title": "Tailscale SSH Deployment Standard",
-			"hermes": {
-				"success": false,
-				"error": "fetch failed"
-			},
-			"codex": {
-				"success": false,
-				"error": "fetch failed"
-			}
-		},
-		{
-			"title": "CommitDeployLog as Single Source of Truth",
-			"hermes": {
-				"success": false,
-				"error": "fetch failed"
-			},
-			"codex": {
-				"success": false,
-				"error": "fetch failed"
-			}
-		},
-		{
-			"title": "Settings View cachedState Pattern",
-			"hermes": {
-				"success": false,
-				"error": "fetch failed"
-			},
-			"codex": {
-				"success": false,
-				"error": "fetch failed"
-			}
-		},
-		{
-			"title": "SafeWriteJson for Atomic File Operations",
-			"hermes": {
-				"success": false,
-				"error": "fetch failed"
-			},
-			"codex": {
-				"success": false,
-				"error": "fetch failed"
-			}
-		},
-		{
-			"title": "Model Router Service Task Routing",
-			"hermes": {
-				"success": false,
-				"error": "fetch failed"
-			},
-			"codex": {
-				"success": false,
-				"error": "fetch failed"
-			}
-		},
-		{
-			"title": "ML Loop NaN Loss Detection",
-			"hermes": {
-				"success": false,
-				"error": "fetch failed"
-			},
-			"codex": {
-				"success": false,
-				"error": "fetch failed"
-			}
-		},
-		{
-			"title": "Terminal Output Import Path Correction",
-			"hermes": {
-				"success": false,
-				"error": "fetch failed"
-			},
-			"codex": {
-				"success": false,
-				"error": "fetch failed"
-			}
-		},
-		{
-			"title": "Context Condensation Pattern Preservation",
-			"hermes": {
-				"success": false,
-				"error": "fetch failed"
-			},
-			"codex": {
-				"success": false,
-				"error": "fetch failed"
-			}
-		},
-		{
-			"title": "Auto-Retry on Empty Assistant Response",
-			"hermes": {
-				"success": false,
-				"error": "fetch failed"
-			},
-			"codex": {
-				"success": false,
-				"error": "fetch failed"
-			}
-		},
-		{
-			"title": "Terminal Output Buffer Memory Leak Fix",
-			"hermes": {
-				"success": false,
-				"error": "fetch failed"
-			},
-			"codex": {
-				"success": false,
-				"error": "fetch failed"
-			}
-		},
-		{
-			"title": "Test Execution from Correct Directory",
-			"hermes": {
-				"success": false,
-				"error": "fetch failed"
-			},
-			"codex": {
-				"success": false,
-				"error": "fetch failed"
-			}
-		},
-		{
-			"title": "Model Warmup for CLI Performance",
-			"hermes": {
-				"success": false,
-				"error": "fetch failed"
-			},
-			"codex": {
-				"success": false,
-				"error": "fetch failed"
-			}
-		}
-	]
+  "storedAt": "2026-05-17T15:00:55.717Z",
+  "brainUrl": "http://127.0.0.1:3417",
+  "apiUrl": "http://127.0.0.1:8787",
+  "sourceFile": "memory/lessons-learned.md",
+  "totalLessons": 1,
+  "successfulStores": 0,
+  "failedStores": 1,
+  "results": [
+    {
+      "title": "Safe JSON Parsing in Database Registries\r\n\r\nDate: 2026-04-30\r\nSource: Roo Code legacy session\r\nModel/API used: kimi-k2.5\r\nConfidence: high\r\nRelated files: src/super-roo/bugs/BugRegistry.ts, src/super-roo/queue/TaskQueue.ts, src/super-roo/features/FeatureRegistry.ts, src/super-roo/memory/MemoryStore.ts, src/super-roo/healing/HealingBus.ts\r\n\r\n#### Task Summary\r\n\r\nIdentified critical bug where multiple registry modules use `JSON.parse()` without safe fallback, causing crashes on corrupted database rows.\r\n\r\n#### Files Changed\r\n\r\n- `src/super-roo/bugs/BugRegistry.ts` — Added safeJsonParse helper\r\n- `src/super-roo/queue/TaskQueue.ts` — Added safeJsonParse helper\r\n- `src/super-roo/features/FeatureRegistry.ts` — Added safeJsonParse helper\r\n- `src/super-roo/memory/MemoryStore.ts` — Added safeJsonParse helper\r\n- `src/super-roo/healing/HealingBus.ts` — Already had safeJsonParse, enhanced usage\r\n\r\n#### Bug Cause\r\n\r\nDatabase rows containing malformed JSON (due to corruption, manual edits, or migration bugs) would cause `JSON.parse()` to throw uncaught `SyntaxError`, crashing the registry method and potentially the calling agent.\r\n\r\n#### Fix Applied\r\n\r\nImplemented `safeJsonParse<T>(json, fallback)` helper pattern across all registries. HealingBus already used this pattern; extended it to BugRegistry, TaskQueue, FeatureRegistry, and MemoryStore.\r\n\r\n#### Test Result\r\n\r\nUnknown — migrated from legacy Roo Code history. The bug testing plan documented this as a critical fix needed.\r\n\r\n#### Lesson Learned\r\n\r\nAlways use safe JSON parsing with fallback values when reading from persistent storage. Database corruption can happen at any time; code should be resilient.\r\n\r\n#### Reusable Rule\r\n\r\n**All registry modules MUST use safeJsonParse() instead of raw JSON.parse() when reading from database.**\r\n\r\n#### Tags\r\n\r\nmemory, database, json, error-handling, superroo-core\r\n\r\n---\r\n\r\n### Legacy Lesson: Tensor Division by Zero Protection\r\n\r\nDate: 2026-04-30\r\nSource: Roo Code legacy session  \r\nModel/API used: kimi-k2.5\r\nConfidence: high\r\nRelated files: src/super-roo/ml/engine/Tensor.ts\r\n\r\n#### Task Summary\r\n\r\nIdentified ML engine bug where `Tensor.div(0)` returns Infinity values that silently corrupt neural network training.\r\n\r\n#### Files Changed\r\n\r\n- `src/super-roo/ml/engine/Tensor.ts` — Added division-by-zero guards\r\n\r\n#### Bug Cause\r\n\r\n`Tensor.div(0)` returns a tensor full of `Infinity` values. Since there's no validation, this can silently propagate through neural network training, corrupting weights and causing the optimizer to produce `NaN`.\r\n\r\n#### Fix Applied\r\n\r\nAdded guard against division by zero with appropriate epsilon values to prevent silent corruption.\r\n\r\n#### Test Result\r\n\r\nUnknown — migrated from legacy Roo Code history.\r\n\r\n#### Lesson Learned\r\n\r\nML operations must validate inputs and prevent silent propagation of Infinity/NaN values. Silent failures in training loops waste compute and produce invalid models.\r\n\r\n#### Reusable Rule\r\n\r\n**All Tensor mathematical operations MUST validate for edge cases (division by zero, sqrt of negative, log of non-positive) and either throw or clamp to safe values.**\r\n\r\n#### Tags\r\n\r\nml-engine, tensor, neural-network, math, validation\r\n\r\n---\r\n\r\n### Legacy Lesson: Intent-to-Agent Routing Fix\r\n\r\nDate: 2026-05-10\r\nSource: Roo Code legacy session\r\nModel/API used: unknown\r\nConfidence: high\r\nRelated files: cloud/api/telegramBot.js, cloud/worker/orchestratorWorker.js\r\n\r\n#### Task Summary\r\n\r\nFixed critical routing bug where natural language \"fix\" requests were routed to debugger agent instead of coder agent.\r\n\r\n#### Files Changed\r\n\r\n- Intent classifier configuration\r\n- Telegram orchestrator bridge\r\n\r\n#### Bug Cause\r\n\r\nThe NLP intent classifier was routing natural language coding requests like \"fix the login bug\" to the debug_plan agent instead of the coder agent. This caused a mismatch between user intent and actual execution.\r\n\r\n#### Fix Applied\r\n\r\nUpdated classifier routing logic to properly map 'coding' intents to the coder agent. Added feedback loop for classifier improvements.\r\n\r\n#### Test Result\r\n\r\nVerified working in production — coding requests now properly routed to coder agent.\r\n\r\n#### Lesson Learned\r\n\r\nIntent classification must be continuously validated against actual outcomes. Routing mismatches cause user frustration and wasted compute cycles.\r\n\r\n#### Reusable Rule\r\n\r\n**Always verify intent-to-agent routing with real user queries. Add classifier feedback loops to detect and correct routing errors.**\r\n\r\n#### Tags\r\n\r\ntelegram, nlp, routing, classifier, orchestration\r\n\r\n---\r\n\r\n### Legacy Lesson: Webview Hydration Recovery\r\n\r\nDate: 2026-05-17\r\nSource: Roo Code legacy session\r\nModel/API used: kimi-k2.5\r\nConfidence: high\r\nRelated files: webview-ui/src/App.tsx, webview-ui/src/context/ExtensionStateContext.tsx\r\n\r\n#### Task Summary\r\n\r\nFixed webview recovery after missed hydration handshake between VS Code extension and webview UI.\r\n\r\n#### Files Changed\r\n\r\n- `webview-ui/src/App.tsx`\r\n- `webview-ui/src/context/ExtensionStateContext.tsx`\r\n- `webview-ui/src/__tests__/App.spec.tsx`\r\n- `webview-ui/src/context/__tests__/ExtensionStateContext.spec.tsx`\r\n\r\n#### Bug Cause\r\n\r\nWebview could get stuck in a state where it missed the initial hydration handshake from the extension, leaving the UI non-responsive or showing stale data.\r\n\r\n#### Fix Applied\r\n\r\nImplemented recovery mechanism that detects missed hydration and re-requests state from the extension. Added timeout-based recovery.\r\n\r\n#### Test Result\r\n\r\nTests added and passing.\r\n\r\n#### Lesson Learned\r\n\r\nWebview/extension communication is unreliable. Always implement recovery mechanisms for missed handshakes and state synchronization.\r\n\r\n#### Reusable Rule\r\n\r\n**Implement timeout-based hydration recovery in all webview contexts. Never assume initial state sync succeeds.**\r\n\r\n#### Tags\r\n\r\nwebview, vscode-extension, hydration, state-sync, ui\r\n\r\n---\r\n\r\n### Legacy Lesson: PM2 Process Name Mapping\r\n\r\nDate: 2026-05-09\r\nSource: Roo Code legacy session\r\nModel/API used: unknown\r\nConfidence: medium\r\nRelated files: cloud/api/lib/terminalCore.js, cloud/worker/agentRunners.js\r\n\r\n#### Task Summary\r\n\r\nFixed PM2 process name mapping issue where short names like 'api', 'worker', 'dashboard' didn't map to actual PM2 process names with 'superroo-' prefix.\r\n\r\n#### Files Changed\r\n\r\n- Terminal core readLogs function\r\n- Worker restart function\r\n\r\n#### Bug Cause\r\n\r\nUsers would reference processes by short names but PM2 used full prefixed names. This caused \"process not found\" errors when trying to read logs or restart workers.\r\n\r\n#### Fix Applied\r\n\r\nAdded mapping logic to convert short names to full PM2 process names before executing PM2 commands.\r\n\r\n#### Test Result\r\n\r\nVerified working in production.\r\n\r\n#### Lesson Learned\r\n\r\nExternal tool naming conventions (like PM2) may not match internal abstractions. Always normalize names at integration boundaries.\r\n\r\n#### Reusable Rule\r\n\r\n**Create explicit name mapping layers between internal abstractions and external tool naming conventions.**\r\n\r\n#### Tags\r\n\r\npm2, deployment, process-management, terminal\r\n\r\n---\r\n\r\n### Legacy Lesson: Docker Build Context Dependencies\r\n\r\nDate: 2026-05-08\r\nSource: Roo Code legacy session\r\nModel/API used: unknown\r\nConfidence: high\r\nRelated files: cloud/sandbox/Dockerfile, cloud/deploy-sandbox.sh\r\n\r\n#### Task Summary\r\n\r\nFixed Docker build failures due to missing workspace package.json files in build context and pnpm resolution issues.\r\n\r\n#### Files Changed\r\n\r\n- Dockerfile (added missing workspace deps)\r\n- Deploy scripts (added --shamefully-hoist flag)\r\n- Build context configuration\r\n\r\n#### Bug Cause\r\n\r\nDocker build was failing because:\r\n\r\n1. Missing workspace package.json files in build context\r\n2. pnpm strict resolution couldn't find transitive dependencies\r\n3. esbuild linux binary not installed due to --no-optional flag\r\n\r\n#### Fix Applied\r\n\r\n- Added all workspace package.json files to Docker build context\r\n- Used --shamefully-hoist for transitive dependency resolution\r\n- Removed --no-optional flag to ensure esbuild binary available\r\n- Added --ignore-scripts to skip bootstrap in Docker\r\n\r\n#### Test Result\r\n\r\nDocker builds now succeeding consistently.\r\n\r\n#### Lesson Learned\r\n\r\nDocker builds with monorepos require careful handling of workspace dependencies. pnpm's strict resolution needs explicit configuration in containerized environments.\r\n\r\n#### Reusable Rule\r\n\r\n**For monorepo Docker builds: include all workspace package.json files, use --shamefully-hoist, and ensure platform-specific binaries are available.**\r\n\r\n#### Tags\r\n\r\ndocker, pnpm, monorepo, build, deployment\r\n\r\n---\r\n\r\n### Legacy Lesson: Tailscale SSH Deployment Standard\r\n\r\nDate: 2026-05-08\r\nSource: Roo Code legacy session (AGENTS.md rule)\r\nModel/API used: unknown\r\nConfidence: high\r\nRelated files: docs/super-roo/DEPLOYMENT_GUIDE.md, .roo/skills/tailscale/SKILL.md\r\n\r\n#### Task Summary\r\n\r\nEstablished mandatory Tailscale SSH for all deployments instead of public IP SSH.\r\n\r\n#### Files Changed\r\n\r\n- Deployment documentation\r\n- Deploy scripts\r\n- All SSH-based deployment automation\r\n\r\n#### Bug Cause\r\n\r\nSecurity risk from using public IP for SSH connections. Some deployment scripts were incorrectly using public IPs.\r\n\r\n#### Fix Applied\r\n\r\nMandated Tailscale IP (100.64.175.88) for all SSH connections. Updated all deploy scripts and documentation.\r\n\r\n#### Test Result\r\n\r\nAll deployments now use Tailscale SSH exclusively.\r\n\r\n#### Lesson Learned\r\n\r\nSecurity practices must be enforced at the tooling level, not just documented. Automated systems will fall back to insecure defaults without explicit constraints.\r\n\r\n#### Reusable Rule\r\n\r\n**ALL deployments MUST use Tailscale SSH (100.64.175.88). Never use public IP (104.248.225.250) for SSH.**\r\n\r\n#### Tags\r\n\r\ndeployment, security, tailscale, ssh, vps\r\n\r\n---\r\n\r\n### Legacy Lesson: CommitDeployLog as Single Source of Truth\r\n\r\nDate: 2026-05-08\r\nSource: Roo Code legacy session (AGENTS.md rule)\r\nModel/API used: unknown\r\nConfidence: high\r\nRelated files: src/super-roo/product-memory/CommitDeployLog.ts, server/src/memory/commit-deploy-log.json\r\n\r\n#### Task Summary\r\n\r\nEstablished centralized logging system for all commits and deployments across all coding agents.\r\n\r\n#### Files Changed\r\n\r\n- `src/super-roo/product-memory/CommitDeployLog.ts` (new)\r\n- `server/src/memory/commit-deploy-log.json` (persistent storage)\r\n- AGENTS.md (documentation)\r\n\r\n#### Bug Cause\r\n\r\nNo centralized tracking of which agent made which changes, making it difficult to coordinate work and prevent conflicts.\r\n\r\n#### Fix Applied\r\n\r\nCreated CommitDeployLog class that:\r\n\r\n- Records every commit with agent name, type, files changed, features affected\r\n- Records every deploy with status, health checks, rollbacks\r\n- Is append-only (no deletions, only status updates)\r\n- Is agent-aware and feature-linked\r\n\r\n#### Test Result\r\n\r\nSuccessfully tracking all commits and deploys across agents.\r\n\r\n#### Lesson Learned\r\n\r\nMulti-agent systems require centralized coordination logs. Without them, agents duplicate work and create conflicts.\r\n\r\n#### Reusable Rule\r\n\r\n**ALL agents MUST call CommitDeployLog.recordCommit() after making changes and CommitDeployLog.recordDeploy() when deploying.**\r\n\r\n#### Tags\r\n\r\nmemory, coordination, agents, deployment, logging\r\n\r\n---\r\n\r\n### Legacy Lesson: Settings View cachedState Pattern\r\n\r\nDate: 2026-05-01\r\nSource: Roo Code legacy session\r\nModel/API used: kimi-k2.5\r\nConfidence: high\r\nRelated files: webview-ui/src/components/settings/SettingsView.tsx\r\n\r\n#### Task Summary\r\n\r\nFixed race conditions in settings by ensuring inputs bind to cachedState, not live extension state.\r\n\r\n#### Files Changed\r\n\r\n- Settings view components\r\n\r\n#### Bug Cause\r\n\r\nInputs were wired directly to live `useExtensionState()`, causing race conditions between user edits and ContextProxy updates.\r\n\r\n#### Fix Applied\r\n\r\nInputs now bind to local `cachedState` which acts as a buffer for user edits, isolating them from the `ContextProxy` source-of-truth until the user explicitly clicks \"Save\".\r\n\r\n#### Test Result\r\n\r\nRace conditions eliminated in settings UI.\r\n\r\n#### Lesson Learned\r\n\r\nLive state bindings in React can cause race conditions with async updates. Use local cached state for form inputs, only sync on explicit save.\r\n\r\n#### Reusable Rule\r\n\r\n**SettingsView inputs MUST bind to local cachedState, NOT live useExtensionState(). Wire inputs directly to cachedState to prevent race conditions.**\r\n\r\n#### Tags\r\n\r\nvscode-extension, react, state-management, ui\r\n\r\n---\r\n\r\n### Legacy Lesson: SafeWriteJson for Atomic File Operations\r\n\r\nDate: 2026-05-01\r\nSource: Roo Code legacy session (.roo/rules-code/use-safeWriteJson.md)\r\nModel/API used: unknown\r\nConfidence: high\r\nRelated files: src/utils/safeWriteJson.ts\r\n\r\n#### Task Summary\r\n\r\nEnforced atomic JSON file writes to prevent data corruption.\r\n\r\n#### Files Changed\r\n\r\n- Created `src/utils/safeWriteJson.ts`\r\n- Updated all file writing code to use safeWriteJson\r\n\r\n#### Bug Cause\r\n\r\nUsing `JSON.stringify` with direct file writes can cause data corruption if the process crashes mid-write or if multiple writes happen concurrently.\r\n\r\n#### Fix Applied\r\n\r\nCreated `safeWriteJson(filePath, data)` that:\r\n\r\n- Uses atomic writes with locking\r\n- Streams the write to minimize memory footprint\r\n- Creates parent directories if necessary\r\n\r\n#### Test Result\r\n\r\nAll file writes now use safeWriteJson.\r\n\r\n#### Lesson Learned\r\n\r\nFile writes can fail or corrupt data. Always use atomic write patterns for critical data files.\r\n\r\n#### Reusable Rule\r\n\r\n**MUST use safeWriteJson(filePath, data) from src/utils/safeWriteJson.ts instead of JSON.stringify with file-write operations.**\r\n\r\n#### Tags\r\n\r\nfile-system, json, safety, data-integrity\r\n\r\n---\r\n\r\n### Legacy Lesson: Model Router Service Task Routing\r\n\r\nDate: 2026-05-08\r\nSource: Roo Code legacy session\r\nModel/API used: unknown\r\nConfidence: high\r\nRelated files: src/super-roo/settings/services/modelRouterService.ts\r\n\r\n#### Task Summary\r\n\r\nImplemented model routing service that maps task types to optimal provider/model pairs.\r\n\r\n#### Files Changed\r\n\r\n- `src/super-roo/settings/services/modelRouterService.ts` (new)\r\n\r\n#### Implementation\r\n\r\nCreated routing table mapping tasks to primary/fallback providers:\r\n\r\n- coding → anthropic/claude-sonnet, deepseek/deepseek-chat, openai/gpt-4o\r\n- debugging → deepseek, anthropic, kimi\r\n- crawling → groq, deepseek, kimi\r\n- planning → anthropic, openai, deepseek\r\n- architecture → openai, anthropic, kimi\r\n- fast_fix → groq, deepseek, openai\r\n\r\n#### Lesson Learned\r\n\r\nDifferent AI providers excel at different task types. A routing layer improves both cost-efficiency and output quality.\r\n\r\n#### Reusable Rule\r\n\r\n**Use the Model Router for all AI calls. Route by task type, not just by user preference. Always have fallback providers configured.**\r\n\r\n#### Tags\r\n\r\nmodel-router, ai-providers, cost-optimization, routing\r\n\r\n---\r\n\r\n### Legacy Lesson: ML Loop NaN Loss Detection\r\n\r\nDate: 2026-04-30\r\nSource: Roo Code legacy session\r\nModel/API used: kimi-k2.5\r\nConfidence: high\r\nRelated files: src/super-roo/ml/loop/InfiniteImprovementLoop.ts\r\n\r\n#### Task Summary\r\n\r\nEnhanced ML training loop to detect and handle NaN losses that indicate model corruption.\r\n\r\n#### Files Changed\r\n\r\n- `src/super-roo/ml/loop/InfiniteImprovementLoop.ts`\r\n\r\n#### Bug Cause\r\n\r\nWhen all training losses are NaN (indicating corrupted models), the loop would warn but continue training, wasting compute cycles.\r\n\r\n#### Fix Applied\r\n\r\nAdded detection for all-NaN loss arrays and proper handling (stopping training, warning with actionable message).\r\n\r\n#### Test Result\r\n\r\nUnknown — migrated from legacy Roo Code history.\r\n\r\n#### Lesson Learned\r\n\r\nML training must detect corruption early and stop rather than continuing with invalid data. NaN propagation invalidates all downstream results.\r\n\r\n#### Reusable Rule\r\n\r\n**InfiniteImprovementLoop MUST detect all-NaN loss arrays and stop training with a clear warning. Do not continue training on corrupted models.**\r\n\r\n#### Tags\r\n\r\nml-engine, training, nan-detection, infinite-loop\r\n\r\n---\r\n\r\n### Legacy Lesson: Terminal Output Import Path Correction\r\n\r\nDate: 2026-05-17\r\nSource: Roo Code legacy session\r\nModel/API used: kimi-k2.5\r\nConfidence: high\r\nRelated files: webview-ui/src/components/super-roo/tabs/ide-terminal/TerminalPane.tsx\r\n\r\n#### Task Summary\r\n\r\nFixed incorrect import path for terminal output component.\r\n\r\n#### Files Changed\r\n\r\n- `webview-ui/src/components/super-roo/tabs/ide-terminal/TerminalPane.tsx`\r\n\r\n#### Bug Cause\r\n\r\nImport path was incorrect, causing module resolution failure.\r\n\r\n#### Fix Applied\r\n\r\nCorrected import path to match actual file location.\r\n\r\n#### Test Result\r\n\r\nBuild now succeeds.\r\n\r\n#### Lesson Learned\r\n\r\nImport paths must be verified after refactoring. Automated builds catch these, but only if CI is running.\r\n\r\n#### Reusable Rule\r\n\r\n**Always verify imports after moving files. Run build after refactoring to catch path errors.**\r\n\r\n#### Tags\r\n\r\ntypescript, imports, build, refactoring\r\n\r\n---\r\n\r\n### Legacy Lesson: Context Condensation Pattern Preservation\r\n\r\nDate: 2026-02-19 (from CHANGELOG)\r\nSource: Roo Code legacy session\r\nModel/API used: claude/anthropic (based on CHANGELOG author)\r\nConfidence: medium\r\nRelated files: src/core/context-condensing/\\*\r\n\r\n#### Task Summary\r\n\r\nImplemented Smart Code Folding that preserves lightweight code maps during context condensation.\r\n\r\n#### Files Changed\r\n\r\n- Context condensation system\r\n- Context preservation logic\r\n\r\n#### Implementation\r\n\r\nContext condensation now intelligently preserves:\r\n\r\n- Function signatures\r\n- Class declarations\r\n- Type definitions\r\n- Files prioritized by recent access\r\n- ~50k character budget for latest work\r\n\r\n#### Lesson Learned\r\n\r\nWhen condensing context for large conversations, preserve structural information (signatures, types) that the model needs to continue working accurately.\r\n\r\n#### Reusable Rule\r\n\r\n**Context condensation MUST preserve function signatures, class declarations, and type definitions. Prioritize by recency with a character budget.**\r\n\r\n#### Tags\r\n\r\ncontext-management, ai-context, condensation, memory\r\n\r\n---\r\n\r\n### Legacy Lesson: Auto-Retry on Empty Assistant Response\r\n\r\nDate: 2026-01-27 (from CHANGELOG)\r\nSource: Roo Code legacy session\r\nModel/API used: unknown\r\nConfidence: medium\r\nRelated files: src/core/task/Task.ts\r\n\r\n#### Task Summary\r\n\r\nAdded auto-retry mechanism for empty assistant responses to prevent task failures.\r\n\r\n#### Bug Cause\r\n\r\nSome API providers occasionally return empty responses, which would previously fail the task.\r\n\r\n#### Fix Applied\r\n\r\nImplemented auto-retry with exponential backoff for empty responses.\r\n\r\n#### Lesson Learned\r\n\r\nAPIs can return empty responses due to transient issues. Auto-retry with backoff improves reliability without user intervention.\r\n\r\n#### Reusable Rule\r\n\r\n**Implement auto-retry with exponential backoff for empty API responses. Log each retry attempt.**\r\n\r\n#### Tags\r\n\r\napi, retry-logic, error-handling, reliability\r\n\r\n---\r\n\r\n### Legacy Lesson: Terminal Output Buffer Memory Leak Fix\r\n\r\nDate: 2026-02-20 (from CHANGELOG)\r\nSource: Roo Code legacy session\r\nModel/API used: unknown\r\nConfidence: high\r\nRelated files: src/integrations/terminal/\\*\r\n\r\n#### Task Summary\r\n\r\nFixed memory leak in terminal output buffers that caused gray screens and performance degradation.\r\n\r\n#### Bug Cause\r\n\r\nTerminal output buffers were never cleared, accumulating unbounded memory usage over long sessions.\r\n\r\n#### Fix Applied\r\n\r\nImplemented buffer size limits with automatic cleanup of old output.\r\n\r\n#### Test Result\r\n\r\nMemory usage now stable during long sessions.\r\n\r\n#### Lesson Learned\r\n\r\nLong-running processes need bounded buffers. Unbounded growth leads to OOM and performance issues.\r\n\r\n#### Reusable Rule\r\n\r\n**All buffers MUST have size limits with automatic cleanup. Never allow unbounded memory growth.**\r\n\r\n#### Tags\r\n\r\nterminal, memory-leak, performance, buffer-management\r\n\r\n---\r\n\r\n### Legacy Lesson: Test Execution from Correct Directory\r\n\r\nDate: 2026-05-01\r\nSource: Roo Code legacy session (.roo/rules/rules.md)\r\nModel/API used: unknown\r\nConfidence: high\r\nRelated files: vitest.config.ts files\r\n\r\n#### Task Summary\r\n\r\nEstablished rule for running vitest from correct workspace directories.\r\n\r\n#### Bug Cause\r\n\r\nRunning tests from project root caused \"vitest: command not found\" errors because vitest wasn't in root node_modules.\r\n\r\n#### Fix Applied\r\n\r\nDocumented that tests must be run from the same directory as the package.json that specifies vitest in devDependencies.\r\n\r\n#### Lesson Learned\r\n\r\nMonorepos have multiple vitest installations. Tests must run from their local workspace context.\r\n\r\n#### Reusable Rule\r\n\r\n**Tests MUST be run from the same directory as the package.json that specifies vitest in devDependencies. Run: `cd src && npx vitest run path/to/test-file`**\r\n\r\n#### Tags\r\n\r\ntesting, vitest, monorepo, build\r\n\r\n---\r\n\r\n### Legacy Lesson: Model Warmup for CLI Performance\r\n\r\nDate: 2026-02-18 (from CHANGELOG)\r\nSource: Roo Code legacy session\r\nModel/API used: unknown\r\nConfidence: medium\r\nRelated files: apps/cli/src/commands/cli/run.ts\r\n\r\n#### Task Summary\r\n\r\nImplemented model warmup on CLI startup for faster initial responses.\r\n\r\n#### Implementation\r\n\r\nCLI now warms up the Roo model on startup, reducing latency for first user request.\r\n\r\n#### Lesson Learned\r\n\r\nCold starts affect user experience. Proactive warmup improves perceived performance.\r\n\r\n#### Reusable Rule\r\n\r\n**Warm up AI models on service startup to reduce cold start latency. Handle warmup failures gracefully.**\r\n\r\n#### Tags\r\n\r\ncli, performance, model-loading, user-experience\r\n\r\n---\r\n\r\n### Auto-Extracted Lesson: Feat(intelligence): migrate legacy Roo Code lessons and add enhancement system\r\n\r\nDate: 2026-05-17\r\nSource: Git commit 19ebf885\r\nModel/API used: unknown\r\nConfidence: medium\r\nRelated files: .github/workflows/lesson-extraction.yml, .husky/post-commit, docs/intelligence-layer/legacy-roocode-migration-report.md, memory/backups/2026-05-17-bugs-fixed.backup.md, memory/backups/2026-05-17-lessons-learned.backup.md\r\n\r\n#### Task Summary\r\n\r\nfeat(intelligence): migrate legacy Roo Code lessons and add enhancement system\r\n\r\n#### Files Changed\r\n\r\n- `.github/workflows/lesson-extraction.yml`\r\n- `.husky/post-commit`\r\n- `docs/intelligence-layer/legacy-roocode-migration-report.md`\r\n- `memory/backups/2026-05-17-bugs-fixed.backup.md`\r\n- `memory/backups/2026-05-17-lessons-learned.backup.md`\r\n- `memory/backups/2026-05-17-model-decisions.backup.md`\r\n- `memory/bugs-fixed.md`\r\n- `memory/central-brain-store-log.json`\r\n- `memory/feature-knowledge.md`\r\n- `memory/lesson-index.jsonl`\r\n- `memory/lesson-summaries.json`\r\n- `memory/lessons-learned.md`\r\n- `memory/model-decisions.md`\r\n- `scripts/central-brain-store-lesson.mjs`\r\n- `scripts/extract-lesson-from-commit.mjs`\r\n- `scripts/ollama-summarize-lesson.mjs`\r\n- `scripts/run-migration-post-processing.sh`\r\n- `src/super-roo/lessons/LessonRetriever.ts`\r\n- `src/super-roo/lessons/PromptEnhancer.ts`\r\n- `src/super-roo/lessons/index.ts`\r\n\r\n#### Bug Cause\r\n\r\n<!-- TODO: Document what caused the issue -->\r\n\r\nUnknown — extracted from commit 19ebf885.\r\n\r\n#### Fix Applied\r\n\r\n<!-- TODO: Document the solution -->\r\n\r\nSee commit 19ebf885 by JPG Yap.\r\n\r\n#### Test Result\r\n\r\nUnknown — no test files detected.\r\n\r\n#### Lesson Learned\r\n\r\n<!-- TODO: Extract reusable lesson -->\r\n\r\nTo be determined — this commit was auto-flagged as potentially containing a lesson.\r\n\r\n#### Reusable Rule\r\n\r\n<!-- TODO: Define a specific rule for future agents -->\r\n\r\n**TODO: Add a specific, actionable rule based on this commit.**\r\n\r\n#### Tags\r\n\r\ngeneral\r\n\r\n---\r\n\r\n### Auto-Extracted Lesson: NL routing now passes goal+projectPath so coder intents trigger real coding\r\n\r\nDate: 2026-05-17\r\nSource: Git commit 45cebc23\r\nModel/API used: unknown\r\nConfidence: medium\r\nRelated files: cloud/api/telegramBot.js\r\n\r\n#### Task Summary\r\n\r\nfix: NL routing now passes goal+projectPath so coder intents trigger real coding\r\n\r\n#### Files Changed\r\n\r\n- `cloud/api/telegramBot.js`\r\n\r\n#### Bug Cause\r\n\r\n<!-- TODO: Document what caused the issue -->\r\n\r\nUnknown — extracted from commit 45cebc23.\r\n\r\n#### Fix Applied\r\n\r\n<!-- TODO: Document the solution -->\r\n\r\nSee commit 45cebc23 by JPG Yap.\r\n\r\n#### Test Result\r\n\r\nUnknown — no test files detected.\r\n\r\n#### Lesson Learned\r\n\r\n<!-- TODO: Extract reusable lesson -->\r\n\r\nTo be determined — this commit was auto-flagged as potentially containing a lesson.\r\n\r\n#### Reusable Rule\r\n\r\n<!-- TODO: Define a specific rule for future agents -->\r\n\r\n**TODO: Add a specific, actionable rule based on this commit.**\r\n\r\n#### Tags\r\n\r\napi, bugfix\r\n\r\n---\r\n\n### Auto-Extracted Lesson: Feat: add DeepSeek-V4-Flash and DeepSeek-V4-Pro models with agent re-routing",
+      "hermes": {
+        "success": false,
+        "error": "fetch failed"
+      },
+      "codex": {
+        "success": false,
+        "error": "fetch failed"
+      }
+    }
+  ]
 }

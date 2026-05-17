@@ -41,7 +41,13 @@ memory/context/latest-agent-context.md
 Run:
 
 ```bash
-node scripts/lesson-capture.mjs
+node scripts/extract-lesson-from-commit.mjs --interactive
+```
+
+Or for batch backfill of historical commits:
+
+```bash
+node scripts/backfill-lessons.mjs --since YYYY-MM-DD
 ```
 
 Optional if available:
@@ -49,6 +55,45 @@ Optional if available:
 ```bash
 node scripts/ollama-summarize-lesson.mjs
 node scripts/central-brain-store-lesson.mjs
+```
+
+**Every completed task MUST produce a lesson** in `memory/lessons-learned.md` using the standard format:
+
+```markdown
+### Lesson: [Short descriptive title]
+
+Date: [YYYY-MM-DD]
+Source: [Agent name] task completion
+Model/API used: [model]
+Confidence: [high/medium/low]
+Related files: [comma-separated list]
+
+#### Task Summary
+[What was accomplished?]
+
+#### Files Changed
+- [file1]
+- [file2]
+
+#### Bug Cause
+[Root cause if applicable]
+
+#### Fix Applied
+[What fixed it?]
+
+#### Test Result
+[pass/fail/unknown]
+
+#### Lesson Learned
+[Reusable engineering insight]
+
+#### Reusable Rule
+[Specific actionable rule for future agents]
+
+#### Tags
+[tag1, tag2, tag3]
+
+---
 ```
 
 ## Working Tree
@@ -129,6 +174,53 @@ For Codex-led tasks, prefer this sequence:
 5. Review the result, run tests, and record lessons or updates.
 
 Codex may still code directly when the task is small, urgent, or the available tooling does not expose a DeepSeek worker path.
+
+## Learning Layer Permanent Sync
+
+**ALL agents are permanently synced to the SuperRoo learning layer.** This is not optional. The learning layer is the institutional memory of the project and prevents repeated mistakes.
+
+### Before Coding — Retrieve Relevant Lessons
+
+Agents MUST query the lesson index for relevant context:
+
+```bash
+# Get top lessons for the task at hand
+node -e "const {getLessonRetriever} = require('./src/super-roo/lessons'); const retriever = getLessonRetriever(); retriever.load().then(() => retriever.getTopLessons(5)).then(lessons => console.log(JSON.stringify(lessons, null, 2)))"
+
+# Query by file paths being modified
+node -e "const {getLessonRetriever} = require('./src/super-roo/lessons'); const retriever = getLessonRetriever(); retriever.load().then(() => retriever.getLessonsForFile('src/super-roo/ml/engine/Tensor.ts', 3)).then(lessons => console.log(JSON.stringify(lessons, null, 2)))"
+
+# Query by tags
+node -e "const {getLessonRetriever} = require('./src/super-roo/lessons'); const retriever = getLessonRetriever(); retriever.load().then(() => retriever.getLessonsForTask('docker deployment', 5)).then(lessons => console.log(JSON.stringify(lessons, null, 2)))"
+```
+
+Agents SHOULD also:
+- Search `memory/lessons-learned.md` for keywords related to the task
+- Search `memory/bugs-fixed.md` for similar bugs
+- Search `memory/feature-knowledge.md` for related features
+
+### After Coding — Record Lessons
+
+Agents MUST append a lesson to `memory/lessons-learned.md` and ensure it is indexed in `memory/lesson-index.jsonl`. The git `post-commit` hook auto-extracts templates, but agents MUST review and complete the TODO sections.
+
+If a commit was not made (e.g., config fix, docs update), manually append the lesson.
+
+### Automatic Lesson Capture Infrastructure
+
+- **Post-commit hook** (`.husky/post-commit`): auto-runs `extract-lesson-from-commit.mjs` on every commit that matches lesson indicators (fix, bug, refactor, performance, etc.)
+- **Backfill script** (`scripts/backfill-lessons.mjs`): batch-processes git history to extract missed lessons. Already backfilled 104 lessons from May 2026.
+- **Lesson index** (`memory/lesson-index.jsonl`): machine-readable JSONL for programmatic retrieval
+- **Lesson summaries** (`memory/lesson-summaries.json`): Ollama-generated embeddings and summaries
+
+### Agent Sync Pledge
+
+This agent (Kimi Code CLI) is permanently synced:
+- ✅ Reads lessons before every substantial coding task
+- ✅ Writes lessons after every task completion
+- ✅ Uses the LessonRetriever API when available
+- ✅ Contributes to `memory/lessons-learned.md` and `memory/lesson-index.jsonl`
+- ✅ Runs backfill when new historical context is discovered
+- ✅ Queues lessons for Central Brain sync when the API is online
 
 Before substantial code changes, check or create:
 

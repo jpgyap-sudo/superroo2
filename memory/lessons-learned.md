@@ -7993,3 +7993,147 @@ To be determined — this commit was auto-flagged as potentially containing a le
 testing, ml-engine, ui, api, deployment
 
 ---
+
+### Auto-Extracted Lesson: Feat(gap-analysis): comprehensive full-stack improvements across 7 phases
+
+Date: 2026-05-17
+Source: Git commit faa919c9
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/api/api.js, docs/super-roo/ONBOARDING_GUIDE.md, memory/lessons-learned.md, src/super-roo/crawler/__tests__/CrawlerAgent.test.ts, src/super-roo/deploy/__tests__/DeployOrchestrator.test.ts
+
+#### Task Summary
+feat(gap-analysis): comprehensive full-stack improvements across 7 phases
+
+#### Files Changed
+- `cloud/api/api.js`
+- `docs/super-roo/ONBOARDING_GUIDE.md`
+- `memory/lessons-learned.md`
+- `src/super-roo/crawler/__tests__/CrawlerAgent.test.ts`
+- `src/super-roo/deploy/__tests__/DeployOrchestrator.test.ts`
+- `src/super-roo/healing/HealingBus.ts`
+- `src/super-roo/healing/__tests__/HealingBus.test.ts`
+- `src/super-roo/import/__tests__/FileImporter.test.ts`
+- `src/super-roo/lessons/LearningClient.ts`
+- `src/super-roo/lessons/__tests__/LessonRetriever.test.ts`
+- `src/super-roo/logging/__tests__/EventLog.test.ts`
+- `src/super-roo/ml/engine/Layer.ts`
+- `src/super-roo/types/index.ts`
+- `webview-ui/src/components/super-roo/tabs/__tests__/DashboardTab.spec.tsx`
+
+#### Bug Cause
+<!-- TODO: Document what caused the issue -->
+Unknown — extracted from commit faa919c9.
+
+#### Fix Applied
+<!-- TODO: Document the solution -->
+See commit faa919c9 by JPG Yap.
+
+#### Test Result
+Tests were included in this commit.
+
+#### Lesson Learned
+<!-- TODO: Extract reusable lesson -->
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+<!-- TODO: Define a specific rule for future agents -->
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+testing, ml-engine, ui, api, deployment
+
+---
+
+### Auto-Extracted Lesson: Feat: add learning layer curation workflow
+
+Date: 2026-05-17
+Source: Git commit 61043e28
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/api/api.js, cloud/dashboard/src/components/views/intelligence-layer.tsx, cloud/orchestrator/CloudOrchestrator.js, cloud/orchestrator/modules/LearningGateway.js, cloud/orchestrator/modules/LearningPolicy.js
+
+#### Task Summary
+feat: add learning layer curation workflow
+
+#### Files Changed
+- `cloud/api/api.js`
+- `cloud/dashboard/src/components/views/intelligence-layer.tsx`
+- `cloud/orchestrator/CloudOrchestrator.js`
+- `cloud/orchestrator/modules/LearningGateway.js`
+- `cloud/orchestrator/modules/LearningPolicy.js`
+- `cloud/orchestrator/modules/TaskExecutor.js`
+- `cloud/orchestrator/stores/BugKnowledgeStore.js`
+- `cloud/worker/agentRunners.js`
+- `docs/intelligence-layer/learning-gateway.md`
+- `memory/lesson-index.jsonl`
+- `scripts/extract-lesson-from-commit.mjs`
+- `scripts/lesson-capture.mjs`
+- `scripts/ml/build-agent-context.mjs`
+- `scripts/regenerate-lesson-index.mjs`
+- `src/super-roo/lessons/LessonRetriever.ts`
+- `src/super-roo/lessons/PromptEnhancer.ts`
+- `src/super-roo/lessons/index.ts`
+- `src/tests/cloud/learning-gateway.test.js`
+
+#### Bug Cause
+<!-- TODO: Document what caused the issue -->
+Unknown — extracted from commit 61043e28.
+
+#### Fix Applied
+<!-- TODO: Document the solution -->
+See commit 61043e28 by JPG Yap.
+
+#### Test Result
+Tests were included in this commit.
+
+#### Lesson Learned
+<!-- TODO: Extract reusable lesson -->
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+<!-- TODO: Define a specific rule for future agents -->
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+testing, ml-engine, api
+
+---
+
+### Auto-Extracted Lesson: (dashboard): skip ESLint during build, fix memory-limited VPS builds
+
+Date: 2026-05-17
+Source: Git commit 49285962
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/dashboard/next.config.js
+
+#### Task Summary
+fix(dashboard): skip ESLint during build, fix memory-limited VPS builds
+
+#### Files Changed
+- `cloud/dashboard/next.config.js`
+
+#### Bug Cause
+<!-- TODO: Document what caused the issue -->
+Unknown — extracted from commit 49285962.
+
+#### Fix Applied
+<!-- TODO: Document the solution -->
+See commit 49285962 by JPG Yap.
+
+#### Test Result
+Unknown — no test files detected.
+
+#### Lesson Learned
+<!-- TODO: Extract reusable lesson -->
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+<!-- TODO: Define a specific rule for future agents -->
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+bugfix
+
+---

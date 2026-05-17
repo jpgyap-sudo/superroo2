@@ -122,7 +122,12 @@ echo "[5/9] Installing dashboard dependencies (filtered)..."
 # Use --filter to only install dashboard deps instead of full monorepo
 # Use --prefer-offline to skip network resolution if lockfile is cached
 # Timeout: 180s for filtered install (should be fast with --prefer-offline)
-ssh_cmd "pnpm install (filtered)" 180 "cd ${PROJECT_ROOT} && corepack enable && pnpm install --filter cloud/dashboard --frozen-lockfile --prefer-offline"
+# NOTE: Use direct node binary path to avoid corepack/pnpm symlink recursive loop.
+# /usr/bin/pnpm -> /usr/lib/node_modules/corepack/dist/pnpm.js, and corepack
+# re-invokes pnpm which creates a recursive loop. Using the direct binary path
+# bypasses corepack entirely while still using the correct pnpm version.
+PNPM_BIN="/usr/bin/node /usr/lib/node_modules/corepack/dist/pnpm.js"
+ssh_cmd "pnpm install (filtered)" 180 "cd ${PROJECT_ROOT} && COREPACK_ENABLE_STRICT=0 ${PNPM_BIN} install --filter cloud/dashboard --frozen-lockfile --prefer-offline"
 
 # ---------------------------------------------------------------------------
 # 6. Build dashboard
@@ -130,7 +135,8 @@ ssh_cmd "pnpm install (filtered)" 180 "cd ${PROJECT_ROOT} && corepack enable && 
 echo ""
 echo "[6/9] Building dashboard..."
 # Timeout: 300s for Next.js build
-ssh_cmd "pnpm build" 300 "cd ${PROJECT_ROOT} && pnpm --dir ${DASHBOARD_DIR} run build"
+# NOTE: Use direct node binary path to avoid corepack/pnpm symlink recursive loop
+ssh_cmd "pnpm build" 300 "cd ${PROJECT_ROOT} && COREPACK_ENABLE_STRICT=0 ${PNPM_BIN} --dir ${DASHBOARD_DIR} run build"
 
 # ---------------------------------------------------------------------------
 # Now wait for nginx parallel tasks to complete

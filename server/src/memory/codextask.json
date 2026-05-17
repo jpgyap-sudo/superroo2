@@ -1,92 +1,123 @@
 {
-	"tasks": [
-		{
-			"id": "codex_task_62e7fa7a-1506-4e9e-97a7-1303a886a378",
-			"title": "Fix extension TS errors - Express v5 types, OllamaPipeline, test mocks",
-			"summary": "Fixed 5 categories of TS errors blocking the VSIX build: (1) OllamaPipeline missing codexBrief/deepseekTask fields - wired up builders and added fields to result type. (2) CodexBriefBuilder circular ref summary.codexBrief - replaced with summary.rawModelOutput. (3) DeepSeekTaskBuilder ref summary.deepseekTask - replaced with summary.suggestedFix. (4) ClineProvider.spec.ts read-only onDidChangeVisibility - fixed with Object.defineProperty. (5) Express v5 req.params typed as string|string[] - fixed all route handlers with Request<{param:string}> generics. Also installed express + @types/express. VSIX 3.53.2 built and installed.",
-			"status": "completed",
-			"project": "superroo2",
-			"agent": "Claude",
-			"filesChanged": [
-				"src/super-roo/ollama/OllamaPipeline.ts",
-				"src/super-roo/ollama/CodexBriefBuilder.ts",
-				"src/super-roo/ollama/DeepSeekTaskBuilder.ts",
-				"src/core/webview/__tests__/ClineProvider.spec.ts",
-				"src/super-roo/settings/routes/providerRoutes.ts",
-				"src/super-roo/settings/routes/modelRouterRoutes.ts"
-			],
-			"featuresAffected": [],
-			"notes": [],
-			"startedAt": "2026-05-17T11:25:42.719Z",
-			"updatedAt": "2026-05-17T11:25:42.719Z",
-			"completedAt": "2026-05-17T11:25:42.719Z"
-		},
-		{
-			"id": "codex_task_webview_visibility_refresh_20260517",
-			"title": "Add SuperRoo webview visibility refresh",
-			"summary": "Added a soft recovery refresh when the webview becomes visible again plus an immediate unhydrated handshake retry on document visibility changes.",
-			"status": "completed",
-			"project": "superroo2",
-			"agent": "Codex",
-			"filesChanged": [
-				"src/core/webview/ClineProvider.ts",
-				"webview-ui/src/App.tsx",
-				"src/core/webview/__tests__/ClineProvider.spec.ts",
-				"webview-ui/src/__tests__/App.spec.tsx"
-			],
-			"featuresAffected": ["webview-ui"],
-			"notes": [
-				"Switching away from and back to the SuperRoo view now triggers a state resend without destructive reload.",
-				"VS Code still needs one reload after VSIX reinstall before this new behavior is active."
-			],
-			"startedAt": "2026-05-17T09:19:20.415Z",
-			"updatedAt": "2026-05-17T09:19:20.415Z",
-			"completedAt": "2026-05-17T09:19:20.415Z"
-		},
-		{
-			"id": "codex_task_webview_blackout_20260517",
-			"title": "Fix SuperRoo webview blackout and finish MCP handoff",
-			"summary": "Fixed launch hydration so custom-mode load failures no longer leave the UI blank, added visible loading state, verified focused tests, and reinstalled the repaired VSIX.",
-			"status": "completed",
-			"project": "superroo2",
-			"agent": "Codex",
-			"filesChanged": [
-				"src/core/webview/webviewMessageHandler.ts",
-				"webview-ui/src/App.tsx",
-				"webview-ui/src/__tests__/App.spec.tsx",
-				"src/core/webview/__tests__/webviewMessageHandler.spec.ts"
-			],
-			"featuresAffected": ["webview-ui", "central-brain", "mcp"],
-			"notes": [
-				"Current Codex host session still needs reload to attach the newly configured MCP server.",
-				"Installed extension refreshed at 2026-05-17 17:12 local time; VS Code restart/window reload required to load it."
-			],
-			"startedAt": "2026-05-17T09:06:22.873Z",
-			"updatedAt": "2026-05-17T09:13:46.282Z",
-			"completedAt": "2026-05-17T09:13:46.282Z"
-		},
-		{
-			"id": "codex_task_bootstrap",
-			"title": "Wire Codex task memory",
-			"summary": "Implemented local + VPS persistent Codex task memory, exposed it through MCP and REST fallback, and verified live writes.",
-			"status": "completed",
-			"project": "superroo2",
-			"agent": "Codex",
-			"filesChanged": [
-				"AGENTS.md",
-				".roo/mcp.json",
-				"cloud/api/api.js",
-				"cloud/ecosystem.config.js",
-				"cloud/orchestrator/modules/CodexTaskLog.js",
-				"docs/super-roo/CENTRAL_BRAIN.md",
-				"server/src/memory/McpMemoryServer.ts",
-				"server/src/memory/codextask.json"
-			],
-			"featuresAffected": ["central-brain", "mcp"],
-			"notes": [],
-			"startedAt": "2026-05-17T08:57:44.126Z",
-			"updatedAt": "2026-05-17T09:04:03.107Z",
-			"completedAt": "2026-05-17T09:04:03.107Z"
-		}
-	]
+  "tasks": [
+    {
+      "id": "codex_task_learning_layer_release_20260517",
+      "title": "Release learning layer workflow",
+      "summary": "Committed the learning-layer gateway, curation workflow, outcome-aware ranking, and fallback bootstrap fix; verifying deployment next.",
+      "status": "active",
+      "project": "superroo2",
+      "agent": "Codex",
+      "filesChanged": [
+        "cloud/api/api.js",
+        "cloud/dashboard/src/components/views/intelligence-layer.tsx",
+        "cloud/orchestrator/modules/LearningGateway.js",
+        "cloud/orchestrator/modules/LearningPolicy.js"
+      ],
+      "featuresAffected": [
+        "learning-layer",
+        "intelligence-layer"
+      ],
+      "notes": [],
+      "startedAt": "2026-05-17T15:55:19.546Z",
+      "updatedAt": "2026-05-17T16:02:00.537Z",
+      "completedAt": null
+    },
+    {
+      "id": "codex_task_62e7fa7a-1506-4e9e-97a7-1303a886a378",
+      "title": "Fix extension TS errors - Express v5 types, OllamaPipeline, test mocks",
+      "summary": "Fixed 5 categories of TS errors blocking the VSIX build: (1) OllamaPipeline missing codexBrief/deepseekTask fields - wired up builders and added fields to result type. (2) CodexBriefBuilder circular ref summary.codexBrief - replaced with summary.rawModelOutput. (3) DeepSeekTaskBuilder ref summary.deepseekTask - replaced with summary.suggestedFix. (4) ClineProvider.spec.ts read-only onDidChangeVisibility - fixed with Object.defineProperty. (5) Express v5 req.params typed as string|string[] - fixed all route handlers with Request<{param:string}> generics. Also installed express + @types/express. VSIX 3.53.2 built and installed.",
+      "status": "completed",
+      "project": "superroo2",
+      "agent": "Claude",
+      "filesChanged": [
+        "src/super-roo/ollama/OllamaPipeline.ts",
+        "src/super-roo/ollama/CodexBriefBuilder.ts",
+        "src/super-roo/ollama/DeepSeekTaskBuilder.ts",
+        "src/core/webview/__tests__/ClineProvider.spec.ts",
+        "src/super-roo/settings/routes/providerRoutes.ts",
+        "src/super-roo/settings/routes/modelRouterRoutes.ts"
+      ],
+      "featuresAffected": [],
+      "notes": [],
+      "startedAt": "2026-05-17T11:25:42.719Z",
+      "updatedAt": "2026-05-17T11:25:42.719Z",
+      "completedAt": "2026-05-17T11:25:42.719Z"
+    },
+    {
+      "id": "codex_task_webview_visibility_refresh_20260517",
+      "title": "Add SuperRoo webview visibility refresh",
+      "summary": "Added a soft recovery refresh when the webview becomes visible again plus an immediate unhydrated handshake retry on document visibility changes.",
+      "status": "completed",
+      "project": "superroo2",
+      "agent": "Codex",
+      "filesChanged": [
+        "src/core/webview/ClineProvider.ts",
+        "webview-ui/src/App.tsx",
+        "src/core/webview/__tests__/ClineProvider.spec.ts",
+        "webview-ui/src/__tests__/App.spec.tsx"
+      ],
+      "featuresAffected": [
+        "webview-ui"
+      ],
+      "notes": [
+        "Switching away from and back to the SuperRoo view now triggers a state resend without destructive reload.",
+        "VS Code still needs one reload after VSIX reinstall before this new behavior is active."
+      ],
+      "startedAt": "2026-05-17T09:19:20.415Z",
+      "updatedAt": "2026-05-17T09:19:20.415Z",
+      "completedAt": "2026-05-17T09:19:20.415Z"
+    },
+    {
+      "id": "codex_task_webview_blackout_20260517",
+      "title": "Fix SuperRoo webview blackout and finish MCP handoff",
+      "summary": "Fixed launch hydration so custom-mode load failures no longer leave the UI blank, added visible loading state, verified focused tests, and reinstalled the repaired VSIX.",
+      "status": "completed",
+      "project": "superroo2",
+      "agent": "Codex",
+      "filesChanged": [
+        "src/core/webview/webviewMessageHandler.ts",
+        "webview-ui/src/App.tsx",
+        "webview-ui/src/__tests__/App.spec.tsx",
+        "src/core/webview/__tests__/webviewMessageHandler.spec.ts"
+      ],
+      "featuresAffected": [
+        "webview-ui",
+        "central-brain",
+        "mcp"
+      ],
+      "notes": [
+        "Current Codex host session still needs reload to attach the newly configured MCP server.",
+        "Installed extension refreshed at 2026-05-17 17:12 local time; VS Code restart/window reload required to load it."
+      ],
+      "startedAt": "2026-05-17T09:06:22.873Z",
+      "updatedAt": "2026-05-17T09:13:46.282Z",
+      "completedAt": "2026-05-17T09:13:46.282Z"
+    },
+    {
+      "id": "codex_task_bootstrap",
+      "title": "Wire Codex task memory",
+      "summary": "Implemented local + VPS persistent Codex task memory, exposed it through MCP and REST fallback, and verified live writes.",
+      "status": "completed",
+      "project": "superroo2",
+      "agent": "Codex",
+      "filesChanged": [
+        "AGENTS.md",
+        ".roo/mcp.json",
+        "cloud/api/api.js",
+        "cloud/ecosystem.config.js",
+        "cloud/orchestrator/modules/CodexTaskLog.js",
+        "docs/super-roo/CENTRAL_BRAIN.md",
+        "server/src/memory/McpMemoryServer.ts",
+        "server/src/memory/codextask.json"
+      ],
+      "featuresAffected": [
+        "central-brain",
+        "mcp"
+      ],
+      "notes": [],
+      "startedAt": "2026-05-17T08:57:44.126Z",
+      "updatedAt": "2026-05-17T09:04:03.107Z",
+      "completedAt": "2026-05-17T09:04:03.107Z"
+    }
+  ]
 }

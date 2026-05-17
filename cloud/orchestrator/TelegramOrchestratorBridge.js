@@ -28,25 +28,31 @@ class TelegramOrchestratorBridge {
 	 * @param {number|string} input.chatId
 	 * @param {string} input.instruction
 	 * @param {string} [input.agentId='coder']
+	 * @param {string} [input.agentType] - Fallback if agentId is not provided
+	 * @param {string} [input.tgTaskId] - Pre-generated Telegram task ID (preserves provenance)
+	 * @param {string} [input.source] - Source of the task (e.g. "/code", "nlp")
 	 * @param {string} [input.branchName]
 	 * @returns {object} Task in telegramBot-compatible format
 	 */
 	createTask(input) {
+		const resolvedAgent = input.agentId || input.agentType || "coder"
 		const taskId =
-			"TG-" + Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).slice(2, 6).toUpperCase()
+			input.tgTaskId ||
+			("TG-" + Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).slice(2, 6).toUpperCase())
 		const branchName = input.branchName || "tg/" + taskId.toLowerCase()
 
 		// Submit to orchestrator's task queue
 		const task = this.orchestrator.submit({
-			type: input.agentId || "coder",
+			type: resolvedAgent,
 			input: { instruction: input.instruction, chatId: input.chatId },
-			agent: input.agentId || "coder",
+			agent: resolvedAgent,
 			sessionId: String(input.chatId),
 			metadata: {
-				source: "telegram",
+				source: input.source || "telegram",
 				chatId: input.chatId,
 				taskId,
 				branchName,
+				tgTaskId: input.tgTaskId || null,
 			},
 		})
 
@@ -56,7 +62,7 @@ class TelegramOrchestratorBridge {
 			orchestratorTaskId: task.id,
 			instruction: input.instruction,
 			status: "queued",
-			agentId: input.agentId || "coder",
+			agentId: resolvedAgent,
 			branchName: branchName,
 			changedFiles: 0,
 			linesAdded: 0,

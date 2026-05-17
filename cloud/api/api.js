@@ -6072,6 +6072,33 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// POST /orchestrator/subtask-progress — receive sub-task progress updates from workers
+		if (method === "POST" && (url === "/orchestrator/subtask-progress" || normalizedUrl === "/orchestrator/subtask-progress")) {
+			if (!orchestrator) {
+				sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
+				return
+			}
+			const data = await parseBody(req)
+			if (!data.taskId || !data.subTaskId || !data.status) {
+				sendJson(res, 400, { success: false, error: "Missing required fields: taskId, subTaskId, status" })
+				return
+			}
+			orchestrator.eventLog.record({
+				type: "orchestrator.subtask_progress",
+				source: "OrchestratorWorker",
+				severity: data.status === "failed" ? "error" : "info",
+				payload: {
+					subTaskId: data.subTaskId,
+					status: data.status,
+					progress: data.progress,
+					message: data.message,
+				},
+				taskId: data.taskId,
+			})
+			sendJson(res, 200, { success: true })
+			return
+		}
+
 		// GET /orchestrator/tasks — list tasks
 		if (method === "GET" && (url === "/orchestrator/tasks" || normalizedUrl === "/orchestrator/tasks")) {
 			if (!orchestrator) {

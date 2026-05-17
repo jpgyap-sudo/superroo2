@@ -3,6 +3,7 @@ import * as path from "path"
 import * as diff from "diff"
 import { RooIgnoreController, LOCK_TEXT_SYMBOL } from "../ignore/RooIgnoreController"
 import { RooProtectedController } from "../protect/RooProtectedController"
+import type { FileAttachment } from "@superroo/types"
 
 export const formatResponse = {
 	toolDenied: () =>
@@ -114,6 +115,15 @@ Otherwise, if you have not completed the task and do not need additional informa
 		return formatImagesIntoBlocks(images)
 	},
 
+	/**
+	 * Formats file attachments into a text block for the LLM prompt context.
+	 * Text files are rendered as markdown code blocks with their content.
+	 * Non-text files (images, binaries) are listed by name only.
+	 */
+	formatFileAttachments: (files?: FileAttachment[]): string => {
+		return formatFileAttachments(files)
+	},
+
 	formatFilesList: (
 		absolutePath: string,
 		files: string[],
@@ -214,6 +224,23 @@ const formatImagesIntoBlocks = (images?: string[]): Anthropic.ImageBlockParam[] 
 				} as Anthropic.ImageBlockParam
 			})
 		: []
+}
+
+/**
+ * Formats file attachments into a text block for the LLM prompt context.
+ * Each file is rendered as a markdown code block with its filename as the header.
+ * Non-text files (images, binaries) are listed by name only since their content
+ * is not representable as text.
+ */
+function formatFileAttachments(files?: FileAttachment[]): string {
+	if (!files || files.length === 0) return ""
+	const blocks = files.map((f) => {
+		if (f.isText && f.content) {
+			return `[Attached File: ${f.name} (${f.type}, ${f.size} bytes)]\n\`\`\`\n${f.content}\n\`\`\``
+		}
+		return `[Attached File: ${f.name} (${f.type}, ${f.size} bytes)]`
+	})
+	return "\n\n" + blocks.join("\n\n")
 }
 
 const toolUseInstructionsReminderNative = `# Reminder: Instructions for Tool Use

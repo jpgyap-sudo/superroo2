@@ -56,19 +56,47 @@ try {
 const TELEGRAM_API_BASE = "https://api.telegram.org/bot"
 
 /** The bot username (without @) for mention detection */
-const BOT_USERNAME = "superroo_bot"
+const BOT_USERNAME = process.env.TELEGRAM_BOT_USERNAME || "superroo_bot"
 
 /** Boss-only mode: only @jpgy888 can use the bot */
-const BOSS_USERNAME = "jpgy888"
+const BOSS_USERNAME = process.env.BOSS_TELEGRAM_USERNAME || "jpgy888"
 
 /** Commands that don't require an active Telegram session */
 const PUBLIC_COMMANDS = ["/start", "/login", "/help", "/about", "/debug", "/logs", "/tests", "/restart", "/aceteam"]
 
 /** Mini App URL for login */
-const MINI_APP_URL = "https://dev.abcx124.xyz/telegram-miniapp"
+const DASHBOARD_URL = process.env.TELEGRAM_MINI_APP_URL || "https://dev.abcx124.xyz"
+const MINI_APP_URL = DASHBOARD_URL + "/telegram-miniapp"
 
 /** Telegram message length limit (Telegram API hard limit) */
 const TELEGRAM_MAX_MESSAGE_LENGTH = 4096
+
+// ─── Per-Chat Rate Limiting ────────────────────────────────────────────────
+
+/** Max commands per minute per chat */
+const RATE_LIMIT_MAX = 10
+/** Window size in milliseconds */
+const RATE_LIMIT_WINDOW_MS = 60 * 1000
+
+var rateLimitMap = new Map()
+
+function checkRateLimit(chatId) {
+	var now = Date.now()
+	var entry = rateLimitMap.get(chatId)
+	if (!entry) {
+		rateLimitMap.set(chatId, { count: 1, windowStart: now })
+		return { allowed: true }
+	}
+	if (now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
+		rateLimitMap.set(chatId, { count: 1, windowStart: now })
+		return { allowed: true }
+	}
+	if (entry.count >= RATE_LIMIT_MAX) {
+		return { allowed: false, retryAfter: Math.ceil((entry.windowStart + RATE_LIMIT_WINDOW_MS - now) / 1000) }
+	}
+	entry.count++
+	return { allowed: true }
+}
 
 // ─── Structured Error Logging for Ace Team ─────────────────────────────────
 
@@ -170,6 +198,9 @@ const conversationHistory = new Map()
 
 /** Path to persist conversation history */
 const CONVERSATION_HISTORY_FILE = path.join(__dirname, "..", "data", "conversation-history.json")
+
+/** Path to persist bot state (sessions, OTPs, tasks) */
+const TELEGRAM_BOT_STATE_FILE = path.join(__dirname, "..", "data", "telegram-bot-state.json")
 
 /** Max messages to keep per chat in memory */
 const MAX_CONVERSATION_MESSAGES = 50
@@ -362,7 +393,74 @@ function splitLongMessage(text, maxLen) {
 }
 
 /**
- * Sends a message to a Telegram chat, automatically splitting long messages
+	* Shared Ollama chat client — calls Ollama's /api/chat endpoint via http.request.
+	* Uses canonical env vars OLLAMA_BASE_URL and OLLAMA_MODEL with legacy fallbacks.
+	* Returns the response content string, or null if Ollama is unavailable/times out.
+	* @param {Array} messages - Array of {role, content} message objects
+	* @param {object} [options] - Optional overrides
+	* @param {number} [options.num_predict=4096] - Max tokens to generate
+	* @param {number} [options.temperature=0.7] - Temperature
+	* @param {number} [options.timeout=120_000] - Request timeout in ms
+	* @returns {Promise<string|null>}
+	*/
+async function _callOllamaChat(messages, options) {
+	options = options || {}
+	var ollamaBaseUrl = process.env.OLLAMA_BASE_URL || process.env.OLLAMA_HOST || "http://127.0.0.1:11434"
+	var ollamaModel = process.env.OLLAMA_MODEL || process.env.OLLAMA_CHAT_MODEL || "qwen2.5:0.5b"
+	var numPredict = options.num_predict || 4096
+	var temperature = options.temperature != null ? options.temperature : 0.7
+	var timeout = options.timeout || 120_000
+	try {
+		var http = require("http")
+		var postData = JSON.stringify({
+			model: ollamaModel,
+			messages: messages,
+			stream: false,
+			options: { temperature: temperature, num_predict: numPredict },
+		})
+		return await new Promise(function (resolve) {
+			var req = http.request(
+				ollamaBaseUrl + "/api/chat",
+				{
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"Content-Length": Buffer.byteLength(postData),
+					},
+					timeout: timeout,
+				},
+				function (res) {
+					var body = ""
+					res.on("data", function (chunk) {
+						body += chunk
+					})
+					res.on("end", function () {
+						try {
+							var data = JSON.parse(body)
+							resolve(data.message?.content || data.response || null)
+						} catch (e) {
+							resolve(null)
+						}
+					})
+				},
+			)
+			req.on("error", function () {
+				resolve(null)
+			})
+			req.on("timeout", function () {
+				req.destroy()
+				resolve(null)
+			})
+			req.write(postData)
+			req.end()
+		})
+	} catch (e) {
+		return null
+	}
+}
+
+/**
+	* Sends a message to a Telegram chat, automatically splitting long messages
  * into multiple API calls to respect Telegram's 4096-character limit.
  * Each chunk is sent as a separate message in sequence.
  */
@@ -612,6 +710,7 @@ function getSession(chatId) {
 	if (!session) return null
 	if (Date.now() - session.authenticatedAt > SESSION_TTL_MS) {
 		activeSessions.delete(chatId)
+		scheduleStatePersist()
 		return null
 	}
 	return session
@@ -629,6 +728,7 @@ function getSessionWithNotification(botToken, chatId) {
 	}
 	if (Date.now() - session.authenticatedAt > SESSION_TTL_MS) {
 		activeSessions.delete(chatId)
+		scheduleStatePersist()
 		// Only notify once per expiry event
 		if (!sessionExpiryNotified.get(chatId)) {
 			sessionExpiryNotified.set(chatId, true)
@@ -659,6 +759,7 @@ function createOrRefreshSession(chatId) {
 		otpVerifiedAt: null,
 	}
 	activeSessions.set(chatId, session)
+	scheduleStatePersist()
 	// Reset expiry notification flag
 	sessionExpiryNotified.delete(chatId)
 	return session
@@ -843,6 +944,88 @@ async function saveConversationHistory() {
 	} catch (err) {
 		console.error("[telegram] Failed to save conversation history:", err.message)
 	}
+}
+
+/** Debounce timeout for state persistence */
+let _statePersistTimeout = null
+
+/**
+ * Persists activeSessions, pendingOtpSecrets, pendingEmailOtps, and userTasks to disk.
+ * Called automatically after mutations (debounced).
+ */
+async function persistState() {
+	try {
+		const dir = path.dirname(TELEGRAM_BOT_STATE_FILE)
+		await fs.mkdir(dir, { recursive: true })
+		const state = {
+			activeSessions: Object.fromEntries(activeSessions),
+			pendingOtpSecrets: Object.fromEntries(pendingOtpSecrets),
+			pendingEmailOtps: Object.fromEntries(pendingEmailOtps),
+			userTasks: Object.fromEntries(userTasks),
+		}
+		await fs.writeFile(TELEGRAM_BOT_STATE_FILE, JSON.stringify(state), "utf-8")
+	} catch (err) {
+		console.error("[telegram] Failed to persist state:", err.message)
+	}
+}
+
+/**
+ * Loads persisted state from disk into the in-memory Maps.
+ * Called once at startup.
+ */
+async function loadState() {
+	try {
+		const data = await fs.readFile(TELEGRAM_BOT_STATE_FILE, "utf-8")
+		const parsed = JSON.parse(data)
+		if (parsed.activeSessions) {
+			for (const [k, v] of Object.entries(parsed.activeSessions)) {
+				activeSessions.set(k, v)
+			}
+		}
+		if (parsed.pendingOtpSecrets) {
+			for (const [k, v] of Object.entries(parsed.pendingOtpSecrets)) {
+				pendingOtpSecrets.set(k, v)
+			}
+		}
+		if (parsed.pendingEmailOtps) {
+			for (const [k, v] of Object.entries(parsed.pendingEmailOtps)) {
+				pendingEmailOtps.set(k, v)
+			}
+		}
+		if (parsed.userTasks) {
+			for (const [k, v] of Object.entries(parsed.userTasks)) {
+				if (Array.isArray(v)) userTasks.set(k, v)
+			}
+		}
+		console.log(
+			"[telegram] Loaded state: " +
+				activeSessions.size +
+				" sessions, " +
+				pendingOtpSecrets.size +
+				" OTP secrets, " +
+				pendingEmailOtps.size +
+				" email OTPs, " +
+				userTasks.size +
+				" user task lists",
+		)
+	} catch {
+		console.log("[telegram] No state file found, starting fresh")
+	}
+}
+
+/**
+ * Schedules a debounced persist of bot state.
+ */
+function scheduleStatePersist() {
+	if (_statePersistTimeout) {
+		clearTimeout(_statePersistTimeout)
+	}
+	_statePersistTimeout = setTimeout(function () {
+		_statePersistTimeout = null
+		persistState().catch(function (err) {
+			console.error("[telegram] Failed to persist state:", err.message)
+		})
+	}, 2000)
 }
 
 /**
@@ -1202,61 +1385,15 @@ async function askAI(message, providers, chatId, options) {
 	messages.push({ role: "user", content: message })
 
 	// ── Step 5: Try Ollama (local, FREE) first ─────────────────────────
-	// Uses http.request instead of fetch because Node.js 20's built-in fetch (undici)
-	// has a default headersTimeout of ~20s, but Ollama can take ~30s on cold start.
-	var ollamaBaseUrl = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434"
-	var ollamaModel = process.env.OLLAMA_CHAT_MODEL || "qwen2.5:0.5b"
-	try {
-		var http = require("http")
-		var postData = JSON.stringify({
-			model: ollamaModel,
-			messages: messages,
-			stream: false,
-			options: { temperature: 0.7, num_predict: 4096 },
-		})
-		var ollamaReply = await new Promise(function (resolve) {
-			var req = http.request(
-				ollamaBaseUrl + "/api/chat",
-				{
-					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-						"Content-Length": Buffer.byteLength(postData),
-					},
-					timeout: 120_000,
-				},
-				function (res) {
-					var body = ""
-					res.on("data", function (chunk) {
-						body += chunk
-					})
-					res.on("end", function () {
-						try {
-							var data = JSON.parse(body)
-							resolve(data.message?.content || data.response || null)
-						} catch (e) {
-							resolve(null)
-						}
-					})
-				},
-			)
-			req.on("error", function () {
-				resolve(null)
-			})
-			req.on("timeout", function () {
-				req.destroy()
-				resolve(null)
-			})
-			req.write(postData)
-			req.end()
-		})
-		if (ollamaReply) {
-			console.log("[telegram] askAI handled by Ollama (FREE)")
-			return ollamaReply
-		}
-	} catch (ollamaErr) {
-		console.log("[telegram] Ollama unavailable (" + ollamaErr.message + "), falling back to cloud API")
+	// Uses shared _callOllamaChat helper which uses http.request instead of fetch
+	// because Node.js 20's built-in fetch (undici) has a default headersTimeout of ~20s,
+	// but Ollama can take ~30s on cold start.
+	var ollamaReply = await _callOllamaChat(messages, { num_predict: 4096 })
+	if (ollamaReply) {
+		console.log("[telegram] askAI handled by Ollama (FREE)")
+		return ollamaReply
 	}
+	console.log("[telegram] Ollama unavailable, falling back to cloud API")
 
 	// ── Step 6: Try each cloud provider in order ────────────────────────
 	for (var i = 0; i < providers.length; i++) {
@@ -1406,74 +1543,41 @@ async function askAI(message, providers, chatId, options) {
 	// ── Step 5b: Offline fallback — try local Ollama when all cloud providers fail ──
 	// This enables the RAG learning loop: Ollama retrieves similar past fixes from
 	// pgvector and uses them as context to generate a response.
+	console.log("[telegram] All cloud providers failed — trying local Ollama fallback")
+
+	// Inject RAG context from BugKnowledgeStore before calling Ollama
 	try {
-		var ollamaBaseUrl = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434"
-		var ollamaModel = process.env.OLLAMA_CHAT_MODEL || "qwen2.5:0.5b"
-
-		console.log("[telegram] All cloud providers failed — trying local Ollama at " + ollamaBaseUrl)
-		var http = require("http")
-		var postData = JSON.stringify({
-			model: ollamaModel,
-			messages: messages,
-			stream: false,
-			options: { temperature: 0.7, num_predict: 2048 },
-		})
-		var ollamaReply = await new Promise(function (resolve) {
-			var req = http.request(
-				ollamaBaseUrl + "/api/chat",
-				{
-					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-						"Content-Length": Buffer.byteLength(postData),
-					},
-					timeout: 120_000,
-				},
-				function (res) {
-					var body = ""
-					res.on("data", function (chunk) {
-						body += chunk
-					})
-					res.on("end", function () {
-						try {
-							var data = JSON.parse(body)
-							resolve(data.message?.content || data.response || null)
-						} catch (e) {
-							resolve(null)
-						}
-					})
-				},
-			)
-			req.on("error", function () {
-				resolve(null)
+		var { BugKnowledgeStore } = require("../orchestrator/stores/BugKnowledgeStore")
+		var ragStore = new BugKnowledgeStore()
+		await ragStore.init()
+		var ragContext = await ragStore.buildRagContext(message, { maxResults: 3, threshold: 0.4 })
+		if (ragContext) {
+			messages.unshift({
+				role: "system",
+				content: "Here are similar past fixes from the knowledge base that may be relevant:\n\n" + ragContext,
 			})
-			req.on("timeout", function () {
-				req.destroy()
-				resolve(null)
-			})
-			req.write(postData)
-			req.end()
-		})
-
-		if (ollamaReply) {
-			// Log the exchange
-			if (chatId !== undefined && chatId !== null) {
-				addToConversationContext(chatId, "user", message)
-				addToConversationContext(chatId, "assistant", ollamaReply)
-			}
-			logChatExchange(chatId, "user", message, { intent: "ask" }).catch(function () {})
-			logChatExchange(chatId, "assistant", ollamaReply, { provider: "ollama", model: ollamaModel }).catch(
-				function () {},
-			)
-
-			console.log("[telegram] Ollama offline fallback succeeded for chat " + chatId)
-			return ollamaReply + "\n\n_(responded via local Ollama — cloud AI providers were unavailable)_"
-		} else {
-			var ollamaErrBody = "no response"
-			console.error("[telegram] Ollama fallback error: " + ollamaRes.status + " " + ollamaErrBody.slice(0, 100))
+			console.log("[telegram] Injected RAG context (" + ragContext.length + " chars) into Ollama fallback")
 		}
-	} catch (ollamaErr) {
-		console.error("[telegram] Ollama fallback failed: " + ollamaErr.message)
+		await ragStore.close()
+	} catch (err) {
+		console.log("[telegram] RAG context unavailable for Ollama fallback (non-fatal): " + err.message)
+	}
+
+	var ollamaReply = await _callOllamaChat(messages, { num_predict: 2048 })
+
+	if (ollamaReply) {
+		// Log the exchange
+		if (chatId !== undefined && chatId !== null) {
+			addToConversationContext(chatId, "user", message)
+			addToConversationContext(chatId, "assistant", ollamaReply)
+		}
+		logChatExchange(chatId, "user", message, { intent: "ask" }).catch(function () {})
+		logChatExchange(chatId, "assistant", ollamaReply, { provider: "ollama" }).catch(function () {})
+
+		console.log("[telegram] Ollama offline fallback succeeded for chat " + chatId)
+		return ollamaReply + "\n\n_(responded via local Ollama — cloud AI providers were unavailable)_"
+	} else {
+		console.error("[telegram] Ollama fallback returned no response")
 	}
 
 	var triedProviders = providers
@@ -1877,7 +1981,7 @@ async function handleCode(botToken, chatId, args, queue, orchestratorBridge) {
 				tgTaskId: taskId,
 				chatId: chatId,
 				instruction: instruction,
-				agentType: "superroo-coder-agent",
+				agentId: "superroo-coder-agent",
 				branchName: branchName,
 				source: "/code",
 			})
@@ -1969,7 +2073,7 @@ async function handleShell(botToken, chatId, args) {
 			chatId,
 			"*Shell Error* ❌\n\n" +
 				err.message +
-				"\n\nTry using the Cloud Dashboard terminal instead:\nhttps://dev.abcx124.xyz/ide-terminal",
+				"\n\nTry using the Cloud Dashboard terminal instead:\nDASHBOARD_URL/ide-terminal",
 		)
 	}
 }
@@ -2183,27 +2287,51 @@ async function handleDiff(botToken, chatId, args) {
 		return
 	}
 
-	await sendMessage(
-		botToken,
-		chatId,
-		"*Diff for " +
-			task.id +
-			"*\n\n*" +
-			task.changedFiles +
-			" files changed*\n*" +
-			task.linesAdded +
-			" lines added*\n*Branch:* `" +
-			task.branchName +
-			"`\n\nUse `/approve " +
-			task.id +
-			"` to approve or check the dashboard for full diff.",
-	)
+	await sendChatAction(botToken, chatId, "typing")
+	try {
+		var execAsync = promisify(require("child_process").exec)
+		var projectPath = task.projectPath || process.cwd()
+		var baseBranch = task.baseBranch || "main"
+		var diffResult = await execAsync("git diff --stat " + baseBranch + ".." + task.branchName, { cwd: projectPath })
+		var fullDiffResult = await execAsync("git diff " + baseBranch + ".." + task.branchName, { cwd: projectPath })
+		var diffText = "*Diff for " + task.id + "*\n\n"
+		if (diffResult.stdout) {
+			diffText += "*Summary:*\n```\n" + diffResult.stdout + "\n```\n\n"
+		}
+		if (fullDiffResult.stdout) {
+			var diffOutput = fullDiffResult.stdout
+			if (diffOutput.length > 3000) {
+				diffOutput = diffOutput.slice(0, 2997) + "..."
+			}
+			diffText += "*Changes:*\n```diff\n" + diffOutput + "\n```"
+		} else {
+			diffText += "No diff output."
+		}
+		await sendMessage(botToken, chatId, diffText)
+	} catch (err) {
+		console.error("[telegram] handleDiff error:", err.message)
+		await sendMessage(
+			botToken,
+			chatId,
+			"*Diff for " +
+				task.id +
+				"*\n\n*" +
+				task.changedFiles +
+				" files changed*\n*" +
+				task.linesAdded +
+				" lines added*\n*Branch:* `" +
+				task.branchName +
+				"`\n\nUse `/approve " +
+				task.id +
+				"` to approve or check the dashboard for full diff.",
+		)
+	}
 }
 
 /**
  * Handles /approve [taskId] - approves a pending task.
  */
-async function handleApprove(botToken, chatId, args) {
+async function handleApprove(botToken, chatId, args, orchestratorBridge) {
 	var taskId = args[0]
 	if (!taskId) {
 		await sendMessage(botToken, chatId, "Please specify a task ID.\n\nExample: `/approve TG-221`")
@@ -2220,6 +2348,14 @@ async function handleApprove(botToken, chatId, args) {
 	}
 
 	task.status = "approved"
+
+	if (orchestratorBridge) {
+		try {
+			orchestratorBridge.updateTaskStatus(task.id, "approved")
+		} catch (err) {
+			console.error("[telegram] Failed to update orchestrator task status:", err.message)
+		}
+	}
 
 	await sendMessage(
 		botToken,
@@ -2313,7 +2449,7 @@ async function handleDeploy(botToken, chatId, args, queue, orchestratorBridge) {
 				tgTaskId: taskId,
 				chatId: chatId,
 				instruction: "Deploy: " + (task.instruction || ""),
-				agentType: "superroo-deployer-agent",
+				agentId: "superroo-deployer-agent",
 				branchName: task.branchName || "main",
 				source: "/deploy",
 			})
@@ -2340,13 +2476,26 @@ async function handleDeploy(botToken, chatId, args, queue, orchestratorBridge) {
  */
 async function handleLogs(botToken, chatId, args) {
 	var limit = parseInt(args[0]) || 10
-	await sendMessage(
-		botToken,
-		chatId,
-		"*Recent Logs (last " +
-			limit +
-			")*\n\nLogs are available in the dashboard at https://dev.abcx124.xyz/logs\n\nUse `/status` to check system health.",
-	)
+	var target = args[1] || "all"
+	await sendChatAction(botToken, chatId, "typing")
+	try {
+		var result = await tgEndpoints.readLogs(target, limit)
+		var lines = result.logs || []
+		var reply = "*Recent Logs (last " + lines.length + ")* 📝\n\n"
+		if (lines.length === 0) {
+			reply += "No logs found for target `" + target + "`."
+		} else {
+			var output = lines.join("\n")
+			if (output.length > 3500) {
+				output = output.slice(0, 3497) + "..."
+			}
+			reply += "```\n" + output + "\n```"
+		}
+		await sendMessage(botToken, chatId, reply)
+	} catch (err) {
+		console.error("[telegram] handleLogs error:", err.message)
+		await sendMessage(botToken, chatId, "*Logs Error* ❌\n\nFailed to fetch logs: " + err.message)
+	}
 }
 
 // ─── New Auth-Integrated Command Handlers ────────────────────────────────
@@ -2424,8 +2573,8 @@ async function handleEmailOtpLogin(botToken, chatId, email, telegramUserId) {
 		return
 	}
 
-	// Generate a 6-digit OTP
-	var otp = Math.floor(100000 + Math.random() * 900000).toString()
+	// Generate a 6-digit OTP using cryptographically secure random
+	var otp = crypto.randomInt(100000, 999999).toString()
 
 	// Store the pending OTP
 	var state = pendingEmailOtps.get(chatId) || { step: "awaiting_email", messageIds: [] }
@@ -2595,7 +2744,7 @@ async function handleProjects(botToken, chatId, telegramUserId) {
 			await sendMessage(
 				botToken,
 				chatId,
-				"*No Projects Found*\n\nYou don't have any projects yet. Create one in the dashboard at https://dev.abcx124.xyz\n\nUse `/code <instruction>` to start a coding task in the default workspace.",
+				"*No Projects Found*\n\nYou don't have any projects yet. Create one in the dashboard at DASHBOARD_URL\n\nUse `/code <instruction>` to start a coding task in the default workspace.",
 			)
 			return
 		}
@@ -2720,7 +2869,7 @@ async function handleSettings(botToken, chatId) {
 		chatId,
 		"*Settings*\n\n" +
 			"Manage your account and preferences at the dashboard:\n" +
-			"https://dev.abcx124.xyz/settings\n\n" +
+			`${DASHBOARD_URL}/settings\n\n` +
 			"*Available options:*\n" +
 			"• Create/update your account (email + password)\n" +
 			"• Link Telegram to your account\n" +
@@ -2757,7 +2906,7 @@ async function handleMiniIde(botToken, chatId, telegramUserId) {
 			await sendMessage(
 				botToken,
 				chatId,
-				"*No Projects Found*\n\nYou don't have any projects yet. Create one in the SuperRoo Cloud Dashboard.\n\nhttps://dev.abcx124.xyz",
+				"*No Projects Found*\n\nYou don't have any projects yet. Create one in the SuperRoo Cloud Dashboard.\n\nDASHBOARD_URL",
 			)
 			return
 		}
@@ -2766,7 +2915,7 @@ async function handleMiniIde(botToken, chatId, telegramUserId) {
 			// Single project — open Mini IDE directly
 			var project = projects[0]
 			var miniIdeUrl =
-				"https://dev.abcx124.xyz/tg?workspace=" +
+				`${DASHBOARD_URL}/tg?workspace=` +
 				encodeURIComponent(project.id || project.project_id) +
 				"&chat_id=" +
 				chatId
@@ -2850,8 +2999,8 @@ async function handleBrain(botToken, chatId, args, providers) {
 					"• Commit/Deploy Tracking\n" +
 					"• Telegram Bot Interface\n" +
 					"• Infinite Learning Loop\n\n" +
-					"*API Base:* `https://dev.abcx124.xyz/api`\n" +
-					"*Dashboard:* `https://dev.abcx124.xyz`\n" +
+					"*API Base:* `DASHBOARD_URL/api`\n" +
+					"*Dashboard:* `DASHBOARD_URL`\n" +
 					"*Telegram:* @SuperRooBot\n\n" +
 					"*For AI Bots:* `GET /api/brain` to discover all endpoints\n\n" +
 					"*Subcommands:*\n" +
@@ -2883,8 +3032,6 @@ async function handleBrain(botToken, chatId, args, providers) {
 		)
 		return
 	}
-
-	subcommand = (args[0] || "").toLowerCase()
 
 	var subcommand = (args[0] || "").toLowerCase()
 	var query = args.slice(1).join(" ")
@@ -3399,7 +3546,7 @@ async function handleUpgrade(botToken, chatId, args, queue, orchestratorBridge) 
 					tgTaskId: taskId,
 					chatId: chatId,
 					instruction: upgradeGoal,
-					agentType: "superroo-coder-agent",
+					agentId: "superroo-coder-agent",
 					branchName: "upgrade/" + taskId.toLowerCase(),
 					source: "upgrade",
 				})
@@ -4546,7 +4693,7 @@ async function handleAbout(botToken, chatId) {
 			"• AI-powered coding assistant\n" +
 			"• Task queue with status tracking\n" +
 			"• Secure deploy with Google Authenticator OTP\n\n" +
-			"*Dashboard:* https://dev.abcx124.xyz\n" +
+			"*Dashboard:* DASHBOARD_URL\n" +
 			"*Support:* Use `/ask <question>` or tag @superroo_bot in group chat",
 	)
 }
@@ -4648,7 +4795,7 @@ async function handleSpecify(botToken, chatId, args, telegramUserId) {
 				botToken,
 				chatId,
 				"*No Projects Found*\n\n" +
-					"You don't have any projects yet. Create one in the dashboard at https://dev.abcx124.xyz",
+					"You don't have any projects yet. Create one in the dashboard at DASHBOARD_URL",
 			)
 			return
 		}
@@ -4759,7 +4906,7 @@ async function handleProjectSelect(botToken, chatId, messageId, projectId, teleg
 
 			// Send a follow-up message with Mini IDE WebApp button
 			const miniIdeUrl =
-				"https://dev.abcx124.xyz/tg?workspace=" + encodeURIComponent(projectId) + "&chat_id=" + chatId
+				`${DASHBOARD_URL}/tg?workspace=` + encodeURIComponent(projectId) + "&chat_id=" + chatId
 			await sendInlineKeyboard(
 				botToken,
 				chatId,
@@ -5237,8 +5384,8 @@ async function handleNaturalLanguageInstruction(
 		// Map OpenClaw kinds to agent IDs
 		var openclawToLegacy = {
 			coder: "superroo-coder-agent",
-			create_branch: "superroo-debugger-agent",
-			create_pr: "superroo-debugger-agent",
+			create_branch: "superroo-coder-agent",
+			create_pr: "superroo-coder-agent",
 			deploy: "superroo-deployer-agent",
 			delete_data: "superroo-deployer-agent",
 			shell: "superroo-debugger-agent",
@@ -5357,7 +5504,7 @@ async function handleNaturalLanguageInstruction(
 						tgTaskId: taskId,
 						chatId: chatId,
 						instruction: text,
-						agentType: legacyIntent,
+						agentId: legacyIntent,
 						branchName: branchName,
 						source: "nlp",
 					})
@@ -5408,7 +5555,7 @@ async function handleProjectsLegacy(botToken, chatId) {
 		"*Available Projects*\n\n" +
 			"1. *SuperRoo Cloud* — AI-powered coding assistant platform\n" +
 			"   Location: `/opt/superroo2`\n" +
-			"   Dashboard: https://dev.abcx124.xyz\n" +
+			"   Dashboard: DASHBOARD_URL\n" +
 			"   Commands: `/code`, `/ask`, `/deploy`, `/status`\n\n" +
 			"2. *Product Image Studio* — AI product photography using GPT Image & Gemini\n" +
 			"   Location: `/root/productgenerator`\n" +
@@ -5421,7 +5568,7 @@ async function handleProjectsLegacy(botToken, chatId) {
 			"*To code in a project:*\n" +
 			"Use `/code <instruction>` to create a coding task.\n" +
 			"Use `/ask <question>` to ask about any project.\n\n" +
-			"*Dashboard:* https://dev.abcx124.xyz",
+			"*Dashboard:* DASHBOARD_URL",
 	)
 }
 
@@ -5468,7 +5615,7 @@ async function handleHelp(botToken, chatId) {
 			"`/settings` - Account and system settings\n" +
 			"`/about` - Bot information\n" +
 			"`/help` - Show this message\n\n" +
-			"*Dashboard:* https://dev.abcx124.xyz\n" +
+			"*Dashboard:* DASHBOARD_URL\n" +
 			"*Tip:* Just type naturally — no need for `/ask` prefix!",
 	)
 }
@@ -6406,8 +6553,8 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 											"\n" +
 											"*Agents:* Hermes Claw, Ollama, Cloud Coder\n" +
 											"*Capabilities:* Memory (RAG), Commit/Deploy Tracking, Learning Loop\n\n" +
-											"*API Base:* `https://dev.abcx124.xyz/api`\n" +
-											"*Dashboard:* `https://dev.abcx124.xyz`\n" +
+											"*API Base:* `DASHBOARD_URL/api`\n" +
+											"*Dashboard:* `DASHBOARD_URL`\n" +
 											"*Telegram:* @SuperRooBot\n\n" +
 											"*For AI Bots:* `GET /api/brain` to discover all endpoints\n\n" +
 											"*Commands:*\n" +
@@ -6615,6 +6762,17 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 		}
 	}
 
+	// ─── Rate Limit Check ────────────────────────────────────────────────
+	var rateLimit = checkRateLimit(chatId)
+	if (!rateLimit.allowed) {
+		await sendMessage(
+			botToken,
+			chatId,
+			"*Rate Limited* ⏳\n\nYou've sent too many commands. Please wait " + rateLimit.retryAfter + " seconds.",
+		)
+		return
+	}
+
 	// ─── Command Routing ────────────────────────────────────────────────
 	// Support both slash commands AND natural language.
 	// Slash commands are kept for power users; natural language is the primary interface.
@@ -6704,10 +6862,10 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 			await handleCode(botToken, chatId, cmdArgs, queue, orchestratorBridge)
 		} else if (command === "/diff") {
 			logTelegramUsage("/diff", chatId, telegramUserId, { args: cmdArgs.join(" ") })
-			await handleDiff(botToken, chatId, cmdArgs)
+			await handleDiff(botToken, chatId, cmdArgs, orchestratorBridge)
 		} else if (command === "/approve") {
 			logTelegramUsage("/approve", chatId, telegramUserId, { args: cmdArgs.join(" ") })
-			await handleApprove(botToken, chatId, cmdArgs)
+			await handleApprove(botToken, chatId, cmdArgs, orchestratorBridge)
 		} else if (command === "/deploy") {
 			logTelegramUsage("/deploy", chatId, telegramUserId, { args: cmdArgs.join(" ") })
 			await handleDeploy(botToken, chatId, cmdArgs, queue, orchestratorBridge)

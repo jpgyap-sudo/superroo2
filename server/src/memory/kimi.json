@@ -63,6 +63,62 @@
 			"startedAt": "2026-05-17T13:20:00.000Z",
 			"updatedAt": "2026-05-17T13:35:00.000Z",
 			"completedAt": "2026-05-17T13:35:00.000Z"
+		},
+		{
+			"id": "kimi_task_commit_deploy_20260517",
+			"title": "Commit and deploy Ollama Growth + Telegram policy improvements",
+			"summary": "Committed changes (fa0a4909d) and deployed to production VPS via Tailscale SSH. API reloaded via PM2. Dashboard built locally and synced to VPS due to Ollama CPU overload preventing on-VPS build. Dashboard and API both verified healthy.",
+			"status": "completed",
+			"project": "superroo2",
+			"agent": "Kimi",
+			"filesChanged": [
+				"cloud/api/api.js",
+				"cloud/dashboard/.next/standalone/",
+				"server/src/memory/commit-deploy-log.json"
+			],
+			"featuresAffected": [
+				"cloud-dashboard",
+				"ollama-growth",
+				"telegram-policy",
+				"deployment"
+			],
+			"notes": [
+				"Commit SHA: fa0a4909d",
+				"VPS was overloaded by Ollama inference (100% CPU), so dashboard was built locally on Windows and rsync'd via tar+scp.",
+				"API endpoint /ollama-growth verified returning 200 with correct data.",
+				"Dashboard process verified online on port 3001, responding HTTP 200."
+			],
+			"startedAt": "2026-05-17T13:38:00.000Z",
+			"updatedAt": "2026-05-17T14:05:00.000Z",
+			"completedAt": "2026-05-17T14:05:00.000Z"
+		},
+		{
+			"id": "kimi_task_e2e_verify_20260517",
+			"title": "E2E verification and gap fixes for Ollama Growth tab",
+			"summary": "Found and fixed critical gaps: mixed-schema JSONL entries broke score breakdown chart, missing e2e tests, Windows-built standalone needed re-sync after fixes. All verified and deployed.",
+			"status": "completed",
+			"project": "superroo2",
+			"agent": "Kimi",
+			"filesChanged": [
+				"cloud/api/api.js",
+				"cloud/dashboard/src/components/views/ollama-growth.tsx",
+				"cloud/api/__tests__/test-ollama-growth.test.js",
+				"server/src/memory/commit-deploy-log.json"
+			],
+			"featuresAffected": [
+				"cloud-dashboard",
+				"ollama-growth",
+				"testing"
+			],
+			"notes": [
+				"Gap 1: HermesClaw writes simple health checks without category breakdowns; my code assumed all checks had breakdowns.",
+				"Gap 2: No e2e test existed for the /ollama-growth endpoint.",
+				"Gap 3: Dashboard build from Windows needed re-sync after code fixes.",
+				"All e2e tests pass (5/5). API direct, dashboard proxy, and nginx proxy all verified."
+			],
+			"startedAt": "2026-05-17T14:15:00.000Z",
+			"updatedAt": "2026-05-17T14:35:00.000Z",
+			"completedAt": "2026-05-17T14:35:00.000Z"
 		}
 	]
 }

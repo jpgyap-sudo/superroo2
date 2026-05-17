@@ -71,6 +71,7 @@ import {
 	Split,
 	ArrowRight,
 	Check,
+	FileText,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { PathTooltip } from "../ui/PathTooltip"
@@ -107,6 +108,22 @@ function getPreviousTodos(messages: ClineMessage[], currentMessageTs: number): a
 
 	// If no previous updateTodoList message, return empty array
 	return []
+}
+
+/**
+ * Extracts file names from message text that contain `--- filename ---` markers.
+ * These markers are added by buildMessageWithFiles() in ChatView.tsx when
+ * users attach files via the paperclip button.
+ */
+function extractAttachedFileNames(text?: string): string[] {
+	if (!text) return []
+	const regex = /^--- (.+?) ---$/gm
+	const names: string[] = []
+	let match
+	while ((match = regex.exec(text)) !== null) {
+		names.push(match[1])
+	}
+	return names
 }
 
 interface ChatRowProps {
@@ -1278,6 +1295,22 @@ export const ChatRowContent = ({
 								{!isEditing && message.images && message.images.length > 0 && (
 									<Thumbnails images={message.images} style={{ marginTop: "8px" }} />
 								)}
+								{!isEditing && (() => {
+									const fileNames = extractAttachedFileNames(message.text)
+									if (fileNames.length === 0) return null
+									return (
+										<div className="flex flex-wrap gap-1 px-2 pb-2" style={{ marginTop: "4px" }}>
+											{fileNames.map((name, i) => (
+												<div
+													key={i}
+													className="flex items-center gap-1 px-2 py-0.5 rounded bg-vscode-button-secondaryBackground text-vscode-button-secondaryForeground text-xs">
+													<FileText className="w-3 h-3 shrink-0" />
+													<span className="truncate max-w-[200px]">{name}</span>
+												</div>
+											))}
+										</div>
+									)
+								})()}
 							</div>
 						</div>
 					)

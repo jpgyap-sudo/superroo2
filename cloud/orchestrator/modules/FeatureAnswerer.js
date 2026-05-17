@@ -19,10 +19,12 @@ const http = require("http")
 const { FeatureKnowledgeIndexer } = require("./FeatureKnowledgeIndexer")
 
 // ── Config ──────────────────────────────────────────────────────────────────
+// Canonical env vars: OLLAMA_BASE_URL, OLLAMA_MODEL
+// Legacy fallbacks: OLLAMA_FEATURE_MODEL, OLLAMA_CHAT_MODEL
 
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434"
+const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || process.env.OLLAMA_HOST || "http://127.0.0.1:11434"
 const OLLAMA_MODEL =
-	process.env.OLLAMA_FEATURE_MODEL || process.env.OLLAMA_CHAT_MODEL || process.env.OLLAMA_MODEL || "qwen2.5:0.5b"
+	process.env.OLLAMA_MODEL || process.env.OLLAMA_FEATURE_MODEL || process.env.OLLAMA_CHAT_MODEL || "qwen2.5:0.5b"
 const OLLAMA_TIMEOUT_MS = parseInt(process.env.OLLAMA_TIMEOUT_MS || "30000", 10)
 
 // Max chars to include per chunk in the Ollama context window
