@@ -59,6 +59,7 @@ const NAV = [
 	{ id: "commit-deploy", icon: GitCommit, label: "Commit/Deploy" },
 	{ id: "intelligence-layer", icon: BrainCircuit, label: "Intelligence Layer" },
 	{ id: "brain", icon: BrainCircuit, label: "Central Brain" },
+	{ id: "ollama-growth", icon: BrainCircuit, label: "Ollama Growth" },
 ]
 
 export function Sidebar({ page, setPage }: { page: string; setPage: (p: string) => void }) {

@@ -28,6 +28,7 @@ import { CommitDeployView } from "@/components/views/commit-deploy"
 import { BrainView } from "@/components/views/brain"
 import { IntelligenceLayerView } from "@/components/views/intelligence-layer"
 import WorkflowComplianceView from "@/components/views/workflow-compliance"
+import OllamaGrowthView from "@/components/views/ollama-growth"
 import { LoginPage } from "@/components/auth/login"
 
 const PAGES: Record<string, React.FC> = {
@@ -56,6 +57,7 @@ const PAGES: Record<string, React.FC> = {
 	"commit-deploy": CommitDeployView,
 	"intelligence-layer": IntelligenceLayerView,
 	brain: BrainView,
+	"ollama-growth": OllamaGrowthView,
 }
 
 function StatusDot({ online }: { online: boolean }) {
@@ -155,6 +157,7 @@ export default function Dashboard() {
 			brain: "Central Brain",
 			"intelligence-layer": "Intelligence Layer",
 			"workflow-compliance": "Workflow",
+			"ollama-growth": "Ollama Growth",
 		}[page] || page
 
 	// Show login page while checking auth or if not authenticated

@@ -1751,6 +1751,114 @@ async function getDockerStats() {
 	}
 }
 
+// Ollama Intelligence Growth data
+async function getOllamaGrowthData() {
+	const memoryDir = path.join(__dirname, "..", "..", "memory", "ollama")
+	const growthFile = path.join(memoryDir, "growth-events.jsonl")
+	const readinessFile = path.join(memoryDir, "readiness-checks.jsonl")
+	const reportFile = path.join(memoryDir, "readiness-report.json")
+
+	let events = []
+	let checks = []
+	let report = { generated_at: null, total_score: 0, level: "Unknown", recommendation: "" }
+
+	try {
+		const growthRaw = await fs.readFile(growthFile, "utf8").catch(() => "")
+		events = growthRaw
+			.split("\n")
+			.filter((l) => l.trim())
+			.map((l) => {
+				try {
+					return JSON.parse(l)
+				} catch {
+					return null
+				}
+			})
+			.filter(Boolean)
+	} catch {
+		events = []
+	}
+
+	try {
+		const readinessRaw = await fs.readFile(readinessFile, "utf8").catch(() => "")
+		checks = readinessRaw
+			.split("\n")
+			.filter((l) => l.trim())
+			.map((l) => {
+				try {
+					return JSON.parse(l)
+				} catch {
+					return null
+				}
+			})
+			.filter(Boolean)
+	} catch {
+		checks = []
+	}
+
+	try {
+		const reportRaw = await fs.readFile(reportFile, "utf8").catch(() => "{}")
+		report = JSON.parse(reportRaw)
+	} catch {
+		report = { generated_at: null, total_score: 0, level: "Unknown", recommendation: "" }
+	}
+
+	// Compute aggregated stats
+	const latestCheck = checks.length > 0 ? checks[checks.length - 1] : null
+	const avgScore =
+		checks.length > 0 ? Math.round(checks.reduce((s, c) => s + (c.total_score || 0), 0) / checks.length) : 0
+	const eventTypes = {}
+	for (const ev of events) {
+		const t = ev.event_type || "unknown"
+		eventTypes[t] = (eventTypes[t] || 0) + 1
+	}
+	const totalEvents = events.length
+	const totalChecks = checks.length
+
+	// Readiness level thresholds
+	function getLevel(score) {
+		if (score <= 40) return "Summarizer only"
+		if (score <= 60) return "Memory assistant"
+		if (score <= 75) return "Patch suggester"
+		if (score <= 85) return "Junior coder"
+		return "Main coder candidate"
+	}
+
+	function getRecommendation(score) {
+		if (score <= 40) return "Keep Ollama as summarizer only."
+		if (score <= 60) return "Use for memory retrieval."
+		if (score <= 75) return "Use for patch suggestions only."
+		if (score <= 85) return "Allow small coding tasks with review."
+		return "Main coder candidate with review."
+	}
+
+	const currentScore = latestCheck?.total_score || report.total_score || 0
+	const currentLevel = latestCheck?.level || getLevel(currentScore)
+	const currentRecommendation =
+		latestCheck?.recommendation || getRecommendation(currentScore) || report.recommendation
+
+	return {
+		readiness: {
+			total_score: currentScore,
+			level: currentLevel,
+			recommendation: currentRecommendation,
+			avg_score: avgScore,
+			check_count: totalChecks,
+			latest_check: latestCheck,
+		},
+		growth: {
+			event_count: totalEvents,
+			event_types: eventTypes,
+			events: events.slice(-20),
+		},
+		timeline: checks.map((c) => ({
+			date: c.created_at,
+			score: c.total_score,
+			level: c.level,
+		})),
+	}
+}
+
 // Get logs from files
 async function getLogs(limit = 50, target = "") {
 	try {
@@ -2340,6 +2448,13 @@ const server = http.createServer(async (req, res) => {
 		if (method === "GET" && (url === "/system" || normalizedUrl === "/system")) {
 			const stats = await getSystemStats()
 			sendJson(res, 200, stats)
+			return
+		}
+
+		// Ollama Intelligence Growth
+		if (method === "GET" && (url === "/ollama-growth" || normalizedUrl === "/ollama-growth")) {
+			const growthData = await getOllamaGrowthData()
+			sendJson(res, 200, { success: true, ...growthData })
 			return
 		}
 
@@ -6830,6 +6945,40 @@ const server = http.createServer(async (req, res) => {
 					deploys,
 					totalCommits: (data.commits || []).length,
 					totalDeploys: (data.deploys || []).length,
+				})
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /memory-explorer — search engineering lessons from memory/lessons.jsonl
+		if (method === "GET" && (url.startsWith("/memory-explorer") || normalizedUrl.startsWith("/memory-explorer"))) {
+			try {
+				const fs = require("fs")
+				const path = require("path")
+				const lessonsPath = path.join(__dirname, "../../memory/lessons.jsonl")
+				const q = (parsedUrl.query.q || "").toLowerCase()
+				let lessons = []
+				if (fs.existsSync(lessonsPath)) {
+					lessons = fs
+						.readFileSync(lessonsPath, "utf8")
+						.split(/\r?\n/)
+						.filter(Boolean)
+						.map((line) => JSON.parse(line))
+				}
+				const filtered = q ? lessons.filter((l) => JSON.stringify(l).toLowerCase().includes(q)) : lessons
+				const tagCounts = {}
+				lessons.forEach((l) => {
+					;(l.tags || []).forEach((t) => {
+						tagCounts[t] = (tagCounts[t] || 0) + 1
+					})
+				})
+				sendJson(res, 200, {
+					lessons: filtered,
+					total: lessons.length,
+					filtered: filtered.length,
+					tagCounts,
 				})
 			} catch (err) {
 				sendJson(res, 500, { success: false, error: err.message })
