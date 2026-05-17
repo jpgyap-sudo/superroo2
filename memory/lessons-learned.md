@@ -8324,3 +8324,81 @@ Document the durable insight from this change.
 learning-layer
 
 ---
+
+### Auto-Extracted Lesson: (telegram): rate limiting, secure OTP, webhook validation, stub handlers, enr...
+
+Date: 2026-05-17
+Source: Git commit 572fc12e
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/api/__tests__/test-telegram-bot.test.js, cloud/api/telegramBot.js, cloud/api/telegramNotifier.js, memory/lesson-index.jsonl, memory/lessons-learned.md
+
+#### Task Summary
+fix(telegram): rate limiting, secure OTP, webhook validation, stub handlers, enriched lessons
+
+#### Files Changed
+- `cloud/api/__tests__/test-telegram-bot.test.js`
+- `cloud/api/telegramBot.js`
+- `cloud/api/telegramNotifier.js`
+- `memory/lesson-index.jsonl`
+- `memory/lessons-learned.md`
+
+#### Bug Cause
+<!-- TODO: Document what caused the issue -->
+Unknown — extracted from commit 572fc12e.
+
+#### Fix Applied
+<!-- TODO: Document the solution -->
+See commit 572fc12e by JPG Yap.
+
+#### Test Result
+Tests were included in this commit.
+
+#### Lesson Learned
+<!-- TODO: Extract reusable lesson -->
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+<!-- TODO: Define a specific rule for future agents -->
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+testing, api, bugfix
+
+---
+
+### Lesson: Claude Task Tracking System — MCP Memory Server Integration
+
+Date: 2026-05-17
+Source: DeepSeek task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: server/src/memory/McpMemoryServer.ts, server/src/memory/claudetask.json, CLAUDE.md
+
+#### Task Summary
+Created a Claude task tracking system mirroring the existing Codex and Kimi task memory patterns. Added `claude_task_*` MCP actions (upsert, list, get, get_active) to the MCP Memory Server, created `claudetask.json` with empty tasks array, and updated `CLAUDE.md` with task tracking instructions.
+
+#### Files Changed
+- server/src/memory/McpMemoryServer.ts — Added CLAUDE_TASK_LOG_PATH constant, ClaudeTaskRecord/ClaudeTaskLogFile interfaces, 4 claude_task_* MCP tool definitions, handler cases, memory://claude/tasks resource, claudetask.json to search index, and 6 _claudeTask* helper methods
+- server/src/memory/claudetask.json — Created with empty tasks array (same schema as codextask.json and kimi.json)
+- CLAUDE.md — Added Claude Task Memory section with rules and MCP tool documentation
+
+#### Bug Cause
+N/A — new feature, no bug
+
+#### Fix Applied
+N/A
+
+#### Test Result
+All 6 PM2 services online after deployment (api, dashboard, worker, mini-ide, auto-deployer, mcp-memory)
+
+#### Lesson Learned
+When adding a new agent task tracking system to the MCP Memory Server, follow the exact pattern of existing agent implementations (Codex → Kimi → Claude). Each agent needs: (1) a JSON log file, (2) a path constant, (3) TypeScript interfaces, (4) 4 MCP tool definitions in _registerTools(), (5) handler cases in _handleToolCall(), (6) a resource endpoint in _registerResources(), (7) the JSON file added to _searchLocalMemory(), and (8) 6 helper methods (read, write, upsert, list, get, getActive). The CLAUDE.md file follows the same pattern as .codex/config.toml for Codex.
+
+#### Reusable Rule
+When adding a new agent type to the MCP Memory Server, always add all 8 integration points in order: constant → interfaces → tool definitions → handlers → resource → search → helpers → agent config file. Missing any one breaks the full workflow.
+
+#### Tags
+mcp, memory, claude, task-tracking, agent-config, deployment
+
+---
