@@ -77,6 +77,7 @@ class CloudOrchestrator extends EventEmitter {
 
 		// HermesClaw — Memory & Context Agent
 		this.hermesClaw = null
+		this.learningGateway = null
 
 		// Internal state
 		this._running = false
@@ -567,6 +568,11 @@ class CloudOrchestrator extends EventEmitter {
 		console.log("[CloudOrchestrator] HermesClaw registered")
 	}
 
+	registerLearningGateway(learningGateway) {
+		this.learningGateway = learningGateway
+		console.log("[CloudOrchestrator] LearningGateway registered")
+	}
+
 	// ─── Status ─────────────────────────────────────────────────────────
 
 	/**
@@ -574,32 +580,41 @@ class CloudOrchestrator extends EventEmitter {
 	 * @returns {object}
 	 */
 	getStatus() {
+		const moduleEntries = {
+			memory: !!this.memory,
+			eventLog: !!this.eventLog,
+			taskQueue: !!this.taskQueue,
+			safetyManager: !!this.safetyManager,
+			agentRegistry: !!this.agentRegistry,
+			featureRegistry: !!this.featureRegistry,
+			bugRegistry: !!this.bugRegistry,
+			commitDeployLog: !!this.commitDeployLog,
+			healingBus: !!this.healingBus,
+			selfHealingLoop: !!this.selfHealingLoop,
+			parallelExecutor: !!this.parallelExecutor,
+			agentBus: !!this.agentBus,
+			improvementLoop: !!this.improvementLoop,
+			crawlerAgent: !!this.crawlerAgent,
+			deployOrchestrator: !!this.deployOrchestrator,
+			fileImporter: !!this.fileImporter,
+			cpuGuard: !!this.cpuGuard,
+			hermesClaw: !!this.hermesClaw,
+			learningGateway: !!this.learningGateway,
+		}
 		return {
 			running: this._running,
 			mode: this.mode,
 			selfImproveEnabled: this.selfImproveEnabled,
 			startedAt: this._startedAt,
 			uptime: this._startedAt ? Date.now() - this._startedAt : 0,
-			modules: {
-				memory: !!this.memory,
-				eventLog: !!this.eventLog,
-				taskQueue: !!this.taskQueue,
-				safetyManager: !!this.safetyManager,
-				agentRegistry: !!this.agentRegistry,
-				featureRegistry: !!this.featureRegistry,
-				bugRegistry: !!this.bugRegistry,
-				commitDeployLog: !!this.commitDeployLog,
-				healingBus: !!this.healingBus,
-				selfHealingLoop: !!this.selfHealingLoop,
-				parallelExecutor: !!this.parallelExecutor,
-				agentBus: !!this.agentBus,
-				improvementLoop: !!this.improvementLoop,
-				crawlerAgent: !!this.crawlerAgent,
-				deployOrchestrator: !!this.deployOrchestrator,
-				fileImporter: !!this.fileImporter,
-				cpuGuard: !!this.cpuGuard,
-				hermesClaw: !!this.hermesClaw,
-			},
+			modules: moduleEntries,
+			// Report which modules are actually loaded vs just defined as null slots
+			loadedModules: Object.entries(moduleEntries)
+				.filter(([, loaded]) => loaded)
+				.map(([name]) => name),
+			unloadedModules: Object.entries(moduleEntries)
+				.filter(([, loaded]) => !loaded)
+				.map(([name]) => name),
 			taskStats: this.taskQueue ? this.taskQueue.getStats() : null,
 			eventStats: this.eventLog ? this.eventLog.getStats() : null,
 		}

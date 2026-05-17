@@ -176,13 +176,35 @@ class TaskExecutor {
 		// ── Step 1: HermesClaw context recall (before breakdown) ──────────
 		// Inject relevant past experiences into the breakdown plan
 		let hermesContext = ""
+		if (orchestrator.learningGateway) {
+			try {
+				const lessonResult = await orchestrator.learningGateway.search({
+					query: instruction.substring(0, 200),
+					topK: 3,
+					taskId: task.id,
+					compact: true,
+				})
+				if (lessonResult.compact) {
+					hermesContext = lessonResult.compact
+					orchestrator.eventLog.record({
+						type: "learning.lessons_recalled",
+						source: "TaskExecutor",
+						severity: "info",
+						payload: { taskId: task.id, lessonCount: lessonResult.lessons.length },
+						taskId: task.id,
+					})
+				}
+			} catch (lessonErr) {
+				console.error(`[TaskExecutor] Learning gateway recall failed: ${lessonErr.message}`)
+			}
+		}
 		if (this.hermesClaw) {
 			try {
 				const contextResult = await this.hermesClaw.recallContext(
 					`Planning task: ${instruction.substring(0, 200)}`,
 					3,
 				)
-				if (contextResult.success && contextResult.output) {
+				if (!hermesContext && contextResult.success && contextResult.output) {
 					hermesContext = contextResult.output
 					orchestrator.eventLog.record({
 						type: "hermes.context_recalled",

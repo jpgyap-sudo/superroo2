@@ -68,9 +68,10 @@ export class PromptEnhancer {
 			}
 
 			// Remove duplicates and filter by relevance
-			const uniqueLessons = this.deduplicate(fileLessons)
-				.filter((l) => l.relevance_score >= minRelevance)
-				.slice(0, limit)
+			const uniqueLessons = this.filterLessons(
+				this.deduplicate(fileLessons).filter((l) => l.relevance_score >= minRelevance),
+				options,
+			).slice(0, limit)
 
 			if (uniqueLessons.length >= 3) {
 				return uniqueLessons
@@ -79,7 +80,10 @@ export class PromptEnhancer {
 
 		// Otherwise, get lessons for the task type
 		if (options.taskType) {
-			const taskLessons = await this.retriever.getLessonsForTask(options.taskType, limit)
+			const taskLessons = this.filterLessons(
+				await this.retriever.getLessonsForTask(options.taskType, limit),
+				options,
+			)
 
 			if (taskLessons.length > 0) {
 				return taskLessons
@@ -87,7 +91,7 @@ export class PromptEnhancer {
 		}
 
 		// Fallback to top lessons overall
-		return this.retriever.getTopLessons(limit)
+		return this.filterLessons(await this.retriever.getTopLessons(limit), options)
 	}
 
 	/**
@@ -100,6 +104,14 @@ export class PromptEnhancer {
 				return false
 			}
 			seen.add(lesson.id)
+			return true
+		})
+	}
+
+	private filterLessons(lessons: Lesson[], options: EnhanceOptions): Lesson[] {
+		return lessons.filter((lesson) => {
+			if (options.bugsOnly && lesson.type !== "bugfix") return false
+			if (options.rulesOnly && !lesson.rule_summary?.trim()) return false
 			return true
 		})
 	}

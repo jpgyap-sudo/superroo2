@@ -512,13 +512,18 @@ async function initOrchestrator() {
 		})
 
 		// ── HermesClaw — Memory & Context Agent ─────────────────────────
-		const { HermesClaw } = safeRequire("../orchestrator/modules/HermesClaw")
-		const hermesClaw = new HermesClaw({
-			apiKey: process.env.OPENAI_API_KEY || "",
-			fallbackApiKey: process.env.DEEPSEEK_API_KEY || "",
-		})
-		await hermesClaw.init()
-		orchestrator.registerHermesClaw(hermesClaw)
+		let hermesClaw = null
+		try {
+			const { HermesClaw } = safeRequire("../orchestrator/modules/HermesClaw")
+			hermesClaw = new HermesClaw({
+				apiKey: process.env.OPENAI_API_KEY || "",
+				fallbackApiKey: process.env.DEEPSEEK_API_KEY || "",
+			})
+			await hermesClaw.init()
+			orchestrator.registerHermesClaw(hermesClaw)
+		} catch (err) {
+			console.warn(`[orchestrator] HermesClaw unavailable; continuing with local learning only: ${err.message}`)
+		}
 		const { LearningGateway } = safeRequire("../orchestrator/modules/LearningGateway")
 		orchestrator.registerLearningGateway(
 			new LearningGateway({

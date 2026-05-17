@@ -377,7 +377,23 @@ class BugKnowledgeStore {
 	async storeLesson(lesson) {
 		const client = await this._getClient()
 		try {
-			const embeddingText = `${lesson.topic}\n${lesson.content}`
+			const normalized = {
+				lesson_type: lesson.lesson_type || lesson.type || "best_practice",
+				topic: lesson.topic || lesson.summary || lesson.problem || "Untitled lesson",
+				content:
+					lesson.content ||
+					lesson.details ||
+					[lesson.root_cause, lesson.solution].filter(Boolean).join("\n") ||
+					lesson.summary ||
+					"",
+				source_task_id: lesson.source_task_id || lesson.task_id || lesson.raw_ref || null,
+				metadata: {
+					...(lesson.metadata || {}),
+					agent_type: lesson.agent_type,
+					features_affected: lesson.features_affected,
+				},
+			}
+			const embeddingText = `${normalized.topic}\n${normalized.content}`
 			const embedding = await this._generateEmbedding(embeddingText)
 
 			const result = await client.query(
@@ -386,12 +402,12 @@ class BugKnowledgeStore {
 				 VALUES ($1, $2, $3, $4, $5, $6)
 				 RETURNING id`,
 				[
-					lesson.lesson_type,
-					lesson.topic,
-					lesson.content,
-					lesson.source_task_id || null,
+					normalized.lesson_type,
+					normalized.topic,
+					normalized.content,
+					normalized.source_task_id,
 					embedding ? `[${embedding.join(",")}]` : null,
-					JSON.stringify(lesson.metadata || {}),
+					JSON.stringify(normalized.metadata),
 				],
 			)
 

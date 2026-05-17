@@ -175,6 +175,64 @@ async function appendLesson(lessonContent) {
 }
 
 /**
+ * Generate and append lesson index entry
+ */
+async function appendIndexEntry(analysis) {
+  const date = new Date().toISOString().split('T')[0]
+  
+  const tags = []
+  if (analysis.files.some(f => f.includes('test'))) tags.push('testing')
+  if (analysis.files.some(f => f.includes('ml/'))) tags.push('ml-engine')
+  if (analysis.files.some(f => f.includes('ui/') || f.includes('webview'))) tags.push('ui')
+  if (analysis.files.some(f => f.includes('api/'))) tags.push('api')
+  if (analysis.files.some(f => f.includes('deploy'))) tags.push('deployment')
+  if (analysis.files.some(f => f.includes('telegram'))) tags.push('telegram')
+  if (analysis.files.some(f => f.includes('docker'))) tags.push('docker')
+  if (analysis.files.some(f => f.includes('terminal'))) tags.push('terminal')
+  if (analysis.message.toLowerCase().includes('fix')) tags.push('bugfix')
+  if (analysis.message.toLowerCase().includes('refactor')) tags.push('refactor')
+  if (analysis.message.toLowerCase().includes('performance')) tags.push('performance')
+  
+  let title = analysis.message
+    .replace(/^(fix|bug|lesson|workaround|solution|issue|error|crash|refactor|performance)[\s:]*-?\s*/i, '')
+    .trim()
+  title = title.charAt(0).toUpperCase() + title.slice(1)
+  if (title.length > 80) title = title.slice(0, 77) + '...'
+
+  // Get next ID
+  let nextId = 1
+  try {
+    const indexContent = await fs.readFile(INDEX_FILE, 'utf-8')
+    const lines = indexContent.split('\n').filter(l => l.trim())
+    nextId = lines.length + 1
+  } catch {
+    nextId = 1
+  }
+
+  const entry = {
+    id: `lesson-${String(nextId).padStart(3, '0')}`,
+    title,
+    type: analysis.message.toLowerCase().includes('fix') ? 'bugfix' : 'lesson',
+    date,
+    source: `Git commit ${analysis.sha.slice(0, 8)}`,
+    model: analysis.author || 'unknown',
+    confidence: 'medium',
+    files: analysis.files.slice(0, 5),
+    tags,
+    relevance_score: 0.75,
+    relevance_factors: {
+      is_bug_fix: analysis.message.toLowerCase().includes('fix'),
+      has_tests: analysis.hasTestFiles,
+      affects_multiple_files: analysis.files.length > 1,
+    },
+    rule_summary: 'TODO: Add a specific, actionable rule based on this commit.',
+    lesson_summary: 'To be determined — this commit was auto-flagged as potentially containing a lesson.'
+  }
+
+  await fs.appendFile(INDEX_FILE, JSON.stringify(entry) + '\n')
+}
+
+/**
  * Interactive mode - prompts user for details
  */
 async function interactiveMode() {
@@ -214,8 +272,11 @@ async function interactiveMode() {
     console.log('Review and edit the template in memory/lessons-learned.md')
     
     // Append with TODO markers for manual editing
-    await appendLesson(template)
-    console.log('✅ Template appended to memory/lessons-learned.md')
+    const appended = await appendLesson(template)
+    if (appended) {
+      await appendIndexEntry(analysis)
+      console.log('✅ Template appended to memory/lessons-learned.md and memory/lesson-index.jsonl')
+    }
     
   } catch (error) {
     console.error('Error:', error.message)
@@ -244,6 +305,7 @@ async function main() {
       const appended = await appendLesson(template)
       
       if (appended) {
+        await appendIndexEntry(analysis)
         console.log(`✅ Auto-extracted lesson from commit ${sha.slice(0, 8)}`)
         console.log('   Please review and complete the TODO sections.')
       }

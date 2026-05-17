@@ -52,6 +52,8 @@ export interface Lesson {
 export interface RetrieveOptions {
 	/** Filter by tags (lessons must have ALL specified tags) */
 	tags?: string[]
+	/** Match any tag instead of requiring every tag */
+	matchAnyTag?: boolean
 	/** Filter by file patterns */
 	files?: string[]
 	/** Filter by lesson type */
@@ -116,8 +118,10 @@ export class LessonRetriever {
 		let results = this.lessons.filter((lesson) => {
 			// Filter by tags
 			if (options.tags && options.tags.length > 0) {
-				const hasAllTags = options.tags.every((tag) => lesson.tags.includes(tag))
-				if (!hasAllTags) return false
+				const hasMatchingTags = options.matchAnyTag
+					? options.tags.some((tag) => lesson.tags.includes(tag))
+					: options.tags.every((tag) => lesson.tags.includes(tag))
+				if (!hasMatchingTags) return false
 			}
 
 			// Filter by files
@@ -226,6 +230,7 @@ export class LessonRetriever {
 
 		return this.retrieve({
 			tags,
+			matchAnyTag: true,
 			sortBy: "relevance_score",
 			sortOrder: "desc",
 			limit,

@@ -952,6 +952,29 @@ async function runCoderCommit(job, jobId, taskId, telegram) {
 		}
 	}
 
+	// Store lesson in BugKnowledgeStore after successful commit
+	try {
+		const { BugKnowledgeStore } = require("../orchestrator/stores/BugKnowledgeStore")
+		const ragStore = new BugKnowledgeStore()
+		await ragStore.init()
+		await ragStore.storeLesson({
+			task_id: taskId || jobId,
+			agent_type: "coder",
+			summary: `Committed changes: ${commitMessage}`,
+			details: JSON.stringify({
+				commitHash,
+				branch: branch || "unknown",
+				instruction: instruction?.substring(0, 200),
+			}),
+			lesson_type: "commit",
+			features_affected: [],
+		})
+		log("coder", jobId, `Lesson stored in BugKnowledgeStore for commit ${commitHash}`)
+		await ragStore.close()
+	} catch (err) {
+		log("coder", jobId, `Failed to store commit lesson (non-fatal): ${err.message}`)
+	}
+
 	return {
 		success: true,
 		output,
@@ -1038,6 +1061,30 @@ async function runCoderDeploy(job, jobId, taskId, telegram) {
 		}
 	}
 
+	// Store lesson in BugKnowledgeStore after deploy attempt
+	try {
+		const { BugKnowledgeStore } = require("../orchestrator/stores/BugKnowledgeStore")
+		const ragStore = new BugKnowledgeStore()
+		await ragStore.init()
+		await ragStore.storeLesson({
+			task_id: taskId || jobId,
+			agent_type: "coder",
+			summary: `Deploy ${healthOk ? "succeeded" : "had issues"}`,
+			details: JSON.stringify({
+				healthOk,
+				healthUrl,
+				branch: branch || "unknown",
+				instruction: instruction?.substring(0, 200),
+			}),
+			lesson_type: "deploy",
+			features_affected: [],
+		})
+		log("coder", jobId, `Deploy lesson stored in BugKnowledgeStore (health: ${healthOk})`)
+		await ragStore.close()
+	} catch (err) {
+		log("coder", jobId, `Failed to store deploy lesson (non-fatal): ${err.message}`)
+	}
+
 	return {
 		success: allSuccess,
 		output,
@@ -1064,6 +1111,21 @@ async function runCoderDirect(job) {
 
 	// Step 1: Gather context — list files, read relevant ones
 	let context = ""
+
+	// 1a-rag. RAG context from BugKnowledgeStore — similar past fixes
+	try {
+		const { BugKnowledgeStore } = require("../orchestrator/stores/BugKnowledgeStore")
+		const ragStore = new BugKnowledgeStore()
+		await ragStore.init()
+		const ragContext = await ragStore.buildRagContext(instruction, { maxResults: 3, threshold: 0.5 })
+		if (ragContext) {
+			context += `=== Similar Past Fixes from Knowledge Base ===\n${ragContext}\n\n`
+			log("coder", jobId, `Injected RAG context (${ragContext.length} chars) from BugKnowledgeStore`)
+		}
+		await ragStore.close()
+	} catch (err) {
+		log("coder", jobId, `RAG context unavailable (non-fatal): ${err.message}`)
+	}
 	try {
 		const { stdout: fileList } = await execAsync(
 			`find ${workspaceDir} -type f -name "*.js" -o -name "*.ts" -o -name "*.json" -o -name "*.md" | head -50`,
@@ -1215,6 +1277,43 @@ Be precise. Output ONLY valid JSON, no markdown fences.`
 	output.push("")
 	output.push(allSuccess ? "✅ All changes applied successfully" : "⚠️  Some changes failed")
 
+	// Store bug fix in BugKnowledgeStore for Ollama RAG learning loop
+	if (allSuccess) {
+		try {
+			const { BugKnowledgeStore } = require("../orchestrator/stores/BugKnowledgeStore")
+			const ragStore = new BugKnowledgeStore()
+			await ragStore.init()
+
+			// Get git diff for the fix
+			let gitDiff = ""
+			try {
+				const { stdout: diff } = await execAsync(`cd ${workspaceDir} && git diff 2>/dev/null || true`, {
+					timeout: 10000,
+				})
+				gitDiff = diff.substring(0, 5000)
+			} catch {
+				/* non-fatal */
+			}
+
+			await ragStore.storeBugFix({
+				task_id: jobId,
+				agent_type: "deepseek",
+				error_summary: instruction.substring(0, 200),
+				instruction: instruction,
+				diff: gitDiff,
+				result: `Applied ${changes.length} changes: ${changes.map((c) => c.file).join(", ")}`,
+				files_changed: changes.map((c) => c.file),
+				test_commands: commands,
+				test_passed: allSuccess ? null : false,
+				metadata: { runner: "coder", phase: "direct", allSuccess },
+			})
+			log("coder", jobId, `Bug fix stored in BugKnowledgeStore for direct mode`)
+			await ragStore.close()
+		} catch (err) {
+			log("coder", jobId, `Failed to store bug fix in knowledge base (non-fatal): ${err.message}`)
+		}
+	}
+
 	await writeResultLog("coder", jobId, { success: allSuccess, changes: changes.length })
 
 	return { success: allSuccess, output }
@@ -1245,6 +1344,22 @@ async function runDebugger(job) {
 
 	// Gather context
 	let context = ""
+
+	// 1a-rag. RAG context from BugKnowledgeStore — similar past fixes
+	try {
+		const { BugKnowledgeStore } = require("../orchestrator/stores/BugKnowledgeStore")
+		const ragStore = new BugKnowledgeStore()
+		await ragStore.init()
+		const ragContext = await ragStore.buildRagContext(instruction, { maxResults: 3, threshold: 0.5 })
+		if (ragContext) {
+			context += `=== Similar Past Fixes from Knowledge Base ===\n${ragContext}\n\n`
+			log("debugger", jobId, `Injected RAG context (${ragContext.length} chars) from BugKnowledgeStore`)
+		}
+		await ragStore.close()
+	} catch (err) {
+		log("debugger", jobId, `RAG context unavailable (non-fatal): ${err.message}`)
+	}
+
 	try {
 		const { stdout: fileList } = await execAsync(
 			`find ${workspaceDir} -type f -name "*.js" -o -name "*.ts" -o -name "*.json" -o -name "*.log" | head -50`,
@@ -1623,11 +1738,117 @@ async function runHealer(job) {
 	return { success: true, output }
 }
 
+// ── Ollama log summarization ──────────────────────────────────────────────────
+
+/**
+ * Summarize a runner's result log using Ollama, then store as a lesson.
+ * Fire-and-forget — failures are logged but never block the runner.
+ */
+async function ollamaSummarize(runnerType, job, result) {
+	try {
+		const ollamaBaseUrl = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434"
+		const ollamaModel = process.env.OLLAMA_MODEL || "qwen2.5:0.5b"
+		const instruction = job.data?.instruction || ""
+		const outputText = Array.isArray(result.output) ? result.output.join("\n").substring(0, 3000) : ""
+
+		const summaryPrompt = `Summarize this agent run in 3-4 sentences. Focus on: what was attempted, whether it succeeded, and key outcomes.
+
+Agent: ${runnerType}
+Instruction: ${instruction?.substring(0, 500)}
+Success: ${result.success}
+${result.error ? `Error: ${result.error}` : ""}
+${outputText ? `Output:\n${outputText}` : ""}
+
+Return ONLY a concise JSON object with keys: summary (string), key_outcomes (array of strings), and lesson_type (string).`
+
+		const http = require("http")
+		const postData = JSON.stringify({
+			model: ollamaModel,
+			messages: [
+				{ role: "system", content: "You are a log summarizer. Return only valid JSON." },
+				{ role: "user", content: summaryPrompt },
+			],
+			stream: false,
+			options: { temperature: 0.1, num_predict: 512 },
+		})
+
+		const summaryText = await new Promise((resolve) => {
+			const req = http.request(
+				`${ollamaBaseUrl}/api/chat`,
+				{
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"Content-Length": Buffer.byteLength(postData),
+					},
+					timeout: 30000,
+				},
+				(res) => {
+					let body = ""
+					res.on("data", (chunk) => (body += chunk))
+					res.on("end", () => {
+						try {
+							const data = JSON.parse(body)
+							resolve(data.message?.content || data.response || null)
+						} catch {
+							resolve(null)
+						}
+					})
+				},
+			)
+			req.on("error", () => resolve(null))
+			req.on("timeout", () => {
+				req.destroy()
+				resolve(null)
+			})
+			req.write(postData)
+			req.end()
+		})
+
+		if (!summaryText) {
+			log(runnerType, job.id, "Ollama summarization returned empty — skipping lesson store")
+			return
+		}
+
+		// Parse the JSON summary
+		let parsed
+		try {
+			const jsonMatch = summaryText.match(/\{[\s\S]*\}/)
+			parsed = JSON.parse(jsonMatch ? jsonMatch[0] : summaryText)
+		} catch {
+			parsed = { summary: summaryText.substring(0, 500), key_outcomes: [], lesson_type: runnerType }
+		}
+
+		// Store as lesson in BugKnowledgeStore
+		const { BugKnowledgeStore } = require("../orchestrator/stores/BugKnowledgeStore")
+		const ragStore = new BugKnowledgeStore()
+		await ragStore.init()
+		await ragStore.storeLesson({
+			task_id: job.id,
+			agent_type: runnerType,
+			summary: parsed.summary || summaryText.substring(0, 500),
+			details: JSON.stringify({
+				success: result.success,
+				error: result.error || null,
+				key_outcomes: parsed.key_outcomes || [],
+				instruction: instruction?.substring(0, 200),
+				lesson_type: parsed.lesson_type || runnerType,
+			}),
+			lesson_type: parsed.lesson_type || runnerType,
+			features_affected: [],
+		})
+		log(runnerType, job.id, `Ollama summary stored as lesson (${(parsed.summary || "").substring(0, 80)}...)`)
+		await ragStore.close()
+	} catch (err) {
+		log(runnerType, job.id, `Ollama summarization failed (non-fatal): ${err.message}`)
+	}
+}
+
 // ── HermesClaw notification ───────────────────────────────────────────────────
 
 async function notifyHermes(runnerType, job, result) {
 	try {
-		const apiBase = process.env.API_BASE_URL || "http://127.0.0.1:8790"
+		const apiBase = process.env.API_BASE_URL || "http://127.0.0.1:8787"
 		await fetch(`${apiBase}/api/orchestrator/hermes/lesson`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
@@ -1643,6 +1864,55 @@ async function notifyHermes(runnerType, job, result) {
 		})
 	} catch {
 		// Fire-and-forget — don't let HermesClaw failures affect the runner result
+	}
+}
+
+async function notifyLearningGateway(runnerType, job, result) {
+	try {
+		const apiBase = process.env.API_BASE_URL || "http://127.0.0.1:8787"
+		const instruction = job.data?.instruction || ""
+		await fetch(`${apiBase}/api/learning/store`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...(process.env.LEARNING_API_KEY ? { "x-learning-key": process.env.LEARNING_API_KEY } : {}),
+			},
+			body: JSON.stringify({
+				project: "superroo2",
+				task_type: runnerType,
+				problem: instruction.substring(0, 500) || `${runnerType} runner task`,
+				root_cause: result.success ? undefined : result.error || "Runner failed",
+				solution: result.success
+					? `Runner ${runnerType} completed successfully.`
+					: `Runner ${runnerType} failed: ${result.error || "unknown error"}`,
+				files_changed: Array.isArray(result.filesChanged) ? result.filesChanged : [],
+				tags: [runnerType, result.success ? "success" : "failure"],
+				confidence: result.success ? 0.78 : 0.62,
+				risk: result.success ? "normal" : "elevated",
+				source_agent: `agent-runner:${runnerType}`,
+				raw_ref: String(job.id),
+			}),
+			signal: AbortSignal.timeout(5000),
+		})
+		await fetch(`${apiBase}/api/learning/score`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...(process.env.LEARNING_API_KEY ? { "x-learning-key": process.env.LEARNING_API_KEY } : {}),
+			},
+			body: JSON.stringify({
+				project: "superroo2",
+				agent: `agent-runner:${runnerType}`,
+				task: instruction.substring(0, 500),
+				task_id: String(job.id),
+				outcome: result.success ? "success" : "failure",
+				used_lessons: Number(job.data?.usedLessons || 0),
+				lesson_ids: Array.isArray(job.data?.lessonIds) ? job.data.lessonIds : [],
+			}),
+			signal: AbortSignal.timeout(5000),
+		})
+	} catch {
+		// Fire-and-forget
 	}
 }
 
@@ -1689,6 +1959,10 @@ async function executeRunner(runnerType, job) {
 
 		// Notify HermesClaw for lesson extraction (fire-and-forget)
 		notifyHermes(runnerType, job, result)
+		notifyLearningGateway(runnerType, job, result)
+
+		// Ollama summarization — store structured summary as lesson (fire-and-forget)
+		ollamaSummarize(runnerType, job, result)
 
 		return result
 	} catch (err) {
@@ -1697,6 +1971,10 @@ async function executeRunner(runnerType, job) {
 
 		// Notify HermesClaw even on failure (lessons from failures are valuable)
 		notifyHermes(runnerType, job, result)
+		notifyLearningGateway(runnerType, job, result)
+
+		// Ollama summarization even on failure — failure lessons are valuable
+		ollamaSummarize(runnerType, job, result)
 
 		return result
 	}

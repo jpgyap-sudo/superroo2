@@ -73,6 +73,12 @@ interface IntelligenceData {
 		searches: number
 		stores: number
 		scores: number
+		curations: number
+		curationQueue: LearningLesson[]
+		topLessons: LearningLesson[]
+		deadLessons: LearningLesson[]
+		failedAfterRecall: LearningLesson[]
+		promotionCandidates: LearningLesson[]
 	}
 	rag: {
 		totalBugFixes: number
@@ -97,6 +103,31 @@ interface IntelligenceData {
 		}
 		timeline: { date: string; score: number; level: string }[]
 	} | null
+}
+
+interface LearningLesson {
+	id: string
+	title: string
+	rule_summary?: string
+	lesson_summary?: string
+	tags?: string[]
+	policy_status?: string
+	qualityScore?: number
+	quality_score?: number
+	usage?: { recalls: number; successes: number; failures: number; partials: number }
+}
+
+type CurationAction = "approve" | "retire" | "merge"
+
+interface CurationDraft {
+	lesson: LearningLesson
+	action: CurationAction
+	ruleSummary: string
+	lessonSummary: string
+	tags: string
+	mergeTargetId: string
+	note: string
+	policyStatus: "eligible" | "promotable"
 }
 
 /* ------------------------------------------------------------------ */
@@ -196,6 +227,8 @@ export function IntelligenceLayerView() {
 	const [data, setData] = useState<IntelligenceData | null>(null)
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState<string | null>(null)
+	const [curatingLessonId, setCuratingLessonId] = useState<string | null>(null)
+	const [curationDraft, setCurationDraft] = useState<CurationDraft | null>(null)
 
 	async function fetchData() {
 		setLoading(true)
@@ -221,6 +254,63 @@ export function IntelligenceLayerView() {
 		const iv = setInterval(fetchData, 30000)
 		return () => clearInterval(iv)
 	}, [])
+
+	function openCurationDraft(lesson: LearningLesson, action: CurationAction) {
+		setCurationDraft({
+			lesson,
+			action,
+			ruleSummary: lesson.rule_summary || "",
+			lessonSummary: lesson.lesson_summary || "",
+			tags: (lesson.tags || []).join(", "),
+			mergeTargetId: "",
+			note: "",
+			policyStatus: "eligible",
+		})
+	}
+
+	async function submitCurationDraft() {
+		if (!curationDraft) return
+		const { lesson, action } = curationDraft
+		if (action === "approve" && (!curationDraft.ruleSummary.trim() || !curationDraft.lessonSummary.trim())) {
+			setError("Approved lessons need both a reusable rule and a lesson summary.")
+			return
+		}
+		if (action === "merge" && !curationDraft.mergeTargetId.trim()) {
+			setError("Merged lessons need a target lesson ID.")
+			return
+		}
+		const payload: Record<string, unknown> = {
+			lesson_id: lesson.id,
+			action,
+			actor: "dashboard",
+			note: curationDraft.note.trim() || undefined,
+		}
+		if (action === "approve") {
+			payload.policy_status = curationDraft.policyStatus
+			payload.rule_summary = curationDraft.ruleSummary.trim()
+			payload.lesson_summary = curationDraft.lessonSummary.trim()
+			payload.tags = curationDraft.tags
+				.split(",")
+				.map((tag) => tag.trim())
+				.filter(Boolean)
+		}
+		if (action === "merge") payload.target_lesson_id = curationDraft.mergeTargetId.trim()
+		setCuratingLessonId(lesson.id)
+		try {
+			const res = await fetch("/api/learning/curate", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(payload),
+			})
+			if (!res.ok) throw new Error(`HTTP ${res.status}`)
+			setCurationDraft(null)
+			await fetchData()
+		} catch (err: any) {
+			setError(err.message || "Failed to curate lesson")
+		} finally {
+			setCuratingLessonId(null)
+		}
+	}
 
 	if (loading && !data) {
 		return (
@@ -648,6 +738,198 @@ export function IntelligenceLayerView() {
 							max={Math.max(data.learning.searches, data.learning.stores, data.learning.scores, 1)}
 							color="bg-purple-500"
 						/>
+						<ProgressBar
+							label="Curations"
+							value={data.learning.curations}
+							max={Math.max(
+								data.learning.searches,
+								data.learning.stores,
+								data.learning.scores,
+								data.learning.curations,
+								1,
+							)}
+							color="bg-amber-500"
+						/>
+					</div>
+				</Panel>
+			</div>
+
+			<div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
+				<Panel title="Curation Queue">
+					<div className="space-y-2">
+						{data.learning.curationQueue.length === 0 && (
+							<p className="text-xs text-slate-500">No draft lessons waiting</p>
+						)}
+						{data.learning.curationQueue.slice(0, 5).map((lesson) => (
+							<div key={lesson.id} className="rounded-lg bg-[rgba(13,20,34,0.6)] px-3 py-2">
+								<div className="truncate text-xs text-slate-200">{lesson.title}</div>
+								<div className="mt-2 flex items-center justify-between gap-2">
+									<span className="text-[10px] text-amber-400">draft lesson</span>
+									<div className="flex items-center gap-1">
+										<button
+											type="button"
+											title="Approve lesson"
+											onClick={() => openCurationDraft(lesson, "approve")}
+											disabled={curatingLessonId === lesson.id}
+											className="rounded-md p-1 text-green-400 hover:bg-[rgba(34,197,94,0.12)] disabled:opacity-50">
+											<CheckCircle className="h-3.5 w-3.5" />
+										</button>
+										<button
+											type="button"
+											title="Merge lesson"
+											onClick={() => openCurationDraft(lesson, "merge")}
+											disabled={curatingLessonId === lesson.id}
+											className="rounded-md p-1 text-blue-400 hover:bg-[rgba(59,130,246,0.12)] disabled:opacity-50">
+											<Layers className="h-3.5 w-3.5" />
+										</button>
+										<button
+											type="button"
+											title="Retire lesson"
+											onClick={() => openCurationDraft(lesson, "retire")}
+											disabled={curatingLessonId === lesson.id}
+											className="rounded-md p-1 text-red-400 hover:bg-[rgba(239,68,68,0.12)] disabled:opacity-50">
+											<XCircle className="h-3.5 w-3.5" />
+										</button>
+									</div>
+								</div>
+							</div>
+						))}
+					</div>
+				</Panel>
+
+				<Panel title="Curation Editor" className="lg:col-span-3">
+					{curationDraft ? (
+						<div className="space-y-3">
+							<div>
+								<div className="text-sm font-semibold text-white">{curationDraft.lesson.title}</div>
+								<div className="text-[10px] uppercase tracking-wide text-slate-500">
+									{curationDraft.action}
+								</div>
+							</div>
+							{curationDraft.action === "approve" && (
+								<>
+									<textarea
+										value={curationDraft.ruleSummary}
+										onChange={(event) =>
+											setCurationDraft({ ...curationDraft, ruleSummary: event.target.value })
+										}
+										placeholder="Reusable rule"
+										className="min-h-20 w-full resize-y rounded-lg border border-[rgba(82,120,190,0.22)] bg-[rgba(13,20,34,0.7)] px-3 py-2 text-xs text-slate-200 outline-none focus:border-blue-400"
+									/>
+									<textarea
+										value={curationDraft.lessonSummary}
+										onChange={(event) =>
+											setCurationDraft({ ...curationDraft, lessonSummary: event.target.value })
+										}
+										placeholder="Lesson summary"
+										className="min-h-20 w-full resize-y rounded-lg border border-[rgba(82,120,190,0.22)] bg-[rgba(13,20,34,0.7)] px-3 py-2 text-xs text-slate-200 outline-none focus:border-blue-400"
+									/>
+									<div className="grid gap-3 md:grid-cols-[1fr_180px]">
+										<input
+											value={curationDraft.tags}
+											onChange={(event) =>
+												setCurationDraft({ ...curationDraft, tags: event.target.value })
+											}
+											placeholder="tags, comma, separated"
+											className="rounded-lg border border-[rgba(82,120,190,0.22)] bg-[rgba(13,20,34,0.7)] px-3 py-2 text-xs text-slate-200 outline-none focus:border-blue-400"
+										/>
+										<select
+											value={curationDraft.policyStatus}
+											onChange={(event) =>
+												setCurationDraft({
+													...curationDraft,
+													policyStatus: event.target.value as "eligible" | "promotable",
+												})
+											}
+											className="rounded-lg border border-[rgba(82,120,190,0.22)] bg-[rgba(13,20,34,0.7)] px-3 py-2 text-xs text-slate-200 outline-none focus:border-blue-400">
+											<option value="eligible">Eligible</option>
+											<option value="promotable">Promotable</option>
+										</select>
+									</div>
+								</>
+							)}
+							{curationDraft.action === "merge" && (
+								<input
+									value={curationDraft.mergeTargetId}
+									onChange={(event) =>
+										setCurationDraft({ ...curationDraft, mergeTargetId: event.target.value })
+									}
+									placeholder="Target lesson ID"
+									className="w-full rounded-lg border border-[rgba(82,120,190,0.22)] bg-[rgba(13,20,34,0.7)] px-3 py-2 text-xs text-slate-200 outline-none focus:border-blue-400"
+								/>
+							)}
+							<textarea
+								value={curationDraft.note}
+								onChange={(event) => setCurationDraft({ ...curationDraft, note: event.target.value })}
+								placeholder="Reviewer note"
+								className="min-h-16 w-full resize-y rounded-lg border border-[rgba(82,120,190,0.22)] bg-[rgba(13,20,34,0.7)] px-3 py-2 text-xs text-slate-200 outline-none focus:border-blue-400"
+							/>
+							<div className="flex items-center gap-2">
+								<button
+									type="button"
+									onClick={submitCurationDraft}
+									disabled={curatingLessonId === curationDraft.lesson.id}
+									className="rounded-lg bg-blue-500 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-400 disabled:opacity-50">
+									Save Curation
+								</button>
+								<button
+									type="button"
+									onClick={() => setCurationDraft(null)}
+									className="rounded-lg border border-[rgba(82,120,190,0.3)] px-3 py-2 text-xs text-slate-300 hover:bg-[rgba(40,110,255,0.1)]">
+									Cancel
+								</button>
+							</div>
+						</div>
+					) : (
+						<p className="text-xs text-slate-500">Select a draft lesson to approve, merge, or retire.</p>
+					)}
+				</Panel>
+
+				<Panel title="Top Lessons">
+					<div className="space-y-2">
+						{data.learning.topLessons.length === 0 && (
+							<p className="text-xs text-slate-500">No ranked lessons yet</p>
+						)}
+						{data.learning.topLessons.map((lesson) => (
+							<div key={lesson.id} className="rounded-lg bg-[rgba(13,20,34,0.6)] px-3 py-2">
+								<div className="truncate text-xs text-slate-200">{lesson.title}</div>
+								<div className="text-[10px] text-green-400">
+									{lesson.usage?.successes || 0} wins / {lesson.usage?.recalls || 0} recalls
+								</div>
+							</div>
+						))}
+					</div>
+				</Panel>
+
+				<Panel title="Failure Signals">
+					<div className="space-y-2">
+						{data.learning.failedAfterRecall.length === 0 && (
+							<p className="text-xs text-slate-500">No failed recalls yet</p>
+						)}
+						{data.learning.failedAfterRecall.map((lesson) => (
+							<div key={lesson.id} className="rounded-lg bg-[rgba(13,20,34,0.6)] px-3 py-2">
+								<div className="truncate text-xs text-slate-200">{lesson.title}</div>
+								<div className="text-[10px] text-red-400">
+									{lesson.usage?.failures || 0} failures after recall
+								</div>
+							</div>
+						))}
+					</div>
+				</Panel>
+
+				<Panel title="Skill Candidates">
+					<div className="space-y-2">
+						{data.learning.promotionCandidates.length === 0 && (
+							<p className="text-xs text-slate-500">No promotion candidates yet</p>
+						)}
+						{data.learning.promotionCandidates.map((lesson) => (
+							<div key={lesson.id} className="rounded-lg bg-[rgba(13,20,34,0.6)] px-3 py-2">
+								<div className="truncate text-xs text-slate-200">{lesson.title}</div>
+								<div className="text-[10px] text-violet-400">
+									quality {Math.round((lesson.qualityScore || lesson.quality_score || 0) * 100)}%
+								</div>
+							</div>
+						))}
 					</div>
 				</Panel>
 			</div>
