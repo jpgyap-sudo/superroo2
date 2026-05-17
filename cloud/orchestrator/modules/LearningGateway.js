@@ -326,8 +326,10 @@ class LearningGateway {
 					(b.relevance_score || 0) - (a.relevance_score || 0),
 			)
 			.slice(0, 5)
+		// "Dead" = recalled at least once but never succeeded (persistent failures)
 		const deadLessons = evaluated
-			.filter((lesson) => lesson.usage.recalls === 0 && lesson.injectionEligible)
+			.filter((lesson) => lesson.usage.recalls > 0 && lesson.usage.successes === 0)
+			.sort((a, b) => b.usage.recalls - a.usage.recalls)
 			.slice(0, 8)
 		const failedAfterRecall = evaluated
 			.filter((lesson) => lesson.usage.failures > 0)

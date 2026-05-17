@@ -2766,6 +2766,15 @@ const server = http.createServer(async (req, res) => {
 				const lessonDayCounts = {}
 				const today = new Date().toISOString().slice(0, 10)
 
+				// Normalize model field: git author names are not AI models
+				const HUMAN_AUTHOR_NAMES = new Set(["JPG Yap", "jpgyap", "jpgyap@gmail.com"])
+				function normalizeModelName(m) {
+					if (!m) return "unknown"
+					if (HUMAN_AUTHOR_NAMES.has(m)) return "human (git author)"
+					if (m.includes("based on")) return "unknown"
+					return m
+				}
+
 				try {
 					const indexRaw = fs.readFileSync(path.join(memoryDir, "lesson-index.jsonl"), "utf8")
 					const lines = indexRaw.trim().split("\n").filter(Boolean)
@@ -2773,14 +2782,17 @@ const server = http.createServer(async (req, res) => {
 					for (const line of lines) {
 						try {
 							const entry = JSON.parse(line)
-							if (entry.date === today) lessonsToday++
+							// Normalize date to YYYY-MM-DD before all comparisons
+							const dayKey = (entry.date || "").slice(0, 10)
+							if (dayKey === today) lessonsToday++
 							if (entry.relevance_factors?.is_bug_fix === true) totalBugFixes++
-							if (entry.date) lessonDayCounts[entry.date] = (lessonDayCounts[entry.date] || 0) + 1
+							if (dayKey) lessonDayCounts[dayKey] = (lessonDayCounts[dayKey] || 0) + 1
 							if (entry.tags)
 								entry.tags.forEach((t) => {
 									tagCounts[t] = (tagCounts[t] || 0) + 1
 								})
-							if (entry.model) modelCounts[entry.model] = (modelCounts[entry.model] || 0) + 1
+							const model = normalizeModelName(entry.model)
+							modelCounts[model] = (modelCounts[model] || 0) + 1
 						} catch {
 							/* skip malformed lines */
 						}
@@ -2832,9 +2844,11 @@ const server = http.createServer(async (req, res) => {
 					/* file may not exist */
 				}
 
-				// ── Model decisions — derived from lesson-index.jsonl model field ──
-				const totalModelDecisions = totalLessons
-				const modelDecisionModels = { ...modelCounts }
+				// ── Model decisions — only real AI models (exclude human authors and unknown) ──
+				const modelDecisionModels = Object.fromEntries(
+					Object.entries(modelCounts).filter(([m]) => m !== "human (git author)" && m !== "unknown"),
+				)
+				const totalModelDecisions = Object.values(modelDecisionModels).reduce((a, b) => a + b, 0)
 
 				// ── Commit/Deploy log + commit activity (single read) ──
 				let totalCommits = 0
@@ -2876,25 +2890,29 @@ const server = http.createServer(async (req, res) => {
 					/* file may not exist */
 				}
 
-				// ── Feature knowledge ──
+				// ── Feature knowledge — count ## sections in feature-knowledge.md ──
 				let totalFeatures = 0
 				try {
 					const fkRaw = fs.readFileSync(path.join(memoryDir, "feature-knowledge.md"), "utf8")
-					const fkLines = fkRaw.split("\n").filter((l) => l.startsWith("## "))
-					totalFeatures = fkLines.length
+					totalFeatures = fkRaw.split("\n").filter((l) => l.startsWith("## ")).length
 				} catch {
 					/* file may not exist */
 				}
+				// Fall back to doc chunk file count from FeatureKnowledgeIndexer if file is empty
+				// (populated later in featureIndex block, merged at response time)
 
 				// ── Brain Sync stats ──
-				let brainSync = { total: 0, successful: 0, failed: 0 }
+				let brainSync = { total: 0, successful: 0, failed: 0, offline: false }
 				try {
 					const brainLogRaw = fs.readFileSync(path.join(memoryDir, "central-brain-store-log.json"), "utf8")
 					const brainLog = JSON.parse(brainLogRaw)
+					const successful = brainLog.successfulStores || 0
+					const failed = brainLog.failedStores || 0
 					brainSync = {
 						total: brainLog.totalLessons || 0,
-						successful: brainLog.successfulStores || 0,
-						failed: brainLog.failedStores || 0,
+						successful,
+						failed,
+						offline: failed > 0 && successful === 0,
 					}
 				} catch {
 					/* file may not exist */
@@ -3067,7 +3085,7 @@ const server = http.createServer(async (req, res) => {
 							byStatus: deployStatuses,
 						},
 						features: {
-							total: totalFeatures,
+							total: totalFeatures || featureIndexFiles,
 						},
 						commitActivity,
 						lessonsByDay,
@@ -6073,7 +6091,10 @@ const server = http.createServer(async (req, res) => {
 		}
 
 		// POST /orchestrator/subtask-progress — receive sub-task progress updates from workers
-		if (method === "POST" && (url === "/orchestrator/subtask-progress" || normalizedUrl === "/orchestrator/subtask-progress")) {
+		if (
+			method === "POST" &&
+			(url === "/orchestrator/subtask-progress" || normalizedUrl === "/orchestrator/subtask-progress")
+		) {
 			if (!orchestrator) {
 				sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
 				return

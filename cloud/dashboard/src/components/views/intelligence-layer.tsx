@@ -64,7 +64,7 @@ interface IntelligenceData {
 	features: { total: number }
 	commitActivity: { date: string; commits: number }[]
 	lessonsByDay: { date: string; count: number }[]
-	brainSync: { total: number; successful: number; failed: number }
+	brainSync: { total: number; successful: number; failed: number; offline?: boolean }
 	skills: { total: number }
 	hermes: { memoryEntries: number }
 	featureIndex: { chunks: number; files: number }
@@ -420,8 +420,8 @@ export function IntelligenceLayerView() {
 					</div>
 				</Panel>
 
-				{/* Top Models */}
-				<Panel title="Top Models">
+				{/* Lesson Authors */}
+				<Panel title="Lesson Authors">
 					<div className="space-y-2">
 						{data.lessons.topModels.length === 0 && (
 							<p className="text-xs text-slate-500">No model data yet</p>
@@ -432,20 +432,22 @@ export function IntelligenceLayerView() {
 								label={m.model}
 								value={m.count}
 								max={data.lessons.topModels[0]?.count || 1}
-								color="bg-purple-500"
+								color={m.model === "human (git author)" ? "bg-slate-500" : "bg-purple-500"}
 							/>
 						))}
 					</div>
+					<p className="mt-2 text-[10px] text-slate-600">AI models + human commits that generated lessons</p>
 				</Panel>
 
-				{/* Model Decisions */}
-				<Panel title="Model Decisions">
+				{/* AI Model Routing */}
+				<Panel title="AI Model Routing">
 					<div className="space-y-2">
 						<div className="mb-3 text-2xl font-bold text-white tabular-nums">
 							{data.modelDecisions.total}
+							<span className="ml-1 text-xs font-normal text-slate-500">decisions</span>
 						</div>
 						{Object.entries(data.modelDecisions.models).length === 0 && (
-							<p className="text-xs text-slate-500">No decisions recorded</p>
+							<p className="text-xs text-slate-500">No AI routing decisions recorded yet</p>
 						)}
 						{Object.entries(data.modelDecisions.models)
 							.slice(0, 8)
@@ -635,12 +637,18 @@ export function IntelligenceLayerView() {
 				{/* Brain Sync & Skills */}
 				<Panel title="Brain Sync & Skills">
 					<div className="space-y-3">
+						{data.brainSync.offline && (
+							<div className="flex items-center gap-1.5 rounded-lg bg-[rgba(239,68,68,0.08)] px-3 py-1.5">
+								<XCircle className="h-3.5 w-3.5 shrink-0 text-red-400" />
+								<span className="text-[10px] text-red-400">Central Brain offline — stores failing</span>
+							</div>
+						)}
 						<div className="grid grid-cols-3 gap-2">
 							<div className="rounded-lg bg-[rgba(59,130,246,0.08)] p-2 text-center">
 								<div className="text-lg font-bold text-blue-400 tabular-nums">
 									{data.brainSync.total}
 								</div>
-								<div className="text-[10px] text-slate-500">Synced</div>
+								<div className="text-[10px] text-slate-500">Total</div>
 							</div>
 							<div className="rounded-lg bg-[rgba(34,197,94,0.08)] p-2 text-center">
 								<div className="text-lg font-bold text-green-400 tabular-nums">
