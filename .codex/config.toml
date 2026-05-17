@@ -1,0 +1,136 @@
+# SuperRoo Codex Configuration
+# This file configures Codex to work with the SuperRoo intelligence layer
+
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+[project]
+name = "superroo2"
+default_agent_flow = "codex_reads_lessons_deepseek_codes_ollama_summarizes"
+
+[superoo_intelligence]
+read_lessons_before_task = true
+write_lessons_after_task = true
+ollama_summary_enabled = true
+central_brain_enabled = true
+
+[models]
+planner = "codex"
+coder = "deepseek"
+reviewer = "codex"
+memory = "ollama"
+fallback_reviewer = "claude_or_kimi"
+
+[instructions]
+pre_task = """
+Read AGENTS.md before every task.
+
+Superoo workflow:
+- Codex = planner and reviewer
+- DeepSeek = main coder
+- Ollama = lesson summarizer and memory learner
+- Central Brain = permanent lesson storage
+
+Before coding:
+1. Read memory/lessons-learned.md
+2. Read memory/bugs-fixed.md
+3. Read memory/model-decisions.md
+4. Read docs/intelligence-layer/architecture.md (if exists)
+
+Use the LessonRetriever to find relevant lessons:
+- Query by task type (coding, debugging, testing, deployment)
+- Query by file paths being modified
+- Query by tags (e.g., 'error-handling', 'performance', 'security')
+- Include top 5 most relevant lessons in your planning
+"""
+
+post_task = """
+After every task, you MUST record lessons learned:
+
+1. Create task summary (what was accomplished)
+2. List files changed
+3. Identify bug cause (if applicable)
+4. Explain fix applied (if applicable)
+5. Record test result (pass/fail/unknown)
+6. Write lesson learned (reusable insight)
+7. Define reusable rule (specific actionable guidance)
+
+Append the lesson to memory/lessons-learned.md using this format:
+
+### Lesson: [Short descriptive title]
+
+Date: [YYYY-MM-DD]
+Source: Codex task completion
+Model/API used: codex
+Confidence: [high/medium/low]
+Related files: [comma-separated list]
+
+#### Task Summary
+[What was being built or fixed?]
+
+#### Files Changed
+- [file1]
+- [file2]
+
+#### Bug Cause
+[What caused the issue, if known?]
+
+#### Fix Applied
+[What fixed it?]
+
+#### Test Result
+[Test outcome]
+
+#### Lesson Learned
+[Reusable engineering lesson]
+
+#### Reusable Rule
+[Future agents should follow this rule]
+
+#### Tags
+[tag1, tag2, tag3]
+
+---
+
+Then run the lesson capture scripts if available:
+- node scripts/extract-lesson-from-commit.mjs --interactive
+- node scripts/ollama-summarize-lesson.mjs (when Ollama is running)
+- node scripts/central-brain-store-lesson.mjs (when Central Brain is running)
+
+Finally, update the lesson index:
+- node scripts/regenerate-lesson-index.mjs (if it exists)
+"""
+
+[commands]
+# Custom commands that Codex can use
+read_lessons = "node -e \"const {getLessonRetriever} = require('./src/super-roo/lessons'); const retriever = getLessonRetriever(); retriever.load().then(() => retriever.getTopLessons(5)).then(lessons => console.log(JSON.stringify(lessons, null, 2)))\""
+find_lessons_for_file = "node -e \"const {getLessonRetriever} = require('./src/super-roo/lessons'); const retriever = getLessonRetriever(); retriever.load().then(() => retriever.getLessonsForFile(process.argv[1], 5)).then(lessons => console.log(JSON.stringify(lessons, null, 2)))\""
+find_lessons_for_task = "node -e \"const {getLessonRetriever} = require('./src/super-roo/lessons'); const retriever = getLessonRetriever(); retriever.load().then(() => retriever.getLessonsForTask(process.argv[1], 5)).then(lessons => console.log(JSON.stringify(lessons, null, 2)))\""
+
+[integrations]
+# MCP server integration
+mcp_enabled = true
+mcp_config_path = "mcp-superroo-config.json"
+
+# GitHub integration
+github_enabled = true
+auto_create_pr = true
+pr_template = ".github/pull_request_template.md"
+
+# Git integration
+git_enabled = true
+auto_commit = false  # Require approval for commits
+commit_template = "conventional"  # conventional commits format
+
+[logging]
+level = "info"
+output_dir = "logs"
+retention_days = 30
+
+[features]
+# Enable specific SuperRoo features
+lesson_extraction = true
+auto_test = true
+code_review = true
+security_audit = true
+performance_check = true
