@@ -1,0 +1,33 @@
+#!/bin/sh
+#
+# Post-commit hook for automatic lesson extraction
+# 
+# This hook analyzes the commit and extracts lessons
+# to be added to the SuperRoo intelligence layer.
+
+# Only run if we're in the superroo2 directory
+if [ ! -f "memory/lesson-index.jsonl" ]; then
+  exit 0
+fi
+
+# Get commit info
+COMMIT_SHA=$(git rev-parse HEAD)
+COMMIT_MSG=$(git log -1 --pretty=%B)
+COMMIT_AUTHOR=$(git log -1 --pretty=%an)
+FILES_CHANGED=$(git diff-tree --no-commit-id --name-only -r HEAD | tr '\n' ',')
+
+# Check if commit looks like it might contain a lesson
+# Keywords that suggest a lesson-worthy commit
+if echo "$COMMIT_MSG" | grep -qiE "(fix|bug|lesson|learned|workaround|solution|issue|error|crash|race|leak|performance|optimize|refactor|breaking|breaking change)"; then
+  echo ""
+  echo "📝 Potential lesson detected in commit $COMMIT_SHA"
+  echo "   Consider adding to memory/lessons-learned.md if this is a reusable insight."
+  echo ""
+fi
+
+# Optional: Auto-extract lessons using a script (if available)
+if [ -f "scripts/extract-lesson-from-commit.mjs" ]; then
+  node scripts/extract-lesson-from-commit.mjs "$COMMIT_SHA" "$COMMIT_MSG" "$COMMIT_AUTHOR" "$FILES_CHANGED" &
+fi
+
+exit 0

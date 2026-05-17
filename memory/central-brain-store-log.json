@@ -1,0 +1,209 @@
+{
+	"storedAt": "2026-05-17T10:19:06.294Z",
+	"brainUrl": "http://127.0.0.1:3417",
+	"apiUrl": "http://127.0.0.1:8787",
+	"sourceFile": "memory/lessons-learned.md",
+	"totalLessons": 18,
+	"successfulStores": 0,
+	"failedStores": 18,
+	"results": [
+		{
+			"title": "Safe JSON Parsing in Database Registries",
+			"hermes": {
+				"success": false,
+				"error": "fetch failed"
+			},
+			"codex": {
+				"success": false,
+				"error": "fetch failed"
+			}
+		},
+		{
+			"title": "Tensor Division by Zero Protection",
+			"hermes": {
+				"success": false,
+				"error": "fetch failed"
+			},
+			"codex": {
+				"success": false,
+				"error": "fetch failed"
+			}
+		},
+		{
+			"title": "Intent-to-Agent Routing Fix",
+			"hermes": {
+				"success": false,
+				"error": "fetch failed"
+			},
+			"codex": {
+				"success": false,
+				"error": "fetch failed"
+			}
+		},
+		{
+			"title": "Webview Hydration Recovery",
+			"hermes": {
+				"success": false,
+				"error": "fetch failed"
+			},
+			"codex": {
+				"success": false,
+				"error": "fetch failed"
+			}
+		},
+		{
+			"title": "PM2 Process Name Mapping",
+			"hermes": {
+				"success": false,
+				"error": "fetch failed"
+			},
+			"codex": {
+				"success": false,
+				"error": "fetch failed"
+			}
+		},
+		{
+			"title": "Docker Build Context Dependencies",
+			"hermes": {
+				"success": false,
+				"error": "fetch failed"
+			},
+			"codex": {
+				"success": false,
+				"error": "fetch failed"
+			}
+		},
+		{
+			"title": "Tailscale SSH Deployment Standard",
+			"hermes": {
+				"success": false,
+				"error": "fetch failed"
+			},
+			"codex": {
+				"success": false,
+				"error": "fetch failed"
+			}
+		},
+		{
+			"title": "CommitDeployLog as Single Source of Truth",
+			"hermes": {
+				"success": false,
+				"error": "fetch failed"
+			},
+			"codex": {
+				"success": false,
+				"error": "fetch failed"
+			}
+		},
+		{
+			"title": "Settings View cachedState Pattern",
+			"hermes": {
+				"success": false,
+				"error": "fetch failed"
+			},
+			"codex": {
+				"success": false,
+				"error": "fetch failed"
+			}
+		},
+		{
+			"title": "SafeWriteJson for Atomic File Operations",
+			"hermes": {
+				"success": false,
+				"error": "fetch failed"
+			},
+			"codex": {
+				"success": false,
+				"error": "fetch failed"
+			}
+		},
+		{
+			"title": "Model Router Service Task Routing",
+			"hermes": {
+				"success": false,
+				"error": "fetch failed"
+			},
+			"codex": {
+				"success": false,
+				"error": "fetch failed"
+			}
+		},
+		{
+			"title": "ML Loop NaN Loss Detection",
+			"hermes": {
+				"success": false,
+				"error": "fetch failed"
+			},
+			"codex": {
+				"success": false,
+				"error": "fetch failed"
+			}
+		},
+		{
+			"title": "Terminal Output Import Path Correction",
+			"hermes": {
+				"success": false,
+				"error": "fetch failed"
+			},
+			"codex": {
+				"success": false,
+				"error": "fetch failed"
+			}
+		},
+		{
+			"title": "Context Condensation Pattern Preservation",
+			"hermes": {
+				"success": false,
+				"error": "fetch failed"
+			},
+			"codex": {
+				"success": false,
+				"error": "fetch failed"
+			}
+		},
+		{
+			"title": "Auto-Retry on Empty Assistant Response",
+			"hermes": {
+				"success": false,
+				"error": "fetch failed"
+			},
+			"codex": {
+				"success": false,
+				"error": "fetch failed"
+			}
+		},
+		{
+			"title": "Terminal Output Buffer Memory Leak Fix",
+			"hermes": {
+				"success": false,
+				"error": "fetch failed"
+			},
+			"codex": {
+				"success": false,
+				"error": "fetch failed"
+			}
+		},
+		{
+			"title": "Test Execution from Correct Directory",
+			"hermes": {
+				"success": false,
+				"error": "fetch failed"
+			},
+			"codex": {
+				"success": false,
+				"error": "fetch failed"
+			}
+		},
+		{
+			"title": "Model Warmup for CLI Performance",
+			"hermes": {
+				"success": false,
+				"error": "fetch failed"
+			},
+			"codex": {
+				"success": false,
+				"error": "fetch failed"
+			}
+		}
+	]
+}

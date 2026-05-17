@@ -1,0 +1,153 @@
+{
+	"generatedAt": "2026-05-17T10:18:55.700Z",
+	"ollamaUrl": "http://127.0.0.1:11434",
+	"model": "qwen2.5:3b",
+	"sourceFile": "memory/lessons-learned.md",
+	"count": 18,
+	"summaries": [
+		{
+			"title": "Safe JSON Parsing in Database Registries",
+			"date": "2026-04-30",
+			"model": "kimi-k2.5",
+			"confidence": "high",
+			"summary": null,
+			"hasEmbeddings": false
+		},
+		{
+			"title": "Tensor Division by Zero Protection",
+			"date": "2026-04-30",
+			"model": "kimi-k2.5",
+			"confidence": "high",
+			"summary": null,
+			"hasEmbeddings": false
+		},
+		{
+			"title": "Intent-to-Agent Routing Fix",
+			"date": "2026-05-10",
+			"model": "unknown",
+			"confidence": "high",
+			"summary": null,
+			"hasEmbeddings": false
+		},
+		{
+			"title": "Webview Hydration Recovery",
+			"date": "2026-05-17",
+			"model": "kimi-k2.5",
+			"confidence": "high",
+			"summary": null,
+			"hasEmbeddings": false
+		},
+		{
+			"title": "PM2 Process Name Mapping",
+			"date": "2026-05-09",
+			"model": "unknown",
+			"confidence": "medium",
+			"summary": null,
+			"hasEmbeddings": false
+		},
+		{
+			"title": "Docker Build Context Dependencies",
+			"date": "2026-05-08",
+			"model": "unknown",
+			"confidence": "high",
+			"summary": null,
+			"hasEmbeddings": false
+		},
+		{
+			"title": "Tailscale SSH Deployment Standard",
+			"date": "2026-05-08",
+			"model": "unknown",
+			"confidence": "high",
+			"summary": null,
+			"hasEmbeddings": false
+		},
+		{
+			"title": "CommitDeployLog as Single Source of Truth",
+			"date": "2026-05-08",
+			"model": "unknown",
+			"confidence": "high",
+			"summary": null,
+			"hasEmbeddings": false
+		},
+		{
+			"title": "Settings View cachedState Pattern",
+			"date": "2026-05-01",
+			"model": "kimi-k2.5",
+			"confidence": "high",
+			"summary": null,
+			"hasEmbeddings": false
+		},
+		{
+			"title": "SafeWriteJson for Atomic File Operations",
+			"date": "2026-05-01",
+			"model": "unknown",
+			"confidence": "high",
+			"summary": null,
+			"hasEmbeddings": false
+		},
+		{
+			"title": "Model Router Service Task Routing",
+			"date": "2026-05-08",
+			"model": "unknown",
+			"confidence": "high",
+			"summary": null,
+			"hasEmbeddings": false
+		},
+		{
+			"title": "ML Loop NaN Loss Detection",
+			"date": "2026-04-30",
+			"model": "kimi-k2.5",
+			"confidence": "high",
+			"summary": null,
+			"hasEmbeddings": false
+		},
+		{
+			"title": "Terminal Output Import Path Correction",
+			"date": "2026-05-17",
+			"model": "kimi-k2.5",
+			"confidence": "high",
+			"summary": null,
+			"hasEmbeddings": false
+		},
+		{
+			"title": "Context Condensation Pattern Preservation",
+			"date": "2026-02-19 (from CHANGELOG)",
+			"model": "claude/anthropic (based on CHANGELOG author)",
+			"confidence": "medium",
+			"summary": null,
+			"hasEmbeddings": false
+		},
+		{
+			"title": "Auto-Retry on Empty Assistant Response",
+			"date": "2026-01-27 (from CHANGELOG)",
+			"model": "unknown",
+			"confidence": "medium",
+			"summary": null,
+			"hasEmbeddings": false
+		},
+		{
+			"title": "Terminal Output Buffer Memory Leak Fix",
+			"date": "2026-02-20 (from CHANGELOG)",
+			"model": "unknown",
+			"confidence": "high",
+			"summary": null,
+			"hasEmbeddings": false
+		},
+		{
+			"title": "Test Execution from Correct Directory",
+			"date": "2026-05-01",
+			"model": "unknown",
+			"confidence": "high",
+			"summary": null,
+			"hasEmbeddings": false
+		},
+		{
+			"title": "Model Warmup for CLI Performance",
+			"date": "2026-02-18 (from CHANGELOG)",
+			"model": "unknown",
+			"confidence": "medium",
+			"summary": null,
+			"hasEmbeddings": false
+		}
+	]
+}

@@ -1,0 +1,94 @@
+name: Lesson Extraction
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    types: [closed]
+    branches: [main, master]
+
+jobs:
+  extract-lessons:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Extract lessons from commits
+        run: |
+          # Get commit info
+          SHA=$(git rev-parse HEAD)
+          MSG=$(git log -1 --pretty=%B)
+          AUTHOR=$(git log -1 --pretty=%an)
+          FILES=$(git diff-tree --no-commit-id --name-only -r HEAD | tr '\n' ',')
+          
+          # Run extraction script
+          node scripts/extract-lesson-from-commit.mjs "$SHA" "$MSG" "$AUTHOR" "$FILES" || true
+
+      - name: Check for new lessons
+        id: check-lessons
+        run: |
+          if git diff --name-only | grep -q "memory/lessons-learned.md"; then
+            echo "has_new_lessons=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_new_lessons=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create PR for new lessons
+        if: steps.check-lessons.outputs.has_new_lessons == 'true'
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "docs: auto-extract lessons from recent commits"
+          title: "📚 Auto-extracted Lessons from Recent Commits"
+          body: |
+            This PR contains lessons automatically extracted from recent commits.
+            
+            Please review the extracted lessons and:
+            1. Fill in any TODO sections
+            2. Adjust confidence scores if needed
+            3. Add any missing tags
+            4. Remove any lessons that aren't generally applicable
+            
+            Once reviewed, merge this PR to add the lessons to the intelligence layer.
+          branch: auto/lesson-extraction
+          delete-branch: true
+
+  update-lesson-index:
+    runs-on: ubuntu-latest
+    needs: extract-lessons
+    if: always()
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Update lesson index
+        run: |
+          # Regenerate JSONL index from markdown files
+          node scripts/regenerate-lesson-index.mjs || echo "Index regeneration not implemented yet"
+
+      - name: Commit index updates
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          if git diff --name-only | grep -q "memory/lesson-index.jsonl"; then
+            git add memory/lesson-index.jsonl
+            git commit -m "chore: update lesson index [skip ci]"
+            git push
+          fi
