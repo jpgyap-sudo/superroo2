@@ -949,6 +949,32 @@ async function saveConversationHistory() {
 /** Debounce timeout for state persistence */
 let _statePersistTimeout = null
 
+// ─── Rate Limiter ────────────────────────────────────────────────────────────
+/** Simple per-chat rate limiter: max 10 commands per minute */
+var _rateLimitMap = new Map()
+var RATE_LIMIT_MAX = 10
+var RATE_LIMIT_WINDOW_MS = 60 * 1000
+
+function checkRateLimit(chatId) {
+	var now = Date.now()
+	var entry = _rateLimitMap.get(chatId)
+	if (!entry) {
+		_rateLimitMap.set(chatId, { count: 1, windowStart: now })
+		return { allowed: true }
+	}
+	if (now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
+		_rateLimitMap.set(chatId, { count: 1, windowStart: now })
+		return { allowed: true }
+	}
+	if (entry.count >= RATE_LIMIT_MAX) {
+		var retryAfter = Math.ceil((RATE_LIMIT_WINDOW_MS - (now - entry.windowStart)) / 1000)
+		return { allowed: false, retryAfter: retryAfter }
+	}
+	entry.count++
+	return { allowed: true }
+}
+
+
 /**
  * Persists activeSessions, pendingOtpSecrets, pendingEmailOtps, and userTasks to disk.
  * Called automatically after mutations (debounced).
@@ -1973,6 +1999,7 @@ async function handleCode(botToken, chatId, args, queue, orchestratorBridge) {
 		createdAt: new Date().toISOString(),
 		jobId: job.id,
 	})
+	scheduleStatePersist()
 
 	// Also record in Cloud Orchestrator if bridge is available
 	if (orchestratorBridge) {
@@ -2213,6 +2240,7 @@ async function handleOTP(botToken, chatId, args) {
 			sess.otpVerifiedAt = Date.now()
 			sess.otpSecret = pending.secret
 			pendingOtpSecrets.delete(chatId)
+			scheduleStatePersist()
 
 			await sendMessage(
 				botToken,
@@ -2231,6 +2259,7 @@ async function handleOTP(botToken, chatId, args) {
 
 	var secret = generateTOTPSecret()
 	pendingOtpSecrets.set(chatId, { secret: secret, verified: false })
+	scheduleStatePersist()
 
 	var otpUri = generateOTPAuthURI(secret, "superroo_" + chatId)
 
@@ -2258,7 +2287,7 @@ async function handleOTP(botToken, chatId, args) {
 /**
  * Handles /diff [taskId] - shows diff for a task.
  */
-async function handleDiff(botToken, chatId, args) {
+async function handleDiff(botToken, chatId, args, orchestratorBridge) {
 	var taskId = args[0]
 	if (!taskId) {
 		await sendMessage(botToken, chatId, "Please specify a task ID.\n\nExample: `/diff TG-221`")
@@ -2348,6 +2377,7 @@ async function handleApprove(botToken, chatId, args, orchestratorBridge) {
 	}
 
 	task.status = "approved"
+	scheduleStatePersist()
 
 	if (orchestratorBridge) {
 		try {
@@ -2441,6 +2471,7 @@ async function handleDeploy(botToken, chatId, args, queue, orchestratorBridge) {
 	})
 
 	task.status = "deploying"
+	scheduleStatePersist()
 
 	// Also record in Cloud Orchestrator if bridge is available
 	if (orchestratorBridge) {
@@ -2476,35 +2507,19 @@ async function handleDeploy(botToken, chatId, args, queue, orchestratorBridge) {
  */
 async function handleLogs(botToken, chatId, args) {
 	var limit = parseInt(args[0]) || 10
-	var target = args[1] || "all"
-	await sendChatAction(botToken, chatId, "typing")
+	await sendMessage(botToken, chatId, '📋 *Fetching logs...*')
 	try {
-		var result = await tgEndpoints.readLogs(target, limit)
-		var lines = result.logs || []
-		var reply = "*Recent Logs (last " + lines.length + ")* 📝\n\n"
-		if (lines.length === 0) {
-			reply += "No logs found for target `" + target + "`."
-		} else {
-			var output = lines.join("\n")
-			if (output.length > 3500) {
-				output = output.slice(0, 3497) + "..."
-			}
-			reply += "```\n" + output + "\n```"
-		}
-		await sendMessage(botToken, chatId, reply)
-	} catch (err) {
-		console.error("[telegram] handleLogs error:", err.message)
-		await sendMessage(botToken, chatId, "*Logs Error* ❌\n\nFailed to fetch logs: " + err.message)
+		var result = await tgEndpoints.readLogs('all', limit)
+		var logs = result.logs.slice(-limit)
+		var text = '📋 *Recent Logs*
+
+' + ''
+		await sendMessage(botToken, chatId, text)
+	} catch (e) {
+		await sendMessage(botToken, chatId, '❌ Failed to fetch logs: ' + e.message)
 	}
 }
 
-// ─── New Auth-Integrated Command Handlers ────────────────────────────────
-
-/**
- * Handles /login - Email OTP login flow.
- * Asks the user for their email, sends an OTP, and verifies it.
- * Auto-deletes sensitive messages after successful login.
- */
 async function handleLogin(botToken, chatId, telegramUserId, isGroup) {
 	// Check if already authenticated via auth module
 	var authSession = await checkAuthSession(telegramUserId, chatId)
@@ -2538,10 +2553,12 @@ async function handleLogin(botToken, chatId, telegramUserId, isGroup) {
 	var existingState = pendingEmailOtps.get(chatId)
 	if (existingState) {
 		pendingEmailOtps.delete(chatId)
+		scheduleStatePersist()
 	}
 
 	// Mark that we're awaiting email input
 	pendingEmailOtps.set(chatId, { step: "awaiting_email", messageIds: [] })
+	scheduleStatePersist()
 
 	var sentMsg = await sendMessage(
 		botToken,
@@ -2552,6 +2569,7 @@ async function handleLogin(botToken, chatId, telegramUserId, isGroup) {
 		if (!existingState) existingState = { step: "awaiting_email", messageIds: [] }
 		existingState.messageIds.push(sentMsg.result.message_id)
 		pendingEmailOtps.set(chatId, existingState)
+		scheduleStatePersist()
 	}
 }
 
@@ -2570,6 +2588,7 @@ async function handleEmailOtpLogin(botToken, chatId, email, telegramUserId) {
 			"*Invalid Email* ❌\n\nPlease enter a valid email address (e.g., `user@example.com`).\n\nUse `/login` to try again.",
 		)
 		pendingEmailOtps.delete(chatId)
+		scheduleStatePersist()
 		return
 	}
 
@@ -2584,6 +2603,7 @@ async function handleEmailOtpLogin(botToken, chatId, email, telegramUserId) {
 	state.createdAt = Date.now()
 	state.telegramUserId = telegramUserId
 	pendingEmailOtps.set(chatId, state)
+	scheduleStatePersist()
 
 	console.log("[telegram] Email OTP generated for " + email + " (chat " + chatId + "): " + otp)
 
@@ -2627,6 +2647,7 @@ async function handleEmailOtpLogin(botToken, chatId, email, telegramUserId) {
 	if (sentMsg && sentMsg.result && sentMsg.result.message_id) {
 		state.messageIds.push(sentMsg.result.message_id)
 		pendingEmailOtps.set(chatId, state)
+		scheduleStatePersist()
 	}
 }
 
@@ -2646,6 +2667,7 @@ async function handleVerifyEmailOtp(botToken, chatId, code, telegramUserId) {
 	// Check OTP expiry
 	if (Date.now() - state.createdAt > EMAIL_OTP_TTL_MS) {
 		pendingEmailOtps.delete(chatId)
+		scheduleStatePersist()
 		await sendMessage(
 			botToken,
 			chatId,
@@ -2662,6 +2684,7 @@ async function handleVerifyEmailOtp(botToken, chatId, code, telegramUserId) {
 			"*Invalid Code* ❌\n\nThe code you entered is incorrect. Please try again.\n\nUse `/login` to restart the process.",
 		)
 		pendingEmailOtps.delete(chatId)
+		scheduleStatePersist()
 		return
 	}
 
@@ -2683,6 +2706,7 @@ async function handleVerifyEmailOtp(botToken, chatId, code, telegramUserId) {
 			}
 
 			pendingEmailOtps.delete(chatId)
+			scheduleStatePersist()
 
 			// Create local session
 			createOrRefreshSession(chatId)
@@ -2697,6 +2721,7 @@ async function handleVerifyEmailOtp(botToken, chatId, code, telegramUserId) {
 		} else {
 			var errorMsg = (result && result.error) || "Unknown error"
 			pendingEmailOtps.delete(chatId)
+			scheduleStatePersist()
 			await sendMessage(
 				botToken,
 				chatId,
@@ -2708,6 +2733,7 @@ async function handleVerifyEmailOtp(botToken, chatId, code, telegramUserId) {
 	} catch (err) {
 		console.error("[telegram] Email OTP login error:", err.message)
 		pendingEmailOtps.delete(chatId)
+		scheduleStatePersist()
 		await sendMessage(
 			botToken,
 			chatId,
@@ -3538,6 +3564,7 @@ async function handleUpgrade(botToken, chatId, args, queue, orchestratorBridge) 
 			createdAt: new Date().toISOString(),
 			jobId: job.id,
 		})
+		scheduleStatePersist()
 
 		// Also record in Cloud Orchestrator if bridge is available
 		if (orchestratorBridge) {
@@ -5496,6 +5523,7 @@ async function handleNaturalLanguageInstruction(
 				createdAt: new Date().toISOString(),
 				jobId: job.id,
 			})
+			scheduleStatePersist()
 
 			// Also record in Cloud Orchestrator if bridge is available
 			if (orchestratorBridge) {
@@ -5696,6 +5724,7 @@ async function handleApprovePlan(botToken, chatId, messageId, taskId) {
 	}
 
 	task.status = "plan_approved"
+	scheduleStatePersist()
 
 	// Try to create a git savepoint before coding begins
 	var savepointCreated = false
@@ -5849,6 +5878,7 @@ async function handleDeployStaging(botToken, chatId, messageId, taskId) {
 	}
 
 	task.status = "staging_deploying"
+	scheduleStatePersist()
 
 	await editMessageText(
 		botToken,
@@ -5910,6 +5940,7 @@ async function handleDeployProduction(botToken, chatId, messageId, taskId) {
 	}
 
 	task.status = "production_deploying"
+	scheduleStatePersist()
 
 	await editMessageText(
 		botToken,
@@ -6030,6 +6061,16 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 		}
 		return
 	}
+
+		// ─── Rate limit check ───
+		var chatId = update.message ? update.message.chat.id : (update.callback_query ? update.callback_query.message.chat.id : null)
+		if (chatId) {
+			var rateCheck = checkRateLimit(chatId)
+			if (!rateCheck.allowed) {
+				console.log("[telegram] Rate limited chat " + chatId + ", retry after " + rateCheck.retryAfter + "s")
+				return
+			}
+		}
 
 	// Handle callback queries (inline keyboard button presses)
 	if (update && update.callback_query) {
@@ -6877,6 +6918,7 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 			// Cancel any pending login flow
 			if (pendingEmailOtps.has(chatId)) {
 				pendingEmailOtps.delete(chatId)
+				scheduleStatePersist()
 				await sendMessage(botToken, chatId, "*Login cancelled.*")
 			} else {
 				await sendMessage(botToken, chatId, "Nothing to cancel.")
@@ -7055,6 +7097,7 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 // Load persisted state from disk
 loadGroupWorkspaces()
 loadConversationHistory()
+loadState()
 
 module.exports = {
 	sendMessage,

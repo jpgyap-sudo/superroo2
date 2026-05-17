@@ -20,6 +20,9 @@
 // ---------------------------------------------------------------------------
 const TELEGRAM_API_BASE = "https://api.telegram.org/bot"
 
+const fs = require("fs").promises
+const path = require("path")
+
 // ---------------------------------------------------------------------------
 // Notification State
 // ---------------------------------------------------------------------------
@@ -32,6 +35,75 @@ const pendingCoderJobs = new Map()
 
 // Tracks active notifications: chatId -> Set of messageIds
 const activeNotifications = new Map()
+
+/** Path to persist notifier state (approvals, coder jobs) */
+const TELEGRAM_NOTIFIER_STATE_FILE = path.join(__dirname, "..", "data", "telegram-notifier-state.json")
+
+/** Debounce timeout for state persistence */
+let _statePersistTimeout = null
+
+/**
+ * Persists pendingApprovals and pendingCoderJobs to disk.
+ * Called automatically after mutations (debounced).
+ */
+async function persistState() {
+	try {
+		const dir = path.dirname(TELEGRAM_NOTIFIER_STATE_FILE)
+		await fs.mkdir(dir, { recursive: true })
+		const state = {
+			pendingApprovals: Object.fromEntries(pendingApprovals),
+			pendingCoderJobs: Object.fromEntries(pendingCoderJobs),
+		}
+		await fs.writeFile(TELEGRAM_NOTIFIER_STATE_FILE, JSON.stringify(state), "utf-8")
+	} catch (err) {
+		console.error("[telegram-notifier] Failed to persist state:", err.message)
+	}
+}
+
+/**
+ * Loads persisted state from disk into the in-memory Maps.
+ * Called once at startup.
+ */
+async function loadState() {
+	try {
+		const data = await fs.readFile(TELEGRAM_NOTIFIER_STATE_FILE, "utf-8")
+		const parsed = JSON.parse(data)
+		if (parsed.pendingApprovals) {
+			for (const [k, v] of Object.entries(parsed.pendingApprovals)) {
+				pendingApprovals.set(k, v)
+			}
+		}
+		if (parsed.pendingCoderJobs) {
+			for (const [k, v] of Object.entries(parsed.pendingCoderJobs)) {
+				pendingCoderJobs.set(k, v)
+			}
+		}
+		console.log(
+			"[telegram-notifier] Loaded state: " +
+				pendingApprovals.size +
+				" approvals, " +
+				pendingCoderJobs.size +
+				" coder jobs",
+		)
+	} catch {
+		console.log("[telegram-notifier] No state file found, starting fresh")
+	}
+}
+
+/**
+ * Schedules a debounced persist of notifier state.
+ */
+function scheduleStatePersist() {
+	if (_statePersistTimeout) {
+		clearTimeout(_statePersistTimeout)
+	}
+	_statePersistTimeout = setTimeout(function () {
+		_statePersistTimeout = null
+		persistState().catch(function (err) {
+			console.error("[telegram-notifier] Failed to persist state:", err.message)
+		})
+	}, 2000)
+}
 
 // ---------------------------------------------------------------------------
 // Group Chat Routing
@@ -295,6 +367,7 @@ async function sendApprovalRequest(botToken, chatId, taskId, instruction, diffIn
 		timestamp: Date.now(),
 		status: "pending",
 	})
+	scheduleStatePersist()
 
 	const diffSummary =
 		diffInfo && diffInfo.changedFiles > 0
@@ -736,6 +809,7 @@ async function handleCoderCallback(botToken, callbackQuery) {
 			if (pending) {
 				pending.status = "approved"
 				pendingCoderJobs.set(taskId, pending)
+				scheduleStatePersist()
 			}
 			return { action: "approved", taskId }
 		}
@@ -749,6 +823,7 @@ async function handleCoderCallback(botToken, callbackQuery) {
 			)
 			if (pending) {
 				pendingCoderJobs.delete(taskId)
+				scheduleStatePersist()
 			}
 			return { action: "rejected", taskId }
 		}
@@ -764,6 +839,7 @@ async function handleCoderCallback(botToken, callbackQuery) {
 			if (pending) {
 				pending.status = "awaiting_clarification"
 				pendingCoderJobs.set(taskId, pending)
+				scheduleStatePersist()
 			}
 			return { action: "clarify", taskId }
 		}
@@ -780,6 +856,7 @@ async function handleCoderCallback(botToken, callbackQuery) {
 			if (pending) {
 				pending.status = "commit_requested"
 				pendingCoderJobs.set(taskId, pending)
+				scheduleStatePersist()
 			}
 			return { action: "commit", taskId }
 		}
@@ -796,6 +873,7 @@ async function handleCoderCallback(botToken, callbackQuery) {
 			if (pending) {
 				pending.status = "deploy_requested"
 				pendingCoderJobs.set(taskId, pending)
+				scheduleStatePersist()
 			}
 			return { action: "deploy", taskId }
 		}
@@ -824,6 +902,7 @@ async function handleCoderCallback(botToken, callbackQuery) {
 			if (pending) {
 				pending.status = "retry_requested"
 				pendingCoderJobs.set(taskId, pending)
+				scheduleStatePersist()
 			}
 			return { action: "retry", taskId }
 		}
@@ -837,6 +916,7 @@ async function handleCoderCallback(botToken, callbackQuery) {
 			)
 			if (pending) {
 				pendingCoderJobs.delete(taskId)
+				scheduleStatePersist()
 			}
 			return { action: "cancelled", taskId }
 		}
@@ -850,6 +930,7 @@ async function handleCoderCallback(botToken, callbackQuery) {
 			)
 			if (pending) {
 				pendingCoderJobs.delete(taskId)
+				scheduleStatePersist()
 			}
 			return { action: "done", taskId }
 		}
@@ -910,6 +991,7 @@ async function handleCoderCallback(botToken, callbackQuery) {
 // ---------------------------------------------------------------------------
 function setPendingCoderJob(taskId, state) {
 	pendingCoderJobs.set(taskId, state)
+	scheduleStatePersist()
 }
 
 function getPendingCoderJob(taskId) {
@@ -918,6 +1000,7 @@ function getPendingCoderJob(taskId) {
 
 function removePendingCoderJob(taskId) {
 	pendingCoderJobs.delete(taskId)
+	scheduleStatePersist()
 }
 
 // ---------------------------------------------------------------------------
@@ -956,6 +1039,7 @@ async function handleNotificationCallback(botToken, callbackQuery) {
 				const approval = pendingApprovals.get(approvalKey)
 				approval.status = "approved"
 				pendingApprovals.set(approvalKey, approval)
+				scheduleStatePersist()
 			}
 			return true
 		}
@@ -973,6 +1057,7 @@ async function handleNotificationCallback(botToken, callbackQuery) {
 				const approval = pendingApprovals.get(approvalKey)
 				approval.status = "rejected"
 				pendingApprovals.set(approvalKey, approval)
+				scheduleStatePersist()
 			}
 			return true
 		}
@@ -1181,3 +1266,6 @@ module.exports = {
 	// Utilities
 	stripMarkdown,
 }
+
+// Auto-initialize on module load
+loadState()

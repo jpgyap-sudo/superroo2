@@ -8137,3 +8137,190 @@ To be determined — this commit was auto-flagged as potentially containing a le
 bugfix
 
 ---
+
+### Auto-Extracted Lesson: Feat: complete Codex's learning layer release + security hardening + telegram...
+
+Date: 2026-05-17
+Source: Git commit 43376e24
+Model/API used: unknown
+Confidence: medium
+Related files: .codex/config.toml, .roo/skills/deepseek-api/SKILL.md, .roo/skills/lesson-sync/SKILL.md, AGENTS.md, cloud/.env.example
+
+#### Task Summary
+feat: complete Codex's learning layer release + security hardening + telegram improvements
+
+#### Files Changed
+- `.codex/config.toml`
+- `.roo/skills/deepseek-api/SKILL.md`
+- `.roo/skills/lesson-sync/SKILL.md`
+- `AGENTS.md`
+- `cloud/.env.example`
+- `cloud/api/api.js`
+- `cloud/api/telegramBot.js`
+- `cloud/dashboard/test-results/ide-terminal-IDE-Terminal--38fca-nt-panel-toggles-open-close-chromium/error-context.md`
+- `cloud/dashboard/test-results/ide-terminal-IDE-Terminal--3bc66-is-focused-not-AI-textarea--chromium/error-context.md`
+- `cloud/dashboard/test-results/ide-terminal-IDE-Terminal--d7774-ste-works-in-terminal-input-chromium/error-context.md`
+- `cloud/dashboard/test-results/ide-terminal-IDE-Terminal-page-loads-and-renders-terminal-UI-chromium/error-context.md`
+- `cloud/ecosystem.config.js`
+- `cloud/orchestrator/TelegramOrchestratorBridge.js`
+- `cloud/orchestrator/modules/FeatureAnswerer.js`
+- `cloud/remote-deploy-dashboard.sh`
+- `memory/central-brain-store-log.json`
+- `memory/context/latest-agent-context.md`
+- `memory/learning-events.jsonl`
+- `memory/lesson-index.jsonl`
+- `memory/lessons-learned.md`
+- `memory/skill-promotion-candidates.jsonl`
+- `scripts/backfill-lessons.mjs`
+- `server/src/memory/codextask.json`
+- `server/src/memory/commit-deploy-log.json`
+- `server/src/memory/kimi.json`
+- `src/core/prompts/responses.ts`
+- `src/telegram/bot.ts`
+- `webview-ui/src/components/chat/ChatRow.tsx`
+- `webview-ui/src/i18n/locales/en/chat.json`
+- `{try{const`
+
+#### Bug Cause
+<!-- TODO: Document what caused the issue -->
+Unknown — extracted from commit 43376e24.
+
+#### Fix Applied
+<!-- TODO: Document the solution -->
+See commit 43376e24 by JPG Yap.
+
+#### Test Result
+Unknown — no test files detected.
+
+#### Lesson Learned
+<!-- TODO: Extract reusable lesson -->
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+<!-- TODO: Define a specific rule for future agents -->
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+testing, ui, api, deployment
+
+---
+
+### Auto-Extracted Lesson: (intelligence-layer): normalize model names, fix lessonsByDay grouping, add b...
+
+Date: 2026-05-17
+Source: Git commit 2fac5c57
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/api/api.js, cloud/dashboard/src/components/views/intelligence-layer.tsx, cloud/orchestrator/modules/LearningGateway.js
+
+#### Task Summary
+fix(intelligence-layer): normalize model names, fix lessonsByDay grouping, add brain offline flag
+
+#### Files Changed
+- `cloud/api/api.js`
+- `cloud/dashboard/src/components/views/intelligence-layer.tsx`
+- `cloud/orchestrator/modules/LearningGateway.js`
+
+#### Bug Cause
+<!-- TODO: Document what caused the issue -->
+Unknown — extracted from commit 2fac5c57.
+
+#### Fix Applied
+<!-- TODO: Document the solution -->
+See commit 2fac5c57 by JPG Yap.
+
+#### Test Result
+Unknown — no test files detected.
+
+#### Lesson Learned
+<!-- TODO: Extract reusable lesson -->
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+<!-- TODO: Define a specific rule for future agents -->
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+api, bugfix
+
+---
+
+### Lesson: Complete Codex's Unfinished Learning Layer Release + Security Hardening
+
+Date: 2026-05-17
+Source: Roo task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/api/telegramBot.js, cloud/ecosystem.config.js, cloud/orchestrator/TelegramOrchestratorBridge.js, cloud/orchestrator/modules/FeatureAnswerer.js, src/core/prompts/responses.ts, webview-ui/src/components/chat/ChatRow.tsx, src/telegram/bot.ts, .roo/skills/deepseek-api/SKILL.md, AGENTS.md, .codex/config.toml, server/src/memory/codextask.json
+
+#### Task Summary
+Completed Codex's unfinished "learning layer release" task: committed and deployed 19 uncommitted files including security hardening (secrets moved to env vars), telegram improvements (per-chat rate limiting, Ollama chat client, env-var-ized URLs, fixed agent routing), file attachment display in ChatRow, DeepSeek V4 model configs, and learning layer workflow updates.
+
+#### Files Changed
+- cloud/api/telegramBot.js - Fixed DASHBOARD_URL literal string bug (3 occurrences), added per-chat rate limiting, _callOllamaChat, env-var-ized URLs, fixed agent routing
+- cloud/ecosystem.config.js - Moved secrets from hardcoded to process.env
+- cloud/orchestrator/TelegramOrchestratorBridge.js - Added tgTaskId, agentId, source metadata
+- cloud/orchestrator/modules/FeatureAnswerer.js - Fixed Ollama env var priority
+- src/core/prompts/responses.ts - Added formatFileAttachments function
+- webview-ui/src/components/chat/ChatRow.tsx - Added file attachment display
+- src/telegram/bot.ts - Fixed bot username extraction
+- .roo/skills/deepseek-api/SKILL.md - Added V4 Flash/V4 Pro model configs
+- AGENTS.md - Updated learning layer sync and lesson capture workflow
+- .codex/config.toml - Removed duplicate sections
+- server/src/memory/codextask.json - Marked task as completed
+
+#### Bug Cause
+Codex's env-var-ized DASHBOARD_URL was used as a literal string in template/message strings instead of being interpolated via template literals, causing broken URLs in Telegram bot messages.
+
+#### Fix Applied
+Replaced all 3 occurrences of literal "DASHBOARD_URL" with `${DASHBOARD_URL}` template literal interpolation.
+
+#### Test Result
+pass - All 7 PM2 services online after deployment
+
+#### Lesson Learned
+When env-var-izing hardcoded URLs, always search for ALL usages of the old value — including string concatenation and template literals. A variable declaration change without updating all consumers creates silent bugs that manifest as broken links in production.
+
+#### Reusable Rule
+When converting a hardcoded string to a runtime variable in JavaScript, always use a regex search for the exact old string value across the entire file to catch all string literal usages that need template literal interpolation.
+
+#### Tags
+codex, learning-layer, telegram, security, env-vars, bugfix
+
+---
+
+### Auto-Extracted Lesson: add Claude task tracking system (claudetask.json + MCP actions + CLAUDE.md)
+
+Date: 2026-05-17
+Source: Git commit 99b7468f
+Model/API used: JPG Yap
+Confidence: medium
+Related files: CLAUDE.md, server/src/memory/McpMemoryServer.ts, server/src/memory/claudetask.json
+
+#### Task Summary
+feat: add Claude task tracking system (claudetask.json + MCP actions + CLAUDE.md)
+
+#### Files Changed
+- `CLAUDE.md`
+- `server/src/memory/McpMemoryServer.ts`
+- `server/src/memory/claudetask.json`
+
+#### Bug Cause
+Not recorded.
+
+#### Fix Applied
+See the linked commit.
+
+#### Test Result
+Not recorded.
+
+#### Lesson Learned
+Document the durable insight from this change.
+
+#### Reusable Rule
+**Add a specific reusable rule before relying on this lesson.**
+
+#### Tags
+learning-layer
+
+---
