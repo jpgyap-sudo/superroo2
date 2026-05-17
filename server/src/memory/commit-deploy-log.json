@@ -275,6 +275,27 @@
 			],
 			"featuresAffected": ["autonomous-loop", "cloud-orchestrator", "api"],
 			"timestamp": "2026-05-11T19:37:00.000Z"
+		},
+		{
+			"id": "commit_844c8b11c",
+			"commitSha": "844c8b11c",
+			"agent": "code",
+			"type": "feature",
+			"title": "feat: add DeepSeek-V4-Flash and DeepSeek-V4-Pro models with agent re-routing",
+			"description": "Added DeepSeek-V4-Flash (cheap/fast worker) and DeepSeek-V4-Pro (strong/slow expert) model definitions across all config files. Re-routed agents: Flash for coding, crawling, testing, fast_fix; Pro for planning, debugging, research, deployment, architecture. Updated cloud API, local extension configs, skill docs, and resource docs.",
+			"filesChanged": [
+				"packages/types/src/providers/deepseek.ts",
+				"src/super-roo/settings/config/providers.ts",
+				"src/super-roo/settings/services/modelRouterService.ts",
+				"src/super-roo/settings/config/agentRouting.ts",
+				"src/super-roo/settings/services/modelRouter.ts",
+				"src/super-roo/product-memory/WorkflowEnforcer.ts",
+				"cloud/api/api.js",
+				".roo/skills/deepseek-api/SKILL.md",
+				"docs/resources/deepseek-api.md"
+			],
+			"featuresAffected": ["deepseek-api", "model-routing", "agent-routing", "cloud-api", "workflow-enforcer"],
+			"timestamp": "2026-05-17T13:10:00.000Z"
 		}
 	],
 	"deploys": [
@@ -414,40 +435,32 @@
 			"completedAt": "2026-05-11T20:00:35.000Z"
 		},
 		{
-			"id": "commit_37ecd8df9",
+			"id": "deploy-shell-fix-2026-05-17",
+			"version": "1.8.1",
 			"commitSha": "37ecd8df9",
 			"agent": "code",
-			"type": "bugfix",
-			"title": "fix: tighten shell keyword detection, add /shell command, add page labels",
-			"description": "Three changes:\n\n1. telegramClassifier.js: Tightened keyword fallback shell detection from 7 broad patterns (\"run \", \"command\", \"execute\", \"bash\", \"sh \", \"terminal\", \"shell\") to 18 specific phrase patterns to eliminate false positives (e.g., \"run tests\" no longer classified as shell intent).\n\n2. telegramPolicy.js: Enhanced getBlockedReason() for shell commands with rephrasing tips when common false-positive triggers are detected (e.g., messages containing \"run\" or \"command\").\n\n3. telegramBot.js: Added /shell command — registered in KNOWN_COMMANDS, created handleShell() function with usage help, policy check, and formatted output via tgEndpoints.executeShell(). Added to command dispatch and help text.\n\n4. tgEndpoints.js: Added executeShell() function that wraps the existing run() helper.\n\n5. page.tsx: Added missing pageLabel entries for \"intelligence-layer\" and \"workflow-compliance\".",
-			"filesChanged": [
-				"cloud/api/telegramBot.js",
-				"cloud/api/telegramClassifier.js",
-				"cloud/api/telegramPolicy.js",
-				"cloud/api/tgEndpoints.js",
-				"cloud/dashboard/src/app/page.tsx"
-			],
-			"featuresAffected": ["telegram-bot", "telegram-classifier", "telegram-policy", "dashboard"],
-			"timestamp": "2026-05-17T12:57:00.000Z"
-		}
-	],
-	"deploys": [
+			"status": "healthy",
+			"environment": "production",
+			"commitsIncluded": ["37ecd8df9"],
+			"featuresDeployed": ["telegram-bot", "telegram-classifier", "telegram-policy", "dashboard"],
+			"healthCheckPassed": true,
+			"healthCheckLatencyMs": 250,
+			"startedAt": "2026-05-17T12:57:00.000Z",
+			"completedAt": "2026-05-17T13:00:00.000Z"
+		},
 		{
-			"id": "commit_37ecd8df9",
-			"commitSha": "37ecd8df9",
+			"id": "deploy-deepseek-v4-2026-05-17",
+			"version": "1.9.0",
+			"commitSha": "844c8b11c",
 			"agent": "code",
-			"type": "deploy",
-			"title": "deploy: shell keyword fix, /shell command, page labels",
-			"description": "Deployed all changes to VPS: pm2 restart superroo-api, npm run build + pm2 restart superroo-dashboard",
-			"filesChanged": [
-				"cloud/api/telegramBot.js",
-				"cloud/api/telegramClassifier.js",
-				"cloud/api/telegramPolicy.js",
-				"cloud/api/tgEndpoints.js",
-				"cloud/dashboard/src/app/page.tsx"
-			],
-			"featuresAffected": ["telegram-bot", "telegram-classifier", "telegram-policy", "dashboard"],
-			"timestamp": "2026-05-17T12:57:00.000Z"
+			"status": "healthy",
+			"environment": "production",
+			"commitsIncluded": ["844c8b11c"],
+			"featuresDeployed": ["deepseek-api", "model-routing", "agent-routing", "cloud-api", "workflow-enforcer"],
+			"healthCheckPassed": true,
+			"healthCheckLatencyMs": 250,
+			"startedAt": "2026-05-17T13:15:00.000Z",
+			"completedAt": "2026-05-17T13:15:46.000Z"
 		}
 	]
 }
