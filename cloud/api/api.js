@@ -519,6 +519,13 @@ async function initOrchestrator() {
 		})
 		await hermesClaw.init()
 		orchestrator.registerHermesClaw(hermesClaw)
+		const { LearningGateway } = safeRequire("../orchestrator/modules/LearningGateway")
+		orchestrator.registerLearningGateway(
+			new LearningGateway({
+				hermesClaw,
+				projectRoot: path.join(__dirname, "..", ".."),
+			}),
+		)
 
 		// ── Expose orchestrator globally for Telegram bot HermesClaw access ──
 		global.__orchestrator = orchestrator
@@ -540,6 +547,81 @@ async function initOrchestrator() {
 		console.error("[orchestrator] Failed to initialize Cloud Orchestrator:", err.message)
 		writeApiLog("error", "cloud-orchestrator", `Failed to initialize: ${err.message}`, { error: err.message })
 		// Non-fatal — API continues without orchestrator
+	}
+}
+
+// ── Rate Limiter ────────────────────────────────────────────────────────────────
+
+/**
+ * Simple in-memory sliding-window rate limiter.
+ * Tracks request counts per IP address within a time window.
+ * When the limit is exceeded, returns 429 Too Many Requests.
+ *
+ * Configuration via environment variables:
+ *   RATE_LIMIT_WINDOW_MS  — Window duration in ms (default: 60_000 = 1 minute)
+ *   RATE_LIMIT_MAX_REQS   — Max requests per window per IP (default: 100)
+ *   RATE_LIMIT_BYPASS_IPS — Comma-separated IPs to exempt (e.g. "127.0.0.1,::1")
+ */
+const RATE_LIMIT_WINDOW_MS = parseInt(process.env.RATE_LIMIT_WINDOW_MS || "60000", 10)
+const RATE_LIMIT_MAX_REQS = parseInt(process.env.RATE_LIMIT_MAX_REQS || "100", 10)
+const RATE_LIMIT_BYPASS_IPS = new Set(
+	(process.env.RATE_LIMIT_BYPASS_IPS || "127.0.0.1,::1,localhost").split(",").map((s) => s.trim().toLowerCase()),
+)
+
+/** @type {Map<string, { count: number; resetAt: number }>} */
+const rateLimitBuckets = new Map()
+
+// Periodic cleanup of expired buckets (every 5 minutes)
+const RATE_LIMIT_CLEANUP_INTERVAL = setInterval(() => {
+	const now = Date.now()
+	for (const [key, bucket] of rateLimitBuckets) {
+		if (bucket.resetAt <= now) {
+			rateLimitBuckets.delete(key)
+		}
+	}
+}, 300_000)
+if (RATE_LIMIT_CLEANUP_INTERVAL.unref) {
+	RATE_LIMIT_CLEANUP_INTERVAL.unref()
+}
+
+/**
+ * Extract client IP from the request.
+ * Respects X-Forwarded-For header (set by nginx/reverse proxy).
+ */
+function getClientIp(req) {
+	const forwarded = req.headers["x-forwarded-for"]
+	if (forwarded) {
+		const ip = forwarded.split(",")[0].trim().toLowerCase()
+		if (ip) return ip
+	}
+	return req.socket?.remoteAddress?.toLowerCase() || "unknown"
+}
+
+/**
+ * Check and consume a rate limit token for the given IP.
+ * Returns { allowed: boolean, remaining: number, resetAt: number }.
+ */
+function checkRateLimit(ip) {
+	// Bypass for trusted IPs
+	if (RATE_LIMIT_BYPASS_IPS.has(ip)) {
+		return { allowed: true, remaining: Infinity, resetAt: 0 }
+	}
+
+	const now = Date.now()
+	let bucket = rateLimitBuckets.get(ip)
+
+	if (!bucket || bucket.resetAt <= now) {
+		// Start a new window
+		bucket = { count: 0, resetAt: now + RATE_LIMIT_WINDOW_MS }
+		rateLimitBuckets.set(ip, bucket)
+	}
+
+	bucket.count++
+
+	return {
+		allowed: bucket.count <= RATE_LIMIT_MAX_REQS,
+		remaining: Math.max(0, RATE_LIMIT_MAX_REQS - bucket.count),
+		resetAt: bucket.resetAt,
 	}
 }
 
@@ -2433,6 +2515,33 @@ const server = http.createServer(async (req, res) => {
 	// Normalize by stripping /api prefix if present
 	const normalizedUrl = url.startsWith("/api") ? url.slice(4) || "/" : url
 
+	// ── Rate Limiting ────────────────────────────────────────────────────
+	// Skip rate limiting for health checks (always allow)
+	if (method !== "GET" || (url !== "/health" && normalizedUrl !== "/health")) {
+		const clientIp = getClientIp(req)
+		const { allowed, remaining, resetAt } = checkRateLimit(clientIp)
+		if (!allowed) {
+			const retryAfter = Math.ceil((resetAt - Date.now()) / 1000)
+			res.writeHead(429, {
+				"Content-Type": "application/json",
+				"Retry-After": String(retryAfter),
+				"X-RateLimit-Remaining": "0",
+				"X-RateLimit-Reset": String(Math.ceil(resetAt / 1000)),
+			})
+			res.end(
+				JSON.stringify({
+					error: "Too Many Requests",
+					message: `Rate limit exceeded. Try again in ${retryAfter}s.`,
+					retryAfter,
+				}),
+			)
+			return
+		}
+		// Set rate limit headers on all responses
+		res.setHeader("X-RateLimit-Remaining", String(remaining))
+		res.setHeader("X-RateLimit-Reset", String(Math.ceil(resetAt / 1000)))
+	}
+
 	try {
 		// Health
 		if (method === "GET" && (url === "/health" || normalizedUrl === "/health")) {
@@ -2527,6 +2636,93 @@ const server = http.createServer(async (req, res) => {
 		}
 
 		// Intelligence Layer — aggregated stats from memory files
+		// Learning Gateway - compact lesson retrieval and storage for agents
+		if (
+			method === "POST" &&
+			(url === "/api/learning/search" ||
+				url === "/api/learning/store" ||
+				url === "/api/learning/score" ||
+				normalizedUrl === "/learning/search" ||
+				normalizedUrl === "/learning/store" ||
+				normalizedUrl === "/learning/score")
+		) {
+			const configuredLearningKey = process.env.LEARNING_API_KEY || ""
+			if (configuredLearningKey && req.headers["x-learning-key"] !== configuredLearningKey) {
+				sendJson(res, 401, { success: false, error: "unauthorized" })
+				return
+			}
+			if (!orchestrator?.learningGateway) {
+				sendJson(res, 503, { success: false, error: "Learning gateway not initialized" })
+				return
+			}
+
+			try {
+				const data = await parseBody(req)
+				const route = normalizedUrl.replace(/^\/learning\//, "")
+
+				if (route === "search") {
+					if (!data.query || typeof data.query !== "string") {
+						sendJson(res, 400, { success: false, error: "query is required" })
+						return
+					}
+					const result = await orchestrator.learningGateway.search({
+						query: data.query,
+						topK: Math.max(1, Math.min(Number(data.topK || 3), 10)),
+						tags: Array.isArray(data.tags) ? data.tags : [],
+						filePaths: Array.isArray(data.file_paths) ? data.file_paths : [],
+						taskId: data.task_id || null,
+						compact: data.compact !== false,
+					})
+					sendJson(res, 200, { success: true, ...result })
+					return
+				}
+
+				if (route === "store") {
+					if (!data.problem || !data.solution) {
+						sendJson(res, 400, { success: false, error: "problem and solution are required" })
+						return
+					}
+					const lesson = await orchestrator.learningGateway.store({
+						project: data.project || "superroo2",
+						task_type: data.task_type,
+						problem: data.problem,
+						root_cause: data.root_cause,
+						solution: data.solution,
+						files: Array.isArray(data.files_changed) ? data.files_changed : [],
+						files_changed: Array.isArray(data.files_changed) ? data.files_changed : [],
+						tags: Array.isArray(data.tags) ? data.tags : [],
+						confidence: Number.isFinite(data.confidence) ? data.confidence : 0.7,
+						risk: data.risk || "normal",
+						source_agent: data.source_agent,
+						raw_ref: data.raw_ref,
+					})
+					sendJson(res, 200, { success: true, lesson })
+					return
+				}
+
+				if (route === "score") {
+					const readinessScore = await orchestrator.learningGateway.score({
+						project: data.project || "superroo2",
+						agent: data.agent,
+						task: data.task || "",
+						outcome: ["success", "partial", "failure", "failed"].includes(data.outcome)
+							? data.outcome === "failed"
+								? "failure"
+								: data.outcome
+							: "partial",
+						used_lessons: Number(data.used_lessons || 0),
+						task_id: data.task_id || null,
+						lessonIds: Array.isArray(data.lesson_ids) ? data.lesson_ids : [],
+					})
+					sendJson(res, 200, { success: true, readiness_score: readinessScore })
+					return
+				}
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+				return
+			}
+		}
+
 		if (method === "GET" && (url === "/intelligence-layer" || normalizedUrl === "/intelligence-layer")) {
 			try {
 				const fs = require("fs")
@@ -2534,14 +2730,15 @@ const server = http.createServer(async (req, res) => {
 				const memoryDir = path.join(__dirname, "..", "..", "memory")
 				const serverMemoryDir = path.join(__dirname, "..", "..", "server", "src", "memory")
 
-				// ── Lessons ──
+				// ── Lessons — single source of truth: lesson-index.jsonl ──
 				let totalLessons = 0
 				let lessonsToday = 0
+				let totalBugFixes = 0
 				const tagCounts = {}
 				const modelCounts = {}
+				const lessonDayCounts = {}
 				const today = new Date().toISOString().slice(0, 10)
 
-				// Read lesson-index.jsonl
 				try {
 					const indexRaw = fs.readFileSync(path.join(memoryDir, "lesson-index.jsonl"), "utf8")
 					const lines = indexRaw.trim().split("\n").filter(Boolean)
@@ -2550,6 +2747,8 @@ const server = http.createServer(async (req, res) => {
 						try {
 							const entry = JSON.parse(line)
 							if (entry.date === today) lessonsToday++
+							if (entry.relevance_factors?.is_bug_fix === true) totalBugFixes++
+							if (entry.date) lessonDayCounts[entry.date] = (lessonDayCounts[entry.date] || 0) + 1
 							if (entry.tags)
 								entry.tags.forEach((t) => {
 									tagCounts[t] = (tagCounts[t] || 0) + 1
@@ -2563,16 +2762,11 @@ const server = http.createServer(async (req, res) => {
 					/* file may not exist */
 				}
 
-				// ── Bugs fixed ──
-				let totalBugs = 0
-				const bugSources = {}
-				try {
-					const bugsRaw = fs.readFileSync(path.join(memoryDir, "bugs-fixed.md"), "utf8")
-					const bugMatches = bugsRaw.match(/### Legacy Lesson:/g)
-					totalBugs = bugMatches ? bugMatches.length : 0
-				} catch {
-					/* file may not exist */
-				}
+				// ── Lessons per day (last 14 days) ──
+				const lessonsByDay = Object.entries(lessonDayCounts)
+					.sort((a, b) => a[0].localeCompare(b[0]))
+					.slice(-14)
+					.map(([date, count]) => ({ date, count }))
 
 				// ── Healing incidents ──
 				let totalIncidents = 0
@@ -2611,41 +2805,32 @@ const server = http.createServer(async (req, res) => {
 					/* file may not exist */
 				}
 
-				// ── Model decisions ──
-				let totalModelDecisions = 0
-				const modelDecisionModels = {}
-				try {
-					const decisionsRaw = fs.readFileSync(path.join(memoryDir, "model-decisions.md"), "utf8")
-					const decisionMatches = decisionsRaw.match(/### Legacy Lesson:/g)
-					totalModelDecisions = decisionMatches ? decisionMatches.length : 0
-					// Count model mentions
-					const modelMatches = decisionsRaw.match(/Model\/API used:\s*(.+)/g)
-					if (modelMatches) {
-						for (const m of modelMatches) {
-							const modelName = m.replace("Model/API used:", "").trim()
-							modelDecisionModels[modelName] = (modelDecisionModels[modelName] || 0) + 1
-						}
-					}
-				} catch {
-					/* file may not exist */
-				}
+				// ── Model decisions — derived from lesson-index.jsonl model field ──
+				const totalModelDecisions = totalLessons
+				const modelDecisionModels = { ...modelCounts }
 
-				// ── Commit/Deploy log ──
+				// ── Commit/Deploy log + commit activity (single read) ──
 				let totalCommits = 0
 				let totalDeploys = 0
 				let commitsToday = 0
 				let deploysToday = 0
 				const commitTypes = {}
 				const deployStatuses = {}
+				const commitActivity = []
 				try {
 					const cdLogRaw = fs.readFileSync(path.join(serverMemoryDir, "commit-deploy-log.json"), "utf8")
 					const cdLog = JSON.parse(cdLogRaw)
+					const commitDayCounts = {}
 					if (cdLog.commits) {
 						totalCommits = cdLog.commits.length
 						for (const c of cdLog.commits) {
 							if (c.timestamp && c.timestamp.slice(0, 10) === today) commitsToday++
 							const t = c.type || "other"
 							commitTypes[t] = (commitTypes[t] || 0) + 1
+							if (c.timestamp) {
+								const day = c.timestamp.slice(0, 10)
+								commitDayCounts[day] = (commitDayCounts[day] || 0) + 1
+							}
 						}
 					}
 					if (cdLog.deploys) {
@@ -2656,6 +2841,10 @@ const server = http.createServer(async (req, res) => {
 							deployStatuses[s] = (deployStatuses[s] || 0) + 1
 						}
 					}
+					Object.entries(commitDayCounts)
+						.sort((a, b) => a[0].localeCompare(b[0]))
+						.slice(-14)
+						.forEach(([date, commits]) => commitActivity.push({ date, commits }))
 				} catch {
 					/* file may not exist */
 				}
@@ -2668,6 +2857,78 @@ const server = http.createServer(async (req, res) => {
 					totalFeatures = fkLines.length
 				} catch {
 					/* file may not exist */
+				}
+
+				// ── Brain Sync stats ──
+				let brainSync = { total: 0, successful: 0, failed: 0 }
+				try {
+					const brainLogRaw = fs.readFileSync(path.join(memoryDir, "central-brain-store-log.json"), "utf8")
+					const brainLog = JSON.parse(brainLogRaw)
+					brainSync = {
+						total: brainLog.totalLessons || 0,
+						successful: brainLog.successfulStores || 0,
+						failed: brainLog.failedStores || 0,
+					}
+				} catch {
+					/* file may not exist */
+				}
+
+				// ── Skills count — scan .roo/skills/ for SKILL.md files ──
+				let totalSkills = 0
+				try {
+					const skillsRoot = path.join(__dirname, "..", "..", ".roo", "skills")
+					function countSkillFiles(dir) {
+						let n = 0
+						for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+							if (entry.isDirectory()) n += countSkillFiles(path.join(dir, entry.name))
+							else if (entry.name === "SKILL.md" || entry.name.endsWith(".skill.md")) n++
+						}
+						return n
+					}
+					totalSkills = countSkillFiles(skillsRoot)
+				} catch {
+					/* skills dir may not exist */
+				}
+
+				// ── HermesClaw persisted memory entry count ──
+				let hermesMemoryEntries = 0
+				try {
+					const hermesPath = path.join(__dirname, "..", "..", "cloud", "data", "hermes-memory.json")
+					const hermesRaw = fs.readFileSync(hermesPath, "utf8")
+					const hermesEntries = JSON.parse(hermesRaw)
+					hermesMemoryEntries = Array.isArray(hermesEntries) ? hermesEntries.length : 0
+				} catch {
+					/* file may not exist */
+				}
+
+				// ── FeatureAnswerer knowledge index stats ──
+				let featureChunks = 0
+				let featureIndexFiles = 0
+				try {
+					const { FeatureKnowledgeIndexer } = require("../orchestrator/modules/FeatureKnowledgeIndexer")
+					const indexer = new FeatureKnowledgeIndexer()
+					indexer.init()
+					const fkStats = indexer.getStats()
+					featureChunks = fkStats.chunks || 0
+					featureIndexFiles = fkStats.files || 0
+					if (indexer.db) indexer.db.close()
+				} catch {
+					/* indexer may not be available */
+				}
+
+				let learning = { recentEvents: [], searches: 0, stores: 0, scores: 0 }
+				if (orchestrator?.learningGateway) {
+					try {
+						const recentEvents = await orchestrator.learningGateway.getRecentEvents(12)
+						learning = {
+							recentEvents,
+							searches: recentEvents.filter((event) => event.event_type === "lesson_search").length,
+							stores: recentEvents.filter((event) => event.event_type === "lesson_store").length,
+							scores: recentEvents.filter((event) => event.event_type === "readiness_score").length,
+						}
+					} catch {
+						/* gateway may not be available */
+					}
 				}
 
 				// ── Top tags (most used) ──
@@ -2696,27 +2957,30 @@ const server = http.createServer(async (req, res) => {
 						totalAttempts: data.totalAttempts,
 					}))
 
-				// ── Memory growth (commits per day, last 14 days) ──
-				const memoryGrowth = []
+				// ── Learning Gateway events ──
+				let learningStats = { recentEvents: [], searches: 0, stores: 0, scores: 0 }
 				try {
-					const cdLogRaw = fs.readFileSync(path.join(serverMemoryDir, "commit-deploy-log.json"), "utf8")
-					const cdLog = JSON.parse(cdLogRaw)
-					const dayCounts = {}
-					if (cdLog.commits) {
-						for (const c of cdLog.commits) {
-							if (c.timestamp) {
-								const day = c.timestamp.slice(0, 10)
-								dayCounts[day] = (dayCounts[day] || 0) + 1
+					const eventsRaw = fs.readFileSync(path.join(memoryDir, "learning-events.jsonl"), "utf8")
+					const allEvents = eventsRaw
+						.trim()
+						.split("\n")
+						.filter(Boolean)
+						.map((l) => {
+							try {
+								return JSON.parse(l)
+							} catch {
+								return null
 							}
-						}
+						})
+						.filter(Boolean)
+					for (const ev of allEvents) {
+						if (ev.event_type === "lesson_search") learningStats.searches++
+						else if (ev.event_type === "lesson_store") learningStats.stores++
+						else if (ev.event_type === "readiness_score") learningStats.scores++
 					}
-					const sortedDays = Object.entries(dayCounts).sort((a, b) => a[0].localeCompare(b[0]))
-					const recentDays = sortedDays.slice(-14)
-					for (const [day, count] of recentDays) {
-						memoryGrowth.push({ date: day, commits: count })
-					}
+					learningStats.recentEvents = allEvents.slice(-12).reverse()
 				} catch {
-					/* file may not exist */
+					/* file may not exist yet */
 				}
 
 				// ── RAG / Knowledge Base Stats ──
@@ -2766,7 +3030,7 @@ const server = http.createServer(async (req, res) => {
 							topModels,
 						},
 						bugs: {
-							total: totalBugs,
+							total: totalBugFixes,
 						},
 						healing: {
 							totalIncidents,
@@ -2798,7 +3062,14 @@ const server = http.createServer(async (req, res) => {
 						features: {
 							total: totalFeatures,
 						},
-						memoryGrowth,
+						commitActivity,
+						lessonsByDay,
+						brainSync,
+						skills: { total: totalSkills },
+						hermes: { memoryEntries: hermesMemoryEntries },
+						featureIndex: { chunks: featureChunks, files: featureIndexFiles },
+						learning: learningStats,
+						learning,
 						rag: ragStats,
 						ollama: ollamaGrowth,
 					},

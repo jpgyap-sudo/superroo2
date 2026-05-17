@@ -160,6 +160,7 @@ export default function Dashboard() {
 			"intelligence-layer": "Intelligence Layer",
 			"workflow-compliance": "Workflow",
 			"ollama-growth": "Ollama Growth",
+			"memory-explorer": "Memory Explorer",
 		}[page] || page
 
 	// Show login page while checking auth or if not authenticated
@@ -198,6 +199,10 @@ export default function Dashboard() {
 						<div className="flex items-center gap-1.5">
 							<StatusDot online={true} />
 							<span className="text-[11px] text-gray-500">Docker</span>
+						</div>
+						<div className="flex items-center gap-1.5">
+							<StatusDot online={health?.ollama?.ok === true} />
+							<span className="text-[11px] text-gray-500">Ollama</span>
 						</div>
 					</div>
 					<div className="ml-auto flex items-center gap-2 sm:gap-3">

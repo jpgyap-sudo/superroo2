@@ -79,8 +79,11 @@ const { BugKnowledgeStore } = require("../stores/BugKnowledgeStore")
 
 const DEFAULT_CONFIG = {
 	// Primary provider (Ollama local — FREE, runs on VPS)
-	ollamaBaseUrl: process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434",
-	ollamaModel: process.env.OLLAMA_HERMES_MODEL || process.env.OLLAMA_CHAT_MODEL || "qwen2.5:0.5b",
+	// Canonical env vars: OLLAMA_BASE_URL, OLLAMA_MODEL
+	// Legacy fallbacks: OLLAMA_HOST (for base URL), OLLAMA_HERMES_MODEL, OLLAMA_CHAT_MODEL (for model)
+	ollamaBaseUrl: process.env.OLLAMA_BASE_URL || process.env.OLLAMA_HOST || "http://127.0.0.1:11434",
+	ollamaModel:
+		process.env.OLLAMA_MODEL || process.env.OLLAMA_HERMES_MODEL || process.env.OLLAMA_CHAT_MODEL || "qwen2.5:0.5b",
 	// Fallback provider (OpenAI — expensive, only when Ollama fails)
 	apiKey: process.env.OPENAI_API_KEY || "",
 	model: "gpt-4o-mini",
@@ -107,6 +110,8 @@ const DEFAULT_CONFIG = {
 	maxMemoryEntries: 2000,
 	memoryFilePath: path.join(process.env.SUPERROO_ROOT || "/opt/superroo2", "cloud/data/hermes-memory.json"),
 	skillsDir: path.join(process.env.SUPERROO_ROOT || "/opt/superroo2", ".roo/skills"),
+	// Ollama Growth tracking — records readiness checks and growth events for dashboard
+	ollamaGrowthDir: path.join(process.env.SUPERROO_ROOT || "/opt/superroo2", "memory", "ollama"),
 }
 
 // ── System prompts per operation ──────────────────────────────────────────────
@@ -214,6 +219,9 @@ class HermesClaw extends EventEmitter {
 		// Warming the model here ensures it's ready when the first real request comes in.
 		await this._warmOllamaModel()
 
+		// Record initial readiness check for Ollama Growth dashboard
+		await this._recordOllamaReadinessCheck()
+
 		this._initialized = true
 	}
 
@@ -269,6 +277,121 @@ class HermesClaw extends EventEmitter {
 		} catch (err) {
 			// Warm-up is best-effort; don't block initialization
 			console.warn(`[HermesClaw] Ollama warm-up failed (non-critical): ${err.message}`)
+		}
+	}
+
+	/**
+	 * Record an Ollama readiness check — writes to memory/ollama/readiness-checks.jsonl
+	 * for the Ollama Growth dashboard view.
+	 */
+	async _recordOllamaReadinessCheck() {
+		const ollamaDir = this.config.ollamaGrowthDir
+		if (!ollamaDir) return
+		try {
+			await fs.mkdir(ollamaDir, { recursive: true })
+			const http = require("http")
+
+			let ok = false
+			let modelCount = 0
+			let latencyMs = null
+			let models = []
+
+			try {
+				const t0 = Date.now()
+				const body = await new Promise((resolve, reject) => {
+					const req = http.get(`${this.config.ollamaBaseUrl}/api/tags`, { timeout: 10_000 }, (res) => {
+						let data = ""
+						res.on("data", (c) => (data += c))
+						res.on("end", () => resolve(data))
+					})
+					req.on("error", reject)
+					req.on("timeout", () => {
+						req.destroy()
+						reject(new Error("timeout"))
+					})
+				})
+				latencyMs = Date.now() - t0
+				const parsed = JSON.parse(body)
+				ok = true
+				models = (parsed.models || []).map((m) => m.name || m.model || "").filter(Boolean)
+				modelCount = models.length
+			} catch {
+				ok = false
+			}
+
+			// Scoring breakdown (max 100):
+			//   +30 reachable
+			//   +20 has >= 1 model
+			//   +10 has >= 2 models
+			//   +10 has >= 3 models
+			//   +15 latency < 2s
+			//   +10 latency < 500ms
+			//    +5 has an embedding or coding model detected
+			let score = 0
+			let level = "Offline"
+			let recommendation = "Ollama is offline. Check service status."
+			if (ok) {
+				score += 30
+				if (modelCount >= 1) score += 20
+				if (modelCount >= 2) score += 10
+				if (modelCount >= 3) score += 10
+				if (latencyMs !== null && latencyMs < 2000) score += 15
+				if (latencyMs !== null && latencyMs < 500) score += 10
+				const hasSpecialist = models.some((m) => /(embed|code|coder|deepseek|mistral|llama)/i.test(m))
+				if (hasSpecialist) score += 5
+
+				if (score >= 90) level = "Main coder candidate"
+				else if (score >= 75) level = "Junior coder"
+				else if (score >= 60) level = "Patch suggester"
+				else if (score >= 40) level = "Memory assistant"
+				else level = "Summarizer only"
+
+				if (score >= 90) recommendation = "Main coder candidate with review."
+				else if (score >= 75) recommendation = "Allow small coding tasks with review."
+				else if (score >= 60) recommendation = "Use for patch suggestions only."
+				else if (score >= 40) recommendation = "Use for memory retrieval."
+				else recommendation = "Keep Ollama as summarizer only."
+			}
+
+			const check = {
+				created_at: new Date().toISOString(),
+				total_score: score,
+				level,
+				recommendation,
+				models_available: modelCount,
+				models,
+				latency_ms: latencyMs,
+				ok,
+			}
+			const line = JSON.stringify(check) + "\n"
+			await fs.appendFile(path.join(ollamaDir, "readiness-checks.jsonl"), line, "utf8")
+		} catch (err) {
+			// Non-critical — don't block startup
+			console.warn(`[HermesClaw] Failed to record Ollama readiness check: ${err.message}`)
+		}
+	}
+
+	/**
+	 * Record an Ollama growth event — writes to memory/ollama/growth-events.jsonl
+	 * for the Ollama Growth dashboard view.
+	 * @param {string} eventType - e.g. "ollama_used", "ollama_failed", "ollama_warmed"
+	 * @param {object} [metadata] - Optional event metadata
+	 */
+	async _recordOllamaGrowthEvent(eventType, metadata = {}) {
+		const ollamaDir = this.config.ollamaGrowthDir
+		if (!ollamaDir) return
+		try {
+			await fs.mkdir(ollamaDir, { recursive: true })
+			const event = {
+				created_at: new Date().toISOString(),
+				event_type: eventType,
+				...metadata,
+			}
+			const line = JSON.stringify(event) + "\n"
+			await fs.appendFile(path.join(ollamaDir, "growth-events.jsonl"), line, "utf8")
+		} catch (err) {
+			// Non-critical
+			console.warn(`[HermesClaw] Failed to record Ollama growth event: ${err.message}`)
 		}
 	}
 
@@ -693,10 +816,17 @@ class HermesClaw extends EventEmitter {
 				if (ollamaResponse) {
 					console.log(`[HermesClaw] Ollama handled operation: ${operation || "unknown"} (FREE)`)
 					clearTimeout(timeoutId)
+					// Record growth event for dashboard
+					this._recordOllamaGrowthEvent("ollama_used", { operation: operation || "unknown" }).catch(() => {})
 					return ollamaResponse
 				}
 			} catch (ollamaErr) {
 				console.warn(`[HermesClaw] Ollama unavailable (${ollamaErr.message}), falling back to cloud API`)
+				// Record failure event for dashboard
+				this._recordOllamaGrowthEvent("ollama_failed", {
+					operation: operation || "unknown",
+					error: ollamaErr.message,
+				}).catch(() => {})
 			}
 		}
 
