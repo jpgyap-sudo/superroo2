@@ -16,6 +16,11 @@ const TASK_SUMMARIES_FILE = path.join(MEMORY_DIR, "task-usage-summaries.json")
 
 // ── Helper Functions ──────────────────────────────────────────────────────────
 
+function sendJson(res, status, payload) {
+	res.writeHead(status, { "Content-Type": "application/json" })
+	res.end(JSON.stringify(payload))
+}
+
 async function loadJson(filePath) {
 	try {
 		const raw = await fs.readFile(filePath, "utf-8")
@@ -80,13 +85,13 @@ async function getStats(req, res) {
 
 		const stats = calculateStats(commitLog?.commits, usageLog, taskSummaries?.summaries)
 
-		res.json({
+		sendJson(res, 200, {
 			success: true,
 			data: stats,
 		})
 	} catch (error) {
 		console.error("[workflow-compliance] Error getting stats:", error)
-		res.status(500).json({
+		sendJson(res, 500, {
 			success: false,
 			error: error.message,
 		})
@@ -103,7 +108,7 @@ async function getCommits(req, res) {
 		const commitLog = await loadJson(COMMIT_LOG_FILE)
 
 		if (!commitLog?.commits) {
-			return res.json({ success: true, data: [] })
+			return sendJson(res, 200, { success: true, data: [] })
 		}
 
 		let commits = commitLog.commits
@@ -129,13 +134,13 @@ async function getCommits(req, res) {
 		// Limit results
 		commits = commits.slice(0, parseInt(limit))
 
-		res.json({
+		sendJson(res, 200, {
 			success: true,
 			data: commits,
 		})
 	} catch (error) {
 		console.error("[workflow-compliance] Error getting commits:", error)
-		res.status(500).json({
+		sendJson(res, 500, {
 			success: false,
 			error: error.message,
 		})
@@ -152,7 +157,7 @@ async function getUsage(req, res) {
 		const usageLog = await loadJson(USAGE_LOG_FILE)
 
 		if (!usageLog?.records) {
-			return res.json({ success: true, data: [] })
+			return sendJson(res, 200, { success: true, data: [] })
 		}
 
 		let records = usageLog.records
@@ -176,13 +181,13 @@ async function getUsage(req, res) {
 		// Limit results
 		records = records.slice(0, parseInt(limit))
 
-		res.json({
+		sendJson(res, 200, {
 			success: true,
 			data: records,
 		})
 	} catch (error) {
 		console.error("[workflow-compliance] Error getting usage:", error)
-		res.status(500).json({
+		sendJson(res, 500, {
 			success: false,
 			error: error.message,
 		})
@@ -199,7 +204,7 @@ async function verifyApiKey(req, res) {
 		const usageLog = await loadJson(USAGE_LOG_FILE)
 
 		if (!usageLog?.records) {
-			return res.json({
+			return sendJson(res, 200, {
 				success: true,
 				data: { wasUsed: false, count: 0 },
 			})
@@ -207,7 +212,7 @@ async function verifyApiKey(req, res) {
 
 		const matchingRecords = usageLog.records.filter((r) => r.apiKeyLast4 === keyLast4)
 
-		res.json({
+		sendJson(res, 200, {
 			success: true,
 			data: {
 				wasUsed: matchingRecords.length > 0,
@@ -218,7 +223,7 @@ async function verifyApiKey(req, res) {
 		})
 	} catch (error) {
 		console.error("[workflow-compliance] Error verifying key:", error)
-		res.status(500).json({
+		sendJson(res, 500, {
 			success: false,
 			error: error.message,
 		})
@@ -269,7 +274,7 @@ async function getDeepSeekStats(req, res) {
 		)
 		const delegationRate = codingCommits.length > 0 ? (deepseekCommits.length / codingCommits.length) * 100 : 0
 
-		res.json({
+		sendJson(res, 200, {
 			success: true,
 			data: {
 				totalCalls,
@@ -287,7 +292,7 @@ async function getDeepSeekStats(req, res) {
 		})
 	} catch (error) {
 		console.error("[workflow-compliance] Error getting DeepSeek stats:", error)
-		res.status(500).json({
+		sendJson(res, 500, {
 			success: false,
 			error: error.message,
 		})
