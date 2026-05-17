@@ -655,6 +655,226 @@ export class HealingBus {
 			{ plan },
 		)
 	}
+
+	// ──────────────────────────────────────────────────────────────────────────
+	// Phase 4.2: Repair Plan Execution Tracking
+	// ──────────────────────────────────────────────────────────────────────────
+
+	/**
+	 * Execute a repair plan and track its execution status.
+	 * Updates the plan's executionStatus, executedAt, and executionResult fields.
+	 */
+	async executeRepairPlan(
+		incidentId: string,
+		plan: RepairPlan,
+		actor: string,
+		success: boolean,
+		message: string,
+	): Promise<RepairPlan> {
+		const updatedPlan: RepairPlan = {
+			...plan,
+			executionStatus: success ? "completed" : "failed",
+			executedAt: Date.now(),
+			executionResult: { success, message },
+		}
+
+		await this.logHealingAction(
+			incidentId,
+			success ? "repair_plan_executed" : "repair_plan_failed",
+			actor,
+			`Repair plan ${success ? "executed successfully" : "failed"}: ${message}`,
+			{ plan },
+			{ plan: updatedPlan },
+		)
+
+		// If the plan failed, increment the fix attempt counter on the incident
+		if (!success) {
+			const incident = this.get(incidentId)
+			if (incident) {
+				const currentAttempts = incident.fixAttempts ?? 0
+				this.updateIncident(incidentId, { fixAttempts: currentAttempts + 1 })
+			}
+		}
+
+		return updatedPlan
+	}
+
+	/**
+	 * Get all repair plans for an incident.
+	 */
+	getRepairPlans(incidentId: string): RepairPlan[] {
+		const actions = this.getHealingActions(incidentId)
+		return actions
+			.filter(
+				(a) =>
+					a.actionType === "repair_plan_created" ||
+					a.actionType === "repair_plan_executed" ||
+					a.actionType === "repair_plan_failed",
+			)
+			.map((a) => a.output.plan as RepairPlan)
+			.filter(Boolean)
+	}
+
+	// ──────────────────────────────────────────────────────────────────────────
+	// Phase 4.3: Healing Success Rate Metrics
+	// ──────────────────────────────────────────────────────────────────────────
+
+	/**
+	 * Get detailed healing metrics including per-severity success rates,
+	 * per-category breakdowns, and recent trends.
+	 */
+	getDetailedHealingMetrics(): {
+		totalIncidents: number
+		openIncidents: number
+		verifiedIncidents: number
+		blockedIncidents: number
+		autoFixSuccessRate: number
+		averageTimeToResolution: number | null
+		incidentsBySeverity: Record<BugSeverity, number>
+		incidentsByStatus: Record<IncidentStatus, number>
+		successRateBySeverity: Record<string, number>
+		successRateByCategory: Record<string, number>
+		recentTrend: { period: string; verified: number; failed: number }[]
+		escalatedIncidents: number
+		avgFixAttempts: number
+	} {
+		const base = this.getHealingMetrics()
+		const db = this.memory.getDb()
+
+		// Success rate by severity
+		const severitySuccess = db
+			.prepare(
+				`SELECT i.severity,
+					SUM(CASE WHEN i.status = 'verified' THEN 1 ELSE 0 END) as verified,
+					COUNT(*) as total
+				 FROM healing_incidents i
+				 GROUP BY i.severity`,
+			)
+			.all() as { severity: string; verified: number; total: number }[]
+
+		const successRateBySeverity: Record<string, number> = {}
+		for (const row of severitySuccess) {
+			successRateBySeverity[row.severity] = row.total > 0 ? row.verified / row.total : 0
+		}
+
+		// Success rate by root cause category
+		const categorySuccess = db
+			.prepare(
+				`SELECT i.root_cause_category,
+					SUM(CASE WHEN i.status = 'verified' THEN 1 ELSE 0 END) as verified,
+					COUNT(*) as total
+				 FROM healing_incidents i
+				 WHERE i.root_cause_category IS NOT NULL
+				 GROUP BY i.root_cause_category`,
+			)
+			.all() as { root_cause_category: string; verified: number; total: number }[]
+
+		const successRateByCategory: Record<string, number> = {}
+		for (const row of categorySuccess) {
+			successRateByCategory[row.root_cause_category] = row.total > 0 ? row.verified / row.total : 0
+		}
+
+		// Recent trend (last 7 days)
+		const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000
+		const recentIncidents = db
+			.prepare(
+				`SELECT status, COUNT(*) as count
+				 FROM healing_incidents
+				 WHERE created_at >= ?
+				 GROUP BY status`,
+			)
+			.all(sevenDaysAgo) as { status: string; count: number }[]
+
+		let recentVerified = 0
+		let recentFailed = 0
+		for (const row of recentIncidents) {
+			if (row.status === "verified") recentVerified = row.count
+			if (row.status === "blocked") recentFailed = row.count
+		}
+
+		// Escalated incidents (reopened or high fix attempts)
+		const escalatedCount = db
+			.prepare(
+				`SELECT COUNT(*) as count FROM healing_incidents
+				 WHERE status = 'reopened' OR fix_attempts >= 3`,
+			)
+			.get() as { count: number }
+
+		// Average fix attempts
+		const avgAttempts = db.prepare("SELECT AVG(fix_attempts) as avg FROM healing_incidents").get() as {
+			avg: number | null
+		}
+
+		return {
+			...base,
+			successRateBySeverity,
+			successRateByCategory,
+			recentTrend: [{ period: "last_7_days", verified: recentVerified, failed: recentFailed }],
+			escalatedIncidents: escalatedCount.count,
+			avgFixAttempts: avgAttempts.avg ?? 0,
+		}
+	}
+
+	// ──────────────────────────────────────────────────────────────────────────
+	// Phase 4.4: Escalation Rules
+	// ──────────────────────────────────────────────────────────────────────────
+
+	/**
+	 * Check if an incident needs escalation based on:
+	 * - Number of fix attempts (>= 3)
+	 * - Incident has been reopened
+	 * - Incident has been open for too long (> 7 days)
+	 * - Critical severity with no resolution
+	 */
+	needsEscalation(incident: IncidentRecord): boolean {
+		const fixAttempts = incident.fixAttempts ?? 0
+		if (fixAttempts >= 3) return true
+
+		if (incident.status === "reopened") return true
+
+		const age = Date.now() - incident.createdAt
+		const sevenDaysMs = 7 * 24 * 60 * 60 * 1000
+		if (age > sevenDaysMs && incident.status !== "verified" && incident.status !== "blocked") return true
+
+		if (incident.severity === "critical" && incident.status !== "verified") return true
+
+		return false
+	}
+
+	/**
+	 * Get all incidents that need escalation.
+	 */
+	getEscalatedIncidents(): IncidentRecord[] {
+		const all = this.list()
+		return all.filter((inc) => this.needsEscalation(inc))
+	}
+
+	/**
+	 * Escalate an incident by logging an escalation action and
+	 * optionally transitioning to a blocked state.
+	 */
+	async escalateIncident(incidentId: string, actor: string, reason: string): Promise<IncidentRecord> {
+		const incident = this.get(incidentId)
+		if (!incident) {
+			throw new Error(`Incident ${incidentId} not found`)
+		}
+
+		await this.logHealingAction(
+			incidentId,
+			"escalation",
+			actor,
+			`Escalated: ${reason}`,
+			{ reason, fixAttempts: incident.fixAttempts },
+			{ incident },
+		)
+
+		// Only transition to blocked if not already in a terminal state
+		if (incident.status !== "verified" && incident.status !== "blocked") {
+			return this.transitionState(incidentId, "blocked", actor, { escalationReason: reason })
+		}
+
+		return incident
+	}
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

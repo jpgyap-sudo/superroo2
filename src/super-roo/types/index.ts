@@ -429,6 +429,7 @@ export interface LogEvent {
 	agent?: string
 	featureId?: string
 	bugId?: string
+	incidentId?: string
 	/** Identity of the coder (human or AI) responsible for the action that produced this event. */
 	codedBy?: string
 	/** Arbitrary structured data; persisted as JSON. Keep small. */

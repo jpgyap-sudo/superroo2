@@ -233,22 +233,43 @@ export class SoftmaxLayer implements Layer {
 export class DropoutLayer implements Layer {
 	private maskCache: Tensor | null = null
 	private training = true
+	private currentRate: number
 
 	constructor(private readonly rate: number = 0.5) {
 		if (rate < 0 || rate >= 1) throw new Error("Dropout rate must be in [0, 1)")
+		this.currentRate = rate
 	}
 
 	setTraining(v: boolean) {
 		this.training = v
 	}
 
+	/**
+	 * Dynamically update the dropout rate at runtime.
+	 * Useful for scheduling (e.g., annealing dropout during training).
+	 */
+	setRate(newRate: number): void {
+		if (newRate < 0 || newRate >= 1) throw new Error("Dropout rate must be in [0, 1)")
+		this.currentRate = newRate
+	}
+
+	/** Get the current dropout rate. */
+	getRate(): number {
+		return this.currentRate
+	}
+
+	/** Reset the dropout rate back to the initial constructor value. */
+	resetRate(): void {
+		this.currentRate = this.rate
+	}
+
 	forward(input: Tensor): Tensor {
 		if (!this.training) return input
 		const out = new Tensor(input.rows, input.cols, "zeros")
 		this.maskCache = new Tensor(input.rows, input.cols, "zeros")
-		const scale = 1 / (1 - this.rate)
+		const scale = 1 / (1 - this.currentRate)
 		for (let i = 0; i < input.data.length; i++) {
-			const keep = Math.random() >= this.rate ? 1 : 0
+			const keep = Math.random() >= this.currentRate ? 1 : 0
 			this.maskCache.data[i] = keep
 			out.data[i] = input.data[i] * keep * scale
 		}
@@ -258,7 +279,7 @@ export class DropoutLayer implements Layer {
 	backward(outputGrad: Tensor): Tensor {
 		if (!this.maskCache) throw new Error("backward called before forward")
 		const out = new Tensor(outputGrad.rows, outputGrad.cols, "zeros")
-		const scale = 1 / (1 - this.rate)
+		const scale = 1 / (1 - this.currentRate)
 		for (let i = 0; i < outputGrad.data.length; i++) {
 			out.data[i] = outputGrad.data[i] * this.maskCache.data[i] * scale
 		}
@@ -270,7 +291,7 @@ export class DropoutLayer implements Layer {
 	}
 
 	describe(): string {
-		return `Dropout(p=${this.rate})`
+		return `Dropout(p=${this.currentRate})`
 	}
 }
 

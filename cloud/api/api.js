@@ -2642,9 +2642,11 @@ const server = http.createServer(async (req, res) => {
 			(url === "/api/learning/search" ||
 				url === "/api/learning/store" ||
 				url === "/api/learning/score" ||
+				url === "/api/learning/curate" ||
 				normalizedUrl === "/learning/search" ||
 				normalizedUrl === "/learning/store" ||
-				normalizedUrl === "/learning/score")
+				normalizedUrl === "/learning/score" ||
+				normalizedUrl === "/learning/curate")
 		) {
 			const configuredLearningKey = process.env.LEARNING_API_KEY || ""
 			if (configuredLearningKey && req.headers["x-learning-key"] !== configuredLearningKey) {
@@ -2715,6 +2717,26 @@ const server = http.createServer(async (req, res) => {
 						lessonIds: Array.isArray(data.lesson_ids) ? data.lesson_ids : [],
 					})
 					sendJson(res, 200, { success: true, readiness_score: readinessScore })
+					return
+				}
+
+				if (route === "curate") {
+					if (!data.lesson_id || typeof data.lesson_id !== "string") {
+						sendJson(res, 400, { success: false, error: "lesson_id is required" })
+						return
+					}
+					const curation = await orchestrator.learningGateway.curate({
+						lesson_id: data.lesson_id,
+						action: data.action,
+						target_lesson_id: data.target_lesson_id,
+						policy_status: data.policy_status,
+						rule_summary: data.rule_summary,
+						lesson_summary: data.lesson_summary,
+						tags: data.tags,
+						note: data.note,
+						actor: data.actor,
+					})
+					sendJson(res, 200, { success: true, curation })
 					return
 				}
 			} catch (err) {
@@ -2916,16 +2938,21 @@ const server = http.createServer(async (req, res) => {
 					/* indexer may not be available */
 				}
 
-				let learning = { recentEvents: [], searches: 0, stores: 0, scores: 0 }
+				let learning = {
+					recentEvents: [],
+					searches: 0,
+					stores: 0,
+					scores: 0,
+					curations: 0,
+					curationQueue: [],
+					topLessons: [],
+					deadLessons: [],
+					failedAfterRecall: [],
+					promotionCandidates: [],
+				}
 				if (orchestrator?.learningGateway) {
 					try {
-						const recentEvents = await orchestrator.learningGateway.getRecentEvents(12)
-						learning = {
-							recentEvents,
-							searches: recentEvents.filter((event) => event.event_type === "lesson_search").length,
-							stores: recentEvents.filter((event) => event.event_type === "lesson_store").length,
-							scores: recentEvents.filter((event) => event.event_type === "readiness_score").length,
-						}
+						learning = await orchestrator.learningGateway.getOperationalStats()
 					} catch {
 						/* gateway may not be available */
 					}
@@ -2958,31 +2985,6 @@ const server = http.createServer(async (req, res) => {
 					}))
 
 				// ── Learning Gateway events ──
-				let learningStats = { recentEvents: [], searches: 0, stores: 0, scores: 0 }
-				try {
-					const eventsRaw = fs.readFileSync(path.join(memoryDir, "learning-events.jsonl"), "utf8")
-					const allEvents = eventsRaw
-						.trim()
-						.split("\n")
-						.filter(Boolean)
-						.map((l) => {
-							try {
-								return JSON.parse(l)
-							} catch {
-								return null
-							}
-						})
-						.filter(Boolean)
-					for (const ev of allEvents) {
-						if (ev.event_type === "lesson_search") learningStats.searches++
-						else if (ev.event_type === "lesson_store") learningStats.stores++
-						else if (ev.event_type === "readiness_score") learningStats.scores++
-					}
-					learningStats.recentEvents = allEvents.slice(-12).reverse()
-				} catch {
-					/* file may not exist yet */
-				}
-
 				// ── RAG / Knowledge Base Stats ──
 				let ragStats = {
 					totalBugFixes: 0,
@@ -3068,7 +3070,6 @@ const server = http.createServer(async (req, res) => {
 						skills: { total: totalSkills },
 						hermes: { memoryEntries: hermesMemoryEntries },
 						featureIndex: { chunks: featureChunks, files: featureIndexFiles },
-						learning: learningStats,
 						learning,
 						rag: ragStats,
 						ollama: ollamaGrowth,
@@ -8671,6 +8672,15 @@ const server = http.createServer(async (req, res) => {
 			if (!TELEGRAM_BOT_TOKEN) {
 				sendJson(res, 200, { ok: false, error: "TELEGRAM_BOT_TOKEN not configured" })
 				return
+			}
+			// Validate webhook secret token if configured
+			const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET
+			if (webhookSecret) {
+				const secretHeader = req.headers["x-telegram-bot-api-secret-token"]
+				if (secretHeader !== webhookSecret) {
+					sendJson(res, 403, { ok: false, error: "Invalid webhook secret token" })
+					return
+				}
 			}
 			const update = await parseBody(req)
 			// Build a list of available AI providers for the bot's /ask and @mention support

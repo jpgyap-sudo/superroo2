@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import { MemoryStore } from "../../memory/MemoryStore"
 import { EventLog } from "../../logging/EventLog"
 import { HealingBus, makeIncidentFingerprint, severityRank } from "../HealingBus"
+import type { RepairPlan, IncidentInputRaw } from "../../types"
 
 describe("HealingBus", () => {
 	let memory: MemoryStore
@@ -219,11 +220,7 @@ describe("HealingBus", () => {
 				symptom: "Something went wrong",
 			})
 
-			await healingBus.transitionState(
-				created.id,
-				"investigating",
-				"test",
-			)
+			await healingBus.transitionState(created.id, "investigating", "test")
 
 			const updated = healingBus.get(created.id)
 			expect(updated?.status).toBe("investigating")
@@ -236,9 +233,9 @@ describe("HealingBus", () => {
 				status: "verified",
 			})
 
-			await expect(
-				healingBus.transitionState(created.id, "new", "test"),
-			).rejects.toThrow("Invalid state transition")
+			await expect(healingBus.transitionState(created.id, "new", "test")).rejects.toThrow(
+				"Invalid state transition",
+			)
 		})
 	})
 
@@ -301,6 +298,230 @@ describe("HealingBus", () => {
 			const actions = healingBus.getHealingActions(incident.id)
 			expect(actions).toHaveLength(2) // 1 from report + 1 from test
 			expect(actions[0].actionType).toBe("test_action")
+		})
+	})
+
+	describe("repair plans", () => {
+		it("should store a repair plan", async () => {
+			const incident = await healingBus.reportIncident({
+				title: "Repair Test",
+				symptom: "Needs repair",
+			})
+
+			const plan: RepairPlan = {
+				incidentId: incident.id,
+				featureKey: "test-feature",
+				severity: "medium",
+				rootCauseCategory: "TEST_FAILURE",
+				affectedFiles: ["src/test.ts"],
+				diagnosticSteps: ["Check logs"],
+				safePatchPlan: ["Fix logic"],
+				testsToRun: ["test/test.ts"],
+				approvalRequired: false,
+				executionStatus: "pending",
+			}
+
+			await healingBus.storeRepairPlan(incident.id, plan, "test_agent")
+			const plans = healingBus.getRepairPlans(incident.id)
+			expect(plans).toHaveLength(1)
+			expect(plans[0].incidentId).toBe(incident.id)
+			expect(plans[0].executionStatus).toBe("pending")
+		})
+
+		it("should execute a repair plan successfully", async () => {
+			const incident = await healingBus.reportIncident({
+				title: "Execute Test",
+				symptom: "Will be fixed",
+			})
+
+			const plan: RepairPlan = {
+				incidentId: incident.id,
+				featureKey: "test-feature",
+				severity: "low",
+				rootCauseCategory: "CONFIGURATION_ERROR",
+				affectedFiles: ["src/config.ts"],
+				diagnosticSteps: ["Check config"],
+				safePatchPlan: ["Update config"],
+				testsToRun: ["test/config.test.ts"],
+				approvalRequired: false,
+				executionStatus: "pending",
+			}
+
+			await healingBus.storeRepairPlan(incident.id, plan, "test_agent")
+			const executed = await healingBus.executeRepairPlan(
+				incident.id,
+				plan,
+				"test_agent",
+				true,
+				"Repair completed successfully",
+			)
+
+			expect(executed.executionStatus).toBe("completed")
+			expect(executed.executedAt).toBeDefined()
+			expect(executed.executionResult).toEqual({
+				success: true,
+				message: "Repair completed successfully",
+			})
+		})
+
+		it("should track failed repair execution", async () => {
+			const incident = await healingBus.reportIncident({
+				title: "Fail Test",
+				symptom: "Will fail",
+			})
+
+			const plan: RepairPlan = {
+				incidentId: incident.id,
+				featureKey: "test-feature",
+				severity: "high",
+				rootCauseCategory: "NETWORK_TIMEOUT",
+				affectedFiles: ["src/network.ts"],
+				diagnosticSteps: ["Check network"],
+				safePatchPlan: ["Retry connection"],
+				testsToRun: ["test/network.test.ts"],
+				approvalRequired: false,
+				executionStatus: "pending",
+			}
+
+			await healingBus.storeRepairPlan(incident.id, plan, "test_agent")
+			const executed = await healingBus.executeRepairPlan(
+				incident.id,
+				plan,
+				"test_agent",
+				false,
+				"Repair failed: timeout",
+			)
+
+			expect(executed.executionStatus).toBe("failed")
+			expect(executed.executionResult).toEqual({
+				success: false,
+				message: "Repair failed: timeout",
+			})
+		})
+	})
+
+	describe("getDetailedHealingMetrics", () => {
+		it("should return empty metrics when no incidents exist", () => {
+			const metrics = healingBus.getDetailedHealingMetrics()
+			expect(metrics.totalIncidents).toBe(0)
+			expect(metrics.incidentsBySeverity).toEqual({})
+			expect(metrics.recentTrend).toHaveLength(1)
+			expect(metrics.recentTrend[0].period).toBe("last_7_days")
+		})
+
+		it("should calculate per-severity breakdown", async () => {
+			await healingBus.reportIncident({
+				title: "Critical Error",
+				symptom: "Critical failure",
+				severity: "critical",
+			})
+			await healingBus.reportIncident({
+				title: "High Error",
+				symptom: "High failure",
+				severity: "high",
+			})
+			await healingBus.reportIncident({
+				title: "Medium Error",
+				symptom: "Medium failure",
+				severity: "medium",
+			})
+
+			const metrics = healingBus.getDetailedHealingMetrics()
+			expect(metrics.totalIncidents).toBe(3)
+			expect(metrics.incidentsBySeverity.critical).toBe(1)
+			expect(metrics.incidentsBySeverity.high).toBe(1)
+			expect(metrics.incidentsBySeverity.medium).toBe(1)
+		})
+
+		it("should include success rate by severity", async () => {
+			await healingBus.reportIncident({
+				title: "Test Error",
+				symptom: "Test failure",
+				severity: "high",
+			})
+
+			const metrics = healingBus.getDetailedHealingMetrics()
+			expect(metrics.successRateBySeverity.high).toBeDefined()
+			expect(typeof metrics.successRateBySeverity.high).toBe("number")
+		})
+
+		it("should include recent trend data", async () => {
+			await healingBus.reportIncident({
+				title: "Trend Error",
+				symptom: "Trending",
+			})
+
+			const metrics = healingBus.getDetailedHealingMetrics()
+			expect(metrics.recentTrend).toHaveLength(1)
+			expect(metrics.recentTrend[0]).toHaveProperty("period")
+			expect(metrics.recentTrend[0]).toHaveProperty("verified")
+			expect(metrics.recentTrend[0]).toHaveProperty("failed")
+		})
+	})
+
+	describe("escalation", () => {
+		it("should escalate incident with too many fix attempts", async () => {
+			const incident = await healingBus.reportIncident({
+				title: "Escalation Test",
+				symptom: "Keeps failing",
+			})
+
+			// Simulate multiple fix attempts
+			healingBus.updateIncident(incident.id, {
+				fixAttempts: 3,
+			} as unknown as Partial<IncidentInputRaw> & { updatedAt?: number })
+
+			// needsEscalation reads from the stored record, so re-fetch
+			const updated = healingBus.get(incident.id)!
+			expect(healingBus.needsEscalation(updated)).toBe(true)
+		})
+
+		it("should escalate critical severity incidents", async () => {
+			const incident = await healingBus.reportIncident({
+				title: "Critical Escalation",
+				symptom: "Critical issue",
+				severity: "critical",
+			})
+
+			expect(healingBus.needsEscalation(incident)).toBe(true)
+		})
+
+		it("should not escalate low severity incidents with few attempts", async () => {
+			const incident = await healingBus.reportIncident({
+				title: "Low Severity",
+				symptom: "Minor issue",
+				severity: "low",
+			})
+
+			expect(healingBus.needsEscalation(incident)).toBe(false)
+		})
+
+		it("should get escalated incidents", async () => {
+			await healingBus.reportIncident({
+				title: "Get Escalated",
+				symptom: "Will be escalated",
+				severity: "critical",
+			})
+
+			const escalated = healingBus.getEscalatedIncidents()
+			expect(escalated.length).toBeGreaterThanOrEqual(1)
+		})
+
+		it("should escalate incident and log action", async () => {
+			const incident = await healingBus.reportIncident({
+				title: "Manual Escalation",
+				symptom: "Needs human",
+			})
+
+			await healingBus.escalateIncident(incident.id, "test_agent", "Needs human review")
+
+			const updated = healingBus.get(incident.id)
+			expect(updated?.status).toBe("blocked")
+
+			const actions = healingBus.getHealingActions(incident.id)
+			const escalationAction = actions.find((a) => a.actionType === "escalation")
+			expect(escalationAction).toBeDefined()
+			expect(escalationAction?.summary).toContain("Needs human review")
 		})
 	})
 })
