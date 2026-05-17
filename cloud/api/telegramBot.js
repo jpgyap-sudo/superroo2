@@ -5194,17 +5194,75 @@ async function handleNaturalLanguageInstruction(
 
 		// ─── Chat Intent ────────────────────────────────────────────────────
 		// Handle questions directly with the enhanced AI.
-		// Inject bound workspace name so the AI knows which project it's in.
+		// Inject bound workspace context (name + project README) so the AI
+		// gives project-specific answers, not generic SuperRoo answers.
 		if (intentKind === "chat") {
 			await sendChatAction(botToken, chatId, "typing")
 			console.log("[telegram] AI query from " + chatId + ": " + text.slice(0, 100))
 			var chatBoundWs = groupWorkspaces.get(String(chatId))
 			var chatPrompt = text
 			if (chatBoundWs) {
+				// For improvement/feature/analysis queries, read project files for real context
+				var chatLower = text.toLowerCase()
+				var needsProjectContext =
+					chatLower.includes("improve") ||
+					chatLower.includes("improvement") ||
+					chatLower.includes("feature") ||
+					chatLower.includes("what can") ||
+					chatLower.includes("what does") ||
+					chatLower.includes("how does") ||
+					chatLower.includes("what is this") ||
+					chatLower.includes("tell me about") ||
+					chatLower.includes("analyze") ||
+					chatLower.includes("bottleneck") ||
+					chatLower.includes("suggest") ||
+					chatLower.includes("recommend") ||
+					chatLower.includes("prioritize") ||
+					chatLower.includes("next step") ||
+					chatLower.includes("roadmap")
+
+				var chatProjectCtx = ""
+				if (needsProjectContext) {
+					var chatCandidates = [
+						"/root/" + chatBoundWs,
+						"/opt/" + chatBoundWs,
+						"/home/" + chatBoundWs,
+					]
+					var fsSync2 = require("fs")
+					for (var ccp of chatCandidates) {
+						try {
+							if (fsSync2.existsSync(ccp)) {
+								var readmePaths2 = ["README.md", "readme.md", "README.txt"]
+								for (var rp2 of readmePaths2) {
+									try {
+										var rc = fsSync2.readFileSync(path.join(ccp, rp2), "utf8")
+										chatProjectCtx = "\n\nProject README:\n" + rc.slice(0, 3000)
+										break
+									} catch (_) {}
+								}
+								if (!chatProjectCtx) {
+									try {
+										var pkg2 = JSON.parse(fsSync2.readFileSync(path.join(ccp, "package.json"), "utf8"))
+										chatProjectCtx =
+											"\n\nProject: " +
+											(pkg2.name || chatBoundWs) +
+											(pkg2.description ? " — " + pkg2.description : "")
+									} catch (_) {}
+								}
+								break
+							}
+						} catch (_) {}
+					}
+				}
+
 				chatPrompt =
 					"[Context: This Telegram group is linked to the project '" +
 					chatBoundWs +
-					"'. Answer questions in the context of that project unless the user asks about something else.]\n\n" +
+					"'." +
+					chatProjectCtx +
+					"]\n\nAnswer the following question specifically about the '" +
+					chatBoundWs +
+					"' project, not about SuperRoo itself.\n\n" +
 					text
 			}
 			var reply = await askAI(chatPrompt, providers || [], chatId)
