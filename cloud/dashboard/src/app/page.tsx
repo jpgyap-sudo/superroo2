@@ -153,6 +153,8 @@ export default function Dashboard() {
 			"auto-deploy": "Auto Deploy",
 			"commit-deploy": "Commit & Deploy Log",
 			brain: "Central Brain",
+			"intelligence-layer": "Intelligence Layer",
+			"workflow-compliance": "Workflow",
 		}[page] || page
 
 	// Show login page while checking auth or if not authenticated

@@ -16,6 +16,7 @@ describe("telegramPolicy", () => {
 	beforeEach(() => {
 		// Reset env before each test
 		delete process.env.REQUIRE_CODING_APPROVAL
+		delete process.env.DASHBOARD_URL
 		// Re-require to pick up fresh env
 		delete require.cache[require.resolve(policyPath)]
 		policy = require(policyPath)
@@ -58,8 +59,31 @@ describe("telegramPolicy", () => {
 			expect(policy.canRunWithoutApproval("delete_data")).toBe(false)
 		})
 
-		test("blocks shell without approval", () => {
+		test("blocks destructive shell without approval", () => {
+			expect(policy.canRunWithoutApproval("shell", "rm -rf /")).toBe(false)
+			expect(policy.canRunWithoutApproval("shell", "sudo apt install nginx")).toBe(false)
+			expect(policy.canRunWithoutApproval("shell", "docker run --rm -it ubuntu")).toBe(false)
+			expect(policy.canRunWithoutApproval("shell", "systemctl restart nginx")).toBe(false)
+		})
+
+		test("allows read-only shell commands without approval", () => {
+			expect(policy.canRunWithoutApproval("shell", "what version of ollama do i have")).toBe(true)
+			expect(policy.canRunWithoutApproval("shell", "ollama --version")).toBe(true)
+			expect(policy.canRunWithoutApproval("shell", "docker ps")).toBe(true)
+			expect(policy.canRunWithoutApproval("shell", "ps aux")).toBe(true)
+			expect(policy.canRunWithoutApproval("shell", "df -h")).toBe(true)
+			expect(policy.canRunWithoutApproval("shell", "free -m")).toBe(true)
+			expect(policy.canRunWithoutApproval("shell", "systemctl status nginx")).toBe(true)
+			expect(policy.canRunWithoutApproval("shell", "cat /etc/os-release")).toBe(true)
+			expect(policy.canRunWithoutApproval("shell", "ls -la")).toBe(true)
+			expect(policy.canRunWithoutApproval("shell", "uptime")).toBe(true)
+			expect(policy.canRunWithoutApproval("shell", "curl -I https://example.com")).toBe(true)
+			expect(policy.canRunWithoutApproval("shell", "ollama list")).toBe(true)
+		})
+
+		test("blocks shell without command text (default deny)", () => {
 			expect(policy.canRunWithoutApproval("shell")).toBe(false)
+			expect(policy.canRunWithoutApproval("shell", "")).toBe(false)
 		})
 
 		test("blocks unknown actions", () => {
@@ -89,27 +113,40 @@ describe("telegramPolicy", () => {
 	})
 
 	describe("getBlockedReason", () => {
-		test("returns deploy-specific message", () => {
+		test("returns deploy-specific message with dashboard link", () => {
 			const reason = policy.getBlockedReason("deploy")
 			expect(reason).toContain("Blocked for Safety")
 			expect(reason).toContain("Deploy")
+			expect(reason).toContain("dashboard")
+			expect(reason).toContain("https://dev.abcx124.xyz")
 		})
 
-		test("returns delete_data-specific message", () => {
+		test("returns delete_data-specific message with warning", () => {
 			const reason = policy.getBlockedReason("delete_data")
 			expect(reason).toContain("Blocked for Safety")
-			expect(reason).toContain("deletion")
+			expect(reason).toContain("irreversible")
+			expect(reason).toContain("Dashboard")
 		})
 
-		test("returns shell-specific message", () => {
+		test("returns shell-specific message with SSH hint when command text provided", () => {
+			const reason = policy.getBlockedReason("shell", "what version of ollama do i have")
+			expect(reason).toContain("Blocked for Safety")
+			expect(reason).toContain("shell command")
+			expect(reason).toContain("ssh root@100.64.175.88")
+			expect(reason).toContain("ide-terminal")
+		})
+
+		test("returns shell-specific message without SSH hint when no command text provided", () => {
 			const reason = policy.getBlockedReason("shell")
 			expect(reason).toContain("Blocked for Safety")
-			expect(reason).toContain("Shell")
+			expect(reason).toContain("ide-terminal")
+			expect(reason).not.toContain("Try this yourself")
 		})
 
 		test("returns generic message for unknown kind", () => {
 			const reason = policy.getBlockedReason("unknown")
 			expect(reason).toContain("Blocked for Safety")
+			expect(reason).toContain("Dashboard")
 		})
 	})
 
@@ -129,6 +166,37 @@ describe("telegramPolicy", () => {
 
 		test("returns Unknown for unrecognized kind", () => {
 			expect(policy.getActionLabel("foobar")).toContain("Unknown")
+		})
+	})
+
+	describe("isSafeShellCommand", () => {
+		test("returns true for read-only commands", () => {
+			expect(policy.isSafeShellCommand("ollama --version")).toBe(true)
+			expect(policy.isSafeShellCommand("docker ps")).toBe(true)
+			expect(policy.isSafeShellCommand("ps aux")).toBe(true)
+			expect(policy.isSafeShellCommand("df -h")).toBe(true)
+			expect(policy.isSafeShellCommand("cat /etc/passwd")).toBe(true)
+		})
+
+		test("returns false for destructive commands", () => {
+			expect(policy.isSafeShellCommand("rm -rf /")).toBe(false)
+			expect(policy.isSafeShellCommand("sudo apt install nginx")).toBe(false)
+			expect(policy.isSafeShellCommand("docker run -it ubuntu")).toBe(false)
+			expect(policy.isSafeShellCommand("systemctl restart nginx")).toBe(false)
+			expect(policy.isSafeShellCommand("curl -o file.zip https://example.com")).toBe(false)
+		})
+
+		test("returns false for empty or missing input", () => {
+			expect(policy.isSafeShellCommand("")).toBe(false)
+			expect(policy.isSafeShellCommand()).toBe(false)
+			expect(policy.isSafeShellCommand(null)).toBe(false)
+		})
+
+		test("dangerous patterns override safe patterns", () => {
+			// "ps" is safe, but "sudo ps" is dangerous
+			expect(policy.isSafeShellCommand("sudo ps aux")).toBe(false)
+			// "cat" is safe, but "cat > file" is dangerous
+			expect(policy.isSafeShellCommand("cat > /etc/passwd")).toBe(false)
 		})
 	})
 

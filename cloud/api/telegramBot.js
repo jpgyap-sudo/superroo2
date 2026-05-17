@@ -1896,6 +1896,85 @@ async function handleCode(botToken, chatId, args, queue, orchestratorBridge) {
 }
 
 /**
+ * Handles /shell <command> - executes a shell command on the VPS.
+ * Uses the Telegram Policy Engine to check if the command is safe to run
+ * without approval. Dangerous commands are blocked with a safety message.
+ */
+async function handleShell(botToken, chatId, args) {
+	var command = args.join(" ")
+	if (!command) {
+		await sendMessage(
+			botToken,
+			chatId,
+			"*Shell Command* 🖥️\n\n" +
+				"Execute shell commands on the VPS.\n\n" +
+				"*Usage:* `/shell <command>`\n" +
+				"*Example:* `/shell pm2 list`\n" +
+				"*Example:* `/shell docker ps`\n" +
+				"*Example:* `/shell df -h`\n\n" +
+				"*Safe commands* (no approval needed):\n" +
+				"• `version`, `whoami`, `pwd`, `date`\n" +
+				"• `ps`, `df`, `free`, `uptime`, `uname`\n" +
+				"• `docker ps`, `docker stats --no-stream`\n" +
+				"• `pm2 list`, `pm2 status`, `pm2 jlist`\n" +
+				"• `ls`, `cat` (read-only files)\n\n" +
+				"*Dangerous commands* (blocked):\n" +
+				"• `rm -rf`, `dd`, `mkfs`, `reboot`, `shutdown`\n" +
+				"• `sudo`, `chmod 777`, `> /dev/sda`\n" +
+				"• Any command with `| sh` or backtick injection\n\n" +
+				"*Note:* All commands are logged and audited.",
+		)
+		return
+	}
+
+	// Check policy — is this command safe to run without approval?
+	var policyCheck = telegramPolicy.canRunWithoutApproval("shell", command)
+	if (!policyCheck.allowed) {
+		var blockedReason = telegramPolicy.getBlockedReason("shell", command)
+		await sendMessage(botToken, chatId, blockedReason)
+		return
+	}
+
+	await sendChatAction(botToken, chatId, "typing")
+
+	try {
+		var result = await tgEndpoints.executeShell(command)
+		var reply = "*Shell Output* 🖥️\n\n"
+		if (result.stdout) {
+			// Truncate long output for Telegram
+			var output = result.stdout
+			if (output.length > 3500) {
+				output = output.slice(0, 3497) + "..."
+			}
+			reply += "```\n" + output + "\n```"
+		}
+		if (result.stderr) {
+			var errOutput = result.stderr
+			if (errOutput.length > 1000) {
+				errOutput = errOutput.slice(0, 997) + "..."
+			}
+			reply += "\n*stderr:*\n```\n" + errOutput + "\n```"
+		}
+		if (!result.stdout && !result.stderr) {
+			reply += "Command completed with no output."
+		}
+		if (result.exitCode !== undefined && result.exitCode !== 0) {
+			reply += "\n\n*Exit code:* `" + result.exitCode + "`"
+		}
+		await sendMessage(botToken, chatId, reply)
+	} catch (err) {
+		logTelegramError("/shell", chatId, null, err, { command: command })
+		await sendMessage(
+			botToken,
+			chatId,
+			"*Shell Error* ❌\n\n" +
+				err.message +
+				"\n\nTry using the Cloud Dashboard terminal instead:\nhttps://dev.abcx124.xyz/ide-terminal",
+		)
+	}
+}
+
+/**
  * Handles /status [taskId] - shows system or task status.
  */
 async function handleStatus(botToken, chatId, args, queue) {
@@ -4089,6 +4168,7 @@ const KNOWN_COMMANDS = [
 	"/restart",
 	"/aceteam",
 	"/ask",
+	"/shell",
 ]
 
 /** Brain subcommands for correction */
@@ -4903,8 +4983,8 @@ async function handleNaturalLanguageInstruction(
 		// ─── OpenClaw: Policy Check ─────────────────────────────────────────
 		// Check if the action can run without approval.
 		// Blocked actions (deploy, delete_data, shell) require dashboard approval.
-		if (!telegramPolicy.canRunWithoutApproval(intentKind)) {
-			var blockedMsg = telegramPolicy.getBlockedReason(intentKind)
+		if (!telegramPolicy.canRunWithoutApproval(intentKind, text)) {
+			var blockedMsg = telegramPolicy.getBlockedReason(intentKind, text)
 			logTelegramWarning("nlp:blocked", chatId, telegramUserId, "Policy blocked " + intentKind, {
 				text: text.slice(0, 100),
 			})
@@ -5291,7 +5371,8 @@ async function handleHelp(botToken, chatId) {
 			"`/diff <taskId>` - Show changed files\n" +
 			"`/test <taskId>` - Run test suite\n" +
 			"`/approve <taskId>` - Approve pending changes\n" +
-			"`/deploy <taskId>` - Deploy approved build (OTP required)\n\n" +
+			"`/deploy <taskId>` - Deploy approved build (OTP required)\n" +
+			"`/shell <command>` - Execute safe shell commands on VPS\n\n" +
 			"*OpenClaw AI Assistant*\n" +
 			"`/debug <description>` - Create a structured debug plan\n" +
 			"`/logs [target] [lines]` - Read PM2/Docker logs\n" +
@@ -6675,6 +6756,9 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 				logTelegramError("/aceteam", chatId, telegramUserId, err)
 				await sendMessage(botToken, chatId, "*Ace Team Error* ❌\n\n" + err.message)
 			}
+		} else if (command === "/shell") {
+			logTelegramUsage("/shell", chatId, telegramUserId, { args: cmdArgs.join(" ") })
+			await handleShell(botToken, chatId, cmdArgs)
 		} else {
 			// ─── Check for Email OTP Login Flow ────────────────────────────
 			// If the user is in the middle of an email OTP login, intercept

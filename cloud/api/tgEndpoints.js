@@ -453,6 +453,33 @@ async function restartWorker(workerName) {
 	}
 }
 
+/**
+ * Executes a shell command on the VPS with safety checks.
+ * Used by the /shell command in telegramBot.js.
+ * The command is pre-validated by telegramPolicy.canRunWithoutApproval()
+ * before reaching this function.
+ *
+ * @param {string} command - Shell command to execute
+ * @returns {Promise<{stdout: string, stderr: string, exitCode: number}>}
+ */
+async function executeShell(command) {
+	try {
+		var result = await run(command)
+		return {
+			stdout: result.stdout,
+			stderr: result.stderr,
+			exitCode: 0,
+		}
+	} catch (e) {
+		// exec throws on non-zero exit — capture stdout/stderr from the error
+		return {
+			stdout: e.stdout || "",
+			stderr: e.stderr || e.message,
+			exitCode: e.code || 1,
+		}
+	}
+}
+
 // ─── Ace Team Mode (/aceteam) ───────────────────────────────────────────────
 
 /**
@@ -983,6 +1010,7 @@ module.exports = {
 	createBranch,
 	createPr,
 	restartWorker,
+	executeShell,
 	startAceTeam,
 	// Terminal Brain endpoints
 	brainPlan,

@@ -233,15 +233,31 @@ function keywordFallback(text) {
 		return "delete_data"
 	}
 
-	// Shell
+	// Shell — only match explicit shell/terminal intent, not casual use of "run" or "command"
+	// "run " is too broad (matches "run tests", "run the deploy", etc.)
+	// "command" is too broad (matches "what command", "recommend a command")
+	// "execute" is too broad (matches "execute tests", "execute deploy")
 	if (
 		lower.includes("shell") ||
-		lower.includes("terminal") ||
-		lower.includes("command") ||
-		lower.includes("run ") ||
-		lower.includes("execute") ||
-		lower.includes("bash") ||
-		lower.includes("sh ")
+		lower.includes("open terminal") ||
+		lower.includes("run a shell") ||
+		lower.includes("run command") ||
+		lower.includes("run this command") ||
+		lower.includes("execute command") ||
+		lower.includes("execute this command") ||
+		lower.includes("bash command") ||
+		lower.includes("bash shell") ||
+		lower.includes("run bash") ||
+		lower.includes("run sh") ||
+		lower.includes("run a terminal") ||
+		lower.includes("use terminal") ||
+		lower.includes("use shell") ||
+		lower.includes("in terminal") ||
+		lower.includes("in shell") ||
+		lower.includes("via terminal") ||
+		lower.includes("via shell") ||
+		lower.includes("through terminal") ||
+		lower.includes("through shell")
 	) {
 		return "shell"
 	}

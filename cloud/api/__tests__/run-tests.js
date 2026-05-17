@@ -48,6 +48,17 @@ test("blocks deploy without approval", () => assert.strictEqual(policy.canRunWit
 test("blocks delete_data without approval", () =>
 	assert.strictEqual(policy.canRunWithoutApproval("delete_data"), false))
 test("blocks shell without approval", () => assert.strictEqual(policy.canRunWithoutApproval("shell"), false))
+test("blocks destructive shell commands", () => {
+	assert.strictEqual(policy.canRunWithoutApproval("shell", "rm -rf /"), false)
+	assert.strictEqual(policy.canRunWithoutApproval("shell", "sudo apt install nginx"), false)
+	assert.strictEqual(policy.canRunWithoutApproval("shell", "docker run -it ubuntu"), false)
+})
+test("allows read-only shell commands", () => {
+	assert.strictEqual(policy.canRunWithoutApproval("shell", "what version of ollama do i have"), true)
+	assert.strictEqual(policy.canRunWithoutApproval("shell", "docker ps"), true)
+	assert.strictEqual(policy.canRunWithoutApproval("shell", "systemctl status nginx"), true)
+	assert.strictEqual(policy.canRunWithoutApproval("shell", "df -h"), true)
+})
 test("isBlocked returns true for deploy", () => assert.strictEqual(policy.isBlocked("deploy"), true))
 test("isBlocked returns false for chat", () => assert.strictEqual(policy.isBlocked("chat"), false))
 test("getBlockedReason contains safety message", () => assert.ok(policy.getBlockedReason("deploy").includes("Blocked")))
