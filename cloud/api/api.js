@@ -1040,7 +1040,8 @@ async function _handleMcpAction(action, params, orchestrator) {
 					process.env.OLLAMA_HOST ||
 					"http://127.0.0.1:11434"
 				).replace(/\/$/, "")
-				const model = process.env.OLLAMA_SUMMARY_MODEL || process.env.OLLAMA_MODEL || "qwen2.5:0.5b"
+				// Canonical: OLLAMA_MODEL; legacy fallbacks: OLLAMA_SUMMARY_MODEL
+				const model = process.env.OLLAMA_MODEL || process.env.OLLAMA_SUMMARY_MODEL || "qwen2.5:0.5b"
 				const timeoutMs = Number(process.env.OLLAMA_TIMEOUT_MS || 120000)
 
 				const systemPrompt = `You are SuperRoo's local Ollama log summarizer.
@@ -1837,6 +1838,12 @@ async function getOllamaGrowthData() {
 	const currentRecommendation =
 		latestCheck?.recommendation || getRecommendation(currentScore) || report.recommendation
 
+	// Find the most recent check that has category breakdowns (detailed audit schema)
+	const latestDetailedCheck =
+		checks.length > 0
+			? [...checks].reverse().find((c) => typeof c.architecture_understanding === "number") || null
+			: null
+
 	return {
 		readiness: {
 			total_score: currentScore,
@@ -1845,6 +1852,8 @@ async function getOllamaGrowthData() {
 			avg_score: avgScore,
 			check_count: totalChecks,
 			latest_check: latestCheck,
+			has_breakdown: !!latestDetailedCheck,
+			latest_detailed_check: latestDetailedCheck,
 		},
 		growth: {
 			event_count: totalEvents,
@@ -2437,8 +2446,28 @@ const server = http.createServer(async (req, res) => {
 					modules: Object.entries(status.modules)
 						.filter(([, loaded]) => loaded)
 						.map(([name]) => name),
+					loadedModules: status.loadedModules,
+					unloadedModules: status.unloadedModules,
 					taskStats: status.taskStats,
 				}
+			}
+			// Check Ollama health asynchronously (non-blocking for health endpoint)
+			try {
+				const ollamaBaseUrl = (
+					process.env.OLLAMA_BASE_URL ||
+					process.env.OLLAMA_HOST ||
+					"http://127.0.0.1:11434"
+				).replace(/\/$/, "")
+				fetch(`${ollamaBaseUrl}/api/tags`, { signal: AbortSignal.timeout(5_000) })
+					.then((r) => r.json())
+					.then((data) => {
+						healthPayload.ollama = { ok: true, models: (data.models || []).map((m) => m.name) }
+					})
+					.catch(() => {
+						healthPayload.ollama = { ok: false }
+					})
+			} catch {
+				healthPayload.ollama = { ok: false }
 			}
 			sendJson(res, 200, healthPayload)
 			return
@@ -2690,6 +2719,43 @@ const server = http.createServer(async (req, res) => {
 					/* file may not exist */
 				}
 
+				// ── RAG / Knowledge Base Stats ──
+				let ragStats = {
+					totalBugFixes: 0,
+					totalLessons: 0,
+					testsPassed: 0,
+					testsFailed: 0,
+					errorTypes: 0,
+					agentTypes: 0,
+					untested: 0,
+				}
+				try {
+					const { BugKnowledgeStore } = require("../orchestrator/stores/BugKnowledgeStore")
+					const ragStore = new BugKnowledgeStore()
+					await ragStore.init()
+					const stats = await ragStore.getStats()
+					ragStats = {
+						totalBugFixes: stats.totalBugFixes || 0,
+						totalLessons: stats.totalLessons || 0,
+						testsPassed: stats.testsPassed || 0,
+						testsFailed: stats.testsFailed || 0,
+						errorTypes: stats.errorTypes || 0,
+						agentTypes: stats.agentTypes || 0,
+						untested: stats.untested || 0,
+					}
+					await ragStore.close()
+				} catch {
+					/* BugKnowledgeStore may not be available */
+				}
+
+				// ── Ollama Growth / Readiness ──
+				let ollamaGrowth = null
+				try {
+					ollamaGrowth = await getOllamaGrowthData()
+				} catch {
+					/* ollama data may not exist */
+				}
+
 				sendJson(res, 200, {
 					success: true,
 					data: {
@@ -2733,6 +2799,8 @@ const server = http.createServer(async (req, res) => {
 							total: totalFeatures,
 						},
 						memoryGrowth,
+						rag: ragStats,
+						ollama: ollamaGrowth,
 					},
 				})
 			} catch (err) {

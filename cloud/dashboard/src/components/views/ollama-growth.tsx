@@ -47,6 +47,8 @@ type OllamaGrowthData = {
 		avg_score: number
 		check_count: number
 		latest_check: ReadinessCheck | null
+		has_breakdown: boolean
+		latest_detailed_check: ReadinessCheck | null
 	}
 	growth: {
 		event_count: number
@@ -220,16 +222,17 @@ export default function OllamaGrowthView() {
 
 	const { readiness, growth, timeline } = data
 	const latest = readiness.latest_check
+	const detailed = readiness.latest_detailed_check
 
-	const breakdown = latest
+	const breakdown = detailed
 		? [
-				{ name: "Architecture", value: latest.architecture_understanding, fill: "#f43f5e" },
-				{ name: "Memory", value: latest.memory_retrieval, fill: "#f59e0b" },
-				{ name: "Summaries", value: latest.lesson_summarization, fill: "#38bdf8" },
-				{ name: "Compliance", value: latest.compliance_checking, fill: "#a78bfa" },
-				{ name: "Patches", value: latest.patch_suggestion, fill: "#34d399" },
-				{ name: "Tests", value: latest.test_awareness, fill: "#fb7185" },
-				{ name: "Safety", value: latest.safety, fill: "#818cf8" },
+				{ name: "Architecture", value: detailed.architecture_understanding || 0, fill: "#f43f5e" },
+				{ name: "Memory", value: detailed.memory_retrieval || 0, fill: "#f59e0b" },
+				{ name: "Summaries", value: detailed.lesson_summarization || 0, fill: "#38bdf8" },
+				{ name: "Compliance", value: detailed.compliance_checking || 0, fill: "#a78bfa" },
+				{ name: "Patches", value: detailed.patch_suggestion || 0, fill: "#34d399" },
+				{ name: "Tests", value: detailed.test_awareness || 0, fill: "#fb7185" },
+				{ name: "Safety", value: detailed.safety || 0, fill: "#818cf8" },
 			]
 		: []
 
