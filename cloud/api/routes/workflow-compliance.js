@@ -21,6 +21,18 @@ function sendJson(res, status, payload) {
 	res.end(JSON.stringify(payload))
 }
 
+/**
+ * Parse query parameters from URL.
+ */
+function parseQuery(url) {
+	try {
+		const parsed = new URL(url, "http://localhost")
+		return Object.fromEntries(parsed.searchParams.entries())
+	} catch {
+		return {}
+	}
+}
+
 async function loadJson(filePath) {
 	try {
 		const raw = await fs.readFile(filePath, "utf-8")
@@ -104,7 +116,8 @@ async function getStats(req, res) {
  */
 async function getCommits(req, res) {
 	try {
-		const { limit = 50, since, deepseekOnly, nonCompliantOnly } = req.query
+		const query = parseQuery(req.url)
+		const { limit = "50", since, deepseekOnly, nonCompliantOnly } = query
 		const commitLog = await loadJson(COMMIT_LOG_FILE)
 
 		if (!commitLog?.commits) {
@@ -153,7 +166,8 @@ async function getCommits(req, res) {
  */
 async function getUsage(req, res) {
 	try {
-		const { provider, phase, since, limit = 100 } = req.query
+		const query = parseQuery(req.url)
+		const { provider, phase, since, limit = "100" } = query
 		const usageLog = await loadJson(USAGE_LOG_FILE)
 
 		if (!usageLog?.records) {
@@ -236,7 +250,8 @@ async function verifyApiKey(req, res) {
  */
 async function getDeepSeekStats(req, res) {
 	try {
-		const { since } = req.query
+		const query = parseQuery(req.url)
+		const { since } = query
 		const [usageLog, commitLog] = await Promise.all([loadJson(USAGE_LOG_FILE), loadJson(COMMIT_LOG_FILE)])
 
 		let records = usageLog?.records || []
