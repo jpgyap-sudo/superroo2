@@ -60,6 +60,8 @@ const DAEMON_TOKEN = process.env.SUPERROO_DAEMON_TOKEN || ""
 const CODEX_TASK_LOG_PATH =
 	process.env.CODEX_TASK_LOG_PATH || path.resolve(process.cwd(), "server/src/memory/codextask.json")
 const KIMI_TASK_LOG_PATH = process.env.KIMI_TASK_LOG_PATH || path.resolve(process.cwd(), "server/src/memory/kimi.json")
+const CLAUDE_TASK_LOG_PATH =
+	process.env.CLAUDE_TASK_LOG_PATH || path.resolve(process.cwd(), "server/src/memory/claudetask.json")
 const MEMORY_DIR = path.resolve(process.cwd(), "server/src/memory")
 const HEALING_DIR = path.resolve(process.cwd(), "memory")
 
@@ -118,6 +120,11 @@ interface CodexTaskLogFile {
 interface KimiTaskRecord extends CodexTaskRecord {}
 interface KimiTaskLogFile {
 	tasks: KimiTaskRecord[]
+}
+
+interface ClaudeTaskRecord extends CodexTaskRecord {}
+interface ClaudeTaskLogFile {
+	tasks: ClaudeTaskRecord[]
 }
 
 // ── MCP Server ──
@@ -444,6 +451,59 @@ class McpMemoryServer {
 			{
 				name: "kimi_task_get_active",
 				description: "Get the current active persistent Kimi task, if one exists.",
+				inputSchema: {
+					type: "object",
+					properties: {},
+				},
+			},
+			// ── Claude Task Memory Tools ──
+			{
+				name: "claude_task_upsert",
+				description:
+					"Create or update persistent Claude task memory so future sessions can recover recent work.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						id: { type: "string", description: "Existing task ID to update" },
+						title: { type: "string", description: "Short task title" },
+						summary: { type: "string", description: "What happened or what is being done" },
+						status: {
+							type: "string",
+							description: "Task status: active, completed, blocked, or cancelled",
+						},
+						project: { type: "string", description: "Project ID (default: superroo2)" },
+						agent: { type: "string", description: "Agent name (default: Claude)" },
+						filesChanged: { type: "array", items: { type: "string" } },
+						featuresAffected: { type: "array", items: { type: "string" } },
+						notes: { type: "array", items: { type: "string" } },
+					},
+					required: ["title"],
+				},
+			},
+			{
+				name: "claude_task_list",
+				description: "List recent persistent Claude tasks, newest first.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						limit: { type: "number", description: "Maximum number of tasks to return (default: 20)" },
+					},
+				},
+			},
+			{
+				name: "claude_task_get",
+				description: "Get one persistent Claude task by ID.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						id: { type: "string", description: "Task ID" },
+					},
+					required: ["id"],
+				},
+			},
+			{
+				name: "claude_task_get_active",
+				description: "Get the current active persistent Claude task, if one exists.",
 				inputSchema: {
 					type: "object",
 					properties: {},
@@ -786,6 +846,37 @@ class McpMemoryServer {
 				return { success: true, task: await this._getActiveKimiTask(), source: "kimi_task_log" }
 			}
 
+			// ── Claude Task Memory Tools ──
+			case "claude_task_upsert": {
+				return await this._upsertClaudeTask({
+					id: args?.id || undefined,
+					title: args?.title || "",
+					summary: args?.summary || "",
+					status: args?.status || "active",
+					project,
+					agent: args?.agent || "Claude",
+					filesChanged: args?.filesChanged || [],
+					featuresAffected: args?.featuresAffected || [],
+					notes: args?.notes || [],
+				})
+			}
+
+			case "claude_task_list": {
+				return { success: true, tasks: await this._listClaudeTasks(limit), source: "claude_task_log" }
+			}
+
+			case "claude_task_get": {
+				return {
+					success: true,
+					task: await this._getClaudeTask((args?.id as string) || ""),
+					source: "claude_task_log",
+				}
+			}
+
+			case "claude_task_get_active": {
+				return { success: true, task: await this._getActiveClaudeTask(), source: "claude_task_log" }
+			}
+
 			default:
 				throw new Error(`Unknown tool: ${name}`)
 		}
@@ -815,6 +906,9 @@ class McpMemoryServer {
 
 			case "memory://kimi/tasks":
 				return { success: true, tasks: await this._listKimiTasks(20), source: "kimi_task_log" }
+
+			case "memory://claude/tasks":
+				return { success: true, tasks: await this._listClaudeTasks(20), source: "claude_task_log" }
 
 			default:
 				// Try project-specific URIs: memory://{project}/context
@@ -1011,6 +1105,7 @@ class McpMemoryServer {
 			{ path: path.join(MEMORY_DIR, "product-features.json"), key: "features" },
 			{ path: path.join(MEMORY_DIR, "codextask.json"), key: "tasks" },
 			{ path: path.join(MEMORY_DIR, "kimi.json"), key: "tasks" },
+			{ path: path.join(MEMORY_DIR, "claudetask.json"), key: "tasks" },
 			{ path: path.join(HEALING_DIR, "healing-incidents.json"), key: "incidents" },
 		]
 
@@ -1221,6 +1316,79 @@ class McpMemoryServer {
 
 	private async _getActiveKimiTask(): Promise<KimiTaskRecord | null> {
 		const data = await this._readKimiTaskLog()
+		return data.tasks.find((task) => task.status === "active") || null
+	}
+
+	// ── Claude Task Log Helpers ──
+
+	private async _readClaudeTaskLog(): Promise<ClaudeTaskLogFile> {
+		try {
+			const raw = await fs.readFile(CLAUDE_TASK_LOG_PATH, "utf8")
+			const parsed = JSON.parse(raw) as Partial<ClaudeTaskLogFile>
+			return { tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [] }
+		} catch (err) {
+			if (isNodeError(err) && err.code === "ENOENT") {
+				return { tasks: [] }
+			}
+			throw err
+		}
+	}
+
+	private async _writeClaudeTaskLog(data: ClaudeTaskLogFile): Promise<void> {
+		await fs.mkdir(path.dirname(CLAUDE_TASK_LOG_PATH), { recursive: true })
+		const tempPath = `${CLAUDE_TASK_LOG_PATH}.tmp`
+		await fs.writeFile(tempPath, JSON.stringify(data, null, 2), "utf8")
+		await fs.rename(tempPath, CLAUDE_TASK_LOG_PATH)
+	}
+
+	private async _upsertClaudeTask(input: Record<string, unknown>): Promise<unknown> {
+		const now = new Date().toISOString()
+		const data = await this._readClaudeTaskLog()
+		const requestedId = typeof input.id === "string" ? input.id : undefined
+		const existing = requestedId ? data.tasks.find((task) => task.id === requestedId) : undefined
+		const status = typeof input.status === "string" && input.status ? input.status : existing?.status || "active"
+		const task: ClaudeTaskRecord = {
+			id: existing?.id || requestedId || `claude_task_${crypto.randomUUID()}`,
+			title: typeof input.title === "string" && input.title ? input.title : existing?.title || "Untitled task",
+			summary: typeof input.summary === "string" ? input.summary : existing?.summary || "",
+			status,
+			project:
+				typeof input.project === "string" && input.project ? input.project : existing?.project || "superroo2",
+			agent: typeof input.agent === "string" && input.agent ? input.agent : existing?.agent || "Claude",
+			filesChanged: Array.isArray(input.filesChanged)
+				? (input.filesChanged as string[])
+				: existing?.filesChanged || [],
+			featuresAffected: Array.isArray(input.featuresAffected)
+				? (input.featuresAffected as string[])
+				: existing?.featuresAffected || [],
+			notes: Array.isArray(input.notes) ? (input.notes as string[]) : existing?.notes || [],
+			startedAt: existing?.startedAt || now,
+			updatedAt: now,
+			completedAt: ["completed", "blocked", "cancelled"].includes(status) ? now : existing?.completedAt || null,
+		}
+
+		if (existing) {
+			Object.assign(existing, task)
+		} else {
+			data.tasks.unshift(task)
+		}
+		data.tasks.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+		await this._writeClaudeTaskLog({ tasks: data.tasks.slice(0, 500) })
+		return { success: true, task, source: "claude_task_log" }
+	}
+
+	private async _listClaudeTasks(limit: number): Promise<ClaudeTaskRecord[]> {
+		const data = await this._readClaudeTaskLog()
+		return data.tasks.slice(0, Number(limit))
+	}
+
+	private async _getClaudeTask(id: string): Promise<ClaudeTaskRecord | null> {
+		const data = await this._readClaudeTaskLog()
+		return data.tasks.find((task) => task.id === id) || null
+	}
+
+	private async _getActiveClaudeTask(): Promise<ClaudeTaskRecord | null> {
+		const data = await this._readClaudeTaskLog()
 		return data.tasks.find((task) => task.status === "active") || null
 	}
 
