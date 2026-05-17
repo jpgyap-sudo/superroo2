@@ -9,6 +9,7 @@ import {
 } from "@superroo/types"
 
 import { ExtensionStateContextProvider, useExtensionState, mergeExtensionState } from "../ExtensionStateContext"
+import { vscode } from "../../utils/vscode"
 
 const TestComponent = () => {
 	const { allowedCommands, setAllowedCommands, soundEnabled, showRooIgnoredFiles, setShowRooIgnoredFiles } =
@@ -48,6 +49,10 @@ const ApiConfigTestComponent = () => {
 }
 
 describe("ExtensionStateContext", () => {
+	beforeEach(() => {
+		localStorage.clear()
+	})
+
 	it("initializes with empty allowedCommands array", () => {
 		render(
 			<ExtensionStateContextProvider>
@@ -141,6 +146,37 @@ describe("ExtensionStateContext", () => {
 				apiProvider: "anthropic",
 			}),
 		)
+	})
+
+	it("hydrates immediately from the last persisted webview state", () => {
+		const persistedState = {
+			apiConfiguration: { apiProvider: "anthropic", apiKey: "cached-key" },
+			version: "cached",
+			clineMessages: [],
+			taskHistory: [],
+			shouldShowAnnouncement: false,
+		} as unknown as ExtensionState
+
+		vscode.setState({ extensionState: persistedState })
+
+		const HydrationProbe = () => {
+			const { didHydrateState, version } = useExtensionState()
+			return (
+				<>
+					<div data-testid="did-hydrate">{JSON.stringify(didHydrateState)}</div>
+					<div data-testid="version">{version}</div>
+				</>
+			)
+		}
+
+		render(
+			<ExtensionStateContextProvider>
+				<HydrationProbe />
+			</ExtensionStateContextProvider>,
+		)
+
+		expect(screen.getByTestId("did-hydrate")).toHaveTextContent("true")
+		expect(screen.getByTestId("version")).toHaveTextContent("cached")
 	})
 
 	it("correctly merges partial updates to apiConfiguration", () => {

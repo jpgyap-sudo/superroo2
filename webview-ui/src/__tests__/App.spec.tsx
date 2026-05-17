@@ -4,10 +4,13 @@ import React from "react"
 import { render, screen, act, cleanup } from "@/utils/test-utils"
 
 import AppWithProviders from "../App"
+import { vscode } from "@src/utils/vscode"
 
 vi.mock("@src/utils/vscode", () => ({
 	vscode: {
 		postMessage: vi.fn(),
+		getState: vi.fn(),
+		setState: vi.fn(),
 	},
 }))
 
@@ -170,6 +173,29 @@ describe("App", () => {
 			language: "en",
 			telemetrySetting: "enabled",
 		})
+	})
+
+	it("retries the launch handshake while waiting for hydration", () => {
+		vi.useFakeTimers()
+		mockUseExtensionState.mockReturnValue({
+			didHydrateState: false,
+			showWelcome: false,
+			shouldShowAnnouncement: false,
+			experiments: {},
+			language: "en",
+			telemetrySetting: "enabled",
+		})
+
+		render(<AppWithProviders />)
+
+		expect(vscode.postMessage).toHaveBeenCalledWith({ type: "webviewDidLaunch" })
+
+		act(() => {
+			vi.advanceTimersByTime(4000)
+		})
+
+		expect(vscode.postMessage).toHaveBeenCalledTimes(3)
+		vi.useRealTimers()
 	})
 
 	afterEach(() => {

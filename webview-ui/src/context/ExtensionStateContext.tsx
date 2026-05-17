@@ -31,6 +31,10 @@ import { experimentDefault } from "@roo/experiments"
 import { vscode } from "@src/utils/vscode"
 import { convertTextMateToHljs } from "@src/utils/textMateToHljs"
 
+type PersistedWebviewState = {
+	extensionState?: ExtensionState
+}
+
 export interface ExtensionStateContextType extends ExtensionState {
 	historyPreviewCollapsed?: boolean // Add the new state property
 	didHydrateState: boolean
@@ -190,6 +194,9 @@ export const mergeExtensionState = (prevState: ExtensionState, newState: Partial
 }
 
 export const ExtensionStateContextProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+	const persistedWebviewState = vscode.getState() as PersistedWebviewState | undefined
+	const persistedExtensionState = persistedWebviewState?.extensionState
+
 	const [state, setState] = useState<ExtensionState>({
 		apiConfiguration: {},
 		version: "",
@@ -263,10 +270,13 @@ export const ExtensionStateContextProvider: React.FC<{ children: React.ReactNode
 		includeCurrentTime: true,
 		includeCurrentCost: true,
 		lockApiConfigAcrossModes: false,
+		...persistedExtensionState,
 	})
 
-	const [didHydrateState, setDidHydrateState] = useState(false)
-	const [showWelcome, setShowWelcome] = useState(false)
+	const [didHydrateState, setDidHydrateState] = useState(Boolean(persistedExtensionState))
+	const [showWelcome, setShowWelcome] = useState(
+		persistedExtensionState ? !checkExistKey(persistedExtensionState.apiConfiguration) : false,
+	)
 	const [theme, setTheme] = useState<any>(undefined)
 	const [filePaths, setFilePaths] = useState<string[]>([])
 	const [openedTabs, setOpenedTabs] = useState<Array<{ label: string; isActive: boolean; path?: string }>>([])
@@ -308,7 +318,11 @@ export const ExtensionStateContextProvider: React.FC<{ children: React.ReactNode
 			switch (message.type) {
 				case "state": {
 					const newState = message.state ?? {}
-					setState((prevState) => mergeExtensionState(prevState, newState))
+					setState((prevState) => {
+						const mergedState = mergeExtensionState(prevState, newState)
+						vscode.setState({ extensionState: mergedState })
+						return mergedState
+					})
 					setShowWelcome(!checkExistKey(newState.apiConfiguration))
 					setDidHydrateState(true)
 					// Update alwaysAllowFollowupQuestions if present in state message

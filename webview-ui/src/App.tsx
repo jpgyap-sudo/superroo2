@@ -185,8 +185,21 @@ const App = () => {
 		}
 	}, [telemetrySetting, telemetryKey, machineId, didHydrateState])
 
-	// Tell the extension that we are ready to receive messages.
-	useEffect(() => vscode.postMessage({ type: "webviewDidLaunch" }), [])
+	// Tell the extension that we are ready to receive messages. If the renderer
+	// restarts and the first handshake is missed, retry until state arrives.
+	useEffect(() => {
+		vscode.postMessage({ type: "webviewDidLaunch" })
+
+		if (didHydrateState) {
+			return
+		}
+
+		const retryInterval = window.setInterval(() => {
+			vscode.postMessage({ type: "webviewDidLaunch" })
+		}, 2000)
+
+		return () => window.clearInterval(retryInterval)
+	}, [didHydrateState])
 
 	// Initialize source map support for better error reporting
 	useEffect(() => {
