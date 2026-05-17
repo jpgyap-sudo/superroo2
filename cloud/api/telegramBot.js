@@ -5055,6 +5055,23 @@ async function handleNaturalLanguageInstruction(
 			return true
 		}
 
+		// ─── Feature Query Intent ───────────────────────────────────────────
+		// Route "what features does SuperRoo have", "how does Safety Mode work",
+		// "explain the agent workflow", etc. to Ollama via FeatureAnswerer.
+		// Ollama answers from pre-indexed SuperRoo product docs (SQLite FTS5).
+		if (intentKind === "feature_query") {
+			await sendChatAction(botToken, chatId, "typing")
+			try {
+				var featureAnswerer = require("../orchestrator/modules/FeatureAnswerer").getFeatureAnswerer()
+				var featureReply = await featureAnswerer.answer(text)
+				await sendMessage(botToken, chatId, featureReply)
+			} catch (err) {
+				logTelegramError("nlp:feature_query", chatId, telegramUserId, err, { text: text.slice(0, 100) })
+				await sendMessage(botToken, chatId, "*Feature Query Error* ❌\n\n" + err.message)
+			}
+			return true
+		}
+
 		// ─── Legacy: Agent Routing via BullMQ ───────────────────────────────
 		// For create_branch, create_pr, and other complex actions that need
 		// the full agent pipeline, fall through to the existing BullMQ routing.

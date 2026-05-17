@@ -10,7 +10,7 @@
  *
  * Allowed kinds: chat, debug_plan, read_logs, run_tests, create_branch,
  *                create_pr, restart_worker, deploy, delete_data, shell,
- *                upgrade_self, commit_status
+ *                upgrade_self, commit_status, feature_query
  *
  * @module telegramClassifier
  */
@@ -45,6 +45,33 @@ const MIN_CONFIDENCE = 0.3
  */
 function keywordFallback(text) {
 	var lower = text.toLowerCase()
+
+	// Feature query — questions about SuperRoo's product features, capabilities, architecture
+	if (
+		lower.includes("what feature") ||
+		lower.includes("what does superroo") ||
+		lower.includes("how does superroo") ||
+		lower.includes("superroo feature") ||
+		lower.includes("what can superroo") ||
+		lower.includes("safety mode") ||
+		lower.includes("central brain") ||
+		lower.includes("agent workflow") ||
+		lower.includes("how does ollama") ||
+		lower.includes("how does the orchestrator") ||
+		lower.includes("what is the orchestrator") ||
+		lower.includes("autonomous loop") ||
+		lower.includes("deepseek route") ||
+		lower.includes("hermes") ||
+		lower.includes("memory system") ||
+		lower.includes("product feature") ||
+		lower.includes("feature list") ||
+		lower.includes("what features") ||
+		lower.includes("capabilities") ||
+		(lower.includes("how") && lower.includes("work") && lower.includes("superroo")) ||
+		(lower.includes("what") && lower.includes("superroo") && lower.includes("do"))
+	) {
+		return "feature_query"
+	}
 
 	// Upgrade / Improve Self — route to Coder agent for self-modification
 	if (
@@ -235,13 +262,14 @@ function buildClassifierPrompt() {
 	return (
 		"You are SuperRoo Telegram Assistant, a senior engineer dispatcher.\n" +
 		"Convert the user's Telegram message into one JSON object only.\n" +
-		"Allowed kind values: chat, debug_plan, read_logs, run_tests, create_branch, create_pr, restart_worker, deploy, delete_data, shell, upgrade_self, commit_status.\n" +
+		"Allowed kind values: chat, debug_plan, read_logs, run_tests, create_branch, create_pr, restart_worker, deploy, delete_data, shell, upgrade_self, commit_status, feature_query.\n" +
 		"Prefer safe engineering actions. For destructive or broad commands choose deploy/delete_data/shell only when explicitly asked.\n" +
 		"For normal coding/debugging, choose debug_plan/read_logs/run_tests/create_branch/create_pr/restart_worker.\n" +
 		"IMPORTANT: If the message starts with '[Quoted message:' it means the user is REPLYING to a previous bot message. Treat this as a follow-up question (kind: chat) unless the reply explicitly contains a new command.\n" +
 		"SPECIAL INTENTS:\n" +
 		"- upgrade_self: When the user asks to upgrade, improve, or make the bot/assistant smarter. This includes phrases like 'upgrade yourself', 'improve yourself', 'make yourself smarter', 'coder to upgrade you'. Route to upgrade_self.\n" +
 		"- commit_status: When the user asks about commit history, deploy status, latest commits/deploys, or deployment history. Route to commit_status.\n" +
+		"- feature_query: When the user asks about SuperRoo's product features, capabilities, architecture, how something works (Safety Mode, Central Brain, Ollama integration, agent workflow, orchestrator, memory system, autonomous loop, Hermes, DeepSeek routing). Route to feature_query.\n" +
 		"Return compact JSON with: kind, project, target, message, confidence.\n" +
 		"confidence is a number between 0 and 1 indicating how sure you are."
 	)
@@ -311,6 +339,7 @@ async function classifyIntent(text, providers) {
 					"shell",
 					"upgrade_self",
 					"commit_status",
+					"feature_query",
 				]
 				if (allowedKinds.indexOf(intent.kind) === -1) {
 					intent.kind = "chat"
