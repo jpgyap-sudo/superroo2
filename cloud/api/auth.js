@@ -891,6 +891,12 @@ async function handleAuthRoute(method, url, req, res) {
 	// fall through to the dedicated handler in api.js
 	if (normalizedPath === "/telegram/webhook") return false
 
+	// Don't intercept Telegram webhook info — used by dashboard to check bot status
+	if (normalizedPath === "/telegram/webhook-info") return false
+
+	// Don't intercept Telegram mapping — used by dashboard to show live component status
+	if (normalizedPath === "/telegram/mapping") return false
+
 	// Don't intercept GitHub webhook — it has no auth header and must
 	// fall through to the dedicated handler in api.js
 	if (
@@ -911,6 +917,27 @@ async function handleAuthRoute(method, url, req, res) {
 
 	// Don't intercept Monitoring routes — they are handled by api.js directly
 	if (normalizedPath.startsWith("/monitoring/")) return false
+
+	// Don't intercept Central Brain route — public manifest for AI bots
+	if (normalizedPath === "/brain") return false
+
+	// Don't intercept Central Brain MCP endpoint — public fallback for AI bots
+	if (normalizedPath === "/brain/mcp") return false
+
+	// Don't intercept Central Brain SSE events endpoint — public streaming
+	if (normalizedPath === "/brain/events" || normalizedPath === "/brain/events/emit") return false
+
+	// Don't intercept Central Brain Telegram Bridge — public MCP bridge
+	if (normalizedPath === "/brain/mcp/telegram") return false
+
+	// Don't intercept Central Brain Skill Generator — public skill creation
+	if (normalizedPath === "/brain/skill-generate") return false
+
+	// Don't intercept Central Brain Skills list — public skills listing
+	if (normalizedPath === "/brain/skills") return false
+
+	// Don't intercept Central Brain WebSocket info — public info endpoint
+	if (normalizedPath === "/brain/ws/info") return false
 
 	// ── Protected Web Auth Routes ───────────────────────────────────────────
 

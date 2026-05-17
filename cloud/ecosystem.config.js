@@ -16,6 +16,36 @@
 module.exports = {
 	apps: [
 		{
+			name: "superroo-mcp-memory",
+			script: "server/src/memory/McpMemoryServer.ts",
+			interpreter: "/opt/superroo2/node_modules/.bin/tsx",
+			cwd: "/opt/superroo2",
+			instances: 1,
+			exec_mode: "fork",
+			autorestart: true,
+			watch: false,
+			max_memory_restart: "192M",
+			exp_backoff_restart_delay: 1000,
+			max_restarts: 10,
+			restart_delay: 5000,
+			min_uptime: 10000,
+			kill_timeout: 15000,
+			env: {
+				NODE_ENV: "production",
+				CENTRAL_BRAIN_URL: "http://127.0.0.1:3417",
+				REST_API_FALLBACK_URL: "http://127.0.0.1:8787",
+				MCP_SERVER_PORT: "3419",
+				MCP_SERVER_HOST: "127.0.0.1",
+				SUPERROO_ROOT: "/opt/superroo2",
+				CODEX_TASK_LOG_PATH: "/opt/superroo2/server/src/memory/codextask.json",
+			},
+			log_file: "/opt/superroo2/cloud/logs/mcp-memory-combined.log",
+			out_file: "/opt/superroo2/cloud/logs/mcp-memory-out.log",
+			error_file: "/opt/superroo2/cloud/logs/mcp-memory-error.log",
+			log_date_format: "YYYY-MM-DD HH:mm:ss Z",
+			merge_logs: true,
+		},
+		{
 			name: "superroo-api",
 			script: "./api/api.js",
 			cwd: "/opt/superroo2/cloud",
@@ -45,11 +75,27 @@ module.exports = {
 				SMTP_USER: "marketing.homeu1@gmail.com",
 				SMTP_PASS: "ouhx sjib hyoj aayv",
 				SMTP_FROM: "marketing.homeu1@gmail.com",
+				// Ollama (Local AI) — FREE, runs on VPS
+				OLLAMA_BASE_URL: "http://127.0.0.1:11434",
+				OLLAMA_CHAT_MODEL: "qwen2.5:0.5b",
+				OLLAMA_SUMMARY_MODEL: "qwen2.5:0.5b",
+				OLLAMA_EMBED_MODEL: "nomic-embed-text",
+				OLLAMA_NUM_CTX: 2048,
+				OLLAMA_TIMEOUT_MS: 120000,
+				// Cloud API keys (fallback when Ollama is unavailable)
+				DEEPSEEK_API_KEY: "sk-02ed7970e0004e15bb146fdc36ee168f",
+				// PostgreSQL (BugKnowledgeStore)
+				PGPASSWORD: "superroo_secret_2026",
+				PGUSER: "superroo",
+				PGDATABASE: "superroo",
+				PGHOST: "127.0.0.1",
+				PGPORT: "5432",
 				// Cloud Orchestrator
 				ORCHESTRATOR_DB_PATH: "/opt/superroo2/cloud/orchestrator/data/orchestrator.db",
 				ORCHESTRATOR_MODE: "safe",
 				ORCHESTRATOR_SELF_IMPROVE: "false",
 				ORCHESTRATOR_LOOP_INTERVAL: "5000",
+				CODEX_TASK_LOG_PATH: "/opt/superroo2/server/src/memory/codextask.json",
 			},
 			log_file: "/opt/superroo2/cloud/logs/api-combined.log",
 			out_file: "/opt/superroo2/cloud/logs/api-out.log",
@@ -88,6 +134,10 @@ module.exports = {
 				// Worker resilience config
 				WORKER_MAX_REDIS_FAILURES: "5",
 				WORKER_HEALTH_CHECK_INTERVAL_MS: "30000",
+				// AI provider keys (required for agent task execution)
+				DEEPSEEK_API_KEY: "sk-02ed7970e0004e15bb146fdc36ee168f",
+				OLLAMA_BASE_URL: "http://127.0.0.1:11434",
+				OLLAMA_CHAT_MODEL: "qwen2.5:0.5b",
 				// Telegram notification config
 				BOSS_TELEGRAM_CHAT_ID: "8485794779",
 				API_BASE_URL: "http://127.0.0.1:8787",

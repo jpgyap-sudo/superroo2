@@ -1,0 +1,8 @@
+{
+	"mcpServers": {
+		"superroo-brain": {
+			"url": "http://127.0.0.1:3419/mcp",
+			"description": "SuperRoo Central Brain MCP — project memory, bugs, features, Codex tasks, Kimi tasks, commit/deploy log"
+		}
+	}
+}

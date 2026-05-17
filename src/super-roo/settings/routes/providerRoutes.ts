@@ -65,7 +65,7 @@ export function createProviderRouter(): Router {
 	 * Body: { apiKey: string, test?: boolean }
 	 * The key is encrypted before storage and never returned raw.
 	 */
-	router.post("/:providerId/key", async (req: Request, res: Response) => {
+	router.post("/:providerId/key", async (req: Request<{ providerId: string }>, res: Response) => {
 		const { providerId } = req.params
 		const { apiKey, test } = req.body as { apiKey: string; test?: boolean }
 
@@ -112,7 +112,7 @@ export function createProviderRouter(): Router {
 	/**
 	 * POST /:providerId/test — Test an already-stored key.
 	 */
-	router.post("/:providerId/test", async (req: Request, res: Response) => {
+	router.post("/:providerId/test", async (req: Request<{ providerId: string }>, res: Response) => {
 		const { providerId } = req.params
 
 		const encrypted = encryptedSecrets.get(providerId)
@@ -144,7 +144,7 @@ export function createProviderRouter(): Router {
 	/**
 	 * PATCH /:providerId — Update provider metadata (e.g., enabled, models).
 	 */
-	router.patch("/:providerId", async (req: Request, res: Response) => {
+	router.patch("/:providerId", async (req: Request<{ providerId: string }>, res: Response) => {
 		const { providerId } = req.params
 		const updates = req.body as Partial<Pick<ProviderEntry, "models">>
 
@@ -164,7 +164,7 @@ export function createProviderRouter(): Router {
 	/**
 	 * DELETE /:providerId/key — Remove a stored API key.
 	 */
-	router.delete("/:providerId/key", async (req: Request, res: Response) => {
+	router.delete("/:providerId/key", async (req: Request<{ providerId: string }>, res: Response) => {
 		const { providerId } = req.params
 
 		encryptedSecrets.delete(providerId)

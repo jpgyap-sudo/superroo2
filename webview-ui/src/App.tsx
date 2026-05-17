@@ -21,11 +21,12 @@ import { DeleteMessageDialog, EditMessageDialog } from "./components/chat/Messag
 import ErrorBoundary from "./components/ErrorBoundary"
 import { CloudView } from "./components/cloud/CloudView"
 import { GitHubView } from "./components/github/GitHubView"
+import { SuperRooDashboard } from "./components/super-roo"
 import { useAddNonInteractiveClickListener } from "./components/ui/hooks/useNonInteractiveClick"
 import { TooltipProvider } from "./components/ui/tooltip"
 import { STANDARD_TOOLTIP_DELAY } from "./components/ui/standard-tooltip"
 
-type Tab = "settings" | "history" | "chat" | "marketplace" | "cloud" | "github"
+type Tab = "settings" | "history" | "chat" | "marketplace" | "cloud" | "github" | "superroo"
 
 interface DeleteMessageDialogState {
 	isOpen: boolean
@@ -52,6 +53,7 @@ const tabsByMessageAction = {
 	marketplaceButtonClicked: "marketplace",
 	cloudButtonClicked: "cloud",
 	githubButtonClicked: "github",
+	superrooButtonClicked: "superroo",
 } as Partial<Record<NonNullable<ExtensionMessage["action"]>, Tab>>
 
 const App = () => {
@@ -201,6 +203,21 @@ const App = () => {
 		return () => window.clearInterval(retryInterval)
 	}, [didHydrateState])
 
+	useEffect(() => {
+		if (didHydrateState) {
+			return
+		}
+
+		const handleVisibilityChange = () => {
+			if (document.visibilityState === "visible") {
+				vscode.postMessage({ type: "webviewDidLaunch" })
+			}
+		}
+
+		document.addEventListener("visibilitychange", handleVisibilityChange)
+		return () => document.removeEventListener("visibilitychange", handleVisibilityChange)
+	}, [didHydrateState])
+
 	// Initialize source map support for better error reporting
 	useEffect(() => {
 		// Initialize source maps for better error reporting in production
@@ -232,7 +249,11 @@ const App = () => {
 	}, [tab])
 
 	if (!didHydrateState) {
-		return null
+		return (
+			<div className="flex h-screen items-center justify-center bg-vscode-editor-background text-vscode-foreground">
+				<div className="text-sm opacity-80">Loading SuperRoo...</div>
+			</div>
+		)
 	}
 
 	// Do not conditionally load ChatView, it's expensive and there's state we
@@ -261,6 +282,14 @@ const App = () => {
 				/>
 			)}
 			{tab === "github" && <GitHubView />}
+			{tab === "superroo" && (
+				<SuperRooDashboard
+					vscode={{
+						postMessage: (msg: unknown) =>
+							vscode.postMessage(msg as import("@superroo/types").WebviewMessage),
+					}}
+				/>
+			)}
 			<ChatView
 				ref={chatViewRef}
 				isHidden={tab !== "chat"}

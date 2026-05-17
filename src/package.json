@@ -3,7 +3,7 @@
 	"displayName": "%extension.displayName%",
 	"description": "%extension.description%",
 	"publisher": "SuperRoo",
-	"version": "3.53.1",
+	"version": "3.53.3",
 	"icon": "assets/icons/icon.png",
 	"galleryBanner": {
 		"color": "#617A91",
@@ -84,6 +84,11 @@
 				"command": "superroo.marketplaceButtonClicked",
 				"title": "%command.marketplace.title%",
 				"icon": "$(extensions)"
+			},
+			{
+				"command": "superroo.superrooButtonClicked",
+				"title": "SuperRoo Dashboard",
+				"icon": "$(dashboard)"
 			},
 			{
 				"command": "superroo.popoutButtonClicked",
@@ -176,6 +181,11 @@
 				"category": "%configuration.title%"
 			},
 			{
+				"command": "superroo.cancelCurrentTask",
+				"title": "%command.cancelCurrentTask.title%",
+				"category": "%configuration.title%"
+			},
+			{
 				"command": "superroo.status",
 				"title": "SuperRoo: Show Status",
 				"category": "%configuration.title%"
@@ -259,6 +269,11 @@
 					"when": "view == superroo.SidebarProvider"
 				},
 				{
+					"command": "superroo.superrooButtonClicked",
+					"group": "navigation@5",
+					"when": "view == superroo.SidebarProvider"
+				},
+				{
 					"command": "superroo.historyButtonClicked",
 					"group": "overflow@1",
 					"when": "view == superroo.SidebarProvider"
@@ -288,6 +303,11 @@
 				{
 					"command": "superroo.marketplaceButtonClicked",
 					"group": "navigation@4",
+					"when": "activeWebviewPanelId == superroo.TabPanelProvider"
+				},
+				{
+					"command": "superroo.superrooButtonClicked",
+					"group": "navigation@5",
 					"when": "activeWebviewPanelId == superroo.TabPanelProvider"
 				},
 				{
@@ -594,6 +614,7 @@
 		"@types/debug": "^4.1.12",
 		"@types/diff": "^5.2.1",
 		"@types/diff-match-patch": "^1.0.36",
+		"@types/express": "^5.0.6",
 		"@types/glob": "^8.1.0",
 		"@types/lodash.debounce": "^4.0.9",
 		"@types/mocha": "^10.0.10",
@@ -614,6 +635,7 @@
 		"ai": "^6.0.75",
 		"esbuild-wasm": "^0.25.0",
 		"execa": "^9.5.2",
+		"express": "^5.2.1",
 		"glob": "^11.1.0",
 		"graceful-fs": "^4.2.11",
 		"mkdirp": "^3.0.1",

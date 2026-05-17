@@ -22,6 +22,7 @@ const IORedis = require("ioredis")
 const { runSandboxJob } = require("./sandboxRunner")
 const { runAgentJob } = require("../agent-runtime/agentRunner")
 const { runDebugJob } = require("./debugJobRunner")
+const { executeRunner } = require("./agentRunners")
 const https = require("https")
 const http = require("http")
 
@@ -190,6 +191,23 @@ function sendTelegramNotification(type, taskId, instruction, extra) {
 // ---------------------------------------------------------------------------
 // Job processor
 // ---------------------------------------------------------------------------
+// Map agentId values (from Telegram/dashboard) to inline runner types.
+// This is the fallback when an agent is not found in the agent registry.
+const AGENT_ID_TO_RUNNER = {
+	// Full agent IDs
+	"superroo-coder-agent": "coder",
+	"superroo-deployer-agent": "deployer",
+	"superroo-tester-agent": "tester",
+	"superroo-orchestrator-agent": "planner",
+	// Short names (used by Telegram Mini App / dashboard)
+	coder: "coder",
+	debugger: "debugger",
+	deployer: "deployer",
+	tester: "tester",
+	planner: "planner",
+	healer: "healer",
+}
+
 async function processJob(job) {
 	if (workerPaused) {
 		console.warn(`[worker] Worker paused — discarding job ${job.id}`)
@@ -199,6 +217,7 @@ async function processJob(job) {
 	console.log(`[worker] Received job ${job.id} — task: ${job.data.task || "n/a"}`)
 
 	try {
+		// Hardcoded path for Super Debug Team (bypasses agent registry)
 		if (job.data.agentId === "superroo-debugger-agent") {
 			console.log(`[worker] Running Super Debug Team job ${job.id}`)
 			return await runDebugJob(job)
@@ -206,20 +225,55 @@ async function processJob(job) {
 
 		if (job.data.agentId) {
 			console.log(`[worker] Running agent job for ${job.data.agentId}`)
-			const result = await runAgentJob(
-				{
-					id: job.id,
-					agentId: job.data.agentId,
-					task: job.data.task,
-					commands: job.data.commands,
-					network: job.data.network,
-				},
-				(runPayload) => runSandboxJob(runPayload),
-			)
-			console.log(
-				`[worker] Agent job ${job.id} completed | status=${result.status} | output=${result.outputPath}`,
-			)
-			return result
+
+			// Try the agent registry first (Docker sandbox agents)
+			try {
+				const result = await runAgentJob(
+					{
+						id: job.id,
+						agentId: job.data.agentId,
+						task: job.data.task,
+						commands: job.data.commands,
+						network: job.data.network,
+					},
+					(runPayload) => runSandboxJob(runPayload),
+				)
+				console.log(
+					`[worker] Agent job ${job.id} completed | status=${result.status} | output=${result.outputPath}`,
+				)
+				return result
+			} catch (agentErr) {
+				// If agent not found in registry, fall back to inline runner
+				if (agentErr.message && agentErr.message.startsWith("Agent not found:")) {
+					const runnerType = AGENT_ID_TO_RUNNER[job.data.agentId]
+					if (runnerType) {
+						console.log(
+							`[worker] Agent ${job.data.agentId} not in registry — falling back to inline runner "${runnerType}"`,
+						)
+						const result = await executeRunner(runnerType, {
+							id: job.id,
+							data: {
+								instruction: job.data.task || job.data.agentId,
+								workspaceDir: process.env.SUPERROO_ROOT || "/opt/superroo2",
+								repoName: "superroo2",
+								branch: job.data.branch || "main",
+								// Multi-phase coder workflow support
+								phase: job.data.phase || undefined,
+								taskId: job.data.taskId || undefined,
+								plan: job.data.plan || undefined,
+								files: job.data.files || undefined,
+								telegram: job.data.telegram || undefined,
+							},
+						})
+						console.log(
+							`[worker] Inline runner ${runnerType} job ${job.id} completed | success=${result.success}`,
+						)
+						return result
+					}
+				}
+				// Re-throw if no fallback available
+				throw agentErr
+			}
 		}
 
 		const result = await runSandboxJob({
@@ -257,7 +311,13 @@ worker.on("completed", (job, result) => {
 	if (job.data && job.data.telegram && job.data.telegram.chatId) {
 		const taskName = job.data.task || "Untitled task"
 		sendTelegramNotification("task_complete", job.id, taskName, {
-			result: result ? (result.success !== undefined ? (result.success ? "✅ Success" : "❌ Failed") : "✅ Completed") : "✅ Completed",
+			result: result
+				? result.success !== undefined
+					? result.success
+						? "✅ Success"
+						: "❌ Failed"
+					: "✅ Completed"
+				: "✅ Completed",
 		})
 	}
 })

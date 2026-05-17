@@ -133,6 +133,7 @@ export interface ExtensionMessage {
 		| "historyButtonClicked"
 		| "marketplaceButtonClicked"
 		| "cloudButtonClicked"
+		| "superrooButtonClicked"
 		| "didBecomeVisible"
 		| "focusInput"
 		| "switchTab"

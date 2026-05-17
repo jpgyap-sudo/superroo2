@@ -1,51 +1,45 @@
 /**
- * Super Roo — Product Memory module.
+ * SuperRoo Product Memory Module
  *
- * Provides a product-control-center layer with:
- * - Product features tracking
- * - Product updates timeline
- * - Feature test history
- * - Bug-to-feature mappings
- * - Agent notes
- * - Working Tree monitoring & auto-update
- * - Centralized Commit & Deploy Log (THE single source of truth for all commits/deploys)
+ * Centralized tracking for commits, deployments, model usage, and workflow compliance.
  *
- * All data is stored as human-readable JSON files in the workspace.
- * Integrates with the existing EventLog for observability.
+ * Exports:
+ * - CommitDeployLog: Track commits and deployments
+ * - ModelUsageTracker: Track AI model API usage
+ * - WorkflowEnforcer: Enforce SuperRoo workflow compliance
  */
 
-export { ProductMemoryService } from "./ProductMemoryService"
-
+// Export CommitDeployLog
 export {
-	ProductFeatureAgent,
-	ProductUpdatesAgent,
-	FeatureTesterAgent,
-	BugFeatureMapperAgent,
-	WorkingTreeAgent,
-} from "./agents"
-export type {
-	ProductFeatureAgentOptions,
-	ProductUpdatesAgentOptions,
-	FeatureTesterAgentOptions,
-	BugFeatureMapperAgentOptions,
-	WorkingTreeAgentOptions,
-	WorkingTreeSnapshot,
-} from "./agents"
+	CommitDeployLog,
+	type CommitRecord,
+	type CommitType,
+	type DeployRecord,
+	type DeployStatus,
+	type ModelUsage,
+	type WorkflowCompliance,
+	type CommitDeployLogFile,
+} from "./CommitDeployLog"
 
-export { CommitDeployLog } from "./CommitDeployLog"
-export type { CommitRecord, DeployRecord, CommitDeployLogFile, CommitType, DeployStatus } from "./CommitDeployLog"
+// Export ModelUsageTracker
+export {
+	ModelUsageTracker,
+	initializeModelUsageTracker,
+	getModelUsageTracker,
+	type ModelUsageRecord,
+	type TaskUsageSummary,
+	type ModelUsageStats,
+} from "./ModelUsageTracker"
 
-export type {
-	ProductFeatureStatus,
-	ProductUpdateType,
-	ProductFeature,
-	ProductUpdate,
-	FeatureTestRecord,
-	BugFeatureMapping,
-	AgentNote,
-	ProductFeaturesFile,
-	ProductUpdatesFile,
-	FeatureTestHistoryFile,
-	BugFeatureMapFile,
-	AgentNotesFile,
-} from "./types"
+// Export WorkflowEnforcer
+export {
+	WorkflowEnforcer,
+	initializeWorkflowEnforcer,
+	getWorkflowEnforcer,
+	isWorkflowEnforcerInitialized,
+	type WorkflowPhase,
+	type ViolationAction,
+	type WorkflowEnforcerConfig,
+	type WorkflowViolation,
+	type WorkflowState,
+} from "./WorkflowEnforcer"

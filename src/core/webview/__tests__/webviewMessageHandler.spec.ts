@@ -29,6 +29,23 @@ vi.mock("@anthropic-ai/vertex-sdk", () => ({
 	AnthropicVertex: vi.fn(),
 }))
 
+vi.mock("@superroo/telemetry", () => ({
+	TelemetryService: {
+		hasInstance: vi.fn().mockReturnValue(true),
+		instance: {
+			updateTelemetryState: vi.fn(),
+			captureEvent: vi.fn(),
+			captureModeSettingChanged: vi.fn(),
+			captureCustomModeCreated: vi.fn(),
+			captureTelemetrySettingsChanged: vi.fn(),
+			captureTabShown: vi.fn(),
+		},
+	},
+	TelemetryEventName: {
+		AUTHENTICATION_INITIATED: "AUTHENTICATION_INITIATED",
+	},
+}))
+
 vi.mock("google-auth-library", () => ({
 	GoogleAuth: vi.fn(),
 }))
@@ -81,10 +98,15 @@ const mockClineProvider = {
 	},
 	log: vi.fn(),
 	postStateToWebview: vi.fn(),
+	getStateToPostToWebview: vi.fn().mockResolvedValue({ telemetrySetting: "enabled" }),
 	getCurrentTask: vi.fn(),
 	getTaskWithId: vi.fn(),
 	createTaskWithHistoryItem: vi.fn(),
 	getSkillsManager: vi.fn(),
+	getMcpHub: vi.fn().mockReturnValue(undefined),
+	providerSettingsManager: {
+		listConfig: vi.fn().mockResolvedValue([]),
+	},
 	cwd: "/mock/workspace",
 } as unknown as ClineProvider
 
@@ -105,6 +127,9 @@ vi.mock("vscode", () => {
 		workspace: {
 			workspaceFolders: [{ uri: { fsPath: "/mock/workspace" } }],
 			openTextDocument,
+			getConfiguration: vi.fn().mockReturnValue({
+				get: vi.fn(),
+			}),
 		},
 	}
 })
@@ -126,6 +151,23 @@ vi.mock("../../../i18n", () => ({
 		return key
 	}),
 }))
+
+describe("webviewMessageHandler - webviewDidLaunch", () => {
+	beforeEach(() => {
+		vi.clearAllMocks()
+		vi.mocked(mockClineProvider.customModesManager.getCustomModes).mockResolvedValue([])
+	})
+
+	it("posts state even when custom mode loading fails", async () => {
+		vi.mocked(mockClineProvider.customModesManager.getCustomModes).mockRejectedValueOnce(
+			new Error("custom modes unavailable"),
+		)
+
+		await webviewMessageHandler(mockClineProvider, { type: "webviewDidLaunch" })
+
+		expect(mockClineProvider.postStateToWebview).toHaveBeenCalledTimes(1)
+	})
+})
 
 vi.mock("fs/promises", () => {
 	const mockRm = vi.fn().mockResolvedValue(undefined)

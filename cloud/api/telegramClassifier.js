@@ -9,7 +9,8 @@
  * user messages into structured intents with confidence scores.
  *
  * Allowed kinds: chat, debug_plan, read_logs, run_tests, create_branch,
- *                create_pr, restart_worker, deploy, delete_data, shell
+ *                create_pr, restart_worker, deploy, delete_data, shell,
+ *                upgrade_self, commit_status
  *
  * @module telegramClassifier
  */
@@ -44,6 +45,53 @@ const MIN_CONFIDENCE = 0.3
  */
 function keywordFallback(text) {
 	var lower = text.toLowerCase()
+
+	// Upgrade / Improve Self — route to Coder agent for self-modification
+	if (
+		lower.includes("upgrade yourself") ||
+		lower.includes("upgrade you") ||
+		lower.includes("improve yourself") ||
+		lower.includes("improve you") ||
+		lower.includes("make yourself smarter") ||
+		lower.includes("upgrade yourself") ||
+		lower.includes("self upgrade") ||
+		lower.includes("self improve") ||
+		lower.includes("make you better") ||
+		lower.includes("upgrade the bot") ||
+		lower.includes("improve the bot") ||
+		lower.includes("make the bot smarter") ||
+		lower.includes("upgrade your") ||
+		lower.includes("improve your") ||
+		lower.includes("coder to upgrade you") ||
+		lower.includes("coder to improve you") ||
+		lower.includes("ask coder to upgrade") ||
+		lower.includes("ask coder to improve")
+	) {
+		return "upgrade_self"
+	}
+
+	// Commit / Deploy Status — query the CommitDeployLog
+	if (
+		lower.includes("commit status") ||
+		lower.includes("deploy status") ||
+		lower.includes("latest commit") ||
+		lower.includes("latest deploy") ||
+		lower.includes("is it deployed") ||
+		lower.includes("last commit") ||
+		lower.includes("last deploy") ||
+		lower.includes("commit log") ||
+		lower.includes("deploy log") ||
+		lower.includes("what was deployed") ||
+		lower.includes("what was committed") ||
+		lower.includes("show commits") ||
+		lower.includes("show deploys") ||
+		lower.includes("recent commits") ||
+		lower.includes("recent deploys") ||
+		lower.includes("deployment history") ||
+		lower.includes("commit history")
+	) {
+		return "commit_status"
+	}
 
 	// Consultant / research
 	if (
@@ -187,9 +235,13 @@ function buildClassifierPrompt() {
 	return (
 		"You are SuperRoo Telegram Assistant, a senior engineer dispatcher.\n" +
 		"Convert the user's Telegram message into one JSON object only.\n" +
-		"Allowed kind values: chat, debug_plan, read_logs, run_tests, create_branch, create_pr, restart_worker, deploy, delete_data, shell.\n" +
+		"Allowed kind values: chat, debug_plan, read_logs, run_tests, create_branch, create_pr, restart_worker, deploy, delete_data, shell, upgrade_self, commit_status.\n" +
 		"Prefer safe engineering actions. For destructive or broad commands choose deploy/delete_data/shell only when explicitly asked.\n" +
 		"For normal coding/debugging, choose debug_plan/read_logs/run_tests/create_branch/create_pr/restart_worker.\n" +
+		"IMPORTANT: If the message starts with '[Quoted message:' it means the user is REPLYING to a previous bot message. Treat this as a follow-up question (kind: chat) unless the reply explicitly contains a new command.\n" +
+		"SPECIAL INTENTS:\n" +
+		"- upgrade_self: When the user asks to upgrade, improve, or make the bot/assistant smarter. This includes phrases like 'upgrade yourself', 'improve yourself', 'make yourself smarter', 'coder to upgrade you'. Route to upgrade_self.\n" +
+		"- commit_status: When the user asks about commit history, deploy status, latest commits/deploys, or deployment history. Route to commit_status.\n" +
 		"Return compact JSON with: kind, project, target, message, confidence.\n" +
 		"confidence is a number between 0 and 1 indicating how sure you are."
 	)
@@ -257,6 +309,8 @@ async function classifyIntent(text, providers) {
 					"deploy",
 					"delete_data",
 					"shell",
+					"upgrade_self",
+					"commit_status",
 				]
 				if (allowedKinds.indexOf(intent.kind) === -1) {
 					intent.kind = "chat"

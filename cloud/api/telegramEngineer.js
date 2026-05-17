@@ -287,7 +287,9 @@ function formatRestartResult(result) {
 function formatBrainPlan(result) {
 	var lines = ["*🧠 Terminal Brain — Plan*"]
 	if (result.intent) {
-		lines.push("• Intent: `" + sanitizeForCode(result.intent) + "` (confidence: " + (result.confidence || "N/A") + ")")
+		lines.push(
+			"• Intent: `" + sanitizeForCode(result.intent) + "` (confidence: " + (result.confidence || "N/A") + ")",
+		)
 	}
 	if (result.commands && Array.isArray(result.commands)) {
 		for (var i = 0; i < result.commands.length; i++) {
@@ -334,7 +336,12 @@ function formatBrainFeedback(feedback) {
 		lines.push("\n*🔍 Errors Detected:* " + feedback.errors.length)
 		for (var i = 0; i < Math.min(feedback.errors.length, 3); i++) {
 			var err = feedback.errors[i]
-			lines.push("• `" + sanitizeForCode(err.type || "unknown") + "`" + (err.confidence ? " (" + (err.confidence * 100).toFixed(0) + "%)" : ""))
+			lines.push(
+				"• `" +
+					sanitizeForCode(err.type || "unknown") +
+					"`" +
+					(err.confidence ? " (" + (err.confidence * 100).toFixed(0) + "%)" : ""),
+			)
 			if (err.message) {
 				lines.push("  " + sanitizeForCode(err.message.slice(0, 150)))
 			}
@@ -438,7 +445,312 @@ function formatBrainContext(ctx) {
 	return lines.join("\n")
 }
 
-// ─── Exports ─────────────────────────────────────────────────────────────────
+// ─── Hermes Claw Formatting ──────────────────────────────────────────────────
+
+/**
+ * Formats Hermes Claw recall context into a Telegram-friendly message.
+ * Shows the retrieved knowledge with source attribution.
+ *
+ * @param {Object} result - Hermes recall result { context, sources }
+ * @returns {string} Formatted message
+ */
+function formatHermesRecall(result) {
+	var lines = ["*🧠 Hermes Claw — Memory Recall*"]
+	if (result.context) {
+		lines.push("\n" + result.context.slice(0, 1500))
+	}
+	if (result.sources && result.sources.length > 0) {
+		lines.push("\n*📚 Sources:* " + result.sources.length)
+		for (var i = 0; i < Math.min(result.sources.length, 5); i++) {
+			var src = result.sources[i]
+			if (typeof src === "string") {
+				lines.push("• `" + sanitizeForCode(src.slice(0, 80)) + "`")
+			} else if (src && src.task_id) {
+				lines.push(
+					"• `" +
+						sanitizeForCode(src.task_id.slice(0, 40)) +
+						"`" +
+						(src.error_summary ? " — " + sanitizeForCode(src.error_summary.slice(0, 100)) : ""),
+				)
+			}
+		}
+		if (result.sources.length > 5) {
+			lines.push("  *+ " + (result.sources.length - 5) + " more*")
+		}
+	}
+	if (!result.context && (!result.sources || result.sources.length === 0)) {
+		lines.push("\n_No relevant memories found._")
+	}
+	return lines.join("\n")
+}
+
+/**
+ * Formats a Hermes Claw lesson storage result.
+ *
+ * @param {Object} result - { lessonId }
+ * @returns {string} Formatted message
+ */
+function formatHermesLearn(result) {
+	var lines = ["*🧠 Hermes Claw — Lesson Stored* ✅"]
+	if (result.lessonId) {
+		lines.push("• Lesson ID: `" + sanitizeForCode(result.lessonId) + "`")
+	}
+	lines.push("\n_The bot will remember this for future interactions._")
+	return lines.join("\n")
+}
+
+/**
+ * Formats a Hermes Claw skill creation result.
+ *
+ * @param {Object} result - { skill }
+ * @returns {string} Formatted message
+ */
+function formatHermesSkill(result) {
+	var lines = ["*🧠 Hermes Claw — Skill Created* ✅"]
+	if (result.skill) {
+		if (result.skill.name) lines.push("• Name: `" + sanitizeForCode(result.skill.name) + "`")
+		if (result.skill.description) lines.push("• Description: " + result.skill.description.slice(0, 200))
+		if (result.skill.steps && Array.isArray(result.skill.steps)) {
+			lines.push("\n*Steps:*")
+			for (var i = 0; i < result.skill.steps.length; i++) {
+				lines.push("  " + (i + 1) + ". " + sanitizeForCode(result.skill.steps[i].slice(0, 150)))
+			}
+		}
+	}
+	return lines.join("\n")
+}
+
+/**
+ * Formats Hermes Claw pattern analysis results.
+ *
+ * @param {Object} result - { patterns }
+ * @returns {string} Formatted message
+ */
+function formatHermesPatterns(result) {
+	var lines = ["*🧠 Hermes Claw — Pattern Analysis*"]
+	if (!result.patterns) {
+		lines.push("\n_No patterns detected yet._")
+		return lines.join("\n")
+	}
+	var patterns = Array.isArray(result.patterns) ? result.patterns : [result.patterns]
+	for (var i = 0; i < Math.min(patterns.length, 8); i++) {
+		var p = patterns[i]
+		if (typeof p === "string") {
+			lines.push("• " + sanitizeForCode(p.slice(0, 200)))
+		} else if (p && p.pattern) {
+			var freq = p.frequency ? " (x" + p.frequency + ")" : ""
+			lines.push("• `" + sanitizeForCode(p.pattern.slice(0, 100)) + "`" + freq)
+			if (p.suggestion) lines.push("  → " + sanitizeForCode(p.suggestion.slice(0, 150)))
+		}
+	}
+	if (patterns.length > 8) {
+		lines.push("  *+ " + (patterns.length - 8) + " more patterns*")
+	}
+	return lines.join("\n")
+}
+
+/**
+ * Formats Hermes Claw knowledge query results.
+ *
+ * @param {Object} result - { knowledge }
+ * @returns {string} Formatted message
+ */
+function formatHermesQuery(result) {
+	var lines = ["*🧠 Hermes Claw — Knowledge Query*"]
+	if (!result.knowledge) {
+		lines.push("\n_No knowledge found for this query._")
+		return lines.join("\n")
+	}
+	var knowledge = typeof result.knowledge === "string" ? result.knowledge : JSON.stringify(result.knowledge, null, 2)
+	lines.push("\n" + sanitizeForCode(knowledge.slice(0, 1500)))
+	return lines.join("\n")
+}
+
+/**
+ * Formats Hermes Claw statistics.
+ *
+ * @param {Object} result - { stats }
+ * @returns {string} Formatted message
+ */
+function formatHermesStats(result) {
+	var lines = ["*🧠 Hermes Claw — Statistics*"]
+	if (!result.stats) {
+		lines.push("\n_No stats available._")
+		return lines.join("\n")
+	}
+	var stats = result.stats
+	if (stats.totalMemories !== undefined) lines.push("• Total Memories: `" + stats.totalMemories + "`")
+	if (stats.totalLessons !== undefined) lines.push("• Total Lessons: `" + stats.totalLessons + "`")
+	if (stats.totalSkills !== undefined) lines.push("• Total Skills: `" + stats.totalSkills + "`")
+	if (stats.totalPatterns !== undefined) lines.push("• Total Patterns: `" + stats.totalPatterns + "`")
+	if (stats.totalBugFixes !== undefined) lines.push("• Bug Fixes: `" + stats.totalBugFixes + "`")
+	if (stats.knowledgeStoreSize !== undefined)
+		lines.push("• Knowledge Store: `" + stats.knowledgeStoreSize + "` entries")
+	if (stats.vectorDimensions !== undefined) lines.push("• Vector Dims: `" + stats.vectorDimensions + "`")
+	if (stats.ollamaStatus !== undefined)
+		lines.push("• Ollama: " + (stats.ollamaStatus === "connected" ? "✅ Connected" : "❌ " + stats.ollamaStatus))
+	if (stats.postgresStatus !== undefined)
+		lines.push(
+			"• PostgreSQL: " + (stats.postgresStatus === "connected" ? "✅ Connected" : "❌ " + stats.postgresStatus),
+		)
+	return lines.join("\n")
+}
+
+/**
+ * Formats extracted lessons from Hermes Claw.
+ *
+ * @param {Object} result - { lessons }
+ * @returns {string} Formatted message
+ */
+function formatHermesLessons(result) {
+	var lines = ["*🧠 Hermes Claw — Extracted Lessons*"]
+	if (!result.lessons) {
+		lines.push("\n_No lessons extracted._")
+		return lines.join("\n")
+	}
+	var lessons = Array.isArray(result.lessons) ? result.lessons : [result.lessons]
+	for (var i = 0; i < Math.min(lessons.length, 6); i++) {
+		var l = lessons[i]
+		if (typeof l === "string") {
+			lines.push("• " + (i + 1) + ". " + sanitizeForCode(l.slice(0, 200)))
+		} else if (l && l.lesson) {
+			lines.push("• " + (i + 1) + ". " + sanitizeForCode(l.lesson.slice(0, 200)))
+			if (l.category) lines.push("  Category: `" + sanitizeForCode(l.category) + "`")
+		}
+	}
+	if (lessons.length > 6) {
+		lines.push("  *+ " + (lessons.length - 6) + " more lessons*")
+	}
+	return lines.join("\n")
+}
+
+/**
+ * Formats a list of skills into a Telegram-friendly message.
+ *
+ * @param {Object} result - { skills }
+ * @returns {string} Formatted message
+ */
+function formatSkillsList(result) {
+	var lines = ["*📚 Available Skills*"]
+	if (!result.skills || (Array.isArray(result.skills) && result.skills.length === 0)) {
+		lines.push("\n_No skills available yet._")
+		lines.push("\nCreate one with: `/hermes skill <name> | <description>`")
+		return lines.join("\n")
+	}
+	var skills = Array.isArray(result.skills) ? result.skills : [result.skills]
+	for (var i = 0; i < Math.min(skills.length, 10); i++) {
+		var s = skills[i]
+		if (typeof s === "string") {
+			lines.push("• `" + sanitizeForCode(s.slice(0, 100)) + "`")
+		} else if (s && s.name) {
+			var desc = s.description ? " — " + sanitizeForCode(s.description.slice(0, 100)) : ""
+			lines.push("• `" + sanitizeForCode(s.name) + "`" + desc)
+		}
+	}
+	if (skills.length > 10) {
+		lines.push("  *+ " + (skills.length - 10) + " more skills*")
+	}
+	return lines.join("\n")
+}
+
+/**
+ * Formats a list of resources into a Telegram-friendly message.
+ *
+ * @param {Object} result - { resources }
+ * @returns {string} Formatted message
+ */
+function formatResourcesList(result) {
+	var lines = ["*📂 Available Resources*"]
+	if (!result.resources || (Array.isArray(result.resources) && result.resources.length === 0)) {
+		lines.push("\n_No resources available yet._")
+		return lines.join("\n")
+	}
+	var resources = Array.isArray(result.resources) ? result.resources : [result.resources]
+	for (var i = 0; i < Math.min(resources.length, 10); i++) {
+		var r = resources[i]
+		if (typeof r === "string") {
+			lines.push("• `" + sanitizeForCode(r.slice(0, 100)) + "`")
+		} else if (r && r.name) {
+			var type = r.type ? " [" + r.type + "]" : ""
+			var desc = r.description ? " — " + sanitizeForCode(r.description.slice(0, 100)) : ""
+			lines.push("• `" + sanitizeForCode(r.name) + "`" + type + desc)
+		}
+	}
+	if (resources.length > 10) {
+		lines.push("  *+ " + (resources.length - 10) + " more resources*")
+	}
+	return lines.join("\n")
+}
+
+// ─── Commit/Deploy Status Formatter ───────────────────────────────────────────
+
+/**
+ * Formats commit/deploy status result from CommitDeployLog.
+ * @param {object} result - Result from tgEndpoints.getCommitDeployStatus()
+ * @returns {string} Formatted Telegram message
+ */
+function formatCommitDeployStatus(result) {
+	if (!result || !result.commits || !result.deploys) {
+		return "*Commit/Deploy Status* 📋\n\nNo commit/deploy data available yet."
+	}
+	var lines = ["*Commit/Deploy Status* 📋", ""]
+	lines.push("*Recent Commits:*")
+	if (result.commits.length === 0) {
+		lines.push("No commits recorded yet.")
+	} else {
+		result.commits.forEach(function (c, i) {
+			var sha = c.sha ? c.sha.slice(0, 7) : "???"
+			var title = c.title || "No message"
+			var agent = c.agent || "unknown"
+			var ts = c.timestamp ? new Date(c.timestamp).toLocaleString() : "?"
+			var type = c.type || "change"
+			var typeEmoji = {
+				feature: "✨",
+				bugfix: "🐛",
+				refactor: "♻️",
+				docs: "📝",
+				config: "⚙️",
+				test: "🧪",
+				deploy: "🚀",
+			}
+			var emoji = typeEmoji[type] || "🔧"
+			lines.push("  " + (i + 1) + ". `" + sha + "` " + emoji + " _" + title + "_")
+			lines.push("     Agent: `" + agent + "` | Type: `" + type + "` | " + ts)
+			if (c.filesChanged !== undefined) {
+				lines.push(
+					"     Files: " +
+						c.filesChanged +
+						" | Features: " +
+						((c.featuresAffected || []).join(", ") || "none"),
+				)
+			}
+		})
+	}
+	lines.push("")
+	lines.push("*Recent Deploys:*")
+	if (result.deploys.length === 0) {
+		lines.push("No deploys recorded yet.")
+	} else {
+		result.deploys.forEach(function (d, i) {
+			var sha = d.sha ? d.sha.slice(0, 7) : "???"
+			var version = d.version || "?"
+			var agent = d.agent || "unknown"
+			var status = d.status || "?"
+			var ts = d.timestamp ? new Date(d.timestamp).toLocaleString() : "?"
+			var statusEmoji = { healthy: "✅", unhealthy: "❌", rolled_back: "↩️", failed: "💥", completed: "✅" }
+			var emoji = statusEmoji[status] || "🔄"
+			lines.push("  " + (i + 1) + ". " + emoji + " v`" + version + "` (`" + sha + "`)")
+			lines.push("     Agent: `" + agent + "` | Status: " + status + " | " + ts)
+		})
+	}
+	lines.push("")
+	lines.push("Total: " + result.totalCommits + " commits, " + result.totalDeploys + " deploys")
+	if (result.note) {
+		lines.push("")
+		lines.push("_Note: " + result.note + "_")
+	}
+	return lines.join("\n")
+}
 
 module.exports = {
 	seniorEngineerReply,
@@ -455,4 +767,16 @@ module.exports = {
 	formatBrainMemory,
 	formatBrainErrors,
 	formatBrainContext,
+	// Hermes Claw formatters
+	formatHermesRecall,
+	formatHermesLearn,
+	formatHermesSkill,
+	formatHermesPatterns,
+	formatHermesQuery,
+	formatHermesStats,
+	formatHermesLessons,
+	formatSkillsList,
+	formatResourcesList,
+	// Commit/Deploy Status formatter
+	formatCommitDeployStatus,
 }

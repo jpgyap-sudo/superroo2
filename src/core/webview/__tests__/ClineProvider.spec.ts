@@ -465,6 +465,60 @@ describe("ClineProvider", () => {
 		expect(mockWebviewView.webview.html).toContain("<!DOCTYPE html>")
 	})
 
+	test("refreshes state when the sidebar becomes visible again", async () => {
+		let handleVisibilityChange: (() => void) | undefined
+		Object.defineProperty(mockWebviewView, "onDidChangeVisibility", {
+			value: vi.fn().mockImplementation((callback: () => void) => {
+				handleVisibilityChange = callback
+				return { dispose: vi.fn() }
+			}),
+			writable: true,
+			configurable: true,
+		})
+
+		const postStateToWebviewSpy = vi.spyOn(provider, "postStateToWebview").mockResolvedValue(undefined)
+
+		await provider.resolveWebviewView(mockWebviewView)
+		handleVisibilityChange?.()
+
+		await vi.waitFor(() =>
+			expect(mockPostMessage).toHaveBeenCalledWith({ type: "action", action: "didBecomeVisible" }),
+		)
+		await vi.waitFor(() => expect(postStateToWebviewSpy).toHaveBeenCalledTimes(1))
+	})
+
+	test("repairs stale inactive streaming markers when the sidebar becomes visible again", async () => {
+		let handleVisibilityChange: (() => void) | undefined
+		Object.defineProperty(mockWebviewView, "onDidChangeVisibility", {
+			value: vi.fn().mockImplementation((callback: () => void) => {
+				handleVisibilityChange = callback
+				return { dispose: vi.fn() }
+			}),
+			writable: true,
+			configurable: true,
+		})
+
+		const staleMessages = [
+			{ ts: 1, type: "say", say: "api_req_started", text: "{}" },
+			{ ts: 2, type: "say", say: "text", text: "The", partial: true },
+		] as any[]
+		const overwriteClineMessages = vi.fn().mockResolvedValue(undefined)
+		vi.spyOn(provider, "getCurrentTask").mockReturnValue({
+			isStreaming: false,
+			clineMessages: staleMessages,
+			overwriteClineMessages,
+		} as any)
+
+		await provider.resolveWebviewView(mockWebviewView)
+		handleVisibilityChange?.()
+
+		await vi.waitFor(() =>
+			expect(overwriteClineMessages).toHaveBeenCalledWith([
+				{ ts: 2, type: "say", say: "text", text: "The", partial: false },
+			]),
+		)
+	})
+
 	test("resolveWebviewView sets up webview correctly in development mode even if local server is not running", async () => {
 		provider = new ClineProvider(
 			{ ...mockContext, extensionMode: vscode.ExtensionMode.Development },

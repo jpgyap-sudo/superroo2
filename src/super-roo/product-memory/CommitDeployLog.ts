@@ -30,6 +30,48 @@ export type CommitType = "feature" | "bugfix" | "refactor" | "docs" | "config" |
 
 export type DeployStatus = "pending" | "building" | "deploying" | "healthy" | "unhealthy" | "rolled_back" | "failed"
 
+/** Tracks which AI model/provider was used for each workflow phase */
+export interface ModelUsage {
+	/** The workflow phase (planning, coding, review, summarization) */
+	phase: "planning" | "coding" | "review" | "summarization" | "memory_storage"
+	/** The AI provider used (deepseek, anthropic, openai, ollama, etc.) */
+	provider: string
+	/** The specific model used */
+	model: string
+	/** Last 4 characters of the API key used (for verification) */
+	apiKeyLast4?: string
+	/** Number of prompt tokens consumed */
+	promptTokens?: number
+	/** Number of completion tokens generated */
+	completionTokens?: number
+	/** Request latency in milliseconds */
+	latencyMs?: number
+	/** Whether the API call was successful */
+	success: boolean
+	/** Whether a fallback provider was used */
+	fallbackUsed?: boolean
+	/** Timestamp of the API call */
+	timestamp: string
+}
+
+/** Tracks workflow compliance for a task */
+export interface WorkflowCompliance {
+	/** Whether the task followed the planned workflow */
+	isCompliant: boolean
+	/** Which steps were completed */
+	steps: {
+		lessonsRead: boolean
+		deepseekDelegated: boolean
+		codexReviewed: boolean
+		ollamaSummarized: boolean
+		centralBrainStored: boolean
+	}
+	/** Any violations or issues */
+	violations: string[]
+	/** Which API key was used for DeepSeek (if applicable) */
+	deepseekApiKeyUsed?: string
+}
+
 export interface CommitRecord {
 	id: string
 	commitSha: string
@@ -43,6 +85,10 @@ export interface CommitRecord {
 	timestamp: string
 	/** Link to the deploy that included this commit, if any */
 	deployId?: string
+	/** AI model usage for each workflow phase */
+	modelsUsed?: ModelUsage[]
+	/** Workflow compliance tracking */
+	workflowCompliance?: WorkflowCompliance
 }
 
 export interface DeployRecord {
@@ -118,6 +164,10 @@ export class CommitDeployLog {
 		filesChanged?: string[]
 		featuresAffected?: string[]
 		bugsFixed?: string[]
+		/** AI model usage for each workflow phase */
+		modelsUsed?: ModelUsage[]
+		/** Workflow compliance tracking */
+		workflowCompliance?: WorkflowCompliance
 	}): Promise<CommitRecord> {
 		const log = await this.readLog()
 		const commit: CommitRecord = {
@@ -131,6 +181,8 @@ export class CommitDeployLog {
 			featuresAffected: input.featuresAffected || [],
 			bugsFixed: input.bugsFixed || [],
 			timestamp: new Date().toISOString(),
+			modelsUsed: input.modelsUsed,
+			workflowCompliance: input.workflowCompliance,
 		}
 		log.commits.unshift(commit)
 		await this.writeLog(log)
@@ -152,6 +204,10 @@ export class CommitDeployLog {
 		type?: CommitType
 		featureId?: string
 		limit?: number
+		/** Filter by whether DeepSeek was used for coding */
+		deepseekUsed?: boolean
+		/** Filter by workflow compliance status */
+		workflowCompliant?: boolean
 	}): Promise<CommitRecord[]> {
 		const log = await this.readLog()
 		let commits = log.commits
@@ -165,11 +221,65 @@ export class CommitDeployLog {
 		if (filter?.featureId) {
 			commits = commits.filter((c) => c.featuresAffected.includes(filter.featureId!))
 		}
+		if (filter?.deepseekUsed !== undefined) {
+			commits = commits.filter((c) => {
+				const codingPhase = c.modelsUsed?.find((m) => m.phase === "coding")
+				const usedDeepseek = codingPhase?.provider === "deepseek"
+				return filter.deepseekUsed === usedDeepseek
+			})
+		}
+		if (filter?.workflowCompliant !== undefined) {
+			commits = commits.filter((c) => c.workflowCompliance?.isCompliant === filter.workflowCompliant)
+		}
 		if (filter?.limit) {
 			commits = commits.slice(0, filter.limit)
 		}
 
 		return commits
+	}
+
+	/**
+	 * Get workflow compliance statistics
+	 */
+	async getWorkflowStats(): Promise<{
+		totalCommits: number
+		compliantCommits: number
+		nonCompliantCommits: number
+		deepseekUsedCount: number
+		deepseekSkippedCount: number
+		averageTokensPerCommit: number
+	}> {
+		const log = await this.readLog()
+		const totalCommits = log.commits.length
+		const compliantCommits = log.commits.filter((c) => c.workflowCompliance?.isCompliant).length
+		const nonCompliantCommits = log.commits.filter(
+			(c) => c.workflowCompliance && !c.workflowCompliance.isCompliant,
+		).length
+
+		const deepseekUsedCount = log.commits.filter((c) =>
+			c.modelsUsed?.some((m) => m.phase === "coding" && m.provider === "deepseek"),
+		).length
+
+		const deepseekSkippedCount = totalCommits - deepseekUsedCount
+
+		const totalTokens = log.commits.reduce((sum, c) => {
+			const commitTokens =
+				c.modelsUsed?.reduce((tokenSum, m) => {
+					return tokenSum + (m.promptTokens || 0) + (m.completionTokens || 0)
+				}, 0) || 0
+			return sum + commitTokens
+		}, 0)
+
+		const averageTokensPerCommit = totalCommits > 0 ? totalTokens / totalCommits : 0
+
+		return {
+			totalCommits,
+			compliantCommits,
+			nonCompliantCommits,
+			deepseekUsedCount,
+			deepseekSkippedCount,
+			averageTokensPerCommit,
+		}
 	}
 
 	// ── Deploys ───────────────────────────────────────────────────────────

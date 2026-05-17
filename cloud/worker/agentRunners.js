@@ -69,9 +69,7 @@ async function callLLM(systemPrompt, userPrompt, options = {}) {
 	]
 
 	// Build messages array — inject conversation context if provided
-	const messages = [
-		{ role: "system", content: systemPrompt },
-	]
+	const messages = [{ role: "system", content: systemPrompt }]
 	if (options.conversationContext && Array.isArray(options.conversationContext)) {
 		for (const ctx of options.conversationContext) {
 			messages.push({ role: ctx.role || "user", content: ctx.content })
@@ -149,7 +147,12 @@ async function runCommands(commands, cwd, timeout = 300000) {
 	for (const cmd of commands) {
 		try {
 			const { stdout, stderr } = await execAsync(cmd, { cwd, timeout })
-			outputs.push({ command: cmd, exitCode: 0, stdout: stdout?.substring(0, 2000), stderr: stderr?.substring(0, 2000) })
+			outputs.push({
+				command: cmd,
+				exitCode: 0,
+				stdout: stdout?.substring(0, 2000),
+				stderr: stderr?.substring(0, 2000),
+			})
 		} catch (err) {
 			outputs.push({
 				command: cmd,
@@ -322,6 +325,21 @@ async function runCoderPlan(job, jobId, taskId, telegram) {
 		log("coder", jobId, "No conversation summary available — LLM will only see the raw instruction")
 	}
 
+	// 1a-rag. RAG context from BugKnowledgeStore — similar past fixes
+	try {
+		const { BugKnowledgeStore } = require("../orchestrator/stores/BugKnowledgeStore")
+		const ragStore = new BugKnowledgeStore()
+		await ragStore.init()
+		const ragContext = await ragStore.buildRagContext(instruction, { maxResults: 3, threshold: 0.5 })
+		if (ragContext) {
+			context += `=== Similar Past Fixes from Knowledge Base ===\n${ragContext}\n\n`
+			log("coder", jobId, `Injected RAG context (${ragContext.length} chars) from BugKnowledgeStore`)
+		}
+		await ragStore.close()
+	} catch (err) {
+		log("coder", jobId, `RAG context unavailable (non-fatal): ${err.message}`)
+	}
+
 	// 1b. Project file listing — broader file types, more files
 	try {
 		const { stdout: fileList } = await execAsync(
@@ -448,12 +466,24 @@ Be precise. Output ONLY valid JSON, no markdown fences.`
 		if (telegram && taskId) {
 			try {
 				const notifier = require("../api/telegramNotifier")
-				await notifier.sendCoderClarification(telegram.botToken, telegram.chatId, taskId, instruction, "The AI model failed to generate a response after multiple attempts. Please try again with more specific instructions.")
+				await notifier.sendCoderClarification(
+					telegram.botToken,
+					telegram.chatId,
+					taskId,
+					instruction,
+					"The AI model failed to generate a response after multiple attempts. Please try again with more specific instructions.",
+				)
 			} catch (e) {
 				log("coder", jobId, `Failed to send clarification: ${e.message}`)
 			}
 		}
-		return { success: false, error: "LLM returned no response after retry", output: [], phase: "awaiting_approval", taskId }
+		return {
+			success: false,
+			error: "LLM returned no response after retry",
+			output: [],
+			phase: "awaiting_approval",
+			taskId,
+		}
 	}
 
 	// Step 3: Parse LLM output
@@ -466,12 +496,25 @@ Be precise. Output ONLY valid JSON, no markdown fences.`
 		if (telegram && taskId) {
 			try {
 				const notifier = require("../api/telegramNotifier")
-				await notifier.sendCoderClarification(telegram.botToken, telegram.chatId, taskId, instruction, "The AI model returned an unparseable response. Please review and clarify:\n\n" + llmReply.substring(0, 2000))
+				await notifier.sendCoderClarification(
+					telegram.botToken,
+					telegram.chatId,
+					taskId,
+					instruction,
+					"The AI model returned an unparseable response. Please review and clarify:\n\n" +
+						llmReply.substring(0, 2000),
+				)
 			} catch (e) {
 				log("coder", jobId, `Failed to send clarification: ${e.message}`)
 			}
 		}
-		return { success: false, error: "Failed to parse LLM output", output: [llmReply], phase: "awaiting_approval", taskId }
+		return {
+			success: false,
+			error: "Failed to parse LLM output",
+			output: [llmReply],
+			phase: "awaiting_approval",
+			taskId,
+		}
 	}
 
 	// Step 3b: Check if LLM needs clarification
@@ -527,7 +570,7 @@ Be precise. Output ONLY valid JSON, no markdown fences.`
 			})
 			await notifier.sendCoderPlan(telegram.botToken, telegram.chatId, taskId, instruction, {
 				plan: plan.plan || "No plan description",
-				changes: (plan.changes || []).map(c => ({
+				changes: (plan.changes || []).map((c) => ({
 					file: c.file,
 					action: c.action,
 					description: c.description || "",
@@ -611,7 +654,12 @@ async function runCoderApply(job, jobId, taskId, telegram) {
 		// Safety: prevent path traversal
 		if (!filePath.startsWith(workspaceDir)) {
 			output.push(`  ⚠️  Skipped ${change.file} — path traversal blocked`)
-			appliedChanges.push({ file: change.file, action: change.action, success: false, error: "path traversal blocked" })
+			appliedChanges.push({
+				file: change.file,
+				action: change.action,
+				success: false,
+				error: "path traversal blocked",
+			})
 			continue
 		}
 
@@ -639,19 +687,77 @@ async function runCoderApply(job, jobId, taskId, telegram) {
 	}
 
 	// Run post-change commands
+	// Test commands (npm test, npx vitest, etc.) run in Docker sandbox for isolation.
+	// Non-test commands (npm install, etc.) run directly on the host.
 	const commands = Array.isArray(plan.commands) ? plan.commands : []
 	if (commands.length > 0) {
 		output.push("")
 		output.push("── Post-change commands ──")
-		const cmdResults = await runCommands(commands, workspaceDir, 60000)
-		for (const r of cmdResults) {
-			if (r.exitCode === 0) {
-				output.push(`  ✅ $ ${r.command}`)
-				if (r.stdout) output.push(`     ${r.stdout.substring(0, 500)}`)
-			} else {
-				output.push(`  ❌ $ ${r.command} (exit ${r.exitCode})`)
-				if (r.stderr) output.push(`     ${r.stderr.substring(0, 500)}`)
-				allSuccess = false
+
+		// Separate test commands from non-test commands
+		const testPatterns = [/test/i, /vitest/i, /jest/i, /mocha/i, /ava/i, /tape/i, /cypress/i, /playwright/i]
+		const testCommands = commands.filter((c) => testPatterns.some((p) => p.test(c)))
+		const directCommands = commands.filter((c) => !testPatterns.some((p) => p.test(c)))
+
+		// Run non-test commands directly (npm install, lint, etc.)
+		if (directCommands.length > 0) {
+			const cmdResults = await runCommands(directCommands, workspaceDir, 60000)
+			for (const r of cmdResults) {
+				if (r.exitCode === 0) {
+					output.push(`  ✅ $ ${r.command}`)
+					if (r.stdout) output.push(`     ${r.stdout.substring(0, 500)}`)
+				} else {
+					output.push(`  ❌ $ ${r.command} (exit ${r.exitCode})`)
+					if (r.stderr) output.push(`     ${r.stderr.substring(0, 500)}`)
+					allSuccess = false
+				}
+			}
+		}
+
+		// Run test commands in Docker sandbox for isolation
+		if (testCommands.length > 0) {
+			output.push("")
+			output.push("── Running tests in Docker sandbox ──")
+			try {
+				const { runSandboxJob } = require("./sandboxRunner")
+				const sandboxResult = await runSandboxJob({
+					id: `coder-apply-${taskId || jobId}`,
+					task: `Test gate for ${taskId || "unknown"}`,
+					commands: [`cd ${workspaceDir}`, ...testCommands],
+					network: "bridge", // Needs network for npm install
+				})
+				if (sandboxResult.success) {
+					output.push(`  ✅ Sandbox tests passed (exit ${sandboxResult.exitCode})`)
+					if (sandboxResult.stdout) {
+						const lines = sandboxResult.stdout.split("\n").filter((l) => l.trim())
+						for (const line of lines.slice(-10)) {
+							output.push(`     ${line.substring(0, 200)}`)
+						}
+					}
+				} else {
+					output.push(`  ❌ Sandbox tests failed (exit ${sandboxResult.exitCode})`)
+					if (sandboxResult.stderr) {
+						const lines = sandboxResult.stderr.split("\n").filter((l) => l.trim())
+						for (const line of lines.slice(-10)) {
+							output.push(`     ${line.substring(0, 200)}`)
+						}
+					}
+					allSuccess = false
+				}
+				log("coder", jobId, `Sandbox test gate: ${sandboxResult.success ? "PASSED" : "FAILED"}`)
+			} catch (err) {
+				output.push(`  ⚠️  Sandbox unavailable, running tests directly: ${err.message}`)
+				// Fallback: run test commands directly
+				const cmdResults = await runCommands(testCommands, workspaceDir, 120000)
+				for (const r of cmdResults) {
+					if (r.exitCode === 0) {
+						output.push(`  ✅ $ ${r.command}`)
+					} else {
+						output.push(`  ❌ $ ${r.command} (exit ${r.exitCode})`)
+						if (r.stderr) output.push(`     ${r.stderr.substring(0, 500)}`)
+						allSuccess = false
+					}
+				}
 			}
 		}
 	}
@@ -659,7 +765,9 @@ async function runCoderApply(job, jobId, taskId, telegram) {
 	// Generate git diff summary
 	let diffSummary = ""
 	try {
-		const { stdout: diff } = await execAsync(`cd ${workspaceDir} && git diff --stat 2>/dev/null || true`, { timeout: 10000 })
+		const { stdout: diff } = await execAsync(`cd ${workspaceDir} && git diff --stat 2>/dev/null || true`, {
+			timeout: 10000,
+		})
 		diffSummary = diff
 	} catch {
 		diffSummary = "(diff unavailable)"
@@ -670,6 +778,43 @@ async function runCoderApply(job, jobId, taskId, telegram) {
 	if (diffSummary) {
 		output.push("")
 		output.push(`── Git diff stats ──\n${diffSummary}`)
+	}
+
+	// Store bug fix in BugKnowledgeStore for Ollama RAG learning loop
+	if (allSuccess && taskId) {
+		try {
+			const { BugKnowledgeStore } = require("../orchestrator/stores/BugKnowledgeStore")
+			const ragStore = new BugKnowledgeStore()
+			await ragStore.init()
+
+			// Get git diff for the fix
+			let gitDiff = ""
+			try {
+				const { stdout: diff } = await execAsync(`cd ${workspaceDir} && git diff 2>/dev/null || true`, {
+					timeout: 10000,
+				})
+				gitDiff = diff.substring(0, 5000)
+			} catch {
+				/* non-fatal */
+			}
+
+			await ragStore.storeBugFix({
+				task_id: taskId,
+				agent_type: "deepseek",
+				error_summary: instruction.substring(0, 200),
+				instruction: instruction,
+				diff: gitDiff,
+				result: `Applied ${appliedChanges.length} changes: ${appliedChanges.map((c) => c.file).join(", ")}`,
+				files_changed: appliedChanges.map((c) => c.file),
+				test_commands: commands,
+				test_passed: allSuccess ? null : false,
+				metadata: { runner: "coder", phase: "apply", allSuccess },
+			})
+			log("coder", jobId, `Bug fix stored in BugKnowledgeStore for task ${taskId}`)
+			await ragStore.close()
+		} catch (err) {
+			log("coder", jobId, `Failed to store bug fix in knowledge base (non-fatal): ${err.message}`)
+		}
 	}
 
 	await writeResultLog("coder", jobId, { success: allSuccess, changes: appliedChanges.length })
@@ -725,7 +870,9 @@ async function runCoderCommit(job, jobId, taskId, telegram) {
 	// Check for uncommitted changes
 	let hasChanges = false
 	try {
-		const { stdout: status } = await execAsync(`cd ${workspaceDir} && git status --porcelain 2>/dev/null || true`, { timeout: 10000 })
+		const { stdout: status } = await execAsync(`cd ${workspaceDir} && git status --porcelain 2>/dev/null || true`, {
+			timeout: 10000,
+		})
 		hasChanges = status.trim().length > 0
 	} catch {
 		hasChanges = false
@@ -1074,18 +1221,18 @@ Be precise. Output ONLY valid JSON, no markdown fences.`
 }
 
 /**
-	* DebuggerRunner — Investigates bugs and reports root cause.
-	*
-	* Mirrors the local DebuggerAgent (src/super-roo/agents/DebuggerAgent.ts).
-	* Reads error logs, git history, and relevant files to diagnose issues.
-	* Does NOT fix code — that's the CoderRunner's job.
-	*
-	* Input (job.data):
-	*   - instruction: string — error description
-	*   - workspaceDir: string — project root
-	*   - repoName: string
-	*   - filesLikelyInvolved?: string[] — hints
-	*/
+ * DebuggerRunner — Investigates bugs and reports root cause.
+ *
+ * Mirrors the local DebuggerAgent (src/super-roo/agents/DebuggerAgent.ts).
+ * Reads error logs, git history, and relevant files to diagnose issues.
+ * Does NOT fix code — that's the CoderRunner's job.
+ *
+ * Input (job.data):
+ *   - instruction: string — error description
+ *   - workspaceDir: string — project root
+ *   - repoName: string
+ *   - filesLikelyInvolved?: string[] — hints
+ */
 async function runDebugger(job) {
 	const { instruction, workspaceDir, repoName, filesLikelyInvolved } = job.data
 	const jobId = job.id
@@ -1215,14 +1362,14 @@ Output ONLY valid JSON, no markdown fences.`
 }
 
 /**
-	* TesterRunner — Runs tests and reports results.
-	*
-	* Input (job.data):
-	*   - instruction: string — what to test
-	*   - workspaceDir: string — project root
-	*   - repoName: string
-	*   - testCommand?: string — override test command
-	*/
+ * TesterRunner — Runs tests and reports results.
+ *
+ * Input (job.data):
+ *   - instruction: string — what to test
+ *   - workspaceDir: string — project root
+ *   - repoName: string
+ *   - testCommand?: string — override test command
+ */
 async function runTester(job) {
 	const { instruction, workspaceDir, repoName, testCommand } = job.data
 	const jobId = job.id
@@ -1263,13 +1410,13 @@ async function runTester(job) {
 }
 
 /**
-	* PlannerRunner — Creates execution plans without making changes.
-	*
-	* Input (job.data):
-	*   - instruction: string — what to plan
-	*   - workspaceDir: string — project root
-	*   - repoName: string
-	*/
+ * PlannerRunner — Creates execution plans without making changes.
+ *
+ * Input (job.data):
+ *   - instruction: string — what to plan
+ *   - workspaceDir: string — project root
+ *   - repoName: string
+ */
 async function runPlanner(job) {
 	const { instruction, workspaceDir, repoName } = job.data
 	const jobId = job.id
@@ -1359,13 +1506,13 @@ Output ONLY valid JSON, no markdown fences.`
 }
 
 /**
-	* DeployerRunner — Deploys the project.
-	*
-	* Input (job.data):
-	*   - instruction: string — deploy instructions
-	*   - workspaceDir: string — project root
-	*   - branch: string — branch to deploy
-	*/
+ * DeployerRunner — Deploys the project.
+ *
+ * Input (job.data):
+ *   - instruction: string — deploy instructions
+ *   - workspaceDir: string — project root
+ *   - branch: string — branch to deploy
+ */
 async function runDeployer(job) {
 	const { instruction, workspaceDir, branch } = job.data
 	const jobId = job.id
@@ -1419,13 +1566,13 @@ async function runDeployer(job) {
 }
 
 /**
-	* HealerRunner — Auto-healing: detects issues and applies fixes.
-	*
-	* Input (job.data):
-	*   - instruction: string — what to heal
-	*   - workspaceDir: string — project root
-	*   - repoName: string
-	*/
+ * HealerRunner — Auto-healing: detects issues and applies fixes.
+ *
+ * Input (job.data):
+ *   - instruction: string — what to heal
+ *   - workspaceDir: string — project root
+ *   - repoName: string
+ */
 async function runHealer(job) {
 	const { instruction, workspaceDir, repoName } = job.data
 	const jobId = job.id
@@ -1511,12 +1658,12 @@ const RUNNERS = {
 }
 
 /**
-	* Execute an agent runner by type.
-	*
-	* @param {string} runnerType - One of: coder, debugger, tester, planner, deployer, healer
-	* @param {object} job - BullMQ job object
-	* @returns {Promise<{success: boolean, output: string[], error?: string}>}
-	*/
+ * Execute an agent runner by type.
+ *
+ * @param {string} runnerType - One of: coder, debugger, tester, planner, deployer, healer
+ * @param {object} job - BullMQ job object
+ * @returns {Promise<{success: boolean, output: string[], error?: string}>}
+ */
 async function executeRunner(runnerType, job) {
 	const runner = RUNNERS[runnerType]
 	if (!runner) {

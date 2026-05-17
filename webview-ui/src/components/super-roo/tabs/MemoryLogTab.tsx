@@ -10,30 +10,40 @@ const MEMORY_FILES = [
 	"feature-test-history.json",
 	"bug-feature-map.json",
 	"agent-notes.json",
+	"codextask.json",
+	"commit-deploy-log.json",
 ]
 
 export function MemoryLogTab() {
-	const { send } = useSr()
+	const { send, memoryFiles } = useSr()
 	const [selectedFile, setSelectedFile] = useState<string>(MEMORY_FILES[0])
-	const [content, setContent] = useState<string>("")
 	const [loading, setLoading] = useState(true)
 
-	const loadFile = useCallback(async (fileName: string) => {
-		setLoading(true)
-		try {
-			// In a real implementation, the extension host would push product memory
-			// file contents via superRoo:productMemory messages.
-			setContent("// Select a file to view its contents\n// Data will be loaded from the extension host")
-		} catch {
-			setContent("// Unable to load file — extension host not connected")
-		} finally {
-			setLoading(false)
-		}
-	}, [])
+	const loadFile = useCallback(
+		(fileName: string) => {
+			setLoading(true)
+			send({ type: "superRoo:productMemory", action: "readMemoryFile", fileName })
+			// Give a brief grace period for the extension to reply.
+			const timer = window.setTimeout(() => setLoading(false), 300)
+			return () => window.clearTimeout(timer)
+		},
+		[send],
+	)
 
 	useEffect(() => {
-		loadFile(selectedFile)
+		const cleanup = loadFile(selectedFile)
+		return cleanup
 	}, [selectedFile, loadFile])
+
+	// When memoryFiles updates for our selected file, clear loading.
+	useEffect(() => {
+		if (selectedFile in memoryFiles) {
+			setLoading(false)
+		}
+	}, [memoryFiles, selectedFile])
+
+	const content = memoryFiles[selectedFile] ?? ""
+	const hasError = content.startsWith("Error:") || content === "File not allowed"
 
 	return (
 		<div className="p-4 flex flex-col gap-4 h-full">
@@ -64,7 +74,7 @@ export function MemoryLogTab() {
 				</aside>
 
 				{/* JSON viewer */}
-				<div className="flex-1 min-w-0 rounded border border-vscode-panel-border bg-vscode-editor-background overflow-hidden">
+				<div className="flex-1 min-w-0 rounded border border-vscode-panel-border bg-vscode-editor-background overflow-hidden flex flex-col">
 					{/* Tab bar */}
 					<div className="flex items-center gap-2 px-3 py-1.5 border-b border-vscode-panel-border bg-vscode-sideBar-background">
 						<FileText className="size-3.5 text-vscode-descriptionForeground" />
@@ -72,12 +82,16 @@ export function MemoryLogTab() {
 					</div>
 
 					{/* Content */}
-					<div className="p-3 overflow-auto h-full">
+					<div className="p-3 overflow-auto flex-1">
 						{loading ? (
 							<div className="flex items-center gap-2 text-vscode-descriptionForeground">
 								<RefreshCw className="size-4 animate-spin" />
 								<span className="text-xs">Loading…</span>
 							</div>
+						) : hasError ? (
+							<pre className="text-xs font-mono text-vscode-errorForeground whitespace-pre-wrap break-all">
+								{content}
+							</pre>
 						) : (
 							<pre className="text-xs font-mono text-vscode-editor-foreground whitespace-pre-wrap break-all">
 								{content}

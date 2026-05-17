@@ -759,3 +759,122 @@ Cold starts affect user experience. Proactive warmup improves perceived performa
 cli, performance, model-loading, user-experience
 
 ---
+
+### Auto-Extracted Lesson: Feat(intelligence): migrate legacy Roo Code lessons and add enhancement system
+
+Date: 2026-05-17
+Source: Git commit 19ebf885
+Model/API used: unknown
+Confidence: medium
+Related files: .github/workflows/lesson-extraction.yml, .husky/post-commit, docs/intelligence-layer/legacy-roocode-migration-report.md, memory/backups/2026-05-17-bugs-fixed.backup.md, memory/backups/2026-05-17-lessons-learned.backup.md
+
+#### Task Summary
+
+feat(intelligence): migrate legacy Roo Code lessons and add enhancement system
+
+#### Files Changed
+
+- `.github/workflows/lesson-extraction.yml`
+- `.husky/post-commit`
+- `docs/intelligence-layer/legacy-roocode-migration-report.md`
+- `memory/backups/2026-05-17-bugs-fixed.backup.md`
+- `memory/backups/2026-05-17-lessons-learned.backup.md`
+- `memory/backups/2026-05-17-model-decisions.backup.md`
+- `memory/bugs-fixed.md`
+- `memory/central-brain-store-log.json`
+- `memory/feature-knowledge.md`
+- `memory/lesson-index.jsonl`
+- `memory/lesson-summaries.json`
+- `memory/lessons-learned.md`
+- `memory/model-decisions.md`
+- `scripts/central-brain-store-lesson.mjs`
+- `scripts/extract-lesson-from-commit.mjs`
+- `scripts/ollama-summarize-lesson.mjs`
+- `scripts/run-migration-post-processing.sh`
+- `src/super-roo/lessons/LessonRetriever.ts`
+- `src/super-roo/lessons/PromptEnhancer.ts`
+- `src/super-roo/lessons/index.ts`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 19ebf885.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 19ebf885 by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+general
+
+---
+
+### Auto-Extracted Lesson: NL routing now passes goal+projectPath so coder intents trigger real coding
+
+Date: 2026-05-17
+Source: Git commit 45cebc23
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/api/telegramBot.js
+
+#### Task Summary
+
+fix: NL routing now passes goal+projectPath so coder intents trigger real coding
+
+#### Files Changed
+
+- `cloud/api/telegramBot.js`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 45cebc23.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 45cebc23 by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+api, bugfix
+
+---

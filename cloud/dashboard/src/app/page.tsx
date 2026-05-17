@@ -24,6 +24,9 @@ import IdeTerminalView from "@/components/views/ide-terminal"
 import { ProjectsView } from "@/components/views/projects"
 import { TelegramView } from "@/components/views/telegram"
 import { AutoDeployView } from "@/components/views/auto-deploy"
+import { CommitDeployView } from "@/components/views/commit-deploy"
+import { BrainView } from "@/components/views/brain"
+import WorkflowComplianceView from "@/components/views/workflow-compliance"
 import { LoginPage } from "@/components/auth/login"
 
 const PAGES: Record<string, React.FC> = {
@@ -35,6 +38,7 @@ const PAGES: Record<string, React.FC> = {
 	bugs: BugsView,
 	healing: HealingView,
 	monitoring: MonitoringView,
+	"workflow-compliance": WorkflowComplianceView,
 	"skill-generator": SkillGeneratorView,
 	logs: LogsView,
 	docker: DockerView,
@@ -48,6 +52,8 @@ const PAGES: Record<string, React.FC> = {
 	projects: ProjectsView,
 	telegram: TelegramView,
 	"auto-deploy": AutoDeployView,
+	"commit-deploy": CommitDeployView,
+	brain: BrainView,
 }
 
 function StatusDot({ online }: { online: boolean }) {
@@ -143,6 +149,8 @@ export default function Dashboard() {
 			projects: "Projects",
 			telegram: "Telegram",
 			"auto-deploy": "Auto Deploy",
+			"commit-deploy": "Commit & Deploy Log",
+			brain: "Central Brain",
 		}[page] || page
 
 	// Show login page while checking auth or if not authenticated

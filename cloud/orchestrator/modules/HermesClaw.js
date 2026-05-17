@@ -11,6 +11,7 @@
  *   - Cross-job pattern analysis across ALL orchestrator tasks
  *   - Skill file generation for repeated failures
  *   - Knowledge base querying via API endpoint
+ *   - **pgvector-backed RAG memory** via BugKnowledgeStore (PostgreSQL + Ollama embeddings)
  *
  * Strengths & Responsibilities:
  *   - SKILL CREATION: Generates .roo/skills/ files from repeated failures and lessons
@@ -20,22 +21,28 @@
  *   - KNOWLEDGE BASE: Maintains a searchable knowledge base of past solutions
  *   - PATTERN RECOGNITION: Identifies recurring failure patterns across different jobs
  *   - BEST PRACTICES: Extracts and documents best practices from successful attempts
+ *   - **RAG MEMORY**: Vector similarity search across all bug fixes via pgvector
+ *   - **BUG FIX STORAGE**: Automatically stores DeepSeek/OpenAI fixes for Ollama RAG retrieval
  *
  * Operations:
  *   create_skill        — Generate .roo/skills/ files from failures
  *   memory_summary      — Summarize what happened during a task
- *   context_recall      — Recall relevant past experiences
+ *   context_recall      — Recall relevant past experiences (now RAG-powered)
  *   improvement_suggestion — Suggest process improvements
  *   pattern_analysis    — Cross-job pattern recognition
  *   knowledge_query     — Search knowledge base
  *   best_practices      — Extract best practices
  *   lesson_extraction   — Extract structured lessons
+ *   store_bug_fix       — Store a bug fix in pgvector knowledge base
+ *   store_lesson        — Store a lesson in pgvector knowledge base
+ *   build_rag_context   — Build RAG context string for prompt injection
  */
 
 const fs = require("fs/promises")
 const path = require("path")
 const crypto = require("crypto")
 const { EventEmitter } = require("events")
+const { BugKnowledgeStore } = require("../stores/BugKnowledgeStore")
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -71,25 +78,28 @@ const { EventEmitter } = require("events")
 // ── Defaults ──────────────────────────────────────────────────────────────────
 
 const DEFAULT_CONFIG = {
-	// Primary provider (OpenAI by default — best for structured output)
+	// Primary provider (Ollama local — FREE, runs on VPS)
+	ollamaBaseUrl: process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434",
+	ollamaModel: process.env.OLLAMA_HERMES_MODEL || process.env.OLLAMA_CHAT_MODEL || "qwen2.5:0.5b",
+	// Fallback provider (OpenAI — expensive, only when Ollama fails)
 	apiKey: process.env.OPENAI_API_KEY || "",
 	model: "gpt-4o-mini",
 	baseUrl: "https://api.openai.com/v1",
-	// Fallback provider (DeepSeek — cheaper, good enough for simple ops)
+	// Secondary fallback (DeepSeek — cheaper than OpenAI)
 	fallbackApiKey: process.env.DEEPSEEK_API_KEY || "",
 	fallbackModel: "deepseek-chat",
 	fallbackBaseUrl: "https://api.deepseek.com/v1",
 	// Per-operation model overrides
-	// Simple ops use DeepSeek (cheaper), complex ops use OpenAI (better reasoning)
+	// ALL operations use Ollama by default (FREE). Falls back to cloud only if Ollama fails.
 	operationModels: {
-		memory_summary: "deepseek-chat", // Simple summarization
-		lesson_extraction: "deepseek-chat", // Pattern extraction
-		knowledge_query: "deepseek-chat", // Simple Q&A
-		best_practices: "deepseek-chat", // Pattern extraction
-		context_recall: "gpt-4o-mini", // Needs cross-reference reasoning
-		create_skill: "gpt-4o-mini", // Needs structured YAML output
-		pattern_analysis: "gpt-4o-mini", // Needs cross-job reasoning
-		improvement_suggestion: "gpt-4o-mini", // Needs nuanced analysis
+		memory_summary: "ollama", // Simple summarization
+		lesson_extraction: "ollama", // Pattern extraction
+		knowledge_query: "ollama", // Simple Q&A
+		best_practices: "ollama", // Pattern extraction
+		context_recall: "ollama", // Cross-reference reasoning
+		create_skill: "ollama", // Structured YAML output
+		pattern_analysis: "ollama", // Cross-job reasoning
+		improvement_suggestion: "ollama", // Nuanced analysis
 	},
 	timeoutMs: 120_000,
 	maxTokens: 2048,
@@ -163,6 +173,8 @@ class HermesClaw extends EventEmitter {
 		this.totalDurationMs = 0
 		/** @type {Map<string, HermesMemoryEntry>} */
 		this.memoryStore = new Map()
+		/** @type {BugKnowledgeStore|null} */
+		this.bugKnowledgeStore = null
 		this._initialized = false
 	}
 
@@ -193,7 +205,152 @@ class HermesClaw extends EventEmitter {
 			}
 		}
 
+		// Initialize BugKnowledgeStore (pgvector RAG memory)
+		await this.initBugKnowledgeStore()
+
+		// Pre-warm Ollama model to avoid cold-start timeout on first request
+		// Node.js 20's built-in fetch (undici) has a default headersTimeout of ~20s,
+		// but Ollama takes ~30s to load the model on first request (cold start).
+		// Warming the model here ensures it's ready when the first real request comes in.
+		await this._warmOllamaModel()
+
 		this._initialized = true
+	}
+
+	/**
+	 * Pre-warm the Ollama model by sending a minimal chat request.
+	 * This ensures the model is loaded in memory before any real requests arrive,
+	 * avoiding the ~30s cold-start delay that causes Node.js fetch to time out.
+	 */
+	async _warmOllamaModel() {
+		if (!this.config.ollamaBaseUrl) return
+		try {
+			const http = require("http")
+			const start = Date.now()
+			const postData = JSON.stringify({
+				model: this.config.ollamaModel,
+				messages: [{ role: "user", content: "hi" }],
+				stream: false,
+				options: { num_predict: 10 },
+			})
+			await new Promise((resolve, reject) => {
+				const req = http.request(
+					`${this.config.ollamaBaseUrl}/api/chat`,
+					{
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							"Content-Length": Buffer.byteLength(postData),
+						},
+						timeout: 120_000,
+					},
+					(res) => {
+						let body = ""
+						res.on("data", (chunk) => (body += chunk))
+						res.on("end", () => {
+							const elapsed = Date.now() - start
+							console.log(`[HermesClaw] Ollama model warmed in ${elapsed}ms (${this.config.ollamaModel})`)
+							resolve()
+						})
+					},
+				)
+				req.on("error", (err) => {
+					console.warn(`[HermesClaw] Ollama warm-up failed (non-critical): ${err.message}`)
+					resolve() // Don't block startup on warm-up failure
+				})
+				req.on("timeout", () => {
+					req.destroy()
+					console.warn(`[HermesClaw] Ollama warm-up timed out (non-critical)`)
+					resolve() // Don't block startup on warm-up failure
+				})
+				req.write(postData)
+				req.end()
+			})
+		} catch (err) {
+			// Warm-up is best-effort; don't block initialization
+			console.warn(`[HermesClaw] Ollama warm-up failed (non-critical): ${err.message}`)
+		}
+	}
+
+	/**
+	 * Call Ollama chat API using http.request (avoids Node.js 20 fetch undici headersTimeout issue).
+	 * @param {string} systemPrompt
+	 * @param {string} userPrompt
+	 * @returns {Promise<string|null>} The response content, or null if Ollama is unavailable
+	 */
+	async _ollamaChat(systemPrompt, userPrompt) {
+		if (!this.config.ollamaBaseUrl) return null
+		const http = require("http")
+		const postData = JSON.stringify({
+			model: this.config.ollamaModel,
+			messages: [
+				{ role: "system", content: systemPrompt },
+				{ role: "user", content: userPrompt },
+			],
+			stream: false,
+			options: {
+				temperature: this.config.temperature,
+				num_predict: this.config.maxTokens,
+			},
+		})
+		return new Promise((resolve) => {
+			const req = http.request(
+				`${this.config.ollamaBaseUrl}/api/chat`,
+				{
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"Content-Length": Buffer.byteLength(postData),
+					},
+					timeout: this.config.timeoutMs,
+				},
+				(res) => {
+					let body = ""
+					res.on("data", (chunk) => (body += chunk))
+					res.on("end", () => {
+						try {
+							const data = JSON.parse(body)
+							const content = data.message?.content || data.response || ""
+							resolve(content || null)
+						} catch {
+							resolve(null)
+						}
+					})
+				},
+			)
+			req.on("error", () => resolve(null))
+			req.on("timeout", () => {
+				req.destroy()
+				resolve(null)
+			})
+			req.write(postData)
+			req.end()
+		})
+	}
+
+	/**
+	 * Initialize the BugKnowledgeStore for pgvector-backed RAG memory.
+	 * This is optional — if PostgreSQL is unavailable, HermesClaw falls back
+	 * to its in-memory keyword search.
+	 */
+	async initBugKnowledgeStore() {
+		try {
+			this.bugKnowledgeStore = new BugKnowledgeStore({
+				dbConfig: {
+					host: process.env.PGHOST || "127.0.0.1",
+					port: parseInt(process.env.PGPORT || "5432", 10),
+					user: process.env.PGUSER || "superroo",
+					password: process.env.PGPASSWORD || "superroo",
+					database: process.env.PGDATABASE || "superroo",
+				},
+			})
+			await this.bugKnowledgeStore.init()
+			console.log("[HermesClaw] BugKnowledgeStore (pgvector RAG) initialized")
+		} catch (err) {
+			console.warn(`[HermesClaw] BugKnowledgeStore not available: ${err.message}`)
+			console.warn("[HermesClaw] Falling back to in-memory keyword search only")
+			this.bugKnowledgeStore = null
+		}
 	}
 
 	/**
@@ -223,7 +380,9 @@ class HermesClaw extends EventEmitter {
 		this.emit("operation:start", { opId, operation: request.operation, topic: request.topic })
 
 		try {
-			if (!this.config.apiKey && !this.config.fallbackApiKey) {
+			// Ollama is always available (local), so we only need cloud keys as fallback
+			// If Ollama is down, we fall back to cloud APIs
+			if (!this.config.ollamaBaseUrl && !this.config.apiKey && !this.config.fallbackApiKey) {
 				throw new Error(
 					"No AI provider configured. Set OPENAI_API_KEY or DEEPSEEK_API_KEY environment variable.",
 				)
@@ -316,6 +475,8 @@ class HermesClaw extends EventEmitter {
 
 	/**
 	 * Recall relevant context from past tasks.
+	 * Uses pgvector RAG search when BugKnowledgeStore is available,
+	 * falls back to in-memory keyword search otherwise.
 	 *
 	 * @param {string} query - What to recall context about
 	 * @param {number} [limit=5] - Max results
@@ -324,6 +485,16 @@ class HermesClaw extends EventEmitter {
 	async recallContext(query, limit = 5) {
 		const localResults = this._searchMemory(query, limit)
 
+		// Try RAG-powered search via BugKnowledgeStore
+		let ragResults = []
+		if (this.bugKnowledgeStore) {
+			try {
+				ragResults = await this.bugKnowledgeStore.searchSimilar(query, { limit })
+			} catch (err) {
+				console.warn(`[HermesClaw] RAG search failed, falling back: ${err.message}`)
+			}
+		}
+
 		return this.execute({
 			operation: "context_recall",
 			topic: `Recall context: ${query}`,
@@ -331,8 +502,71 @@ class HermesClaw extends EventEmitter {
 				query,
 				limit,
 				localMemoryResults: localResults,
+				ragResults: ragResults.length > 0 ? ragResults : undefined,
 			},
 		})
+	}
+
+	/**
+	 * Store a bug fix in the pgvector knowledge base.
+	 * This feeds the Ollama RAG learning loop — every DeepSeek/OpenAI fix
+	 * is stored here so Ollama can retrieve it later.
+	 *
+	 * @param {object} fix - Bug fix data (see BugKnowledgeStore.storeBugFix)
+	 * @returns {Promise<{id: string|null, success: boolean}>}
+	 */
+	async storeBugFix(fix) {
+		if (!this.bugKnowledgeStore) {
+			return { id: null, success: false, error: "BugKnowledgeStore not available" }
+		}
+		return this.bugKnowledgeStore.storeBugFix(fix)
+	}
+
+	/**
+	 * Store a lesson in the pgvector knowledge base.
+	 *
+	 * @param {object} lesson - Lesson data (see BugKnowledgeStore.storeLesson)
+	 * @returns {Promise<{id: string|null, success: boolean}>}
+	 */
+	async storeLesson(lesson) {
+		if (!this.bugKnowledgeStore) {
+			return { id: null, success: false, error: "BugKnowledgeStore not available" }
+		}
+		return this.bugKnowledgeStore.storeLesson(lesson)
+	}
+
+	/**
+	 * Build a RAG context string for injection into LLM prompts.
+	 * This is the primary method used to give Ollama memory of past fixes.
+	 *
+	 * @param {string} query - The problem description or error message
+	 * @param {object} [options]
+	 * @param {number} [options.maxResults=3]
+	 * @param {number} [options.threshold=0.6]
+	 * @returns {Promise<string>} - Formatted context string, or empty string if unavailable
+	 */
+	async buildRagContext(query, options = {}) {
+		if (!this.bugKnowledgeStore) {
+			return ""
+		}
+		try {
+			return await this.bugKnowledgeStore.buildRagContext(query, options)
+		} catch (err) {
+			console.warn(`[HermesClaw] buildRagContext failed: ${err.message}`)
+			return ""
+		}
+	}
+
+	/**
+	 * Update the test_passed status for a stored bug fix.
+	 *
+	 * @param {string} taskId
+	 * @param {boolean} passed
+	 * @returns {Promise<boolean>}
+	 */
+	async updateBugFixTestStatus(taskId, passed) {
+		if (!this.bugKnowledgeStore) return false
+		return this.bugKnowledgeStore.updateTestStatus(taskId, passed)
 	}
 
 	/**
@@ -404,15 +638,26 @@ class HermesClaw extends EventEmitter {
 
 	/**
 	 * Get HermesClaw statistics.
-	 * @returns {{operationCount: number, totalDurationMs: number, averageDurationMs: number, memoryEntries: number}}
+	 * @returns {Promise<{operationCount: number, totalDurationMs: number, averageDurationMs: number, memoryEntries: number, knowledgeStore?: object}>}
 	 */
-	getStats() {
-		return {
+	async getStats() {
+		const stats = {
 			operationCount: this.operationCount,
 			totalDurationMs: this.totalDurationMs,
 			averageDurationMs: this.operationCount > 0 ? Math.round(this.totalDurationMs / this.operationCount) : 0,
 			memoryEntries: this.memoryStore.size,
 		}
+
+		// Include BugKnowledgeStore stats if available
+		if (this.bugKnowledgeStore) {
+			try {
+				stats.knowledgeStore = await this.bugKnowledgeStore.getStats()
+			} catch {
+				stats.knowledgeStore = { error: "unavailable" }
+			}
+		}
+
+		return stats
 	}
 
 	/**
@@ -428,28 +673,45 @@ class HermesClaw extends EventEmitter {
 	// ── Private ────────────────────────────────────────────────────────────
 
 	/**
-	 * Call OpenAI API.
+	 * Call AI API — tries Ollama (local, FREE) first, then falls back to cloud APIs.
 	 * @param {string} systemPrompt
 	 * @param {string} userPrompt
+	 * @param {string} [operation]
 	 * @returns {Promise<string>}
 	 */
 	async _callOpenAI(systemPrompt, userPrompt, operation) {
 		const controller = new AbortController()
 		const timeoutId = setTimeout(() => controller.abort(), this.config.timeoutMs)
 
-		// Resolve provider based on operation type
+		// ── Step 1: Try Ollama (local, FREE) ──────────────────────────────
+		// Uses http.request instead of fetch because Node.js 20's built-in fetch (undici)
+		// has a default headersTimeout of ~20s, but Ollama can take ~30s on cold start.
 		const opModel = operation ? this.config.operationModels[operation] : null
+		if (!opModel || opModel === "ollama") {
+			try {
+				const ollamaResponse = await this._ollamaChat(systemPrompt, userPrompt)
+				if (ollamaResponse) {
+					console.log(`[HermesClaw] Ollama handled operation: ${operation || "unknown"} (FREE)`)
+					clearTimeout(timeoutId)
+					return ollamaResponse
+				}
+			} catch (ollamaErr) {
+				console.warn(`[HermesClaw] Ollama unavailable (${ollamaErr.message}), falling back to cloud API`)
+			}
+		}
+
+		// ── Step 2: Fallback to cloud API ─────────────────────────────────
 		let provider
 
 		if (opModel && opModel.includes("deepseek") && this.config.fallbackApiKey) {
-			// Simple ops → DeepSeek (cheaper)
+			// DeepSeek (cheaper cloud)
 			provider = {
 				apiKey: this.config.fallbackApiKey,
 				baseUrl: this.config.fallbackBaseUrl,
 				model: opModel,
 			}
 		} else if (opModel && opModel.includes("gpt") && this.config.apiKey) {
-			// Complex ops → OpenAI (better reasoning)
+			// OpenAI (better reasoning)
 			provider = {
 				apiKey: this.config.apiKey,
 				baseUrl: this.config.baseUrl,
@@ -470,7 +732,8 @@ class HermesClaw extends EventEmitter {
 				model: this.config.fallbackModel,
 			}
 		} else {
-			throw new Error("No AI provider configured for HermesClaw.")
+			clearTimeout(timeoutId)
+			throw new Error("No AI provider configured for HermesClaw (Ollama unavailable and no cloud API keys).")
 		}
 
 		try {

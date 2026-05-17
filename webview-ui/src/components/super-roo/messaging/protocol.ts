@@ -79,6 +79,7 @@ export type SrExtensionMessage =
 	| { type: "superRoo:routesSaved"; ok: boolean }
 	// Approval evaluation response
 	| { type: "superRoo:approvalResult"; decision: string; reason: string }
+	| { type: "superRoo:productMemoryResult"; fileName: string; content?: string; error?: string }
 
 export const SR_MESSAGE_PREFIX = "superRoo:"
 export function isSrExtensionMessage(msg: unknown): msg is SrExtensionMessage {

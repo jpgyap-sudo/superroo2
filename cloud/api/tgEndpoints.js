@@ -717,7 +717,264 @@ async function brainPipeline(query, chatId) {
 	}
 }
 
+// ─── Hermes Claw Endpoints ─────────────────────────────────────────────────
+
+/**
+ * Base URL for the API server (used to call Hermes Claw endpoints).
+ */
+const API_BASE = process.env.API_BASE || "http://127.0.0.1:8787"
+
+/**
+ * Calls the Hermes Claw API endpoint with the given operation and data.
+ * @param {string} operation - Hermes Claw operation name
+ * @param {Object} data - Data payload for the operation
+ * @returns {Promise<Object>} { ok, result, error? }
+ */
+async function _callHermes(operation, data) {
+	try {
+		const res = await fetch(API_BASE + "/api/orchestrator/hermes/" + operation, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(data),
+			signal: AbortSignal.timeout(30_000),
+		})
+		if (!res.ok) {
+			const errText = await res.text().catch(() => "Unknown error")
+			return { ok: false, error: "Hermes API error (" + res.status + "): " + errText.slice(0, 200) }
+		}
+		const result = await res.json()
+		return { ok: true, result }
+	} catch (err) {
+		return { ok: false, error: "Hermes call failed: " + err.message }
+	}
+}
+
+/**
+ * Recalls context from Hermes Claw's memory (RAG-powered).
+ * Searches the knowledge base for relevant past fixes, lessons, and patterns.
+ *
+ * @param {string} query - The question or topic to search for
+ * @returns {Promise<Object>} { ok, context, sources, error? }
+ */
+async function hermesRecall(query) {
+	if (!query) {
+		return { ok: false, error: "Query is required. Usage: `/hermes recall <question>`" }
+	}
+	const result = await _callHermes("recall", { query })
+	if (!result.ok) return result
+	return {
+		ok: true,
+		context: result.result.context || result.result.ragContext || "",
+		sources: result.result.sources || [],
+	}
+}
+
+/**
+ * Stores a new lesson or knowledge entry into Hermes Claw's memory.
+ * The bot learns from every interaction and stores it for future recall.
+ *
+ * @param {Object} lesson - { topic, content, source, tags }
+ * @returns {Promise<Object>} { ok, lessonId, error? }
+ */
+async function hermesLearn(lesson) {
+	if (!lesson || !lesson.topic) {
+		return { ok: false, error: "Topic is required. Usage: `/hermes learn <topic> | <content>`" }
+	}
+	const result = await _callHermes("learn", {
+		topic: lesson.topic,
+		content: lesson.content || "",
+		source: lesson.source || "telegram",
+		tags: lesson.tags || [],
+	})
+	if (!result.ok) return result
+	return {
+		ok: true,
+		lessonId: result.result.lessonId || result.result.id || "unknown",
+	}
+}
+
+/**
+ * Creates a new skill from a description using Hermes Claw.
+ * Skills are reusable patterns that the bot can apply automatically.
+ *
+ * @param {Object} skillData - { name, description, steps, trigger }
+ * @returns {Promise<Object>} { ok, skill, error? }
+ */
+async function hermesCreateSkill(skillData) {
+	if (!skillData || !skillData.name) {
+		return { ok: false, error: "Skill name is required. Usage: `/hermes skill <name> | <description>`" }
+	}
+	const result = await _callHermes("create-skill", {
+		name: skillData.name,
+		description: skillData.description || "",
+		steps: skillData.steps || [],
+		trigger: skillData.trigger || "",
+	})
+	if (!result.ok) return result
+	return {
+		ok: true,
+		skill: result.result.skill || result.result,
+	}
+}
+
+/**
+ * Analyzes patterns in recent interactions and code changes.
+ * Detects recurring issues, workflow patterns, and optimization opportunities.
+ *
+ * @param {string} [scope] - Optional scope to analyze (e.g., "bugs", "workflow", "code")
+ * @returns {Promise<Object>} { ok, patterns, error? }
+ */
+async function hermesAnalyzePatterns(scope) {
+	const result = await _callHermes("analyze-patterns", { scope: scope || "all" })
+	if (!result.ok) return result
+	return {
+		ok: true,
+		patterns: result.result.patterns || result.result,
+	}
+}
+
+/**
+ * Queries the knowledge base for specific information.
+ * Unlike recall (which returns formatted context), this returns structured knowledge.
+ *
+ * @param {string} query - The knowledge query
+ * @returns {Promise<Object>} { ok, knowledge, error? }
+ */
+async function hermesQuery(query) {
+	if (!query) {
+		return { ok: false, error: "Query is required. Usage: `/hermes query <question>`" }
+	}
+	const result = await _callHermes("query", { query })
+	if (!result.ok) return result
+	return {
+		ok: true,
+		knowledge: result.result.knowledge || result.result,
+	}
+}
+
+/**
+ * Gets Hermes Claw statistics — memory usage, knowledge store stats, pattern counts.
+ * @returns {Promise<Object>} { ok, stats, error? }
+ */
+async function hermesStats() {
+	const result = await _callHermes("stats", {})
+	if (!result.ok) return result
+	return {
+		ok: true,
+		stats: result.result.stats || result.result,
+	}
+}
+
+/**
+ * Extracts lessons from a completed interaction or task.
+ * This is the core of the infinite learning loop — every interaction
+ * gets analyzed and stored for future reference.
+ *
+ * @param {Object} interaction - { phases, context, outcome }
+ * @returns {Promise<Object>} { ok, lessons, error? }
+ */
+async function hermesExtractLessons(interaction) {
+	if (!interaction) {
+		return { ok: false, error: "Interaction data is required." }
+	}
+	const result = await _callHermes("extract-lessons", {
+		phases: interaction.phases || [],
+		context: interaction.context || "",
+		outcome: interaction.outcome || "",
+	})
+	if (!result.ok) return result
+	return {
+		ok: true,
+		lessons: result.result.lessons || result.result,
+	}
+}
+
+/**
+ * Lists all available skills in the system.
+ * @returns {Promise<Object>} { ok, skills, error? }
+ */
+async function hermesListSkills() {
+	const result = await _callHermes("list-skills", {})
+	if (!result.ok) return result
+	return {
+		ok: true,
+		skills: result.result.skills || result.result,
+	}
+}
+
+/**
+ * Lists all available resources in the system.
+ * @returns {Promise<Object>} { ok, resources, error? }
+ */
+async function hermesListResources() {
+	const result = await _callHermes("list-resources", {})
+	if (!result.ok) return result
+	return {
+		ok: true,
+		resources: result.result.resources || result.result,
+	}
+}
+
 // ─── Exports ────────────────────────────────────────────────────────────────
+
+/**
+ * Fetches commit and deploy status from the CommitDeployLog.
+ * Reads the commit-deploy-log.json file on the VPS and returns
+ * the most recent commits and deployments.
+ *
+ * @param {number} [limit=5] - Number of recent entries to return
+ * @returns {Promise<Object>} Formatted commit/deploy status
+ */
+async function getCommitDeployStatus(limit) {
+	if (limit === undefined) limit = 5
+	try {
+		// Read the commit-deploy-log.json file
+		var fs = require("fs")
+		var path = require("path")
+		var logPath = path.join(__dirname, "..", "memory", "commit-deploy-log.json")
+		var raw = fs.readFileSync(logPath, "utf8")
+		var data = JSON.parse(raw)
+
+		var commits = (data.commits || []).slice(-limit).reverse()
+		var deploys = (data.deploys || []).slice(-limit).reverse()
+
+		return {
+			success: true,
+			commits: commits.map(function (c) {
+				return {
+					sha: c.sha || c.commitSha || "",
+					agent: c.agentName || c.agent || "unknown",
+					type: c.type || "unknown",
+					title: c.title || c.message || "",
+					filesChanged: (c.filesChanged || c.files || []).length,
+					timestamp: c.timestamp || c.createdAt || 0,
+					featuresAffected: c.featuresAffected || [],
+				}
+			}),
+			deploys: deploys.map(function (d) {
+				return {
+					version: d.version || "",
+					sha: d.commitSha || d.sha || "",
+					agent: d.agentName || d.agent || "unknown",
+					status: d.status || d.result || "unknown",
+					timestamp: d.timestamp || d.deployedAt || 0,
+				}
+			}),
+			totalCommits: (data.commits || []).length,
+			totalDeploys: (data.deploys || []).length,
+		}
+	} catch (err) {
+		// File may not exist yet — return empty
+		return {
+			success: true,
+			commits: [],
+			deploys: [],
+			totalCommits: 0,
+			totalDeploys: 0,
+			note: "CommitDeployLog file not found yet. Start committing to build history.",
+		}
+	}
+}
 
 module.exports = {
 	debugPlan,
@@ -735,4 +992,16 @@ module.exports = {
 	brainMemory,
 	brainContext,
 	brainPipeline,
+	// Hermes Claw endpoints
+	hermesRecall,
+	hermesLearn,
+	hermesCreateSkill,
+	hermesAnalyzePatterns,
+	hermesQuery,
+	hermesStats,
+	hermesExtractLessons,
+	hermesListSkills,
+	hermesListResources,
+	// Commit/Deploy Status
+	getCommitDeployStatus,
 }

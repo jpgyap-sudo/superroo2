@@ -26,6 +26,10 @@ const TELEGRAM_API_BASE = "https://api.telegram.org/bot"
 // Tracks pending approval requests: chatId -> { taskId, instruction, diff, timestamp }
 const pendingApprovals = new Map()
 
+// Tracks pending coder jobs awaiting user action: taskId -> { phase, plan, changes, chatId, messageId, instruction, workspaceDir, repoName, branch }
+// Used by the multi-phase approval/commit/deploy workflow
+const pendingCoderJobs = new Map()
+
 // Tracks active notifications: chatId -> Set of messageIds
 const activeNotifications = new Map()
 
@@ -61,6 +65,25 @@ function resolveChatId(userChatId) {
 // ---------------------------------------------------------------------------
 // Helper: Send message with inline keyboard
 // ---------------------------------------------------------------------------
+/**
+ * Escape special characters for Telegram MarkdownV2 parse mode.
+ * Telegram MarkdownV2 requires escaping: _ * [ ] ( ) ~ ` > # + - = | { } . !
+ * For regular Markdown (not MarkdownV2), only _ * ` [ ] need escaping in practice.
+ * This function strips markdown formatting entirely for safe plain-text fallback.
+ */
+function stripMarkdown(text) {
+	if (!text) return ""
+	// Remove bold/italic markers
+	return text
+		.replace(/\*{1,2}/g, "")
+		.replace(/_{1,2}/g, "")
+		.replace(/`{1,3}/g, "")
+		.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+		.replace(/~~(.+?)~~/g, "$1")
+		.replace(/^#{1,6}\s+/gm, "")
+		.replace(/>\s/g, "")
+}
+
 async function sendInlineKeyboard(botToken, chatId, text, buttons) {
 	const url = TELEGRAM_API_BASE + botToken + "/sendMessage"
 	const reply_markup = {
@@ -73,20 +96,23 @@ async function sendInlineKeyboard(botToken, chatId, text, buttons) {
 	var maxAttempts = 2
 	for (var attempt = 0; attempt < maxAttempts; attempt++) {
 		try {
+			const body = {
+				chat_id: effectiveChatId,
+				text: text,
+				parse_mode: parseMode,
+				reply_markup: reply_markup,
+			}
 			const res = await fetch(url, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					chat_id: effectiveChatId,
-					text: text,
-					parse_mode: parseMode,
-					reply_markup: reply_markup,
-				}),
+				body: JSON.stringify(body),
 			})
 			const data = await res.json()
 			if (!data.ok && data.description && data.description.includes("can't parse entities")) {
 				if (parseMode === "Markdown") {
 					console.log("[telegram-notifier] Markdown parse failed, falling back to plain text")
+					// Strip markdown formatting and retry without parse_mode
+					text = stripMarkdown(text)
 					parseMode = ""
 					continue
 				}
@@ -137,6 +163,8 @@ async function editMessageText(botToken, chatId, messageId, text, buttons) {
 			if (!data.ok && data.description && data.description.includes("can't parse entities")) {
 				if (parseMode === "Markdown") {
 					console.log("[telegram-notifier] editMessageText markdown parse failed, falling back to plain text")
+					// Strip markdown formatting and retry without parse_mode
+					text = stripMarkdown(text)
 					parseMode = ""
 					continue
 				}
@@ -191,9 +219,7 @@ async function sendTaskStarted(botToken, chatId, taskId, instruction, agentType)
 		`*Instruction:* ${instruction.slice(0, 200)}${instruction.length > 200 ? "..." : ""}\n\n` +
 		`_Processing... I'll notify you when it's done._`
 
-	const buttons = [[
-		{ text: "⏳ Check Status", callback_data: `notify:status:${taskId}` },
-	]]
+	const buttons = [[{ text: "⏳ Check Status", callback_data: `notify:status:${taskId}` }]]
 
 	return await sendInlineKeyboard(botToken, chatId, text, buttons)
 }
@@ -301,7 +327,12 @@ async function sendApprovalRequest(botToken, chatId, taskId, instruction, diffIn
 // ---------------------------------------------------------------------------
 async function sendDeployNotification(botToken, chatId, taskId, instruction, deployInfo) {
 	const statusEmoji = deployInfo.status === "success" ? "🚀" : deployInfo.status === "failed" ? "❌" : "🔄"
-	const statusText = deployInfo.status === "success" ? "Deployed Successfully" : deployInfo.status === "failed" ? "Deploy Failed" : "Deploying..."
+	const statusText =
+		deployInfo.status === "success"
+			? "Deployed Successfully"
+			: deployInfo.status === "failed"
+				? "Deploy Failed"
+				: "Deploying..."
 
 	const text =
 		`${statusEmoji} *${statusText}*\n\n` +
@@ -374,9 +405,7 @@ async function sendPlanPreview(botToken, chatId, taskId, instruction, planDetail
 			{ text: "✅ Approve Plan", callback_data: `approve_plan:${taskId}` },
 			{ text: "📄 Full Details", callback_data: `preview_plan:${taskId}` },
 		],
-		[
-			{ text: "❌ Reject", callback_data: `notify:reject:${taskId}` },
-		],
+		[{ text: "❌ Reject", callback_data: `notify:reject:${taskId}` }],
 	]
 
 	return await sendInlineKeyboard(botToken, chatId, text, buttons)
@@ -446,22 +475,24 @@ async function sendDeploymentHealth(botToken, chatId, taskId, environment, healt
 		(healthInfo.responseTime ? `*Response Time:* ${healthInfo.responseTime}ms\n` : "") +
 		(healthInfo.statusCode ? `*Status Code:* ${healthInfo.statusCode}\n` : "") +
 		(healthInfo.message ? `\n${healthInfo.message}` : "") +
-		(healthInfo.checks ? `\n\n*Health Checks:*\n${healthInfo.checks.map(function (c) { return `• ${c.name}: ${c.passed ? "✅" : "❌"}` }).join("\n")}` : "")
+		(healthInfo.checks
+			? `\n\n*Health Checks:*\n${healthInfo.checks
+					.map(function (c) {
+						return `• ${c.name}: ${c.passed ? "✅" : "❌"}`
+					})
+					.join("\n")}`
+			: "")
 
 	const buttons = []
 	if (isHealthy && environment === "staging") {
-		buttons.push([
-			{ text: "🚀 Deploy to Production", callback_data: `deploy_production:${taskId}` },
-		])
+		buttons.push([{ text: "🚀 Deploy to Production", callback_data: `deploy_production:${taskId}` }])
 	}
 	buttons.push([
 		{ text: "🌐 Open Dashboard", url: healthInfo.url || "https://dev.abcx124.xyz" },
 		{ text: "📊 View Logs", callback_data: `notify:logs:${taskId}` },
 	])
 	if (!isHealthy) {
-		buttons.push([
-			{ text: "🔄 Rollback", callback_data: `rollback:${taskId}` },
-		])
+		buttons.push([{ text: "🔄 Rollback", callback_data: `rollback:${taskId}` }])
 	}
 
 	return await sendInlineKeyboard(botToken, chatId, text, buttons)
@@ -507,6 +538,386 @@ async function sendNotification(botToken, chatId, title, message, buttons) {
 	}
 
 	return await sendInlineKeyboard(botToken, chatId, text, formattedButtons)
+}
+
+// ---------------------------------------------------------------------------
+// 13. Coder Plan Preview — shows the LLM-generated plan with approve/reject/clarify
+// ---------------------------------------------------------------------------
+async function sendCoderPlan(botToken, chatId, taskId, instruction, planData) {
+	const planSummary = planData.plan || "No plan description"
+	const changesList = Array.isArray(planData.changes) ? planData.changes : []
+	const fileSummary = changesList
+		.map(function (c) {
+			return "• `" + c.file + "` — " + (c.description || c.action)
+		})
+		.join("\n")
+
+	// Auto mode indicator — show when --auto flag was used
+	const autoMode = planData.auto === true
+	const autoNote = autoMode
+		? "\n\n⚡ *Auto Mode Active* — Plan will be automatically applied → committed → deployed after approval."
+		: ""
+
+	const text =
+		`💻 *Coder Plan: ${taskId}*\n\n` +
+		`*Instruction:* ${instruction.slice(0, 300)}${instruction.length > 300 ? "..." : ""}\n\n` +
+		`*Plan:* ${planSummary}\n\n` +
+		`*Proposed Changes (${changesList.length}):*\n` +
+		(fileSummary || "  _(no file changes)_") +
+		autoNote +
+		`\n\n_Review the plan and approve to start coding, or ask for clarification._`
+
+	const buttons = [
+		[
+			{ text: "▶️ Proceed", callback_data: `coder:proceed:${taskId}` },
+			{ text: "❌ Reject", callback_data: `coder:reject:${taskId}` },
+		],
+		[
+			{ text: "✅ Approve & Code", callback_data: `coder:approve:${taskId}` },
+			{ text: "💬 Clarify", callback_data: `coder:clarify:${taskId}` },
+		],
+	]
+
+	return await sendInlineKeyboard(botToken, chatId, text, buttons)
+}
+
+// ---------------------------------------------------------------------------
+// 14. Coder Applied — shows changes applied with commit/deploy/reject buttons
+// ---------------------------------------------------------------------------
+async function sendCoderApplied(botToken, chatId, taskId, instruction, applyResult) {
+	const changes = Array.isArray(applyResult.changes) ? applyResult.changes : []
+	const changeLines = changes
+		.map(function (c) {
+			const icon = c.action === "delete" ? "🗑️" : c.action === "create" ? "🆕" : "✏️"
+			return icon + " " + c.file + (c.success !== false ? " ✅" : " ❌")
+		})
+		.join("\n")
+
+	const allSuccess = applyResult.allSuccess !== false
+	const text =
+		`✏️ *Changes Applied: ${taskId}*\n\n` +
+		`*Instruction:* ${instruction.slice(0, 200)}${instruction.length > 200 ? "..." : ""}\n\n` +
+		`*Changes:*\n${changeLines || "  _(no changes)_"}\n` +
+		(allSuccess ? "\n✅ All changes applied successfully" : "\n⚠️ Some changes had issues") +
+		`\n\n_What would you like to do next?_`
+
+	const buttons = [
+		[
+			{ text: "💾 Commit", callback_data: `coder:commit:${taskId}` },
+			{ text: "🚀 Deploy Now", callback_data: `coder:deploy:${taskId}` },
+		],
+		[
+			{ text: "❌ Reject Changes", callback_data: `coder:reject:${taskId}` },
+			{ text: "📄 View Diff", callback_data: `coder:diff:${taskId}` },
+		],
+	]
+
+	// Add retry button if some changes failed
+	if (!allSuccess) {
+		buttons.push([{ text: "🔄 Retry Failed Changes", callback_data: `coder:retry:${taskId}` }])
+	}
+
+	return await sendInlineKeyboard(botToken, chatId, text, buttons)
+}
+
+// ---------------------------------------------------------------------------
+// 15. Coder Committed — shows commit result with deploy/skip buttons
+// ---------------------------------------------------------------------------
+async function sendCoderCommitted(botToken, chatId, taskId, instruction, commitResult) {
+	const commitHash = commitResult.hash || "unknown"
+	const commitMsg = commitResult.message || "No commit message"
+	const branch = commitResult.branch || "main"
+
+	const text =
+		`💾 *Changes Committed: ${taskId}*\n\n` +
+		`*Instruction:* ${instruction.slice(0, 200)}${instruction.length > 200 ? "..." : ""}\n\n` +
+		`*Commit:* \`${commitHash.slice(0, 12)}\`\n` +
+		`*Branch:* \`${branch}\`\n` +
+		`*Message:* ${commitMsg}\n\n` +
+		`_Ready to deploy? Or continue working._`
+
+	const buttons = [
+		[
+			{ text: "🚀 Deploy Now", callback_data: `coder:deploy:${taskId}` },
+			{ text: "⏭️ Skip Deploy", callback_data: `coder:done:${taskId}` },
+		],
+	]
+
+	return await sendInlineKeyboard(botToken, chatId, text, buttons)
+}
+
+// ---------------------------------------------------------------------------
+// 16. Coder Deployed — shows deploy result
+// ---------------------------------------------------------------------------
+async function sendCoderDeployed(botToken, chatId, taskId, instruction, deployResult) {
+	const statusEmoji = deployResult.success ? "✅" : "❌"
+	const statusText = deployResult.success ? "Deployed Successfully" : "Deploy Failed"
+
+	const text =
+		`${statusEmoji} *${statusText}: ${taskId}*\n\n` +
+		`*Instruction:* ${instruction.slice(0, 200)}${instruction.length > 200 ? "..." : ""}\n` +
+		(deployResult.url ? `*URL:* ${deployResult.url}\n` : "") +
+		(deployResult.message ? `\n${deployResult.message}` : "") +
+		`\n\n_Deployment complete._`
+
+	const buttons = []
+	if (deployResult.success) {
+		buttons.push([{ text: "🌐 Open Dashboard", url: deployResult.url || "https://dev.abcx124.xyz" }])
+		// Quick-action buttons for next steps
+		buttons.push([
+			{ text: "🔄 Run Again", callback_data: `coder:retry:${taskId}` },
+			{ text: "➕ New Task", callback_data: `menu:code` },
+		])
+	} else {
+		buttons.push([
+			{ text: "🔄 Retry", callback_data: `coder:deploy:${taskId}` },
+			{ text: "📋 View Logs", callback_data: `notify:logs:${taskId}` },
+		])
+	}
+	buttons.push([{ text: "✅ Done", callback_data: `coder:done:${taskId}` }])
+
+	return await sendInlineKeyboard(botToken, chatId, text, buttons)
+}
+
+// ---------------------------------------------------------------------------
+// 17. Coder Clarification — asks the user for more details
+// ---------------------------------------------------------------------------
+async function sendCoderClarification(botToken, chatId, taskId, instruction, question) {
+	const text =
+		`💬 *Clarification Needed: ${taskId}*\n\n` +
+		`*Original instruction:* ${instruction.slice(0, 200)}${instruction.length > 200 ? "..." : ""}\n\n` +
+		`*Question:* ${question}\n\n` +
+		`_Please reply with the additional information needed._`
+
+	const buttons = [
+		[
+			{ text: "🔄 Retry with Details", callback_data: `coder:retry:${taskId}` },
+			{ text: "❌ Cancel", callback_data: `coder:cancel:${taskId}` },
+		],
+	]
+
+	return await sendInlineKeyboard(botToken, chatId, text, buttons)
+}
+
+// ---------------------------------------------------------------------------
+// Handle Coder Workflow Callback Queries
+// ---------------------------------------------------------------------------
+async function handleCoderCallback(botToken, callbackQuery) {
+	const cq = callbackQuery
+	const chatId = cq.message.chat.id
+	const messageId = cq.message.message_id
+	const data = cq.data || ""
+	const cqId = cq.id
+
+	// Parse callback data: coder:<action>:<taskId>
+	const parts = data.split(":")
+	if (parts.length < 3) return false
+
+	const action = parts[1]
+	const taskId = parts.slice(2).join(":")
+
+	// Answer the callback query to remove loading state
+	await answerCallbackQuery(botToken, cqId)
+
+	const pending = pendingCoderJobs.get(taskId)
+
+	switch (action) {
+		case "proceed":
+		case "approve": {
+			// User approved the plan — update message and return true so caller enqueues apply job
+			const approveLabel = action === "proceed" ? "Proceed" : "Approved"
+			await editMessageText(
+				botToken,
+				chatId,
+				messageId,
+				`✅ *Plan ${approveLabel}: ${taskId}*\n\nCoding is starting... I'll notify you when changes are ready.`,
+				[[{ text: "⏳ Processing...", callback_data: `notify:status:${taskId}` }]],
+			)
+			if (pending) {
+				pending.status = "approved"
+				pendingCoderJobs.set(taskId, pending)
+			}
+			return { action: "approved", taskId }
+		}
+
+		case "reject": {
+			await editMessageText(
+				botToken,
+				chatId,
+				messageId,
+				`❌ *Plan Rejected: ${taskId}*\n\nThe coding plan has been rejected. No changes were made.`,
+			)
+			if (pending) {
+				pendingCoderJobs.delete(taskId)
+			}
+			return { action: "rejected", taskId }
+		}
+
+		case "clarify": {
+			await editMessageText(
+				botToken,
+				chatId,
+				messageId,
+				`💬 *Clarification Requested: ${taskId}*\n\nPlease reply with additional details about what you need.`,
+				[[{ text: "🔄 Retry", callback_data: `coder:retry:${taskId}` }]],
+			)
+			if (pending) {
+				pending.status = "awaiting_clarification"
+				pendingCoderJobs.set(taskId, pending)
+			}
+			return { action: "clarify", taskId }
+		}
+
+		case "commit": {
+			// User wants to commit — update message and return true so caller runs git commit
+			await editMessageText(
+				botToken,
+				chatId,
+				messageId,
+				`💾 *Committing: ${taskId}*\n\nCommitting changes... I'll notify you when done.`,
+				[[{ text: "⏳ Committing...", callback_data: `notify:status:${taskId}` }]],
+			)
+			if (pending) {
+				pending.status = "commit_requested"
+				pendingCoderJobs.set(taskId, pending)
+			}
+			return { action: "commit", taskId }
+		}
+
+		case "deploy": {
+			// User wants to deploy — update message and return true so caller runs deploy
+			await editMessageText(
+				botToken,
+				chatId,
+				messageId,
+				`🚀 *Deploying: ${taskId}*\n\nDeploying changes... I'll notify you when done.`,
+				[[{ text: "⏳ Deploying...", callback_data: `notify:status:${taskId}` }]],
+			)
+			if (pending) {
+				pending.status = "deploy_requested"
+				pendingCoderJobs.set(taskId, pending)
+			}
+			return { action: "deploy", taskId }
+		}
+
+		case "diff": {
+			// Show the diff from the pending job
+			const diffText =
+				pending && pending.diff
+					? "```\n" + pending.diff.substring(0, 3000) + "\n```"
+					: "_Diff details not available._"
+
+			await editMessageText(botToken, chatId, messageId, `📄 *Diff for ${taskId}*\n\n${diffText}`, [
+				[{ text: "🔙 Back", callback_data: `coder:back:${taskId}` }],
+			])
+			return { action: "diff", taskId }
+		}
+
+		case "retry": {
+			// User wants to retry with clarification — return retry action
+			await editMessageText(
+				botToken,
+				chatId,
+				messageId,
+				`🔄 *Retrying: ${taskId}*\n\nRe-running with additional context...`,
+			)
+			if (pending) {
+				pending.status = "retry_requested"
+				pendingCoderJobs.set(taskId, pending)
+			}
+			return { action: "retry", taskId }
+		}
+
+		case "cancel": {
+			await editMessageText(
+				botToken,
+				chatId,
+				messageId,
+				`❌ *Cancelled: ${taskId}*\n\nThe operation has been cancelled.`,
+			)
+			if (pending) {
+				pendingCoderJobs.delete(taskId)
+			}
+			return { action: "cancelled", taskId }
+		}
+
+		case "done": {
+			await editMessageText(
+				botToken,
+				chatId,
+				messageId,
+				`✅ *Complete: ${taskId}*\n\nAll done! You can start a new task anytime.`,
+			)
+			if (pending) {
+				pendingCoderJobs.delete(taskId)
+			}
+			return { action: "done", taskId }
+		}
+
+		case "back": {
+			// Go back to the previous state
+			if (pending) {
+				const phase = pending.phase || "plan"
+				if (phase === "applied") {
+					// Show the applied message again
+					const changes = Array.isArray(pending.changes) ? pending.changes : []
+					const changeLines = changes
+						.map(function (c) {
+							const icon = c.action === "delete" ? "🗑️" : c.action === "create" ? "🆕" : "✏️"
+							return icon + " " + c.file + (c.success !== false ? " ✅" : " ❌")
+						})
+						.join("\n")
+					await editMessageText(
+						botToken,
+						chatId,
+						messageId,
+						`✏️ *Changes Applied: ${taskId}*\n\n*Changes:*\n${changeLines || "  _(no changes)_"}\n\n_What would you like to do next?_`,
+						[
+							[
+								{ text: "💾 Commit", callback_data: `coder:commit:${taskId}` },
+								{ text: "🚀 Deploy Now", callback_data: `coder:deploy:${taskId}` },
+							],
+							[{ text: "❌ Reject Changes", callback_data: `coder:reject:${taskId}` }],
+						],
+					)
+				} else {
+					// Show the plan again
+					await editMessageText(
+						botToken,
+						chatId,
+						messageId,
+						`📋 *Plan: ${taskId}*\n\n${pending.plan || "Plan details not available."}`,
+						[
+							[
+								{ text: "▶️ Proceed", callback_data: `coder:proceed:${taskId}` },
+								{ text: "❌ Reject", callback_data: `coder:reject:${taskId}` },
+							],
+							[{ text: "✅ Approve & Code", callback_data: `coder:approve:${taskId}` }],
+						],
+					)
+				}
+			}
+			return { action: "back", taskId }
+		}
+
+		default:
+			return false
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Store pending coder job state for multi-phase workflow
+// ---------------------------------------------------------------------------
+function setPendingCoderJob(taskId, state) {
+	pendingCoderJobs.set(taskId, state)
+}
+
+function getPendingCoderJob(taskId) {
+	return pendingCoderJobs.get(taskId) || null
+}
+
+function removePendingCoderJob(taskId) {
+	pendingCoderJobs.delete(taskId)
 }
 
 // ---------------------------------------------------------------------------
@@ -578,10 +989,12 @@ async function handleNotificationCallback(botToken, callbackQuery) {
 					`*Actions:*\n` +
 					`• \`/approve ${taskId}\` — Approve changes\n` +
 					`• \`/reject ${taskId}\` — Reject changes`,
-				[[
-					{ text: "✅ Approve", callback_data: `notify:approve:${taskId}` },
-					{ text: "❌ Reject", callback_data: `notify:reject:${taskId}` },
-				]],
+				[
+					[
+						{ text: "✅ Approve", callback_data: `notify:approve:${taskId}` },
+						{ text: "❌ Reject", callback_data: `notify:reject:${taskId}` },
+					],
+				],
 			)
 			return true
 		}
@@ -604,9 +1017,7 @@ async function handleNotificationCallback(botToken, callbackQuery) {
 				botToken,
 				chatId,
 				messageId,
-				`📋 *Logs for ${taskId}*\n\n` +
-					`_Fetching logs..._\n\n` +
-					`Use \`/logs\` in chat to view recent logs.`,
+				`📋 *Logs for ${taskId}*\n\n` + `_Fetching logs..._\n\n` + `Use \`/logs\` in chat to view recent logs.`,
 				[[{ text: "🔙 Back", callback_data: `notify:back:${taskId}` }]],
 			)
 			return true
@@ -617,9 +1028,7 @@ async function handleNotificationCallback(botToken, callbackQuery) {
 				botToken,
 				chatId,
 				messageId,
-				`🔄 *Retrying ${taskId}*\n\n` +
-					`_Re-queuing the task..._\n\n` +
-					`I'll notify you when it's done.`,
+				`🔄 *Retrying ${taskId}*\n\n` + `_Re-queuing the task..._\n\n` + `I'll notify you when it's done.`,
 			)
 			return true
 		}
@@ -660,10 +1069,12 @@ async function handleNotificationCallback(botToken, callbackQuery) {
 					`• \`/diff ${taskId}\` — View changes\n` +
 					`• \`/approve ${taskId}\` — Approve\n` +
 					`• \`/logs\` — View logs`,
-				[[
-					{ text: "📄 View Diff", callback_data: `notify:diff:${taskId}` },
-					{ text: "✅ Approve", callback_data: `notify:approve:${taskId}` },
-				]],
+				[
+					[
+						{ text: "📄 View Diff", callback_data: `notify:diff:${taskId}` },
+						{ text: "✅ Approve", callback_data: `notify:approve:${taskId}` },
+					],
+				],
 			)
 			return true
 		}
@@ -687,8 +1098,7 @@ async function handleNotificationCallback(botToken, callbackQuery) {
 				botToken,
 				chatId,
 				messageId,
-				`❌ *Action Cancelled*\n\n` +
-					`The operation has been cancelled. No changes were made.`,
+				`❌ *Action Cancelled*\n\n` + `The operation has been cancelled. No changes were made.`,
 			)
 			return true
 		}
@@ -744,15 +1154,30 @@ module.exports = {
 	sendRollbackAvailable,
 	sendNotification,
 
-	// Callback handler
+	// Coder workflow send functions
+	sendCoderPlan,
+	sendCoderApplied,
+	sendCoderCommitted,
+	sendCoderDeployed,
+	sendCoderClarification,
+
+	// Callback handlers
 	handleNotificationCallback,
+	handleCoderCallback,
 
 	// State management
 	getApprovalStatus,
 	clearNotifications,
 	pendingApprovals,
+	pendingCoderJobs,
+	setPendingCoderJob,
+	getPendingCoderJob,
+	removePendingCoderJob,
 
 	// Group chat routing
 	setGroupRouting,
 	resolveChatId,
+
+	// Utilities
+	stripMarkdown,
 }

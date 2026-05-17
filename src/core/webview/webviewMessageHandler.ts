@@ -91,6 +91,59 @@ import {
 	handleCheckoutBranch,
 } from "./worktree"
 
+/**
+ * Handle SuperRoo namespaced messages from the webview.
+ * These are sent by the SuperRoo dashboard components.
+ */
+async function handleSuperRooMessage(provider: ClineProvider, message: Record<string, unknown>): Promise<void> {
+	const type = message.type as string
+
+	switch (type) {
+		case "superRoo:productMemory": {
+			const action = message.action as string
+			if (action === "readMemoryFile") {
+				const fileName = message.fileName as string
+				const ALLOWED_FILES = new Set([
+					"product-features.json",
+					"product-updates.json",
+					"feature-test-history.json",
+					"bug-feature-map.json",
+					"agent-notes.json",
+					"codextask.json",
+					"commit-deploy-log.json",
+				])
+				if (!ALLOWED_FILES.has(fileName)) {
+					await provider.postMessageToWebview({
+						type: "superRoo:productMemoryResult",
+						fileName,
+						error: "File not allowed",
+					} as unknown as import("@superroo/types").ExtensionMessage)
+					return
+				}
+				try {
+					const cwd = provider.cwd
+					const filePath = path.join(cwd, "server/src/memory", fileName)
+					const content = await fs.readFile(filePath, "utf8")
+					await provider.postMessageToWebview({
+						type: "superRoo:productMemoryResult",
+						fileName,
+						content,
+					} as unknown as import("@superroo/types").ExtensionMessage)
+				} catch (error) {
+					await provider.postMessageToWebview({
+						type: "superRoo:productMemoryResult",
+						fileName,
+						error: error instanceof Error ? error.message : String(error),
+					} as unknown as import("@superroo/types").ExtensionMessage)
+				}
+			}
+			break
+		}
+		default:
+			provider.log(`[superRoo] Unhandled message type: ${type}`)
+	}
+}
+
 export const webviewMessageHandler = async (
 	provider: ClineProvider,
 	message: WebviewMessage,
@@ -536,13 +589,24 @@ export const webviewMessageHandler = async (
 		}
 	}
 
+	// ── SuperRoo namespaced messages ──
+	if (typeof message.type === "string" && message.type.startsWith("superRoo:")) {
+		await handleSuperRooMessage(provider, message as unknown as Record<string, unknown>)
+		return
+	}
+
 	switch (message.type) {
 		case "webviewDidLaunch":
-			// Load custom modes first
-			const customModes = await provider.customModesManager.getCustomModes()
-			await updateGlobalState("customModes", customModes)
+			// Hydration must not depend on optional launch-time setup succeeding.
+			// If custom mode loading fails, still send the core state so the UI can render.
+			try {
+				const customModes = await provider.customModesManager.getCustomModes()
+				await updateGlobalState("customModes", customModes)
+			} catch (error) {
+				console.error("Failed to load custom modes during webview launch:", error)
+			}
 
-			provider.postStateToWebview()
+			await provider.postStateToWebview()
 			provider.workspaceTracker?.initializeFilePaths() // Don't await.
 
 			getTheme().then((theme) => provider.postMessageToWebview({ type: "theme", text: JSON.stringify(theme) }))

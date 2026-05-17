@@ -35,6 +35,7 @@ export const commandIds = [
 	"popoutButtonClicked",
 	"cloudButtonClicked",
 	"settingsButtonClicked",
+	"superrooButtonClicked",
 
 	"openInNewTab",
 
@@ -47,6 +48,7 @@ export const commandIds = [
 	"acceptInput",
 	"focusPanel",
 	"toggleAutoApprove",
+	"cancelCurrentTask",
 ] as const
 
 export type CommandId = (typeof commandIds)[number]

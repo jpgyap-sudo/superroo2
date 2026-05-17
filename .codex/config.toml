@@ -8,6 +8,9 @@ sandbox_mode = "workspace-write"
 name = "superroo2"
 default_agent_flow = "codex_reads_lessons_deepseek_codes_ollama_summarizes"
 
+# DeepSeek API Key (last 4 chars: b52d)
+# Full key should be in DEEPSEEK_API_KEY environment variable
+
 [superoo_intelligence]
 read_lessons_before_task = true
 write_lessons_after_task = true
@@ -21,8 +24,7 @@ reviewer = "codex"
 memory = "ollama"
 fallback_reviewer = "claude_or_kimi"
 
-[instructions]
-pre_task = """
+instructions = """
 Read AGENTS.md before every task.
 
 Superoo workflow:
@@ -42,9 +44,7 @@ Use the LessonRetriever to find relevant lessons:
 - Query by file paths being modified
 - Query by tags (e.g., 'error-handling', 'performance', 'security')
 - Include top 5 most relevant lessons in your planning
-"""
 
-post_task = """
 After every task, you MUST record lessons learned:
 
 1. Create task summary (what was accomplished)
@@ -127,6 +127,72 @@ level = "info"
 output_dir = "logs"
 retention_days = 30
 
+# NEW: Workflow Enforcement Configuration
+[workflow_enforcement]
+# Require DeepSeek for coding tasks (can warn or block)
+require_deepseek_for_coding = true
+# Action when DeepSeek is not used: "warn", "block", or "log_only"
+violation_action = "warn"
+# Require API key tracking (last 4 chars) for verification
+require_api_key_tracking = true
+# Require all workflow phases (planning, coding, review, summarization)
+require_all_phases = true
+# Require Ollama summarization after task completion
+require_ollama_summary = true
+# Require Central Brain storage for lessons
+require_central_brain = true
+
+# NEW: DeepSeek Delegation Configuration
+[deepseek]
+# Primary API key (required for coding tasks)
+# Set via DEEPSEEK_API_KEY environment variable
+# Current key last 4 chars: b52d
+primary_api_key = "${DEEPSEEK_API_KEY}"
+# Fallback API key (used if primary fails or rate-limited)
+fallback_api_key = "${DEEPSEEK_API_KEY_FALLBACK}"
+# Verify which key was used in commit logs
+verify_key_usage = true
+# Store last 4 chars of key for verification
+store_key_last4 = true
+# Model to use for coding tasks
+model = "deepseek-chat"
+# Maximum tokens per request
+max_tokens = 4096
+# Timeout in milliseconds
+timeout_ms = 30000
+# Retry attempts if API fails
+retry_attempts = 2
+
+# NEW: API Usage Tracking
+[api_tracking]
+# Track all API calls in real-time
+enabled = true
+# Storage location for usage logs
+log_dir = "server/src/memory"
+# Flush cache to disk after N calls
+flush_after_calls = 10
+# Track token usage (prompt + completion)
+track_tokens = true
+# Track latency for each call
+track_latency = true
+# Track which API key was used
+track_api_keys = true
+# Track fallback usage
+track_fallbacks = true
+
+# NEW: Workflow Verification Commands
+[commands]
+# Custom commands that Codex can use
+read_lessons = "node -e \"const {getLessonRetriever} = require('./src/super-roo/lessons'); const retriever = getLessonRetriever(); retriever.load().then(() => retriever.getTopLessons(5)).then(lessons => console.log(JSON.stringify(lessons, null, 2)))\""
+find_lessons_for_file = "node -e \"const {getLessonRetriever} = require('./src/super-roo/lessons'); const retriever = getLessonRetriever(); retriever.load().then(() => retriever.getLessonsForFile(process.argv[1], 5)).then(lessons => console.log(JSON.stringify(lessons, null, 2)))\""
+find_lessons_for_task = "node -e \"const {getLessonRetriever} = require('./src/super-roo/lessons'); const retriever = getLessonRetriever(); retriever.load().then(() => retriever.getLessonsForTask(process.argv[1], 5)).then(lessons => console.log(JSON.stringify(lessons, null, 2)))\""
+# NEW: Check workflow compliance
+
+check_compliance = "node scripts/check-workflow-compliance.mjs"
+check_compliance_since = "node scripts/check-workflow-compliance.mjs --since"
+verify_api_key = "node scripts/check-workflow-compliance.mjs --verify-key"
+generate_compliance_report = "node scripts/check-workflow-compliance.mjs --report"
+
 [features]
 # Enable specific SuperRoo features
 lesson_extraction = true
@@ -134,3 +200,7 @@ auto_test = true
 code_review = true
 security_audit = true
 performance_check = true
+# NEW: Workflow tracking features
+workflow_tracking = true
+model_usage_tracking = true
+deepseek_verification = true

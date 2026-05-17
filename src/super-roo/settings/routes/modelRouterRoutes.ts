@@ -59,7 +59,7 @@ export function createModelRouterRouter(): Router {
 	/**
 	 * PATCH /routes/:id — Update a specific route.
 	 */
-	router.patch("/routes/:id", async (req: Request, res: Response, next) => {
+	router.patch("/routes/:id", async (req: Request<{ id: string }>, res: Response, next) => {
 		try {
 			res.json({ route: await updateRoute(req.params.id, req.body) })
 		} catch (error) {
@@ -70,7 +70,7 @@ export function createModelRouterRouter(): Router {
 	/**
 	 * DELETE /routes/:id — Delete a route.
 	 */
-	router.delete("/routes/:id", async (req: Request, res: Response, next) => {
+	router.delete("/routes/:id", async (req: Request<{ id: string }>, res: Response, next) => {
 		try {
 			res.json(await deleteRoute(req.params.id))
 		} catch (error) {

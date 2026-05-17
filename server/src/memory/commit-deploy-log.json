@@ -1,6 +1,35 @@
 {
 	"commits": [
 		{
+			"id": "commit_dd7022e3-033b-413c-81eb-e97e4378519b",
+			"commitSha": "4c7da1fbb",
+			"agent": "Codex",
+			"type": "bugfix",
+			"title": "fix: correct terminal output import path",
+			"description": "Fix the IDE terminal pane import path so the webview TypeScript build and VSIX packaging can complete.",
+			"filesChanged": ["webview-ui/src/components/super-roo/tabs/ide-terminal/TerminalPane.tsx"],
+			"featuresAffected": ["webview-ui", "ide-terminal"],
+			"bugsFixed": ["webview build blocked by incorrect TerminalOutput import path"],
+			"timestamp": "2026-05-17T08:43:14.206Z"
+		},
+		{
+			"id": "commit_9dc7f586-872b-4113-9ff9-7f704c689b9b",
+			"commitSha": "86b94254f",
+			"agent": "Codex",
+			"type": "bugfix",
+			"title": "fix: recover webview after missed hydration handshake",
+			"description": "Persist the last good webview state and retry the launch handshake until hydration succeeds so renderer reloads do not leave the SuperRoo webview blank.",
+			"filesChanged": [
+				"webview-ui/src/App.tsx",
+				"webview-ui/src/context/ExtensionStateContext.tsx",
+				"webview-ui/src/__tests__/App.spec.tsx",
+				"webview-ui/src/context/__tests__/ExtensionStateContext.spec.tsx"
+			],
+			"featuresAffected": ["webview-ui"],
+			"bugsFixed": ["webview can remain blank after missed hydration handshake"],
+			"timestamp": "2026-05-17T08:41:15.681Z"
+		},
+		{
 			"id": "commit_ml_bidirectional_sync_001",
 			"commitSha": "03fcd5ff3a96274c08ccb7da940856af60024791",
 			"agent": "code",

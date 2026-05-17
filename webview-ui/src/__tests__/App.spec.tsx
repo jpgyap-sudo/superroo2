@@ -195,7 +195,35 @@ describe("App", () => {
 		})
 
 		expect(vscode.postMessage).toHaveBeenCalledTimes(3)
+		expect(screen.getByText("Loading SuperRoo...")).toBeInTheDocument()
 		vi.useRealTimers()
+	})
+
+	it("retries the launch handshake immediately when an unhydrated view becomes visible again", () => {
+		mockUseExtensionState.mockReturnValue({
+			didHydrateState: false,
+			showWelcome: false,
+			shouldShowAnnouncement: false,
+			experiments: {},
+			language: "en",
+			telemetrySetting: "enabled",
+		})
+
+		Object.defineProperty(document, "visibilityState", {
+			configurable: true,
+			value: "visible",
+		})
+
+		render(<AppWithProviders />)
+
+		const callsBeforeVisibilityChange = vi.mocked(vscode.postMessage).mock.calls.length
+
+		act(() => {
+			document.dispatchEvent(new Event("visibilitychange"))
+		})
+
+		expect(vscode.postMessage).toHaveBeenCalledTimes(callsBeforeVisibilityChange + 1)
+		expect(vscode.postMessage).toHaveBeenLastCalledWith({ type: "webviewDidLaunch" })
 	})
 
 	afterEach(() => {

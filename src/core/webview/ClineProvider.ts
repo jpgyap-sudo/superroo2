@@ -52,7 +52,7 @@ import { TelemetryService } from "@superroo/telemetry"
 import { CloudService, getSuperRooApiUrl } from "@superroo/cloud"
 
 import { Package } from "../../shared/package"
-import { findLast } from "../../shared/array"
+import { findLast, findLastIndex } from "../../shared/array"
 import { supportPrompt } from "../../shared/support-prompt"
 import { GlobalFileNames } from "../../shared/globalFileNames"
 import { Mode, defaultModeSlug, getModeBySlug } from "../../shared/modes"
@@ -908,7 +908,7 @@ export class ClineProvider
 			// for this visibility listener panel.
 			const viewStateDisposable = webviewView.onDidChangeViewState(() => {
 				if (this.view?.visible) {
-					this.postMessageToWebview({ type: "action", action: "didBecomeVisible" })
+					void this.refreshVisibleWebview()
 				}
 			})
 
@@ -917,7 +917,7 @@ export class ClineProvider
 			// sidebar
 			const visibilityDisposable = webviewView.onDidChangeVisibility(() => {
 				if (this.view?.visible) {
-					this.postMessageToWebview({ type: "action", action: "didBecomeVisible" })
+					void this.refreshVisibleWebview()
 				}
 			})
 
@@ -956,6 +956,56 @@ export class ClineProvider
 		const currentTask = this.getCurrentTask()
 		if (!currentTask || currentTask.abandoned || currentTask.abort) {
 			await this.removeClineFromStack()
+		}
+	}
+
+	private async refreshVisibleWebview(): Promise<void> {
+		try {
+			await this.reconcileInactiveStreamingUiState()
+			await this.postMessageToWebview({ type: "action", action: "didBecomeVisible" })
+			await this.postStateToWebview()
+		} catch (error) {
+			this.log(`Failed to refresh visible webview: ${error instanceof Error ? error.message : String(error)}`)
+		}
+	}
+
+	private async reconcileInactiveStreamingUiState(): Promise<void> {
+		const task = this.getCurrentTask()
+
+		if (!task || task.isStreaming) {
+			return
+		}
+
+		const messages = task.clineMessages.map((message) => ({ ...message }))
+		let didChange = false
+		const lastMessage = messages.at(-1)
+
+		if (lastMessage?.partial) {
+			lastMessage.partial = false
+			didChange = true
+		}
+
+		const lastApiReqStartedIndex = findLastIndex(
+			messages,
+			(message) => message.type === "say" && message.say === "api_req_started",
+		)
+
+		if (lastApiReqStartedIndex !== -1) {
+			const lastApiReqStarted = messages[lastApiReqStartedIndex]
+
+			try {
+				const { cost, cancelReason } = JSON.parse(lastApiReqStarted.text || "{}")
+				if (cost === undefined && cancelReason === undefined) {
+					messages.splice(lastApiReqStartedIndex, 1)
+					didChange = true
+				}
+			} catch {
+				// Leave malformed historical messages untouched; the refresh itself should still proceed.
+			}
+		}
+
+		if (didChange) {
+			await task.overwriteClineMessages(messages)
 		}
 	}
 

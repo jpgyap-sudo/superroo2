@@ -63,6 +63,7 @@ export interface SrContextValue {
 	fullSettings: Record<string, unknown>
 	routes: SrAgentRoute[]
 	approvalResult: SrApprovalResult | null
+	memoryFiles: Record<string, string>
 	mockMode: boolean
 	send: (msg: SrWebviewMessage) => void
 	requestRefresh: () => void
@@ -109,6 +110,7 @@ export function SrProvider({ children, vscode, forceMock }: ProviderProps) {
 	const [fullSettings, setFullSettings] = useState<Record<string, unknown>>({})
 	const [routes, setRoutes] = useState<SrAgentRoute[]>([])
 	const [approvalResult, setApprovalResult] = useState<SrApprovalResult | null>(null)
+	const [memoryFiles, setMemoryFiles] = useState<Record<string, string>>({})
 
 	const clientRef = useRef<SrMessageClient | null>(realClient)
 
@@ -191,6 +193,12 @@ export function SrProvider({ children, vscode, forceMock }: ProviderProps) {
 				case "superRoo:approvalResult":
 					setApprovalResult({ decision: msg.decision, reason: msg.reason })
 					return
+				case "superRoo:productMemoryResult":
+					setMemoryFiles((prev) => ({
+						...prev,
+						[msg.fileName]: msg.error ?? msg.content ?? "",
+					}))
+					return
 			}
 		})
 		// Initial load: ask the host for everything.
@@ -236,6 +244,7 @@ export function SrProvider({ children, vscode, forceMock }: ProviderProps) {
 			fullSettings,
 			routes,
 			approvalResult,
+			memoryFiles,
 			mockMode,
 			send,
 			requestRefresh,
@@ -250,6 +259,7 @@ export function SrProvider({ children, vscode, forceMock }: ProviderProps) {
 			fullSettings,
 			routes,
 			approvalResult,
+			memoryFiles,
 			mockMode,
 			send,
 			requestRefresh,

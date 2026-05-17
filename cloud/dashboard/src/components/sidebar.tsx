@@ -29,6 +29,8 @@ import {
 	Rocket,
 	HeartPulse,
 	Activity,
+	GitCommit,
+	CheckCircle,
 } from "lucide-react"
 
 const NAV = [
@@ -42,6 +44,7 @@ const NAV = [
 	{ id: "bugs", icon: Bug, label: "Bugs" },
 	{ id: "healing", icon: HeartPulse, label: "Healing" },
 	{ id: "monitoring", icon: Activity, label: "Monitoring" },
+	{ id: "workflow-compliance", icon: CheckCircle, label: "Workflow" },
 	{ id: "logs", icon: ScrollText, label: "Logs" },
 	{ id: "docker", icon: Container, label: "Docker" },
 	{ id: "github", icon: Github, label: "GitHub" },
@@ -53,6 +56,8 @@ const NAV = [
 	{ id: "ai", icon: Sparkles, label: "AI Assistant" },
 	{ id: "ide-terminal", icon: Terminal, label: "IDE Terminal" },
 	{ id: "auto-deploy", icon: Rocket, label: "Auto Deploy" },
+	{ id: "commit-deploy", icon: GitCommit, label: "Commit/Deploy" },
+	{ id: "brain", icon: BrainCircuit, label: "Central Brain" },
 ]
 
 export function Sidebar({ page, setPage }: { page: string; setPage: (p: string) => void }) {

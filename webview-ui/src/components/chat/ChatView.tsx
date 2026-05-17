@@ -1718,6 +1718,7 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 							{taskHistory.length < 6 && <RooTips />}
 							{/* Everyone should see their task history if any */}
 							{taskHistory.length > 0 && <HistoryPreview />}
+							<KimiTasksPanel />
 						</div>
 						{/* Logged out users should see a one-time upsell, but not for brand new users */}
 						{!cloudIsAuthenticated && taskHistory.length >= 6 && (

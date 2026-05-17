@@ -24,6 +24,7 @@ const { WebSocketServer } = require("ws")
 
 const { CloudOrchestrator, SafetyMode } = require("../orchestrator")
 const { AutonomousLoop } = require("../orchestrator/modules/AutonomousLoop")
+const { CodexTaskLog } = require("../orchestrator/modules/CodexTaskLog")
 const TelegramOrchestratorBridge = require("../orchestrator/TelegramOrchestratorBridge")
 
 // ── Auth & Telegram Bot ───────────────────────────────────────────────────────
@@ -33,11 +34,13 @@ const telegramBot = require("./telegramBot")
 const telegramClassifier = require("./telegramClassifier")
 const healingMetrics = require("./routes/healing-metrics")
 const monitoring = require("./routes/monitoring")
+const workflowCompliance = require("./routes/workflow-compliance")
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || ""
 
 // ── IDE Workspace Persistence ─────────────────────────────────────────────────
 
 const WORKSPACE_STORE_PATH = path.join(__dirname, "..", "data", "ide-workspace.json")
+const codexTaskLog = new CodexTaskLog()
 
 // ── ML Sync Modules ────────────────────────────────────────────────────────────
 
@@ -85,6 +88,59 @@ var timeAgo = function (ts) {
  * Supports DeepSeek, OpenAI, OpenRouter, Groq, Kimi — all use the same /v1/chat/completions format.
  */
 async function callChatCompletion(apiBaseUrl, apiKey, model, messages) {
+	// ── Try Ollama (local, FREE) first ──────────────────────────────────
+	// Uses http.request instead of fetch because Node.js 20's built-in fetch (undici)
+	// has a default headersTimeout of ~20s, but Ollama can take ~30s on cold start.
+	const ollamaBaseUrl = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434"
+	const ollamaModel = process.env.OLLAMA_CHAT_MODEL || "qwen2.5:0.5b"
+	try {
+		const http = require("http")
+		const postData = JSON.stringify({
+			model: ollamaModel,
+			messages,
+			stream: false,
+			options: { temperature: 0.7, num_predict: 4096 },
+		})
+		const ollamaContent = await new Promise((resolve) => {
+			const req = http.request(
+				`${ollamaBaseUrl}/api/chat`,
+				{
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"Content-Length": Buffer.byteLength(postData),
+					},
+					timeout: 120_000,
+				},
+				(res) => {
+					let body = ""
+					res.on("data", (chunk) => (body += chunk))
+					res.on("end", () => {
+						try {
+							const data = JSON.parse(body)
+							resolve(data.message?.content || data.response || null)
+						} catch {
+							resolve(null)
+						}
+					})
+				},
+			)
+			req.on("error", () => resolve(null))
+			req.on("timeout", () => {
+				req.destroy()
+				resolve(null)
+			})
+			req.write(postData)
+			req.end()
+		})
+		if (ollamaContent) {
+			return ollamaContent
+		}
+	} catch (_) {
+		// Ollama unavailable — fall back to cloud API
+	}
+
+	// ── Fallback to cloud API ───────────────────────────────────────────
 	const url = `${apiBaseUrl.replace(/\/+$/, "")}/chat/completions`
 	const res = await fetch(url, {
 		method: "POST",
@@ -215,11 +271,20 @@ function resolveProviderForTask(taskType) {
 
 	// Try primary first
 	const primaryMeta = providerMeta.get(route.primary.provider)
-	if (isProviderUsable(primaryMeta)) {
+	if (isProviderUsable(primaryMeta, route.primary.provider)) {
 		try {
+			const providerDef = PROVIDERS.find((p) => p.id === route.primary.provider)
+			// Local providers don't need an API key
+			if (providerDef?.local === true) {
+				return {
+					providerId: route.primary.provider,
+					apiBaseUrl: providerDef.apiBaseUrl,
+					apiKey: "local",
+					model: route.primary.model,
+				}
+			}
 			const apiKey = readProviderApiKey(route.primary.provider)
 			if (apiKey) {
-				const providerDef = PROVIDERS.find((p) => p.id === route.primary.provider)
 				return {
 					providerId: route.primary.provider,
 					apiBaseUrl: providerDef?.apiBaseUrl || `https://api.${route.primary.provider}.com/v1`,
@@ -235,11 +300,20 @@ function resolveProviderForTask(taskType) {
 	// Try fallbacks
 	for (const fallback of route.fallbacks || []) {
 		const fbMeta = providerMeta.get(fallback.provider)
-		if (isProviderUsable(fbMeta)) {
+		if (isProviderUsable(fbMeta, fallback.provider)) {
 			try {
+				const providerDef = PROVIDERS.find((p) => p.id === fallback.provider)
+				// Local providers don't need an API key
+				if (providerDef?.local === true) {
+					return {
+						providerId: fallback.provider,
+						apiBaseUrl: providerDef.apiBaseUrl,
+						apiKey: "local",
+						model: fallback.model,
+					}
+				}
 				const apiKey = readProviderApiKey(fallback.provider)
 				if (apiKey) {
-					const providerDef = PROVIDERS.find((p) => p.id === fallback.provider)
 					return {
 						providerId: fallback.provider,
 						apiBaseUrl: providerDef?.apiBaseUrl || `https://api.${fallback.provider}.com/v1`,
@@ -262,12 +336,21 @@ function resolveProviderForTask(taskType) {
  */
 function resolveProviderById(providerId, modelOverride) {
 	const meta = providerMeta.get(providerId)
-	if (!isProviderUsable(meta)) return null
+	if (!isProviderUsable(meta, providerId)) return null
 
 	try {
+		const providerDef = PROVIDERS.find((p) => p.id === providerId)
+		// Local providers don't need an API key
+		if (providerDef?.local === true) {
+			return {
+				providerId,
+				apiBaseUrl: providerDef.apiBaseUrl,
+				apiKey: "local",
+				model: modelOverride || providerDef.defaultModel || "deepseek-chat",
+			}
+		}
 		const apiKey = readProviderApiKey(providerId)
 		if (!apiKey) return null
-		const providerDef = PROVIDERS.find((p) => p.id === providerId)
 		return {
 			providerId,
 			apiBaseUrl: providerDef?.apiBaseUrl || `https://api.${providerId}.com/v1`,
@@ -482,6 +565,588 @@ function sendJson(res, status, payload) {
 	res.end(JSON.stringify(payload))
 }
 
+/**
+ * Generate an embedding vector for text using Ollama nomic-embed-text.
+ * Used by Qdrant search and other vector operations.
+ */
+async function _getEmbedding(text) {
+	try {
+		const http = require("http")
+		const postData = JSON.stringify({ model: "nomic-embed-text", prompt: text })
+		const embedding = await new Promise((resolve, reject) => {
+			const req = http.request(
+				"http://127.0.0.1:11434/api/embeddings",
+				{
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"Content-Length": Buffer.byteLength(postData),
+					},
+					timeout: 30_000,
+				},
+				(res) => {
+					let body = ""
+					res.on("data", (chunk) => (body += chunk))
+					res.on("end", () => {
+						try {
+							const json = JSON.parse(body)
+							resolve(json.embedding || [])
+						} catch (e) {
+							reject(e)
+						}
+					})
+				},
+			)
+			req.on("error", reject)
+			req.on("timeout", () => {
+				req.destroy()
+				reject(new Error("timeout"))
+			})
+			req.write(postData)
+			req.end()
+		})
+		return embedding
+	} catch (e) {
+		writeApiLog("warn", "brain-mcp", "Embedding generation failed", { error: e.message })
+		// Return a zero vector as fallback (768 dims for nomic-embed-text)
+		return new Array(768).fill(0)
+	}
+}
+
+/**
+ * Handle an MCP action by dispatching to the appropriate handler.
+ * This is used by the MCP endpoint and the read_resource handler.
+ */
+async function _handleMcpAction(action, params, orchestrator) {
+	switch (action) {
+		case "query_memory": {
+			const query = params.query || ""
+			const limit = Number(params.maxResults || params.limit || 10)
+			if (orchestrator && orchestrator.hermesClaw) {
+				const memory = await orchestrator.hermesClaw.recallContext(query, limit)
+				return { success: true, memory, source: "hermes_claw" }
+			}
+			return { success: false, error: "HermesClaw not initialized", source: "hermes_claw" }
+		}
+
+		case "list_projects":
+			return { success: true, projects: ["superroo2"] }
+
+		case "get_active_task": {
+			const project = params.project || "superroo2"
+			const task = orchestrator ? orchestrator.getStatus() : null
+			return {
+				success: true,
+				project,
+				task: task
+					? {
+							id: task.currentTaskId || null,
+							status: task.status || "idle",
+							running: task.running || false,
+						}
+					: null,
+			}
+		}
+
+		case "get_recent_bugs": {
+			const limit = Number(params.limit || 10)
+			if (orchestrator && orchestrator.hermesClaw && orchestrator.hermesClaw.bugKnowledgeStore) {
+				const bugs = await orchestrator.hermesClaw.bugKnowledgeStore.searchSimilar("bug", { limit })
+				return { success: true, bugs, source: "bug_knowledge_store" }
+			}
+			return { success: true, bugs: [], source: "bug_knowledge_store" }
+		}
+
+		case "hermes_recall": {
+			const query = params.query || ""
+			const limit = Number(params.limit || 5)
+			if (orchestrator && orchestrator.hermesClaw) {
+				const memory = await orchestrator.hermesClaw.recallContext(query, limit)
+				return { success: true, memory, source: "hermes_claw" }
+			}
+			return { success: false, error: "HermesClaw not initialized" }
+		}
+
+		case "hermes_learn": {
+			const lesson_type = params.lesson_type || params.type || "best_practice"
+			const topic = params.topic || params.lesson || ""
+			const content = params.content || topic
+			if (orchestrator && orchestrator.hermesClaw) {
+				const lesson = await orchestrator.hermesClaw.storeLesson({
+					lesson_type,
+					topic: topic.substring(0, 500),
+					content: content.substring(0, 2000),
+					source_task_id: params.source_task_id || null,
+					metadata: params.metadata || {},
+				})
+				return { success: true, lesson, source: "hermes_claw" }
+			}
+			return { success: false, error: "HermesClaw not initialized" }
+		}
+
+		case "hermes_list_skills": {
+			if (orchestrator && orchestrator.hermesClaw) {
+				const skills = await orchestrator.hermesClaw.execute({ operation: "list_skills" })
+				return { success: true, skills: skills.skills || [], source: "hermes_claw" }
+			}
+			return { success: true, skills: [], source: "hermes_claw" }
+		}
+
+		case "hermes_list_resources": {
+			if (orchestrator && orchestrator.hermesClaw) {
+				const resources = await orchestrator.hermesClaw.execute({ operation: "list_resources" })
+				return { success: true, resources: resources.resources || [], source: "hermes_claw" }
+			}
+			return { success: true, resources: [], source: "hermes_claw" }
+		}
+
+		case "hermes_stats": {
+			if (orchestrator && orchestrator.hermesClaw) {
+				const stats = await orchestrator.hermesClaw.getStats()
+				return { success: true, stats, source: "hermes_claw" }
+			}
+			return { success: true, stats: {}, source: "hermes_claw" }
+		}
+
+		case "commit_deploy_status": {
+			const limit = Number(params.limit || 5)
+			const fs = require("fs")
+			const path = require("path")
+			const logPath = path.join(__dirname, "..", "memory", "commit-deploy-log.json")
+			try {
+				const raw = fs.readFileSync(logPath, "utf8")
+				const data = JSON.parse(raw)
+				const commits = (data.commits || []).slice(-limit)
+				const deploys = (data.deploys || []).slice(-limit)
+				return {
+					success: true,
+					commits: commits.map((c) => ({
+						sha: c.sha,
+						agent: c.agent,
+						type: c.type,
+						title: c.title,
+						timestamp: c.timestamp,
+					})),
+					deploys: deploys.map((d) => ({
+						version: d.version,
+						sha: d.sha,
+						agent: d.agent,
+						status: d.status,
+						timestamp: d.timestamp,
+					})),
+					totalCommits: (data.commits || []).length,
+					totalDeploys: (data.deploys || []).length,
+					source: "commit_deploy_log",
+				}
+			} catch (e) {
+				return {
+					success: true,
+					commits: [],
+					deploys: [],
+					totalCommits: 0,
+					totalDeploys: 0,
+					source: "commit_deploy_log",
+				}
+			}
+		}
+
+		case "codex_task_upsert": {
+			const task = await codexTaskLog.upsertTask({
+				id: params.id,
+				title: params.title,
+				summary: params.summary,
+				status: params.status,
+				project: params.project,
+				agent: params.agent,
+				filesChanged: params.filesChanged,
+				featuresAffected: params.featuresAffected,
+				notes: params.notes,
+				startedAt: params.startedAt,
+				completedAt: params.completedAt,
+			})
+			return { success: true, task, source: "codex_task_log" }
+		}
+
+		case "codex_task_list": {
+			const limit = Number(params.limit || 20)
+			const tasks = await codexTaskLog.listTasks(limit)
+			return { success: true, tasks, source: "codex_task_log" }
+		}
+
+		case "codex_task_get": {
+			const task = params.id ? await codexTaskLog.getTask(params.id) : null
+			return { success: true, task, source: "codex_task_log" }
+		}
+
+		case "codex_task_get_active": {
+			const task = await codexTaskLog.getActiveTask()
+			return { success: true, task, source: "codex_task_log" }
+		}
+
+		case "health":
+			return {
+				success: true,
+				health: {
+					status: "online",
+					redis: true,
+					worker: true,
+					hermesClaw: !!(orchestrator && orchestrator.hermesClaw),
+					timestamp: Date.now(),
+				},
+				source: "api",
+			}
+
+		case "qdrant_search": {
+			const qdrantQuery = params.query || ""
+			const qdrantLimit = Number(params.limit || 10)
+			const collection = params.collection || "superroo_code_chunks"
+			try {
+				const embedding = await _getEmbedding(qdrantQuery)
+				const qdrantRes = await fetch(`http://127.0.0.1:6333/collections/${collection}/points/search`, {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ vector: embedding, limit: qdrantLimit, with_payload: true }),
+					signal: AbortSignal.timeout(10_000),
+				})
+				const qdrantJson = await qdrantRes.json()
+				return { success: true, results: qdrantJson.result || [], source: "qdrant" }
+			} catch (e) {
+				return { success: false, error: `Qdrant search failed: ${e.message}`, source: "qdrant" }
+			}
+		}
+
+		case "qdrant_collections": {
+			try {
+				const qdrantRes = await fetch("http://127.0.0.1:6333/collections", {
+					signal: AbortSignal.timeout(5_000),
+				})
+				const qdrantJson = await qdrantRes.json()
+				return { success: true, collections: qdrantJson.result?.collections || [], source: "qdrant" }
+			} catch (e) {
+				return { success: false, error: `Qdrant collections failed: ${e.message}`, source: "qdrant" }
+			}
+		}
+
+		case "run_task": {
+			const goal = params.goal || ""
+			const agent = params.agent || "coder"
+			if (!goal) return { success: false, error: "Missing 'goal' field" }
+			if (orchestrator) {
+				const task = orchestrator.submit({
+					input: { goal, workspace: { files: [], commands: [] } },
+					metadata: { source: "brain_mcp", agent },
+				})
+				return { success: true, taskId: task.id, status: "queued", source: "orchestrator" }
+			}
+			return { success: false, error: "Orchestrator not initialized" }
+		}
+
+		case "run_debug": {
+			const debugGoal = params.goal || ""
+			if (!debugGoal) return { success: false, error: "Missing 'goal' field" }
+			if (orchestrator) {
+				const task = orchestrator.submit({
+					input: { goal: debugGoal, workspace: { files: [], commands: [] } },
+					metadata: { source: "brain_mcp", agent: "debugger" },
+				})
+				return { success: true, taskId: task.id, status: "queued", source: "orchestrator" }
+			}
+			return { success: false, error: "Orchestrator not initialized" }
+		}
+
+		case "run_deploy": {
+			const deployGoal = params.goal || "deploy current changes"
+			if (orchestrator) {
+				const task = orchestrator.submit({
+					input: { goal: deployGoal, workspace: { files: [], commands: [] } },
+					metadata: { source: "brain_mcp", agent: "deployer" },
+				})
+				return { success: true, taskId: task.id, status: "queued", source: "orchestrator" }
+			}
+			return { success: false, error: "Orchestrator not initialized" }
+		}
+
+		case "get_pipeline": {
+			if (orchestrator) {
+				const status = orchestrator.getStatus()
+				const tasks = (status.tasks || []).slice(-20).map((t) => ({
+					id: t.id,
+					goal: t.goal,
+					status: t.status,
+					agent: t.agent,
+					createdAt: t.createdAt,
+				}))
+				return {
+					success: true,
+					pipeline: tasks,
+					currentTask: status.currentTaskId || null,
+					source: "orchestrator",
+				}
+			}
+			return { success: true, pipeline: [], currentTask: null, source: "orchestrator" }
+		}
+
+		case "list_resources": {
+			const resources = [
+				{
+					uri: "brain://context",
+					name: "Full RAG Context",
+					description: "Complete RAG context for the current project",
+					mimeType: "text/plain",
+				},
+				{
+					uri: "brain://tasks",
+					name: "Task List",
+					description: "Current tasks and their statuses",
+					mimeType: "application/json",
+				},
+				{
+					uri: "brain://bugs",
+					name: "Bug List",
+					description: "Recent bugs and incidents",
+					mimeType: "application/json",
+				},
+				{
+					uri: "brain://projects",
+					name: "Project List",
+					description: "All registered projects",
+					mimeType: "application/json",
+				},
+				{
+					uri: "brain://skills",
+					name: "Skills List",
+					description: "All reusable skills created from patterns",
+					mimeType: "application/json",
+				},
+				{
+					uri: "brain://resources",
+					name: "Knowledge Resources",
+					description: "All knowledge resources stored in memory",
+					mimeType: "application/json",
+				},
+				{
+					uri: "brain://stats",
+					name: "System Statistics",
+					description: "Hermes Claw and system statistics",
+					mimeType: "application/json",
+				},
+				{
+					uri: "brain://health",
+					name: "System Health",
+					description: "Current system health status",
+					mimeType: "application/json",
+				},
+				{
+					uri: "brain://commits",
+					name: "Commit History",
+					description: "Recent commit history",
+					mimeType: "application/json",
+				},
+				{
+					uri: "brain://deploys",
+					name: "Deploy History",
+					description: "Recent deployment history",
+					mimeType: "application/json",
+				},
+				{
+					uri: "brain://pipeline",
+					name: "Pipeline Status",
+					description: "Current orchestrator pipeline status",
+					mimeType: "application/json",
+				},
+				{
+					uri: "brain://codex/tasks",
+					name: "Codex Task Memory",
+					description: "Persistent task memory for Codex agents",
+					mimeType: "application/json",
+				},
+				{
+					uri: "brain://qdrant/collections",
+					name: "Qdrant Collections",
+					description: "Qdrant vector database collections",
+					mimeType: "application/json",
+				},
+				{
+					uri: "brain://ollama/health",
+					name: "Ollama Health",
+					description: "Ollama service health and available models",
+					mimeType: "application/json",
+				},
+				{
+					uri: "brain://ollama/summarize",
+					name: "Ollama Summarizer",
+					description: "Summarize logs via Ollama (requires logs param)",
+					mimeType: "application/json",
+				},
+				{
+					uri: "brain://ollama/compress",
+					name: "Ollama Context Compressor",
+					description: "Compress engineering context via Ollama (requires context param)",
+					mimeType: "text/plain",
+				},
+			]
+			return { success: true, resources, source: "brain" }
+		}
+
+		case "read_resource": {
+			const resourceUri = params.uri || ""
+			if (!resourceUri) return { success: false, error: "Missing 'uri' field" }
+			const uriToAction = {
+				"brain://context": "query_memory",
+				"brain://tasks": "get_active_task",
+				"brain://bugs": "get_recent_bugs",
+				"brain://projects": "list_projects",
+				"brain://skills": "hermes_list_skills",
+				"brain://resources": "hermes_list_resources",
+				"brain://stats": "hermes_stats",
+				"brain://health": "health",
+				"brain://commits": "commit_deploy_status",
+				"brain://deploys": "commit_deploy_status",
+				"brain://pipeline": "get_pipeline",
+				"brain://codex/tasks": "codex_task_list",
+				"brain://qdrant/collections": "qdrant_collections",
+				"brain://ollama/health": "ollama_health",
+				"brain://ollama/summarize": "ollama_summarize",
+			}
+			const mappedAction = uriToAction[resourceUri]
+			if (mappedAction) {
+				const reParams = { ...params }
+				if (resourceUri === "brain://commits" || resourceUri === "brain://deploys")
+					reParams.limit = reParams.limit || 10
+				if (resourceUri === "brain://context") reParams.query = reParams.query || "general context"
+				return await _handleMcpAction(mappedAction, reParams, orchestrator)
+			}
+			return { success: false, error: `Unknown resource URI: ${resourceUri}` }
+		}
+
+		case "ollama_summarize": {
+			try {
+				const logs = params.logs || ""
+				const source = params.source || "api"
+				const command = params.command || ""
+				const project = params.project || "superroo2"
+				const changedFiles = params.changedFiles || []
+				if (!logs) return { success: false, error: "Missing 'logs' field" }
+
+				// Truncate logs if too long
+				const maxChars = Number(process.env.OLLAMA_MAX_LOG_CHARS || 30000)
+				const trimmedLogs =
+					logs.length > maxChars
+						? `${logs.slice(0, Math.floor(maxChars * 0.65))}\n\n...[TRUNCATED MIDDLE]...\n\n${logs.slice(-Math.floor(maxChars * 0.35))}`
+						: logs
+
+				const ollamaBaseUrl = (
+					process.env.OLLAMA_BASE_URL ||
+					process.env.OLLAMA_HOST ||
+					"http://127.0.0.1:11434"
+				).replace(/\/$/, "")
+				const model = process.env.OLLAMA_SUMMARY_MODEL || process.env.OLLAMA_MODEL || "qwen2.5:0.5b"
+				const timeoutMs = Number(process.env.OLLAMA_TIMEOUT_MS || 120000)
+
+				const systemPrompt = `You are SuperRoo's local Ollama log summarizer.
+Your job is NOT to redesign the app.
+Your job is to compress noisy logs into a precise debugging brief.
+Be conservative. If uncertain, say unknown.
+Return strict JSON only.`
+
+				const userPrompt = `Summarize these logs.\n\nContext:\nsource=${source}\nproject=${project}\ncommand=${command}\nchangedFiles=${changedFiles.join(", ") || "unknown"}\n\nReturn JSON with exactly these keys:\nseverity, oneLine, rootCause, evidence, affectedFiles, suggestedFix, retrySafe, needsSeniorReview\n\nRules:\n- evidence must be short strings copied or paraphrased from logs\n- affectedFiles should include only likely relevant files\n- if risky, set needsSeniorReview=true\n\nLogs:\n${trimmedLogs}`
+
+				const controller = new AbortController()
+				const timeout = setTimeout(() => controller.abort(), timeoutMs)
+				try {
+					const res = await fetch(`${ollamaBaseUrl}/api/generate`, {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({
+							model,
+							prompt: userPrompt,
+							system: systemPrompt,
+							stream: false,
+							options: { temperature: 0, num_ctx: Number(process.env.OLLAMA_NUM_CTX || 2048) },
+						}),
+						signal: controller.signal,
+					})
+					if (!res.ok) {
+						const text = await res.text().catch(() => "")
+						return {
+							success: false,
+							error: `Ollama ${res.status}: ${text || res.statusText}`,
+							source: "ollama",
+						}
+					}
+					const data = await res.json()
+					const raw = String(data.response || "").trim()
+
+					// Parse JSON from response
+					let parsed = {}
+					try {
+						parsed = JSON.parse(raw)
+					} catch {
+						const match = raw.match(/\{[\s\S]*\}/)
+						if (match) {
+							try {
+								parsed = JSON.parse(match[0])
+							} catch {}
+						}
+					}
+
+					const summary = {
+						source,
+						project,
+						command,
+						severity: parsed.severity || "unknown",
+						oneLine: parsed.oneLine || "No summary generated.",
+						rootCause: parsed.rootCause || "unknown",
+						evidence: Array.isArray(parsed.evidence) ? parsed.evidence : [],
+						affectedFiles: Array.isArray(parsed.affectedFiles) ? parsed.affectedFiles : changedFiles,
+						suggestedFix: parsed.suggestedFix || "unknown",
+						retrySafe: Boolean(parsed.retrySafe),
+						needsSeniorReview: parsed.needsSeniorReview !== false,
+						rawModelOutput: raw,
+					}
+
+					return { success: true, summary, source: "ollama" }
+				} finally {
+					clearTimeout(timeout)
+				}
+			} catch (e) {
+				return { success: false, error: `Ollama summarization failed: ${e.message}`, source: "ollama" }
+			}
+		}
+
+		case "ollama_health": {
+			try {
+				const ollamaBaseUrl = (
+					process.env.OLLAMA_BASE_URL ||
+					process.env.OLLAMA_HOST ||
+					"http://127.0.0.1:11434"
+				).replace(/\/$/, "")
+				const res = await fetch(`${ollamaBaseUrl}/api/tags`, { signal: AbortSignal.timeout(10_000) })
+				const data = await res.json()
+				const models = (data.models || []).map((m) => m.name)
+				return {
+					success: true,
+					ollama: { ok: true, models, baseUrl: ollamaBaseUrl },
+					source: "ollama",
+				}
+			} catch (e) {
+				return {
+					success: true,
+					ollama: {
+						ok: false,
+						error: e.message,
+						baseUrl: process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434",
+					},
+					source: "ollama",
+				}
+			}
+		}
+
+		default:
+			return { success: false, error: `Unknown action: ${action}` }
+	}
+}
+
 // ── Settings / Secret Vault helpers ─────────────────────────────────────────────
 
 const ALGO = "aes-256-gcm"
@@ -532,6 +1197,37 @@ function hashApiKey(key) {
 
 const PROVIDERS = [
 	{
+		id: "deepseek",
+		name: "DeepSeek",
+		description: "DeepSeek V3 and R1 reasoning models",
+		envName: "DEEPSEEK_API_KEY",
+		website: "https://deepseek.com",
+		docsUrl: "https://platform.deepseek.com/docs",
+		apiBaseUrl: "https://api.deepseek.com/v1",
+		defaultModel: "deepseek-chat",
+		models: [
+			{ id: "deepseek-chat", name: "DeepSeek V3" },
+			{ id: "deepseek-reasoner", name: "DeepSeek R1" },
+		],
+		capabilities: ["chat", "reasoning"],
+	},
+	{
+		id: "ollama",
+		name: "Ollama (Local)",
+		description: "Local Ollama models (qwen2.5:3b, qwen2.5:0.5b)",
+		envName: null,
+		website: "https://ollama.com",
+		docsUrl: "https://github.com/ollama/ollama",
+		apiBaseUrl: "http://127.0.0.1:11434/v1",
+		defaultModel: "qwen2.5:3b",
+		local: true,
+		models: [
+			{ id: "qwen2.5:3b", name: "Qwen 2.5 3B" },
+			{ id: "qwen2.5:0.5b", name: "Qwen 2.5 0.5B" },
+		],
+		capabilities: ["chat"],
+	},
+	{
 		id: "openai",
 		name: "OpenAI",
 		description: "GPT-4o, GPT-4o-mini, and o-series models",
@@ -561,21 +1257,6 @@ const PROVIDERS = [
 			{ id: "claude-3-5-haiku-20241022", name: "Claude 3.5 Haiku" },
 		],
 		capabilities: ["chat", "vision", "function-calling", "extended-thinking"],
-	},
-	{
-		id: "deepseek",
-		name: "DeepSeek",
-		description: "DeepSeek V3 and R1 reasoning models",
-		envName: "DEEPSEEK_API_KEY",
-		website: "https://deepseek.com",
-		docsUrl: "https://platform.deepseek.com/docs",
-		apiBaseUrl: "https://api.deepseek.com/v1",
-		defaultModel: "deepseek-chat",
-		models: [
-			{ id: "deepseek-chat", name: "DeepSeek V3" },
-			{ id: "deepseek-reasoner", name: "DeepSeek R1" },
-		],
-		capabilities: ["chat", "reasoning"],
 	},
 	{
 		id: "kimi",
@@ -624,64 +1305,71 @@ const DEFAULT_AGENT_ROUTES = [
 	{
 		agent: "planner",
 		label: "Planner",
-		primary: { provider: "openai", model: "gpt-4o" },
+		primary: { provider: "deepseek", model: "deepseek-chat" },
 		fallbacks: [
+			{ provider: "ollama", model: "qwen2.5:3b" },
 			{ provider: "anthropic", model: "claude-sonnet-4-20250514" },
-			{ provider: "deepseek", model: "deepseek-chat" },
+			{ provider: "openai", model: "gpt-4o" },
 		],
 	},
 	{
 		agent: "coder",
 		label: "Coder",
-		primary: { provider: "anthropic", model: "claude-sonnet-4-20250514" },
+		primary: { provider: "deepseek", model: "deepseek-chat" },
 		fallbacks: [
+			{ provider: "ollama", model: "qwen2.5:3b" },
+			{ provider: "anthropic", model: "claude-sonnet-4-20250514" },
 			{ provider: "openai", model: "gpt-4o" },
-			{ provider: "deepseek", model: "deepseek-chat" },
 		],
 	},
 	{
 		agent: "debugger",
 		label: "Debugger",
-		primary: { provider: "anthropic", model: "claude-sonnet-4-20250514" },
+		primary: { provider: "deepseek", model: "deepseek-chat" },
 		fallbacks: [
+			{ provider: "ollama", model: "qwen2.5:3b" },
+			{ provider: "anthropic", model: "claude-sonnet-4-20250514" },
 			{ provider: "openai", model: "gpt-4o" },
-			{ provider: "deepseek", model: "deepseek-chat" },
 		],
 	},
 	{
 		agent: "crawler",
 		label: "Crawler",
-		primary: { provider: "openai", model: "gpt-4o-mini" },
+		primary: { provider: "deepseek", model: "deepseek-chat" },
 		fallbacks: [
+			{ provider: "ollama", model: "qwen2.5:3b" },
 			{ provider: "groq", model: "llama-3.3-70b-versatile" },
-			{ provider: "deepseek", model: "deepseek-chat" },
+			{ provider: "openai", model: "gpt-4o-mini" },
 		],
 	},
 	{
 		agent: "tester",
 		label: "Tester",
-		primary: { provider: "openai", model: "gpt-4o-mini" },
+		primary: { provider: "deepseek", model: "deepseek-chat" },
 		fallbacks: [
+			{ provider: "ollama", model: "qwen2.5:3b" },
 			{ provider: "groq", model: "llama-3.3-70b-versatile" },
-			{ provider: "deepseek", model: "deepseek-chat" },
+			{ provider: "openai", model: "gpt-4o-mini" },
 		],
 	},
 	{
 		agent: "deployChecker",
 		label: "Deploy Checker",
-		primary: { provider: "openai", model: "gpt-4o-mini" },
+		primary: { provider: "deepseek", model: "deepseek-chat" },
 		fallbacks: [
+			{ provider: "ollama", model: "qwen2.5:3b" },
 			{ provider: "groq", model: "llama-3.3-70b-versatile" },
-			{ provider: "deepseek", model: "deepseek-chat" },
+			{ provider: "openai", model: "gpt-4o-mini" },
 		],
 	},
 	{
 		agent: "consultant",
 		label: "Consultant",
-		primary: { provider: "openai", model: "gpt-4o" },
+		primary: { provider: "deepseek", model: "deepseek-chat" },
 		fallbacks: [
+			{ provider: "ollama", model: "qwen2.5:3b" },
 			{ provider: "anthropic", model: "claude-sonnet-4-20250514" },
-			{ provider: "deepseek", model: "deepseek-chat" },
+			{ provider: "openai", model: "gpt-4o" },
 		],
 	},
 ]
@@ -705,7 +1393,14 @@ const encryptedSecrets = new Map() // providerId -> encrypted payload
 const runtimeSecrets = new Map() // providerId -> plaintext env var payload, never persisted
 const providerMeta = new Map() // providerId -> { hasKey, lastTestedAt, latencyMs, status, keyHash }
 
-function isProviderUsable(meta) {
+function isProviderUsable(meta, providerOrId) {
+	// Local providers (like Ollama) don't need an API key
+	if (providerOrId?.local === true) return true
+	// If a provider ID string is passed, look up the provider definition
+	if (typeof providerOrId === "string") {
+		const found = PROVIDERS.find((p) => p.id === providerOrId)
+		if (found?.local === true) return true
+	}
 	return meta?.hasKey === true && meta?.status !== "invalid" && meta?.status !== "missing"
 }
 
@@ -1191,6 +1886,142 @@ wss.on("connection", (ws, req) => {
 // Track active streaming controllers for cancellation
 const activeStreams = new Map()
 
+// ── Brain WebSocket Server for Real-Time Bidirectional Communication ─────────
+// This WebSocket server provides real-time bidirectional communication for the
+// Central Brain. Clients connect via ws://host/api/brain/ws and can:
+//   - Send MCP actions and receive results
+//   - Subscribe to real-time events (tasks, commits, deploys, health changes)
+//   - Receive heartbeat pings every 30 seconds
+const brainWss = new WebSocketServer({ noServer: true })
+
+// Track connected brain clients
+const brainClients = new Set() // Set<WebSocket>
+
+brainWss.on("connection", (ws, req) => {
+	brainClients.add(ws)
+	writeApiLog("info", "brain-ws", "Brain WebSocket client connected", { total: brainClients.size })
+
+	// Send welcome message
+	ws.send(
+		JSON.stringify({
+			type: "connected",
+			message: "Connected to SuperRoo Central Brain",
+			version: "1.0.0",
+			supportedActions: [
+				"query_memory",
+				"list_projects",
+				"get_active_task",
+				"get_recent_bugs",
+				"hermes_recall",
+				"hermes_learn",
+				"hermes_list_skills",
+				"hermes_list_resources",
+				"hermes_stats",
+				"commit_deploy_status",
+				"codex_task_upsert",
+				"codex_task_list",
+				"codex_task_get",
+				"codex_task_get_active",
+				"health",
+				"qdrant_search",
+				"qdrant_collections",
+				"run_task",
+				"run_debug",
+				"run_deploy",
+				"get_pipeline",
+				"list_resources",
+				"read_resource",
+				"ollama_summarize",
+				"ollama_health",
+				"subscribe",
+				"unsubscribe",
+			],
+			timestamp: Date.now(),
+		}),
+	)
+
+	// Heartbeat interval
+	const heartbeatIv = setInterval(() => {
+		if (ws.readyState === ws.OPEN) {
+			ws.send(JSON.stringify({ type: "heartbeat", timestamp: Date.now() }))
+		}
+	}, 30000)
+
+	// Track subscriptions for this client
+	const subscriptions = new Set()
+
+	ws.on("message", async (raw) => {
+		try {
+			const msg = JSON.parse(raw.toString())
+			const { action, params = {}, id } = msg
+
+			if (action === "subscribe") {
+				const event = params.event || "all"
+				subscriptions.add(event)
+				ws.send(JSON.stringify({ type: "subscribed", event, id, timestamp: Date.now() }))
+				return
+			}
+
+			if (action === "unsubscribe") {
+				const event = params.event || "all"
+				subscriptions.delete(event)
+				ws.send(JSON.stringify({ type: "unsubscribed", event, id, timestamp: Date.now() }))
+				return
+			}
+
+			// Handle MCP actions via WebSocket
+			const result = await _handleMcpAction(action, params, orchestrator)
+			ws.send(JSON.stringify({ type: "result", id, action, result, timestamp: Date.now() }))
+		} catch (err) {
+			ws.send(
+				JSON.stringify({
+					type: "error",
+					id: null,
+					error: err.message,
+					timestamp: Date.now(),
+				}),
+			)
+		}
+	})
+
+	ws.on("close", () => {
+		brainClients.delete(ws)
+		clearInterval(heartbeatIv)
+		writeApiLog("info", "brain-ws", "Brain WebSocket client disconnected", { total: brainClients.size })
+	})
+
+	ws.on("error", (err) => {
+		brainClients.delete(ws)
+		clearInterval(heartbeatIv)
+		writeApiLog("error", "brain-ws", "Brain WebSocket error", { error: err.message })
+	})
+})
+
+/**
+ * Broadcast an event to all connected Brain WebSocket clients.
+ * Used by the SSE endpoint and internal event emitters.
+ */
+function broadcastBrainEvent(event, data) {
+	const payload = JSON.stringify({ type: "event", event, data, timestamp: Date.now() })
+	for (const ws of brainClients) {
+		if (ws.readyState === ws.OPEN) {
+			try {
+				ws.send(payload)
+			} catch {
+				/* ignore */
+			}
+		}
+	}
+}
+
+// ── Brain SSE Endpoint ───────────────────────────────────────────────────────
+// Server-Sent Events endpoint for real-time event streaming.
+// Clients connect via GET /api/brain/events and receive events as they happen.
+// Global SSE clients map for broadcasting
+if (!global.__sseClients) {
+	global.__sseClients = new Map() // clientId -> { res, subscriptions }
+}
+
 // ── WebSocket Chat Message Handler ───────────────────────────────────────────
 async function handleWsChatMessage(ws, sessionId, msg, workspaceDir) {
 	const text = (msg.text || "").trim()
@@ -1472,22 +2303,6 @@ async function handleWsChatMessage(ws, sessionId, msg, workspaceDir) {
 		activeStreams.delete(sessionId)
 	}
 }
-
-// ── WebSocket Upgrade Handler ────────────────────────────────────────────────
-// Intercept HTTP upgrade requests for /api/ws/chat path
-server.on("upgrade", (request, socket, head) => {
-	const url = request.url || ""
-	// Normalize: handle both /api/ws/chat and /ws/chat
-	const normalizedUrl = url.startsWith("/api") ? url.slice(4) : url
-
-	if (normalizedUrl.startsWith("/ws/chat")) {
-		wss.handleUpgrade(request, socket, head, (ws) => {
-			wss.emit("connection", ws, request)
-		})
-	} else {
-		socket.destroy()
-	}
-})
 
 const server = http.createServer(async (req, res) => {
 	const url = req.url || ""
@@ -2633,6 +3448,46 @@ const server = http.createServer(async (req, res) => {
 		// Provides log viewer, system stats, and health check history endpoints
 		if (normalizedUrl.startsWith("/monitoring/")) {
 			if (await monitoring.handleMonitoringRoute(method, url, req, res)) {
+				return
+			}
+		}
+
+		// ── Workflow Compliance routes ─────────────────────────────────────────
+
+		// Workflow Compliance — exposes workflow tracking, DeepSeek delegation stats,
+		// API usage metrics, and compliance reports for the dashboard
+		if (normalizedUrl.startsWith("/workflow-compliance/")) {
+			const wcUrl = normalizedUrl.slice("/workflow-compliance".length) || "/"
+			const wcMethod = method
+
+			// GET /workflow-compliance/stats
+			if (wcMethod === "GET" && wcUrl === "/stats") {
+				await workflowCompliance.getStats(req, res)
+				return
+			}
+
+			// GET /workflow-compliance/commits
+			if (wcMethod === "GET" && wcUrl.startsWith("/commits")) {
+				await workflowCompliance.getCommits(req, res)
+				return
+			}
+
+			// GET /workflow-compliance/usage
+			if (wcMethod === "GET" && wcUrl.startsWith("/usage")) {
+				await workflowCompliance.getUsage(req, res)
+				return
+			}
+
+			// GET /workflow-compliance/verify-key/:keyLast4
+			if (wcMethod === "GET" && wcUrl.match(/^\/verify-key\/[^/]+$/)) {
+				req.params = { keyLast4: wcUrl.split("/").pop() }
+				await workflowCompliance.verifyApiKey(req, res)
+				return
+			}
+
+			// GET /workflow-compliance/deepseek-stats
+			if (wcMethod === "GET" && wcUrl === "/deepseek-stats") {
+				await workflowCompliance.getDeepSeekStats(req, res)
 				return
 			}
 		}
@@ -5389,6 +6244,30 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// POST /orchestrator/hermes/query — query the Hermes knowledge base (POST variant for tgEndpoints)
+		if (
+			method === "POST" &&
+			(url === "/orchestrator/hermes/query" || normalizedUrl === "/orchestrator/hermes/query")
+		) {
+			if (!orchestrator || !orchestrator.hermesClaw) {
+				sendJson(res, 503, { success: false, error: "HermesClaw not initialized" })
+				return
+			}
+			try {
+				const data = await parseBody(req)
+				const q = data.query || ""
+				if (!q) {
+					sendJson(res, 400, { success: false, error: "Missing query parameter" })
+					return
+				}
+				const result = await orchestrator.hermesClaw.queryKnowledge(q)
+				sendJson(res, 200, { success: true, result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
 		// POST /orchestrator/hermes/lesson — receive a lesson notification from agent runners
 		if (
 			method === "POST" &&
@@ -5437,6 +6316,878 @@ const server = http.createServer(async (req, res) => {
 			try {
 				const stats = orchestrator.hermesClaw.getStats()
 				sendJson(res, 200, { success: true, stats })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /orchestrator/hermes/stats — get HermesClaw statistics (POST variant for tgEndpoints)
+		if (
+			method === "POST" &&
+			(url === "/orchestrator/hermes/stats" || normalizedUrl === "/orchestrator/hermes/stats")
+		) {
+			if (!orchestrator || !orchestrator.hermesClaw) {
+				sendJson(res, 503, { success: false, error: "HermesClaw not initialized" })
+				return
+			}
+			try {
+				const stats = orchestrator.hermesClaw.getStats()
+				sendJson(res, 200, { success: true, stats })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /orchestrator/hermes/recall — recall context from memory (RAG-powered)
+		if (
+			method === "POST" &&
+			(url === "/orchestrator/hermes/recall" || normalizedUrl === "/orchestrator/hermes/recall")
+		) {
+			if (!orchestrator || !orchestrator.hermesClaw) {
+				sendJson(res, 503, { success: false, error: "HermesClaw not initialized" })
+				return
+			}
+			try {
+				const data = await parseBody(req)
+				const query = data.query || ""
+				const limit = data.limit || 5
+				if (!query) {
+					sendJson(res, 400, { success: false, error: "Missing query parameter" })
+					return
+				}
+				const result = await orchestrator.hermesClaw.recallContext(query, limit)
+				sendJson(res, 200, { success: true, result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /orchestrator/hermes/learn — store a lesson in the knowledge base
+		if (
+			method === "POST" &&
+			(url === "/orchestrator/hermes/learn" || normalizedUrl === "/orchestrator/hermes/learn")
+		) {
+			if (!orchestrator || !orchestrator.hermesClaw) {
+				sendJson(res, 503, { success: false, error: "HermesClaw not initialized" })
+				return
+			}
+			try {
+				const data = await parseBody(req)
+				if (!data.topic || !data.content) {
+					sendJson(res, 400, { success: false, error: "Missing required fields: topic, content" })
+					return
+				}
+				const result = await orchestrator.hermesClaw.storeLesson({
+					taskId: data.taskId || "manual",
+					goal: data.topic,
+					phases: data.phases || [],
+					finalStatus: data.finalStatus || "completed",
+					error: data.content,
+				})
+				sendJson(res, 200, { success: true, result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /orchestrator/hermes/create-skill — create a skill from a failure or lesson
+		if (
+			method === "POST" &&
+			(url === "/orchestrator/hermes/create-skill" || normalizedUrl === "/orchestrator/hermes/create-skill")
+		) {
+			if (!orchestrator || !orchestrator.hermesClaw) {
+				sendJson(res, 503, { success: false, error: "HermesClaw not initialized" })
+				return
+			}
+			try {
+				const data = await parseBody(req)
+				if (!data.failureType || !data.goal || !data.solution) {
+					sendJson(res, 400, {
+						success: false,
+						error: "Missing required fields: failureType, goal, solution",
+					})
+					return
+				}
+				const result = await orchestrator.hermesClaw.createSkill({
+					failureType: data.failureType,
+					goal: data.goal,
+					rootCause: data.rootCause || "",
+					solution: data.solution,
+					verificationSteps: data.verificationSteps || [],
+					relatedFiles: data.relatedFiles || [],
+					tags: data.tags || [],
+				})
+				sendJson(res, 200, { success: true, result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /orchestrator/hermes/analyze-patterns — analyze failure patterns
+		if (
+			method === "POST" &&
+			(url === "/orchestrator/hermes/analyze-patterns" ||
+				normalizedUrl === "/orchestrator/hermes/analyze-patterns")
+		) {
+			if (!orchestrator || !orchestrator.hermesClaw) {
+				sendJson(res, 503, { success: false, error: "HermesClaw not initialized" })
+				return
+			}
+			try {
+				const data = await parseBody(req)
+				const result = await orchestrator.hermesClaw.analyzePatterns({
+					tasks: data.tasks || [],
+					scope: data.scope || "general",
+				})
+				sendJson(res, 200, { success: true, result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /orchestrator/hermes/list-skills — list all created skills from memory
+		if (
+			method === "POST" &&
+			(url === "/orchestrator/hermes/list-skills" || normalizedUrl === "/orchestrator/hermes/list-skills")
+		) {
+			if (!orchestrator || !orchestrator.hermesClaw) {
+				sendJson(res, 503, { success: false, error: "HermesClaw not initialized" })
+				return
+			}
+			try {
+				// Search memory for skills stored under the "create_skill" operation
+				const skills = orchestrator.hermesClaw._searchMemory("create_skill", 50)
+				sendJson(res, 200, { success: true, skills })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /orchestrator/hermes/list-resources — list all resources from memory
+		if (
+			method === "POST" &&
+			(url === "/orchestrator/hermes/list-resources" || normalizedUrl === "/orchestrator/hermes/list-resources")
+		) {
+			if (!orchestrator || !orchestrator.hermesClaw) {
+				sendJson(res, 503, { success: false, error: "HermesClaw not initialized" })
+				return
+			}
+			try {
+				// Search memory for resources — this includes knowledge_query, lesson_extraction, etc.
+				const resourceOps = ["knowledge_query", "lesson_extraction", "memory_summary", "improvement_suggestion"]
+				const resources = []
+				for (const op of resourceOps) {
+					const entries = orchestrator.hermesClaw._searchMemory(op, 20)
+					resources.push(...entries)
+				}
+				// Sort by timestamp descending, limit to 50
+				resources.sort((a, b) => b.timestamp - a.timestamp)
+				sendJson(res, 200, { success: true, resources: resources.slice(0, 50) })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /orchestrator/hermes/extract-lessons — extract lessons from an interaction
+		if (
+			method === "POST" &&
+			(url === "/orchestrator/hermes/extract-lessons" || normalizedUrl === "/orchestrator/hermes/extract-lessons")
+		) {
+			if (!orchestrator || !orchestrator.hermesClaw) {
+				sendJson(res, 503, { success: false, error: "HermesClaw not initialized" })
+				return
+			}
+			try {
+				const data = await parseBody(req)
+				if (!data.phases || !data.context) {
+					sendJson(res, 400, { success: false, error: "Missing required fields: phases, context" })
+					return
+				}
+				const result = await orchestrator.hermesClaw.extractLessons({
+					taskId: data.taskId || "manual",
+					goal: data.goal || "",
+					phases: data.phases,
+					finalStatus: data.finalStatus || "completed",
+					error: data.error || null,
+				})
+				sendJson(res, 200, { success: true, result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /orchestrator/commit-deploy-status — get commit/deploy history from CommitDeployLog
+		if (
+			method === "GET" &&
+			(url.startsWith("/orchestrator/commit-deploy-status") ||
+				normalizedUrl.startsWith("/orchestrator/commit-deploy-status"))
+		) {
+			try {
+				const fs = require("fs")
+				const path = require("path")
+				const logPath = path.join(__dirname, "..", "memory", "commit-deploy-log.json")
+				let data
+				try {
+					const raw = fs.readFileSync(logPath, "utf8")
+					data = JSON.parse(raw)
+				} catch (e) {
+					sendJson(res, 200, {
+						success: true,
+						commits: [],
+						deploys: [],
+						totalCommits: 0,
+						totalDeploys: 0,
+						note: "CommitDeployLog file not found yet.",
+					})
+					return
+				}
+				const limit = parseInt(new URL(url, `http://localhost:${PORT}`).searchParams.get("limit")) || 5
+				const commits = (data.commits || [])
+					.slice(-limit)
+					.reverse()
+					.map(function (c) {
+						return {
+							sha: c.sha || c.commitSha || "",
+							agent: c.agentName || c.agent || "unknown",
+							type: c.type || "unknown",
+							title: c.title || c.message || "",
+							filesChanged: (c.filesChanged || c.files || []).length,
+							timestamp: c.timestamp || c.createdAt || 0,
+							featuresAffected: c.featuresAffected || [],
+						}
+					})
+				const deploys = (data.deploys || [])
+					.slice(-limit)
+					.reverse()
+					.map(function (d) {
+						return {
+							version: d.version || "",
+							sha: d.commitSha || d.sha || "",
+							agent: d.agentName || d.agent || "unknown",
+							status: d.status || d.result || "unknown",
+							timestamp: d.timestamp || d.deployedAt || 0,
+						}
+					})
+				sendJson(res, 200, {
+					success: true,
+					commits,
+					deploys,
+					totalCommits: (data.commits || []).length,
+					totalDeploys: (data.deploys || []).length,
+				})
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// ═══════════════════════════════════════════════════════════════════════════
+		// CENTRAL BRAIN — SuperRoo AI Integration Hub
+		// ═══════════════════════════════════════════════════════════════════════════
+		// This is THE canonical entry point for external AI bots to discover and
+		// connect to the SuperRoo Central Brain. Every AI bot (Telegram, Discord,
+		// custom agents, etc.) should use this endpoint to learn how to interact
+		// with the SuperRoo ecosystem.
+		//
+		// Endpoint: GET /api/brain  (or GET /brain)
+		// Returns:  JSON manifest describing all available capabilities, routes,
+		//           agents, and connection information.
+		//
+		// Other AI bots should:
+		//   1. GET /api/brain to discover capabilities
+		//   2. Use /api/orchestrator/hermes/* for memory/context operations
+		//   3. Use /api/health for health checks
+		//   4. Use /api/orchestrator/commit-deploy-status for git/deploy history
+		// ═══════════════════════════════════════════════════════════════════════════
+
+		// GET /brain — Central Brain manifest (canonical entry point for AI bots)
+		if (method === "GET" && (url === "/brain" || normalizedUrl === "/brain")) {
+			try {
+				const brainManifest = {
+					name: "SuperRoo Central Brain",
+					version: "2.1.0",
+					description:
+						"Central AI orchestration hub for SuperRoo — memory, context, analysis, coding, deployment, real-time events, WebSocket, skill generation, MCP bridge, and Ollama local summarizer",
+					baseUrl: `http://127.0.0.1:${PORT}`,
+					publicUrl: "https://dev.abcx124.xyz",
+					agents: {
+						hermesClaw: {
+							name: "Hermes Claw",
+							role: "Memory & Context Agent",
+							description:
+								"Stores and retrieves context, creates skills from lessons, analyzes patterns, extracts lessons from interactions",
+							capabilities: [
+								"recall",
+								"learn",
+								"create-skill",
+								"analyze-patterns",
+								"list-skills",
+								"list-resources",
+								"extract-lessons",
+								"query",
+								"stats",
+							],
+							apiBase: "/api/orchestrator/hermes",
+							endpoints: {
+								recall: {
+									method: "POST",
+									path: "/api/orchestrator/hermes/recall",
+									body: { query: "string", limit: "number (optional, default 5)" },
+								},
+								learn: {
+									method: "POST",
+									path: "/api/orchestrator/hermes/learn",
+									body: { topic: "string", content: "string", taskId: "string (optional)" },
+								},
+								createSkill: {
+									method: "POST",
+									path: "/api/orchestrator/hermes/create-skill",
+									body: {
+										failureType: "string",
+										goal: "string",
+										solution: "string",
+										rootCause: "string (optional)",
+										verificationSteps: "string[] (optional)",
+										relatedFiles: "string[] (optional)",
+										tags: "string[] (optional)",
+									},
+								},
+								analyzePatterns: {
+									method: "POST",
+									path: "/api/orchestrator/hermes/analyze-patterns",
+									body: { tasks: "array (optional)", scope: "string (optional)" },
+								},
+								listSkills: { method: "POST", path: "/api/orchestrator/hermes/list-skills" },
+								listResources: { method: "POST", path: "/api/orchestrator/hermes/list-resources" },
+								extractLessons: {
+									method: "POST",
+									path: "/api/orchestrator/hermes/extract-lessons",
+									body: {
+										phases: "array",
+										context: "object",
+										goal: "string (optional)",
+										finalStatus: "string (optional)",
+									},
+								},
+								stats: { method: "GET", path: "/api/orchestrator/hermes/stats" },
+							},
+						},
+						openClaw: {
+							name: "OpenClaw",
+							role: "Analysis Agent (Read-Only)",
+							description:
+								"Analyzes code, traces dependencies, inspects configs, assesses impact — never writes code",
+							access: "Via Telegram bot or direct API routing",
+						},
+						ollama: {
+							name: "Ollama Local AI",
+							role: "Cheap Local Processing",
+							description:
+								"Handles cheap tasks: summarization, classification, tagging, embeddings, short replies",
+							models: ["qwen2.5:3b", "qwen2.5:0.5b", "nomic-embed-text"],
+							embeddingDimensions: 768,
+							baseUrl: "http://127.0.0.1:11434",
+						},
+						cloudCoder: {
+							name: "Cloud Coder",
+							role: "Complex Coding Agent",
+							description: "Handles complex coding, debugging, high-risk changes using cloud LLMs",
+							providers: ["OpenAI", "Anthropic", "DeepSeek", "OpenRouter", "Groq"],
+						},
+					},
+					capabilities: {
+						memoryAndContext: {
+							description:
+								"Vector-powered memory with pgvector (768-dim embeddings) for semantic search across bug fixes, lessons, and patterns",
+							endpoint: "/api/orchestrator/hermes/recall",
+						},
+						knowledgeBase: {
+							description:
+								"PostgreSQL + pgvector knowledge store with HNSW index for fast approximate nearest neighbor search",
+							store: "BugKnowledgeStore",
+						},
+						commitDeployTracking: {
+							description: "Track all commits and deployments across all coding agents",
+							endpoint: "/api/orchestrator/commit-deploy-status",
+						},
+						telegramBot: {
+							description:
+								"Telegram bot interface for natural language task routing, coding, debugging, deployment",
+							webhookUrl: "https://dev.abcx124.xyz/api/telegram/webhook",
+							commands: [
+								"/code",
+								"/deploy",
+								"/test",
+								"/logs",
+								"/status",
+								"/hermes",
+								"/skills",
+								"/resources",
+								"/upgrade",
+								"/brain",
+								"/menu",
+								"/help",
+								"/mcp",
+							],
+						},
+						learningLoop: {
+							description:
+								"Infinite learning loop — extracts lessons from every interaction, stores in pgvector, retrieves via RAG for future context",
+							components: ["HermesClaw", "BugKnowledgeStore", "TelegramLearner"],
+						},
+						realTimeEvents: {
+							description: "SSE and WebSocket endpoints for real-time event streaming",
+							sse: { endpoint: "GET /api/brain/events", description: "Server-Sent Events stream" },
+							websocket: {
+								endpoint: "ws://host/api/brain/ws",
+								description: "Bidirectional WebSocket with MCP actions",
+							},
+							emit: {
+								endpoint: "POST /api/brain/events/emit",
+								description: "Emit custom events to all connected clients",
+							},
+						},
+						skillGeneration: {
+							description:
+								"Auto-generate skills from failure patterns and sync to MCP, SSE, WebSocket, Dashboard, Docs",
+							endpoint: "POST /api/brain/skill-generate",
+						},
+						agentOrchestration: {
+							description: "Submit tasks, debug, deploy, and check pipeline status via MCP",
+							endpoints: {
+								runTask: {
+									method: "POST",
+									path: "/api/brain/mcp",
+									body: {
+										action: "run_task",
+										params: { goal: "string", agent: "string (optional)" },
+									},
+								},
+								runDebug: {
+									method: "POST",
+									path: "/api/brain/mcp",
+									body: { action: "run_debug", params: { goal: "string" } },
+								},
+								runDeploy: {
+									method: "POST",
+									path: "/api/brain/mcp",
+									body: { action: "run_deploy", params: { goal: "string (optional)" } },
+								},
+								getPipeline: {
+									method: "POST",
+									path: "/api/brain/mcp",
+									body: { action: "get_pipeline" },
+								},
+							},
+						},
+						healthMonitoring: {
+							endpoint: "/api/health",
+						},
+						systemStats: {
+							endpoint: "/api/system",
+						},
+						queueManagement: {
+							endpoint: "/api/queue/stats",
+						},
+						ollamaSummarizer: {
+							description:
+								"Local Ollama log summarizer and context compressor — free, private, no API key needed",
+							actions: {
+								summarize: {
+									method: "POST",
+									path: "/api/brain/mcp",
+									body: {
+										action: "ollama_summarize",
+										params: {
+											logs: "string",
+											source: "string (optional)",
+											command: "string (optional)",
+											project: "string (optional)",
+										},
+									},
+								},
+								health: { method: "POST", path: "/api/brain/mcp", body: { action: "ollama_health" } },
+							},
+							models: ["qwen2.5-coder:3b", "qwen2.5:1.5b", "nomic-embed-text"],
+							baseUrl: "http://127.0.0.1:11434",
+						},
+					},
+					mcp: {
+						description:
+							"Model Context Protocol (MCP) support for Claude Code, Codex, Cursor, and any MCP-compatible client",
+						dedicatedServer: {
+							host: "127.0.0.1",
+							port: 3419,
+							protocol: "MCP JSON-RPC over HTTP",
+							endpoint: "POST /mcp",
+							configFile: "mcp-superroo-config.json",
+							config: {
+								command: "npx",
+								args: ["tsx", "server/src/memory/McpMemoryServer.ts"],
+								env: {
+									CENTRAL_BRAIN_URL: "http://127.0.0.1:3417",
+									REST_API_FALLBACK_URL: "http://127.0.0.1:8787",
+									MCP_SERVER_PORT: "3419",
+								},
+							},
+						},
+						restFallback: {
+							endpoint: "POST /api/brain/mcp",
+							description: "REST API fallback when MCP server or daemon is unreachable",
+							body: { action: "string", params: "object" },
+							supportedActions: [
+								"query_memory",
+								"list_projects",
+								"get_active_task",
+								"get_recent_bugs",
+								"hermes_recall",
+								"hermes_learn",
+								"hermes_list_skills",
+								"hermes_list_resources",
+								"hermes_stats",
+								"commit_deploy_status",
+								"codex_task_upsert",
+								"codex_task_list",
+								"codex_task_get",
+								"codex_task_get_active",
+								"health",
+								"qdrant_search",
+								"qdrant_collections",
+								"run_task",
+								"run_debug",
+								"run_deploy",
+								"get_pipeline",
+								"list_resources",
+								"read_resource",
+								"ollama_summarize",
+								"ollama_health",
+							],
+						},
+						telegramBridge: {
+							endpoint: "POST /api/brain/mcp/telegram",
+							description: "Telegram ↔ MCP Bridge — execute MCP actions from Telegram bot",
+							body: { action: "string", params: "object", chatId: "string (optional)" },
+						},
+						fallbackChain: [
+							"1. MCP Server (port 3419) — Primary, proxies to daemon at port 3417",
+							"2. REST API MCP endpoint (/api/brain/mcp) — Fallback via port 8787",
+							"3. Direct Daemon (port 3417) — Last resort, Docker container",
+						],
+					},
+					integrationGuide: {
+						forAIBots: [
+							"1. GET /api/brain — Discover all capabilities and endpoints",
+							"2. POST /api/orchestrator/hermes/recall — Query memory with semantic search (body: { query: 'what you want to know', limit: 5 })",
+							"3. POST /api/orchestrator/hermes/learn — Store new knowledge (body: { topic: 'subject', content: 'what was learned' })",
+							"4. POST /api/orchestrator/hermes/create-skill — Create reusable skill from a solution pattern",
+							"5. POST /api/orchestrator/hermes/extract-lessons — Extract lessons from an interaction",
+							"6. GET /api/orchestrator/commit-deploy-status — Check recent commits and deployments",
+							"7. GET /api/health — Check system health",
+							"8. POST /api/brain/mcp — MCP-compatible fallback endpoint (body: { action: 'hermes_recall', params: { query: '...' } })",
+							"9. GET /api/brain/events — SSE stream for real-time events",
+							"10. ws://host/api/brain/ws — WebSocket for bidirectional real-time communication",
+							"11. POST /api/brain/skill-generate — Auto-generate skill from failure pattern",
+							"12. POST /api/brain/mcp/telegram — Telegram ↔ MCP Bridge",
+							"13. POST /api/brain/mcp — Ollama log summarizer (body: { action: 'ollama_summarize', params: { logs: '...', source: 'telegram', command: 'deploy' } })",
+							"14. POST /api/brain/mcp — Ollama health check (body: { action: 'ollama_health' })",
+						],
+						mcpClients:
+							"For Claude Code, Codex, or Cursor: configure MCP server to connect to http://127.0.0.1:3419 using mcp-superroo-config.json",
+						telegramBot: "Send messages to @SuperRooBot on Telegram. Use /menu to see available commands.",
+						dashboard: "https://dev.abcx124.xyz — Web dashboard with GUI for all modules",
+					},
+					status: "online",
+					timestamp: Date.now(),
+				}
+				sendJson(res, 200, { success: true, brain: brainManifest })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// ═══════════════════════════════════════════════════════════════════════════
+		// CENTRAL BRAIN — NEW ROUTES (SSE, WebSocket Info, Telegram Bridge, Skill Gen)
+		// ═══════════════════════════════════════════════════════════════════════════
+
+		// GET /brain/events — SSE streaming endpoint for real-time brain events
+		if (method === "GET" && (url === "/brain/events" || normalizedUrl === "/brain/events")) {
+			try {
+				const clientId = crypto.randomUUID
+					? crypto.randomUUID()
+					: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+
+				res.writeHead(200, {
+					"Content-Type": "text/event-stream",
+					"Cache-Control": "no-cache",
+					Connection: "keep-alive",
+					"Access-Control-Allow-Origin": "*",
+				})
+
+				// Register client
+				global.__sseClients.set(clientId, { res, subscriptions: new Set(["all"]) })
+
+				// Send initial connected event
+				res.write(
+					`event: connected\ndata: ${JSON.stringify({ clientId, message: "Connected to SuperRoo Central Brain SSE" })}\n\n`,
+				)
+
+				// Heartbeat every 30 seconds
+				const heartbeatIv = setInterval(() => {
+					try {
+						res.write(`event: heartbeat\ndata: ${JSON.stringify({ timestamp: Date.now() })}\n\n`)
+					} catch {
+						/* ignore */
+					}
+				}, 30000)
+
+				req.on("close", () => {
+					clearInterval(heartbeatIv)
+					global.__sseClients.delete(clientId)
+					writeApiLog("info", "brain-sse", "SSE client disconnected", { clientId })
+				})
+
+				// Don't call sendJson — we're streaming
+				return
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+				return
+			}
+		}
+
+		// POST /brain/events/emit — emit an event to all connected SSE clients
+		if (method === "POST" && (url === "/brain/events/emit" || normalizedUrl === "/brain/events/emit")) {
+			try {
+				const body = await parseBody(req)
+				const { event = "custom", data = {} } = body
+				const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+				let sent = 0
+				for (const [cid, client] of global.__sseClients) {
+					try {
+						client.res.write(payload)
+						sent++
+					} catch {
+						global.__sseClients.delete(cid)
+					}
+				}
+				// Also broadcast to WebSocket clients
+				broadcastBrainEvent(event, data)
+				sendJson(res, 200, { success: true, sent, total: global.__sseClients.size })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /brain/mcp/telegram — Telegram ↔ MCP Bridge
+		// Allows Telegram bot to execute MCP actions and get results
+		if (method === "POST" && (url === "/brain/mcp/telegram" || normalizedUrl === "/brain/mcp/telegram")) {
+			try {
+				const body = await parseBody(req)
+				const { action, params = {}, chatId } = body
+				if (!action) {
+					sendJson(res, 400, { success: false, error: "Missing 'action' field" })
+					return
+				}
+				const result = await _handleMcpAction(action, params, orchestrator)
+				sendJson(res, 200, { success: true, action, result, chatId })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /brain/skill-generate — Skill Generation Pipeline
+		// Auto-generates a skill from a failure pattern and syncs to MCP, Telegram, Dashboard, Docs
+		if (method === "POST" && (url === "/brain/skill-generate" || normalizedUrl === "/brain/skill-generate")) {
+			try {
+				const body = await parseBody(req)
+				const {
+					failureType,
+					goal,
+					solution,
+					rootCause = "",
+					verificationSteps = [],
+					relatedFiles = [],
+					tags = [],
+				} = body
+				if (!failureType || !goal || !solution) {
+					sendJson(res, 400, {
+						success: false,
+						error: "Missing required fields: failureType, goal, solution",
+					})
+					return
+				}
+				if (!orchestrator || !orchestrator.hermesClaw) {
+					sendJson(res, 503, { success: false, error: "HermesClaw not initialized" })
+					return
+				}
+
+				// Step 1: Create skill via Hermes Claw
+				const skillResult = await orchestrator.hermesClaw.createSkill({
+					failureType,
+					goal,
+					rootCause,
+					solution,
+					verificationSteps,
+					relatedFiles,
+					tags,
+				})
+
+				// Step 2: Store lesson in BugKnowledgeStore
+				let lessonResult = null
+				if (orchestrator.hermesClaw.bugKnowledgeStore) {
+					try {
+						lessonResult = await orchestrator.hermesClaw.bugKnowledgeStore.storeLesson({
+							taskId: `skill-${Date.now()}`,
+							lessonType: "skill",
+							summary: `Skill: ${goal}`,
+							details: JSON.stringify({
+								failureType,
+								rootCause,
+								solution,
+								verificationSteps,
+								relatedFiles,
+								tags,
+							}),
+							success: true,
+						})
+					} catch (e) {
+						writeApiLog("warn", "brain-skill", "Failed to store lesson", { error: e.message })
+					}
+				}
+
+				// Step 3: Broadcast event to SSE and WebSocket clients
+				const eventData = {
+					skill: { failureType, goal, solution, tags },
+					skillResult,
+					lessonResult,
+					timestamp: Date.now(),
+				}
+				broadcastBrainEvent("skill_generated", eventData)
+
+				// Step 4: Emit to SSE clients
+				const ssePayload = `event: skill_generated\ndata: ${JSON.stringify(eventData)}\n\n`
+				for (const [cid, client] of global.__sseClients) {
+					try {
+						client.res.write(ssePayload)
+					} catch {
+						global.__sseClients.delete(cid)
+					}
+				}
+
+				sendJson(res, 200, {
+					success: true,
+					skill: skillResult,
+					lesson: lessonResult,
+					synced: { mcp: true, sse: true, websocket: true },
+				})
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /brain/skills — list all generated skills (for dashboard)
+		if (method === "GET" && (url === "/brain/skills" || normalizedUrl === "/brain/skills")) {
+			try {
+				if (orchestrator && orchestrator.hermesClaw) {
+					const skills = await orchestrator.hermesClaw.execute({ operation: "list_skills" })
+					sendJson(res, 200, { success: true, skills: skills.skills || [] })
+				} else {
+					sendJson(res, 200, { success: true, skills: [] })
+				}
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /brain/ws/info — WebSocket connection info (for dashboard)
+		if (method === "GET" && (url === "/brain/ws/info" || normalizedUrl === "/brain/ws/info")) {
+			sendJson(res, 200, {
+				success: true,
+				wsUrl: `ws://127.0.0.1:${PORT}/api/brain/ws`,
+				connectedClients: brainClients.size,
+				sseClients: global.__sseClients.size,
+				supportedActions: [
+					"query_memory",
+					"list_projects",
+					"get_active_task",
+					"get_recent_bugs",
+					"hermes_recall",
+					"hermes_learn",
+					"hermes_list_skills",
+					"hermes_list_resources",
+					"hermes_stats",
+					"commit_deploy_status",
+					"codex_task_upsert",
+					"codex_task_list",
+					"codex_task_get",
+					"codex_task_get_active",
+					"health",
+					"qdrant_search",
+					"qdrant_collections",
+					"run_task",
+					"run_debug",
+					"run_deploy",
+					"get_pipeline",
+					"list_resources",
+					"read_resource",
+					"ollama_summarize",
+					"ollama_health",
+					"subscribe",
+					"unsubscribe",
+				],
+			})
+			return
+		}
+
+		// ═══════════════════════════════════════════════════════════════════════════
+		// MCP COMPATIBLE ENDPOINT — Fallback MCP server on REST API
+		// ═══════════════════════════════════════════════════════════════════════════
+		// This endpoint implements the Model Context Protocol (MCP) so that any
+		// MCP-compatible client (Claude Code, Codex, Cursor, etc.) can interact
+		// with the SuperRoo Central Brain through the REST API.
+		//
+		// This serves as a FALLBACK when the dedicated MCP server (port 3419) or
+		// the Central Brain daemon (port 3417) is unreachable.
+		//
+		// Endpoint: POST /api/brain/mcp  (or POST /brain/mcp)
+		// Body: { action: string, params: object }
+		// Returns: MCP-compatible JSON response
+		//
+		// Supported actions (delegated to _handleMcpAction):
+		//   - query_memory, list_projects, get_active_task, get_recent_bugs
+		//   - hermes_recall, hermes_learn, hermes_list_skills, hermes_list_resources
+		//   - hermes_stats, commit_deploy_status, codex_task_upsert, codex_task_list
+		//   - codex_task_get, codex_task_get_active, health, qdrant_search
+		//   - qdrant_collections, run_task, run_debug, run_deploy, get_pipeline
+		//   - list_resources, read_resource
+		// ═══════════════════════════════════════════════════════════════════════════
+
+		// POST /brain/mcp — MCP-compatible endpoint (fallback, delegates to _handleMcpAction)
+		if (method === "POST" && (url === "/brain/mcp" || normalizedUrl === "/brain/mcp")) {
+			try {
+				const body = await parseBody(req)
+				const { action, params = {} } = body
+
+				if (!action) {
+					sendJson(res, 400, { success: false, error: "Missing 'action' field" })
+					return
+				}
+
+				const result = await _handleMcpAction(action, params, orchestrator)
+				sendJson(res, 200, result)
 			} catch (err) {
 				sendJson(res, 500, { success: false, error: err.message })
 			}
@@ -6191,8 +7942,18 @@ const server = http.createServer(async (req, res) => {
 			const availableProviders = []
 			for (const p of PROVIDERS) {
 				const meta = providerMeta.get(p.id)
-				if (isProviderUsable(meta)) {
+				if (isProviderUsable(meta, p.id)) {
 					try {
+						// Local providers (like Ollama) don't need an API key
+						if (p.local === true) {
+							availableProviders.push({
+								providerId: p.id,
+								apiBaseUrl: p.apiBaseUrl,
+								apiKey: "ollama", // placeholder, not used for local calls
+								model: p.defaultModel || "deepseek-chat",
+							})
+							continue
+						}
 						const apiKey = readProviderApiKey(p.id)
 						if (!apiKey) continue
 						availableProviders.push({
@@ -6640,6 +8401,27 @@ const server = http.createServer(async (req, res) => {
 			success: false,
 			error: err.message || "internal_error",
 		})
+	}
+})
+
+// ── WebSocket Upgrade Handler ────────────────────────────────────────────────
+// Intercept HTTP upgrade requests for /api/ws/chat and /api/brain/ws paths
+// NOTE: Must be placed AFTER server declaration to avoid TDZ ReferenceError
+server.on("upgrade", (request, socket, head) => {
+	const url = request.url || ""
+	// Normalize: handle both /api/ws/chat and /ws/chat
+	const normalizedUrl = url.startsWith("/api") ? url.slice(4) : url
+
+	if (normalizedUrl.startsWith("/ws/chat")) {
+		wss.handleUpgrade(request, socket, head, (ws) => {
+			wss.emit("connection", ws, request)
+		})
+	} else if (normalizedUrl.startsWith("/brain/ws")) {
+		brainWss.handleUpgrade(request, socket, head, (ws) => {
+			brainWss.emit("connection", ws, request)
+		})
+	} else {
+		socket.destroy()
 	}
 })
 

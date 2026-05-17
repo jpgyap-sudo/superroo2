@@ -134,6 +134,11 @@ const getCommandsMap = ({ context, outputChannel, provider }: RegisterCommandOpt
 		if (!visibleProvider) return
 		visibleProvider.postMessageToWebview({ type: "action", action: "marketplaceButtonClicked" })
 	},
+	superrooButtonClicked: () => {
+		const visibleProvider = getVisibleProviderOrLog(outputChannel)
+		if (!visibleProvider) return
+		visibleProvider.postMessageToWebview({ type: "action", action: "superrooButtonClicked" })
+	},
 	newTask: handleNewTask,
 	setCustomStoragePath: async () => {
 		const { promptForCustomStoragePath } = await import("../utils/storage")
@@ -173,6 +178,9 @@ const getCommandsMap = ({ context, outputChannel, provider }: RegisterCommandOpt
 		} catch (error) {
 			outputChannel.appendLine(`Error focusing panel: ${error}`)
 		}
+	},
+	cancelCurrentTask: async () => {
+		await provider.cancelTask()
 	},
 	acceptInput: () => {
 		const visibleProvider = getVisibleProviderOrLog(outputChannel)

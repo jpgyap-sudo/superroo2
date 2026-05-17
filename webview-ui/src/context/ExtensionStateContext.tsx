@@ -32,7 +32,7 @@ import { vscode } from "@src/utils/vscode"
 import { convertTextMateToHljs } from "@src/utils/textMateToHljs"
 
 type PersistedWebviewState = {
-	extensionState?: ExtensionState
+	extensionState?: Omit<ExtensionState, "clineMessages" | "clineMessagesSeq" | "currentTaskTodos">
 }
 
 export interface ExtensionStateContextType extends ExtensionState {
@@ -195,7 +195,20 @@ export const mergeExtensionState = (prevState: ExtensionState, newState: Partial
 
 export const ExtensionStateContextProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 	const persistedWebviewState = vscode.getState() as PersistedWebviewState | undefined
-	const persistedExtensionState = persistedWebviewState?.extensionState
+	// Strip volatile fields that must never be restored from persisted state.
+	// Old versions of this code serialized clineMessages, clineMessagesSeq, and
+	// currentTaskTodos into vscode.setState.  If those values are present, the seq
+	// guard in mergeExtensionState will block every incoming state push from a
+	// freshly-started extension host (whose seq counter resets to 0) and the
+	// webview gets permanently stuck showing the stale partial message.
+	const rawPersisted = persistedWebviewState?.extensionState as any
+	let persistedExtensionState:
+		| Omit<ExtensionState, "clineMessages" | "clineMessagesSeq" | "currentTaskTodos">
+		| undefined
+	if (rawPersisted) {
+		const { clineMessages: _cm, clineMessagesSeq: _seq, currentTaskTodos: _todos, ...rest } = rawPersisted
+		persistedExtensionState = rest
+	}
 
 	const [state, setState] = useState<ExtensionState>({
 		apiConfiguration: {},
@@ -320,7 +333,15 @@ export const ExtensionStateContextProvider: React.FC<{ children: React.ReactNode
 					const newState = message.state ?? {}
 					setState((prevState) => {
 						const mergedState = mergeExtensionState(prevState, newState)
-						vscode.setState({ extensionState: mergedState })
+						// Exclude volatile task-execution state so a stale clineMessagesSeq
+						// from a prior session never blocks fresh messages after extension restart.
+						const {
+							clineMessages: _cm,
+							clineMessagesSeq: _seq,
+							currentTaskTodos: _todos,
+							...persistable
+						} = mergedState
+						vscode.setState({ extensionState: persistable })
 						return mergedState
 					})
 					setShowWelcome(!checkExistKey(newState.apiConfiguration))
