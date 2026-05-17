@@ -19,23 +19,56 @@ const now = () => new Date().toISOString()
 // In production these would be backed by a database.
 
 let routes: ModelRoute[] = [
-	route("planning", "openai", "gpt-4o", "anthropic", "claude-sonnet-4-20250514", "kimi", "kimi-latest"),
-	route("coding", "anthropic", "claude-sonnet-4-20250514", "deepseek", "deepseek-chat", "openai", "gpt-4o"),
-	route("debugging", "deepseek", "deepseek-chat", "anthropic", "claude-sonnet-4-20250514", "kimi", "kimi-latest"),
-	route("crawling", "groq", "llama-3.3-70b-versatile", "deepseek", "deepseek-chat", "kimi", "kimi-latest"),
-	route("research", "kimi", "kimi-latest", "openai", "gpt-4o", "anthropic", "claude-sonnet-4-20250514"),
+	// Planning & architecture → V4 Pro (complex reasoning, important decisions)
+	route("planning", "deepseek", "deepseek-chat-v4-pro", "openai", "gpt-4o", "anthropic", "claude-sonnet-4-20250514"),
+	// Simple coding → V4 Flash (cheap/fast worker)
+	route("coding", "deepseek", "deepseek-chat-v4-flash", "anthropic", "claude-sonnet-4-20250514", "openai", "gpt-4o"),
+	// Hard debugging → V4 Pro (strong reasoning)
+	route(
+		"debugging",
+		"deepseek",
+		"deepseek-chat-v4-pro",
+		"anthropic",
+		"claude-sonnet-4-20250514",
+		"kimi",
+		"kimi-latest",
+	),
+	// Crawling/extraction → V4 Flash (bulk tasks)
+	route("crawling", "deepseek", "deepseek-chat-v4-flash", "groq", "llama-3.3-70b-versatile", "kimi", "kimi-latest"),
+	// Research → V4 Pro (complex analysis)
+	route("research", "deepseek", "deepseek-chat-v4-pro", "kimi", "kimi-latest", "openai", "gpt-4o"),
+	// Testing → V4 Flash (routine verification)
 	route(
 		"testing",
 		"deepseek",
-		"deepseek-chat",
+		"deepseek-chat-v4-flash",
 		"anthropic",
 		"claude-sonnet-4-20250514",
 		"groq",
 		"llama-3.3-70b-versatile",
 	),
-	route("deployment", "anthropic", "claude-sonnet-4-20250514", "openai", "gpt-4o", "deepseek", "deepseek-chat"),
-	route("architecture", "openai", "gpt-4o", "anthropic", "claude-sonnet-4-20250514", "kimi", "kimi-latest"),
-	route("fast_fix", "groq", "llama-3.3-70b-versatile", "deepseek", "deepseek-chat", "openai", "gpt-4o"),
+	// Deployment → V4 Pro (final review, important decisions)
+	route(
+		"deployment",
+		"deepseek",
+		"deepseek-chat-v4-pro",
+		"anthropic",
+		"claude-sonnet-4-20250514",
+		"openai",
+		"gpt-4o",
+	),
+	// Architecture → V4 Pro (complex design decisions)
+	route(
+		"architecture",
+		"deepseek",
+		"deepseek-chat-v4-pro",
+		"openai",
+		"gpt-4o",
+		"anthropic",
+		"claude-sonnet-4-20250514",
+	),
+	// Fast fix → V4 Flash (quick, simple fixes)
+	route("fast_fix", "deepseek", "deepseek-chat-v4-flash", "groq", "llama-3.3-70b-versatile", "openai", "gpt-4o"),
 ]
 
 let fallbackRules: FallbackRules = {

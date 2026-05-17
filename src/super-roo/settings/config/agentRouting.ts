@@ -18,55 +18,55 @@ export const DEFAULT_AGENT_ROUTES: AgentRoute[] = [
 	{
 		agent: "planner",
 		label: "Planner",
-		primary: { provider: "openai", model: "gpt-4o" },
+		primary: { provider: "deepseek", model: "deepseek-chat-v4-pro" },
 		fallbacks: [
+			{ provider: "openai", model: "gpt-4o" },
 			{ provider: "anthropic", model: "claude-sonnet-4-20250514" },
-			{ provider: "deepseek", model: "deepseek-chat" },
 		],
 	},
 	{
 		agent: "coder",
 		label: "Coder",
-		primary: { provider: "anthropic", model: "claude-sonnet-4-20250514" },
+		primary: { provider: "deepseek", model: "deepseek-chat-v4-flash" },
 		fallbacks: [
+			{ provider: "anthropic", model: "claude-sonnet-4-20250514" },
 			{ provider: "openai", model: "gpt-4o" },
-			{ provider: "deepseek", model: "deepseek-chat" },
 		],
 	},
 	{
 		agent: "debugger",
 		label: "Debugger",
-		primary: { provider: "anthropic", model: "claude-sonnet-4-20250514" },
+		primary: { provider: "deepseek", model: "deepseek-chat-v4-pro" },
 		fallbacks: [
+			{ provider: "anthropic", model: "claude-sonnet-4-20250514" },
 			{ provider: "openai", model: "gpt-4o" },
-			{ provider: "deepseek", model: "deepseek-chat" },
 		],
 	},
 	{
 		agent: "crawler",
 		label: "Crawler",
-		primary: { provider: "openai", model: "gpt-4o-mini" },
+		primary: { provider: "deepseek", model: "deepseek-chat-v4-flash" },
 		fallbacks: [
 			{ provider: "groq", model: "llama-3.3-70b-versatile" },
-			{ provider: "deepseek", model: "deepseek-chat" },
+			{ provider: "openai", model: "gpt-4o-mini" },
 		],
 	},
 	{
 		agent: "tester",
 		label: "Tester",
-		primary: { provider: "openai", model: "gpt-4o-mini" },
+		primary: { provider: "deepseek", model: "deepseek-chat-v4-flash" },
 		fallbacks: [
 			{ provider: "groq", model: "llama-3.3-70b-versatile" },
-			{ provider: "deepseek", model: "deepseek-chat" },
+			{ provider: "openai", model: "gpt-4o-mini" },
 		],
 	},
 	{
 		agent: "deployChecker",
 		label: "Deploy Checker",
-		primary: { provider: "openai", model: "gpt-4o-mini" },
+		primary: { provider: "deepseek", model: "deepseek-chat-v4-pro" },
 		fallbacks: [
 			{ provider: "groq", model: "llama-3.3-70b-versatile" },
-			{ provider: "deepseek", model: "deepseek-chat" },
+			{ provider: "openai", model: "gpt-4o-mini" },
 		],
 	},
 ]

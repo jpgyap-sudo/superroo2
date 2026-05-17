@@ -412,6 +412,42 @@
 			"healthCheckLatencyMs": 250,
 			"startedAt": "2026-05-11T20:00:00.000Z",
 			"completedAt": "2026-05-11T20:00:35.000Z"
+		},
+		{
+			"id": "commit_37ecd8df9",
+			"commitSha": "37ecd8df9",
+			"agent": "code",
+			"type": "bugfix",
+			"title": "fix: tighten shell keyword detection, add /shell command, add page labels",
+			"description": "Three changes:\n\n1. telegramClassifier.js: Tightened keyword fallback shell detection from 7 broad patterns (\"run \", \"command\", \"execute\", \"bash\", \"sh \", \"terminal\", \"shell\") to 18 specific phrase patterns to eliminate false positives (e.g., \"run tests\" no longer classified as shell intent).\n\n2. telegramPolicy.js: Enhanced getBlockedReason() for shell commands with rephrasing tips when common false-positive triggers are detected (e.g., messages containing \"run\" or \"command\").\n\n3. telegramBot.js: Added /shell command — registered in KNOWN_COMMANDS, created handleShell() function with usage help, policy check, and formatted output via tgEndpoints.executeShell(). Added to command dispatch and help text.\n\n4. tgEndpoints.js: Added executeShell() function that wraps the existing run() helper.\n\n5. page.tsx: Added missing pageLabel entries for \"intelligence-layer\" and \"workflow-compliance\".",
+			"filesChanged": [
+				"cloud/api/telegramBot.js",
+				"cloud/api/telegramClassifier.js",
+				"cloud/api/telegramPolicy.js",
+				"cloud/api/tgEndpoints.js",
+				"cloud/dashboard/src/app/page.tsx"
+			],
+			"featuresAffected": ["telegram-bot", "telegram-classifier", "telegram-policy", "dashboard"],
+			"timestamp": "2026-05-17T12:57:00.000Z"
+		}
+	],
+	"deploys": [
+		{
+			"id": "commit_37ecd8df9",
+			"commitSha": "37ecd8df9",
+			"agent": "code",
+			"type": "deploy",
+			"title": "deploy: shell keyword fix, /shell command, page labels",
+			"description": "Deployed all changes to VPS: pm2 restart superroo-api, npm run build + pm2 restart superroo-dashboard",
+			"filesChanged": [
+				"cloud/api/telegramBot.js",
+				"cloud/api/telegramClassifier.js",
+				"cloud/api/telegramPolicy.js",
+				"cloud/api/tgEndpoints.js",
+				"cloud/dashboard/src/app/page.tsx"
+			],
+			"featuresAffected": ["telegram-bot", "telegram-classifier", "telegram-policy", "dashboard"],
+			"timestamp": "2026-05-17T12:57:00.000Z"
 		}
 	]
 }

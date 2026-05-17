@@ -84,7 +84,7 @@ const DEFAULT_CONFIG: WorkflowEnforcerConfig = {
 	deepseek: {
 		primaryApiKey: process.env.DEEPSEEK_API_KEY || "",
 		fallbackApiKey: process.env.DEEPSEEK_API_KEY_FALLBACK || "",
-		model: "deepseek-chat",
+		model: "deepseek-chat-v4-flash",
 		maxTokens: 4096,
 		timeoutMs: 30000,
 		retryAttempts: 2,

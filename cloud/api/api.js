@@ -1199,15 +1199,17 @@ const PROVIDERS = [
 	{
 		id: "deepseek",
 		name: "DeepSeek",
-		description: "DeepSeek V3 and R1 reasoning models",
+		description: "DeepSeek V3, V4 Flash, V4 Pro, and R1 reasoning models",
 		envName: "DEEPSEEK_API_KEY",
 		website: "https://deepseek.com",
 		docsUrl: "https://platform.deepseek.com/docs",
 		apiBaseUrl: "https://api.deepseek.com/v1",
-		defaultModel: "deepseek-chat",
+		defaultModel: "deepseek-chat-v4-flash",
 		models: [
 			{ id: "deepseek-chat", name: "DeepSeek V3" },
 			{ id: "deepseek-reasoner", name: "DeepSeek R1" },
+			{ id: "deepseek-chat-v4-flash", name: "DeepSeek V4 Flash" },
+			{ id: "deepseek-chat-v4-pro", name: "DeepSeek V4 Pro" },
 		],
 		capabilities: ["chat", "reasoning"],
 	},
@@ -1305,7 +1307,7 @@ const DEFAULT_AGENT_ROUTES = [
 	{
 		agent: "planner",
 		label: "Planner",
-		primary: { provider: "deepseek", model: "deepseek-chat" },
+		primary: { provider: "deepseek", model: "deepseek-chat-v4-pro" },
 		fallbacks: [
 			{ provider: "ollama", model: "qwen2.5:3b" },
 			{ provider: "anthropic", model: "claude-sonnet-4-20250514" },
@@ -1315,7 +1317,7 @@ const DEFAULT_AGENT_ROUTES = [
 	{
 		agent: "coder",
 		label: "Coder",
-		primary: { provider: "deepseek", model: "deepseek-chat" },
+		primary: { provider: "deepseek", model: "deepseek-chat-v4-flash" },
 		fallbacks: [
 			{ provider: "ollama", model: "qwen2.5:3b" },
 			{ provider: "anthropic", model: "claude-sonnet-4-20250514" },
@@ -1325,7 +1327,7 @@ const DEFAULT_AGENT_ROUTES = [
 	{
 		agent: "debugger",
 		label: "Debugger",
-		primary: { provider: "deepseek", model: "deepseek-chat" },
+		primary: { provider: "deepseek", model: "deepseek-chat-v4-pro" },
 		fallbacks: [
 			{ provider: "ollama", model: "qwen2.5:3b" },
 			{ provider: "anthropic", model: "claude-sonnet-4-20250514" },
@@ -1335,7 +1337,7 @@ const DEFAULT_AGENT_ROUTES = [
 	{
 		agent: "crawler",
 		label: "Crawler",
-		primary: { provider: "deepseek", model: "deepseek-chat" },
+		primary: { provider: "deepseek", model: "deepseek-chat-v4-flash" },
 		fallbacks: [
 			{ provider: "ollama", model: "qwen2.5:3b" },
 			{ provider: "groq", model: "llama-3.3-70b-versatile" },
@@ -1345,7 +1347,7 @@ const DEFAULT_AGENT_ROUTES = [
 	{
 		agent: "tester",
 		label: "Tester",
-		primary: { provider: "deepseek", model: "deepseek-chat" },
+		primary: { provider: "deepseek", model: "deepseek-chat-v4-flash" },
 		fallbacks: [
 			{ provider: "ollama", model: "qwen2.5:3b" },
 			{ provider: "groq", model: "llama-3.3-70b-versatile" },
@@ -1355,7 +1357,7 @@ const DEFAULT_AGENT_ROUTES = [
 	{
 		agent: "deployChecker",
 		label: "Deploy Checker",
-		primary: { provider: "deepseek", model: "deepseek-chat" },
+		primary: { provider: "deepseek", model: "deepseek-chat-v4-pro" },
 		fallbacks: [
 			{ provider: "ollama", model: "qwen2.5:3b" },
 			{ provider: "groq", model: "llama-3.3-70b-versatile" },
@@ -1365,7 +1367,7 @@ const DEFAULT_AGENT_ROUTES = [
 	{
 		agent: "consultant",
 		label: "Consultant",
-		primary: { provider: "deepseek", model: "deepseek-chat" },
+		primary: { provider: "deepseek", model: "deepseek-chat-v4-pro" },
 		fallbacks: [
 			{ provider: "ollama", model: "qwen2.5:3b" },
 			{ provider: "anthropic", model: "claude-sonnet-4-20250514" },
@@ -2404,11 +2406,18 @@ const server = http.createServer(async (req, res) => {
 						try {
 							const entry = JSON.parse(line)
 							if (entry.date === today) lessonsToday++
-							if (entry.tags) entry.tags.forEach((t) => { tagCounts[t] = (tagCounts[t] || 0) + 1 })
+							if (entry.tags)
+								entry.tags.forEach((t) => {
+									tagCounts[t] = (tagCounts[t] || 0) + 1
+								})
 							if (entry.model) modelCounts[entry.model] = (modelCounts[entry.model] || 0) + 1
-						} catch { /* skip malformed lines */ }
+						} catch {
+							/* skip malformed lines */
+						}
 					}
-				} catch { /* file may not exist */ }
+				} catch {
+					/* file may not exist */
+				}
 
 				// ── Bugs fixed ──
 				let totalBugs = 0
@@ -2417,7 +2426,9 @@ const server = http.createServer(async (req, res) => {
 					const bugsRaw = fs.readFileSync(path.join(memoryDir, "bugs-fixed.md"), "utf8")
 					const bugMatches = bugsRaw.match(/### Legacy Lesson:/g)
 					totalBugs = bugMatches ? bugMatches.length : 0
-				} catch { /* file may not exist */ }
+				} catch {
+					/* file may not exist */
+				}
 
 				// ── Healing incidents ──
 				let totalIncidents = 0
@@ -2432,7 +2443,9 @@ const server = http.createServer(async (req, res) => {
 						const cat = inc.rootCauseCategory || "UNKNOWN"
 						incidentCategories[cat] = (incidentCategories[cat] || 0) + 1
 					}
-				} catch { /* file may not exist */ }
+				} catch {
+					/* file may not exist */
+				}
 
 				// ── Healing metrics ──
 				let totalHealingAttempts = 0
@@ -2450,7 +2463,9 @@ const server = http.createServer(async (req, res) => {
 							healingByCategory[cat] = data
 						}
 					}
-				} catch { /* file may not exist */ }
+				} catch {
+					/* file may not exist */
+				}
 
 				// ── Model decisions ──
 				let totalModelDecisions = 0
@@ -2467,7 +2482,9 @@ const server = http.createServer(async (req, res) => {
 							modelDecisionModels[modelName] = (modelDecisionModels[modelName] || 0) + 1
 						}
 					}
-				} catch { /* file may not exist */ }
+				} catch {
+					/* file may not exist */
+				}
 
 				// ── Commit/Deploy log ──
 				let totalCommits = 0
@@ -2495,7 +2512,9 @@ const server = http.createServer(async (req, res) => {
 							deployStatuses[s] = (deployStatuses[s] || 0) + 1
 						}
 					}
-				} catch { /* file may not exist */ }
+				} catch {
+					/* file may not exist */
+				}
 
 				// ── Feature knowledge ──
 				let totalFeatures = 0
@@ -2503,7 +2522,9 @@ const server = http.createServer(async (req, res) => {
 					const fkRaw = fs.readFileSync(path.join(memoryDir, "feature-knowledge.md"), "utf8")
 					const fkLines = fkRaw.split("\n").filter((l) => l.startsWith("## "))
 					totalFeatures = fkLines.length
-				} catch { /* file may not exist */ }
+				} catch {
+					/* file may not exist */
+				}
 
 				// ── Top tags (most used) ──
 				const topTags = Object.entries(tagCounts)
@@ -2525,7 +2546,11 @@ const server = http.createServer(async (req, res) => {
 				// ── Most reused fixes (from healing metrics) ──
 				const topFixPatterns = Object.entries(healingByCategory)
 					.sort((a, b) => (b[1].successCount || 0) - (a[1].successCount || 0))
-					.map(([category, data]) => ({ category, successCount: data.successCount, totalAttempts: data.totalAttempts }))
+					.map(([category, data]) => ({
+						category,
+						successCount: data.successCount,
+						totalAttempts: data.totalAttempts,
+					}))
 
 				// ── Memory growth (commits per day, last 14 days) ──
 				const memoryGrowth = []
@@ -2546,7 +2571,9 @@ const server = http.createServer(async (req, res) => {
 					for (const [day, count] of recentDays) {
 						memoryGrowth.push({ date: day, commits: count })
 					}
-				} catch { /* file may not exist */ }
+				} catch {
+					/* file may not exist */
+				}
 
 				sendJson(res, 200, {
 					success: true,
@@ -2566,7 +2593,10 @@ const server = http.createServer(async (req, res) => {
 							totalAttempts: totalHealingAttempts,
 							totalSuccesses: totalHealingSuccesses,
 							totalFailures: totalHealingFailures,
-							successRate: totalHealingAttempts > 0 ? Math.round((totalHealingSuccesses / totalHealingAttempts) * 100) : 0,
+							successRate:
+								totalHealingAttempts > 0
+									? Math.round((totalHealingSuccesses / totalHealingAttempts) * 100)
+									: 0,
 							topBugCategories,
 							topFixPatterns,
 						},

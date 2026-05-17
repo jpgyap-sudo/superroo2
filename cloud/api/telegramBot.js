@@ -4908,6 +4908,46 @@ function detectIntent(text) {
 }
 
 /**
+ * Maps a natural language VPS query to the shell command that answers it.
+ * Returns null if the query can't be mapped confidently.
+ *
+ * @param {string} text - Raw user message
+ * @returns {string|null} Shell command to run, or null
+ */
+function inferShellCommand(text) {
+	var lower = text.toLowerCase()
+
+	// Version queries
+	if (lower.includes("ollama") && lower.includes("version")) return "ollama --version"
+	if (lower.includes("docker") && lower.includes("version")) return "docker --version"
+	if (lower.includes("node") && lower.includes("version")) return "node --version"
+	if (lower.includes("npm") && lower.includes("version")) return "npm --version"
+	if (lower.includes("python") && lower.includes("version")) return "python3 --version"
+	if (lower.includes("pm2") && lower.includes("version")) return "pm2 --version"
+	if (lower.includes("git") && lower.includes("version")) return "git --version"
+	if (lower.includes("pnpm") && lower.includes("version")) return "pnpm --version"
+
+	// Process / service status
+	if (
+		lower.includes("pm2") &&
+		(lower.includes("list") || lower.includes("status") || lower.includes("running") || lower.includes("process"))
+	)
+		return "pm2 list"
+	if (lower.includes("docker") && (lower.includes("running") || lower.includes("container"))) return "docker ps"
+	if (lower.includes("ollama") && (lower.includes("model") || lower.includes("list") || lower.includes("installed")))
+		return "ollama list"
+
+	// System info
+	if (lower.includes("disk") || lower.includes("storage") || lower.includes("space")) return "df -h"
+	if (lower.includes("memory") || lower.includes("ram")) return "free -h"
+	if (lower.includes("uptime")) return "uptime"
+	if (lower.includes("cpu") || lower.includes("load")) return "uptime && nproc"
+	if ((lower.includes("who") || lower.includes("logged")) && lower.includes("in")) return "who"
+
+	return null
+}
+
+/**
  * Routes a natural language text message to the appropriate agent.
  * Detects intent (coding, debugging, deploying, testing, or asking) and routes accordingly.
  * @param {string} botToken
@@ -5148,6 +5188,36 @@ async function handleNaturalLanguageInstruction(
 			} catch (err) {
 				logTelegramError("nlp:feature_query", chatId, telegramUserId, err, { text: text.slice(0, 100) })
 				await sendMessage(botToken, chatId, "*Feature Query Error* ❌\n\n" + err.message)
+			}
+			return true
+		}
+
+		// ─── Safe Shell: VPS Query ──────────────────────────────────────────
+		// Shell intent that passed the policy check (read-only) — infer the
+		// actual command and run it on the VPS. No active project required.
+		if (intentKind === "shell") {
+			await sendChatAction(botToken, chatId, "typing")
+			try {
+				var inferredCmd = inferShellCommand(text)
+				var shellReply
+				if (inferredCmd) {
+					var shellResult = await tgEndpoints.executeShell(inferredCmd)
+					shellReply = "*VPS* 🖥️  `" + inferredCmd + "`\n\n"
+					var shellOutput = (shellResult.stdout || shellResult.stderr || "_(no output)_").trim()
+					if (shellOutput.length > 3000) shellOutput = shellOutput.slice(0, 3000) + "\n…"
+					shellReply += "```\n" + shellOutput + "\n```"
+				} else {
+					shellReply = await askAI(
+						text +
+							"\n\n(Context: user is asking about their VPS. Answer concisely. If you need a real command to verify, suggest they use /shell <command>.)",
+						providers || [],
+						chatId,
+					)
+				}
+				await sendMessage(botToken, chatId, shellReply)
+			} catch (err) {
+				logTelegramError("nlp:shell_query", chatId, telegramUserId, err, { text: text.slice(0, 100) })
+				await sendMessage(botToken, chatId, "*Shell Query Error* ❌\n\n" + err.message)
 			}
 			return true
 		}

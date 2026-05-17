@@ -1,0 +1,38 @@
+{
+	"tasks": [
+		{
+			"id": "kimi_task_bootstrap_20260517",
+			"title": "Initialize Kimi persistent task memory",
+			"summary": "Created kimi.json in server/src/memory/ and wired it into the MCP memory server so future Kimi sessions can recover context, continue tasks, and avoid duplicating work.",
+			"status": "completed",
+			"project": "superroo2",
+			"agent": "Kimi",
+			"filesChanged": ["server/src/memory/kimi.json", "server/src/memory/McpMemoryServer.ts"],
+			"featuresAffected": ["central-brain", "mcp"],
+			"notes": [
+				"Kimi task memory follows the same schema as Codex task memory for consistency.",
+				"Available MCP tools: kimi_task_upsert, kimi_task_list, kimi_task_get, kimi_task_get_active."
+			],
+			"startedAt": "2026-05-17T09:27:20.374Z",
+			"updatedAt": "2026-05-17T09:27:20.374Z",
+			"completedAt": "2026-05-17T09:27:20.374Z"
+		},
+		{
+			"id": "kimi_task_enable_tracking_20260517",
+			"title": "Enable Kimi persistent task tracking",
+			"summary": "User requested Kimi start tracking tasks persistently. Updated kimi.json and AGENTS.md to formalize the requirement, mirroring Codex task memory rules.",
+			"status": "completed",
+			"project": "superroo2",
+			"agent": "Kimi",
+			"filesChanged": ["server/src/memory/kimi.json", "AGENTS.md"],
+			"featuresAffected": ["central-brain", "mcp", "docs"],
+			"notes": [
+				"Mirrors Codex task memory rules for consistency.",
+				"MCP tools available: kimi_task_upsert, kimi_task_list, kimi_task_get, kimi_task_get_active."
+			],
+			"startedAt": "2026-05-17T11:46:36.897Z",
+			"updatedAt": "2026-05-17T11:49:00.000Z",
+			"completedAt": "2026-05-17T11:49:00.000Z"
+		}
+	]
+}
