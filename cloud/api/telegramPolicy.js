@@ -195,42 +195,50 @@ function getBlockedReason(kind, commandText) {
 		)
 	}
 	if (kind === "shell") {
-		var hint = ""
-		if (commandText) {
-			// Extract a likely command name for the hint
-			var words = commandText.trim().split(/\s+/)
-			var cmd = words[0] === "what" || words[0] === "how" ? words.slice(1).join(" ") : commandText
-			hint = "💡 *Try this yourself:*\n" + "`ssh root@100.64.175.88 '" + cmd.replace(/'/g, "'\\''") + "'`\n\n"
-		}
-		var rephraseTip = ""
-		// Detect common false-positive triggers and suggest rephrasing
 		var lowerText = (commandText || "").toLowerCase()
+
+		// Detect informational questions mis-routed as shell — give a helpful rephrase tip
+		var isInfoQuestion =
+			lowerText.startsWith("is there") ||
+			lowerText.startsWith("are there") ||
+			lowerText.startsWith("what api") ||
+			lowerText.startsWith("what endpoint") ||
+			lowerText.startsWith("what service") ||
+			lowerText.startsWith("what port") ||
+			lowerText.includes("api exposed") ||
+			lowerText.includes("what routes")
+
+		if (isInfoQuestion) {
+			return (
+				"*Hmm, that looked like a system query* 🤔\n\n" +
+				"I classified your message as a shell command, but it looks like you're asking a question.\n\n" +
+				"💡 *Try rephrasing as a plain question:*\n" +
+				'  • "is there any api exposed?" → "what APIs does my app expose?"\n' +
+				'  • "what services are running?" → just ask it exactly like that\n\n' +
+				"Or use `/ask <your question>` to force a direct answer.\n\n" +
+				"For actual shell commands, use `/shell <command>` or visit:\n" +
+				dashboardUrl +
+				"/ide-terminal"
+			)
+		}
+
+		// Standard shell block — actual command that needs approval
+		var rephraseTip = ""
 		if (lowerText.includes("run ") && !lowerText.match(/\b(run\s+(test|e2e|suite|deploy))\b/)) {
 			rephraseTip =
-				'💡 *Tip:* Your message was classified as a shell command because it contains "run".\n' +
-				"If you meant something else, try rephrasing:\n" +
-				'  • "run tests" → "run the tests"\n' +
-				'  • "run deploy" → "deploy to production"\n' +
-				'  • "run a command" → use `/shell <command>` explicitly\n\n'
-		} else if (
-			lowerText.includes("command") &&
-			!lowerText.includes("run command") &&
-			!lowerText.includes("execute command")
-		) {
-			rephraseTip =
-				'💡 *Tip:* Your message was classified as a shell command because it contains "command".\n' +
-				'If you were asking a question, just rephrase without the word "command".\n\n'
+				'💡 *Tip:* Contains "run" — if you meant tests use "run the tests", for deploy use "deploy to production".\n\n'
 		}
 		return (
 			"*Blocked for Safety* 🚫\n\n" +
-			"That shell command could modify the system or access sensitive data, so I can't run it directly in Telegram.\n\n" +
+			"Shell commands that modify the system require dashboard approval.\n\n" +
 			rephraseTip +
-			hint +
-			"👉 For full shell access with approval logging, use the Cloud Dashboard terminal:\n" +
-			"Dashboard: " +
+			"✅ *Read-only commands are allowed* — just ask:\n" +
+			'  • "what processes are running?"\n' +
+			'  • "check disk space"\n' +
+			'  • "show docker containers"\n\n' +
+			"👉 Full shell access via dashboard terminal:\n" +
 			dashboardUrl +
-			"/ide-terminal\n\n" +
-			"Read-only commands (like `version`, `ps`, `docker ps`) are allowed — just ask again with the exact command."
+			"/ide-terminal"
 		)
 	}
 	return (

@@ -46,7 +46,31 @@ const MIN_CONFIDENCE = 0.3
 function keywordFallback(text) {
 	var lower = text.toLowerCase()
 
+	// ── Early exits: pure informational / contextual questions → always chat ──
+	// These must come BEFORE any pattern that could mis-route to shell/deploy.
+	if (
+		lower.startsWith("is there any") ||
+		lower.startsWith("are there any") ||
+		lower.startsWith("what app") ||
+		lower.startsWith("what project") ||
+		lower.startsWith("which app") ||
+		lower.startsWith("which project") ||
+		lower.startsWith("what are we") ||
+		lower.startsWith("what is we") ||
+		lower.startsWith("what are the") ||
+		lower.startsWith("what is the product") ||
+		lower.startsWith("what are the product") ||
+		lower.includes("what project are we") ||
+		lower.includes("what app are we") ||
+		lower.includes("what are we talking about") ||
+		lower.includes("which app are we") ||
+		lower.includes("which project are we")
+	) {
+		return "chat"
+	}
+
 	// Feature query — questions about SuperRoo's product features, capabilities, architecture
+	// Also catches informational API/service questions that aren't shell commands.
 	if (
 		lower.includes("what feature") ||
 		lower.includes("what does superroo") ||
@@ -67,6 +91,16 @@ function keywordFallback(text) {
 		lower.includes("feature list") ||
 		lower.includes("what features") ||
 		lower.includes("capabilities") ||
+		lower.includes("api exposed") ||
+		lower.includes("what api") ||
+		lower.includes("what apis") ||
+		lower.includes("what endpoint") ||
+		lower.includes("what endpoints") ||
+		lower.includes("what routes") ||
+		lower.includes("what services") ||
+		lower.includes("what ports") ||
+		(lower.includes("is there") && lower.includes("api")) ||
+		(lower.includes("are there") && lower.includes("api")) ||
 		(lower.includes("how") && lower.includes("work") && lower.includes("superroo")) ||
 		(lower.includes("what") && lower.includes("superroo") && lower.includes("do"))
 	) {
@@ -279,13 +313,14 @@ function buildClassifierPrompt() {
 		"You are SuperRoo Telegram Assistant, a senior engineer dispatcher.\n" +
 		"Convert the user's Telegram message into one JSON object only.\n" +
 		"Allowed kind values: chat, debug_plan, read_logs, run_tests, create_branch, create_pr, restart_worker, deploy, delete_data, shell, upgrade_self, commit_status, feature_query.\n" +
-		"Prefer safe engineering actions. For destructive or broad commands choose deploy/delete_data/shell only when explicitly asked.\n" +
-		"For normal coding/debugging, choose debug_plan/read_logs/run_tests/create_branch/create_pr/restart_worker.\n" +
-		"IMPORTANT: If the message starts with '[Quoted message:' it means the user is REPLYING to a previous bot message. Treat this as a follow-up question (kind: chat) unless the reply explicitly contains a new command.\n" +
+		"Prefer safe engineering actions. For destructive or broad commands choose deploy/delete_data/shell ONLY when the user EXPLICITLY asks to run a terminal command, execute a script, or perform a system operation.\n" +
+		"NEVER use shell/deploy/delete_data for informational questions. Questions like 'is there any api', 'what apis are exposed', 'what services run', 'what project are we in', 'are there any endpoints' → use feature_query or chat.\n" +
+		"IMPORTANT: If the message starts with '[Quoted message:' it means the user is REPLYING to a previous bot message. Treat this as a follow-up question (kind: chat) unless the reply explicitly asks for a new action.\n" +
 		"SPECIAL INTENTS:\n" +
-		"- upgrade_self: When the user asks to upgrade, improve, or make the bot/assistant smarter. This includes phrases like 'upgrade yourself', 'improve yourself', 'make yourself smarter', 'coder to upgrade you'. Route to upgrade_self.\n" +
-		"- commit_status: When the user asks about commit history, deploy status, latest commits/deploys, or deployment history. Route to commit_status.\n" +
-		"- feature_query: When the user asks about SuperRoo's product features, capabilities, architecture, how something works (Safety Mode, Central Brain, Ollama integration, agent workflow, orchestrator, memory system, autonomous loop, Hermes, DeepSeek routing). Route to feature_query.\n" +
+		"- feature_query: Use for ANY question about what the app does, what APIs/routes/services exist, what features are available, how the system works. This includes 'is there any api on my app', 'what endpoints does it have', 'what does this project do'.\n" +
+		"- upgrade_self: When the user asks to upgrade, improve, or make the bot/assistant smarter.\n" +
+		"- commit_status: When the user asks about commit history, deploy status, latest commits/deploys.\n" +
+		"- chat: For clarifying questions, follow-ups, 'what app are we talking about', 'what project', conversational messages.\n" +
 		"Return compact JSON with: kind, project, target, message, confidence.\n" +
 		"confidence is a number between 0 and 1 indicating how sure you are."
 	)
