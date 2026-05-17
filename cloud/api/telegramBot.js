@@ -5193,11 +5193,21 @@ async function handleNaturalLanguageInstruction(
 		})
 
 		// ─── Chat Intent ────────────────────────────────────────────────────
-		// Handle questions directly with the enhanced AI
+		// Handle questions directly with the enhanced AI.
+		// Inject bound workspace name so the AI knows which project it's in.
 		if (intentKind === "chat") {
 			await sendChatAction(botToken, chatId, "typing")
 			console.log("[telegram] AI query from " + chatId + ": " + text.slice(0, 100))
-			var reply = await askAI(text, providers || [], chatId)
+			var chatBoundWs = groupWorkspaces.get(String(chatId))
+			var chatPrompt = text
+			if (chatBoundWs) {
+				chatPrompt =
+					"[Context: This Telegram group is linked to the project '" +
+					chatBoundWs +
+					"'. Answer questions in the context of that project unless the user asks about something else.]\n\n" +
+					text
+			}
+			var reply = await askAI(chatPrompt, providers || [], chatId)
 			await sendMessage(botToken, chatId, reply)
 			return true
 		}
@@ -5358,15 +5368,85 @@ async function handleNaturalLanguageInstruction(
 		}
 
 		// ─── Feature Query Intent ───────────────────────────────────────────
-		// Route "what features does SuperRoo have", "how does Safety Mode work",
-		// "explain the agent workflow", etc. to Ollama via FeatureAnswerer.
-		// Ollama answers from pre-indexed SuperRoo product docs (SQLite FTS5).
+		// If asked in a group with a bound workspace, answer about THAT project.
+		// Only fall back to SuperRoo feature docs when explicitly asked about SuperRoo
+		// or when no workspace is bound.
 		if (intentKind === "feature_query") {
 			await sendChatAction(botToken, chatId, "typing")
 			try {
-				var featureAnswerer = require("../orchestrator/modules/FeatureAnswerer").getFeatureAnswerer()
-				var featureReply = await featureAnswerer.answer(text)
-				await sendMessage(botToken, chatId, featureReply)
+				var boundWs = groupWorkspaces.get(String(chatId))
+				var lowerQ = text.toLowerCase()
+				var asksAboutSuperRoo =
+					lowerQ.includes("superroo") ||
+					lowerQ.includes("safety mode") ||
+					lowerQ.includes("central brain") ||
+					lowerQ.includes("agent workflow") ||
+					lowerQ.includes("ollama") ||
+					lowerQ.includes("hermes")
+
+				if (boundWs && !asksAboutSuperRoo) {
+					// Find the project directory on disk
+					var fqPath = null
+					var candidatePaths = [
+						"/root/" + boundWs,
+						"/opt/" + boundWs,
+						"/home/" + boundWs,
+						"/opt/superroo2/" + boundWs,
+					]
+					var fsSync = require("fs")
+					for (var cp of candidatePaths) {
+						try {
+							if (fsSync.existsSync(cp)) {
+								fqPath = cp
+								break
+							}
+						} catch (_) {}
+					}
+
+					// Build project context from README and package.json
+					var projectContext = ""
+					if (fqPath) {
+						var readmePaths = ["README.md", "readme.md", "README.txt", "docs/README.md"]
+						for (var rp of readmePaths) {
+							try {
+								var readmeContent = fsSync.readFileSync(path.join(fqPath, rp), "utf8")
+								projectContext += "README:\n" + readmeContent.slice(0, 3000) + "\n\n"
+								break
+							} catch (_) {}
+						}
+						try {
+							var pkgContent = fsSync.readFileSync(path.join(fqPath, "package.json"), "utf8")
+							var pkg = JSON.parse(pkgContent)
+							projectContext +=
+								"package.json: name=" +
+								(pkg.name || "") +
+								", description=" +
+								(pkg.description || "") +
+								", scripts=" +
+								JSON.stringify(Object.keys(pkg.scripts || {})) +
+								"\n\n"
+						} catch (_) {}
+					}
+
+					var projectPrompt =
+						"You are answering a question about the project '" +
+						boundWs +
+						"'.\n" +
+						(projectContext
+							? "Here is the project context:\n\n" + projectContext + "\n"
+							: "No local project files found for '" + boundWs + "'.\n") +
+						"Answer the user's question based on this project. Be concise and specific.\n\n" +
+						"User question: " +
+						text
+
+					var projectReply = await askAI(projectPrompt, providers || [], chatId)
+					await sendMessage(botToken, chatId, projectReply)
+				} else {
+					// No workspace bound or explicitly asking about SuperRoo — use feature docs
+					var featureAnswerer = require("../orchestrator/modules/FeatureAnswerer").getFeatureAnswerer()
+					var featureReply = await featureAnswerer.answer(text)
+					await sendMessage(botToken, chatId, featureReply)
+				}
 			} catch (err) {
 				logTelegramError("nlp:feature_query", chatId, telegramUserId, err, { text: text.slice(0, 100) })
 				await sendMessage(botToken, chatId, "*Feature Query Error* ❌\n\n" + err.message)
