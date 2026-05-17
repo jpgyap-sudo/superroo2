@@ -918,6 +918,9 @@ async function handleAuthRoute(method, url, req, res) {
 	// Don't intercept Monitoring routes — they are handled by api.js directly
 	if (normalizedPath.startsWith("/monitoring/")) return false
 
+	// Don't intercept Workflow Compliance routes — they are handled by api.js directly
+	if (normalizedPath.startsWith("/workflow-compliance/")) return false
+
 	// Don't intercept Central Brain route — public manifest for AI bots
 	if (normalizedPath === "/brain") return false
 
