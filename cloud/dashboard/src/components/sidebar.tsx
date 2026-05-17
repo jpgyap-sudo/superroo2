@@ -31,6 +31,7 @@ import {
 	Activity,
 	GitCommit,
 	CheckCircle,
+	Database,
 } from "lucide-react"
 
 const NAV = [
@@ -60,6 +61,7 @@ const NAV = [
 	{ id: "intelligence-layer", icon: BrainCircuit, label: "Intelligence Layer" },
 	{ id: "brain", icon: BrainCircuit, label: "Central Brain" },
 	{ id: "ollama-growth", icon: BrainCircuit, label: "Ollama Growth" },
+	{ id: "memory-explorer", icon: Database, label: "Memory Explorer" },
 ]
 
 export function Sidebar({ page, setPage }: { page: string; setPage: (p: string) => void }) {

@@ -29,6 +29,7 @@ import { BrainView } from "@/components/views/brain"
 import { IntelligenceLayerView } from "@/components/views/intelligence-layer"
 import WorkflowComplianceView from "@/components/views/workflow-compliance"
 import OllamaGrowthView from "@/components/views/ollama-growth"
+import { MemoryExplorerView } from "@/components/views/memory-explorer"
 import { LoginPage } from "@/components/auth/login"
 
 const PAGES: Record<string, React.FC> = {
@@ -58,6 +59,7 @@ const PAGES: Record<string, React.FC> = {
 	"intelligence-layer": IntelligenceLayerView,
 	brain: BrainView,
 	"ollama-growth": OllamaGrowthView,
+	"memory-explorer": MemoryExplorerView,
 }
 
 function StatusDot({ online }: { online: boolean }) {
