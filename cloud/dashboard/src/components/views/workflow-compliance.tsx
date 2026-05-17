@@ -8,21 +8,23 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, StatCard } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Progress } from "@/components/ui/progress"
+import { cn } from "@/lib/utils"
 import {
 	CheckCircle2,
 	XCircle,
 	AlertTriangle,
 	Brain,
-	Code2,
 	Activity,
 	Key,
 	Clock,
 	TrendingUp,
 	TrendingDown,
+	GitCommit,
+	BarChart3,
+	ShieldCheck,
+	AlertCircle,
 } from "lucide-react"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -82,6 +84,7 @@ interface DeepSeekStats {
 // ── Components ────────────────────────────────────────────────────────────────
 
 export default function WorkflowComplianceView() {
+	const [activeTab, setActiveTab] = useState("overview")
 	const [stats, setStats] = useState<WorkflowStats | null>(null)
 	const [commits, setCommits] = useState<Commit[]>([])
 	const [deepseekStats, setDeepseekStats] = useState<DeepSeekStats | null>(null)
@@ -123,330 +126,327 @@ export default function WorkflowComplianceView() {
 		}
 	}
 
+	const tabs = [
+		{ id: "overview", label: "Overview", icon: BarChart3 },
+		{ id: "commits", label: "Commits", icon: GitCommit },
+		{ id: "deepseek", label: "DeepSeek", icon: Brain },
+		{ id: "violations", label: "Violations", icon: AlertCircle },
+	]
+
 	if (loading) {
 		return (
-			<div className="flex items-center justify-center h-full">
-				<div className="text-lg">Loading workflow compliance data...</div>
+			<div className="flex items-center justify-center h-64">
+				<div className="text-gray-400">Loading workflow compliance data...</div>
 			</div>
 		)
 	}
 
 	if (error) {
 		return (
-			<div className="flex items-center justify-center h-full">
-				<div className="text-lg text-red-500">Error: {error}</div>
+			<div className="flex items-center justify-center h-64">
+				<div className="text-red-400">Error: {error}</div>
 			</div>
 		)
 	}
 
 	return (
-		<div className="p-6 space-y-6">
+		<div className="space-y-6">
+			{/* Header */}
 			<div className="flex items-center justify-between">
-				<h1 className="text-3xl font-bold">Workflow Compliance</h1>
-				<Badge variant="outline" className="text-sm">
-					DeepSeek Key: ****b52d
-				</Badge>
-			</div>
-
-			{/* Overview Stats */}
-			<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-				<StatCard
-					title="Compliance Rate"
-					value={`${stats?.complianceRate}%`}
-					icon={<CheckCircle2 className="h-5 w-5" />}
-					trend={parseFloat(stats?.complianceRate || "0") >= 80 ? "good" : "warning"}
-				/>
-				<StatCard
-					title="DeepSeek Delegation"
-					value={`${stats?.delegationRate}%`}
-					icon={<Brain className="h-5 w-5" />}
-					trend={parseFloat(stats?.delegationRate || "0") >= 90 ? "good" : "warning"}
-				/>
-				<StatCard
-					title="Total API Calls"
-					value={deepseekStats?.totalCalls.toString() || "0"}
-					icon={<Activity className="h-5 w-5" />}
-					trend="neutral"
-				/>
-				<StatCard
-					title="Avg Latency"
-					value={`${deepseekStats?.averageLatencyMs || 0}ms`}
-					icon={<Clock className="h-5 w-5" />}
-					trend={(deepseekStats?.averageLatencyMs || 0) < 1000 ? "good" : "warning"}
-				/>
-			</div>
-
-			{/* Main Content Tabs */}
-			<Tabs defaultValue="overview" className="space-y-4">
-				<TabsList>
-					<TabsTrigger value="overview">Overview</TabsTrigger>
-					<TabsTrigger value="commits">Recent Commits</TabsTrigger>
-					<TabsTrigger value="deepseek">DeepSeek Stats</TabsTrigger>
-					<TabsTrigger value="violations">Violations</TabsTrigger>
-				</TabsList>
-
-				<TabsContent value="overview" className="space-y-4">
-					<div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-						<Card>
-							<CardHeader>
-								<CardTitle>Workflow Compliance</CardTitle>
-								<CardDescription>Overall workflow adherence</CardDescription>
-							</CardHeader>
-							<CardContent className="space-y-4">
-								<div className="space-y-2">
-									<div className="flex justify-between text-sm">
-										<span>Compliant Tasks</span>
-										<span className="font-medium">{stats?.fullyCompliant || 0}</span>
-									</div>
-									<Progress value={parseFloat(stats?.complianceRate || "0")} className="h-2" />
-								</div>
-								<div className="space-y-2">
-									<div className="flex justify-between text-sm">
-										<span>DeepSeek Delegated</span>
-										<span className="font-medium">{stats?.withDeepSeek || 0}</span>
-									</div>
-									<Progress value={parseFloat(stats?.delegationRate || "0")} className="h-2" />
-								</div>
-								<div className="pt-4 grid grid-cols-2 gap-4 text-sm">
-									<div>
-										<div className="text-muted-foreground">With Model Tracking</div>
-										<div className="text-2xl font-bold">{stats?.withModelUsage || 0}</div>
-									</div>
-									<div>
-										<div className="text-muted-foreground">Skipped DeepSeek</div>
-										<div className="text-2xl font-bold text-yellow-500">
-											{stats?.withoutDeepSeek || 0}
-										</div>
-									</div>
-								</div>
-							</CardContent>
-						</Card>
-
-						<Card>
-							<CardHeader>
-								<CardTitle>DeepSeek Usage</CardTitle>
-								<CardDescription>API consumption metrics</CardDescription>
-							</CardHeader>
-							<CardContent className="space-y-4">
-								<div className="grid grid-cols-2 gap-4">
-									<div className="space-y-1">
-										<div className="text-sm text-muted-foreground">Total Calls</div>
-										<div className="text-2xl font-bold">{deepseekStats?.totalCalls || 0}</div>
-									</div>
-									<div className="space-y-1">
-										<div className="text-sm text-muted-foreground">Total Tokens</div>
-										<div className="text-2xl font-bold">
-											{(deepseekStats?.totalTokens || 0).toLocaleString()}
-										</div>
-									</div>
-									<div className="space-y-1">
-										<div className="text-sm text-muted-foreground">Success Rate</div>
-										<div className="text-2xl font-bold text-green-500">
-											{deepseekStats?.successRate}%
-										</div>
-									</div>
-									<div className="space-y-1">
-										<div className="text-sm text-muted-foreground">Fallback Rate</div>
-										<div className="text-2xl font-bold text-yellow-500">
-											{deepseekStats?.fallbackRate}%
-										</div>
-									</div>
-								</div>
-								{deepseekStats?.apiKeysUsed && deepseekStats.apiKeysUsed.length > 0 && (
-									<div className="pt-2">
-										<div className="text-sm text-muted-foreground mb-2">API Keys Used</div>
-										<div className="flex flex-wrap gap-2">
-											{deepseekStats.apiKeysUsed.map((key) => (
-												<Badge key={key} variant="secondary">
-													<Key className="h-3 w-3 mr-1" />
-													****{key}
-												</Badge>
-											))}
-										</div>
-									</div>
-								)}
-							</CardContent>
-						</Card>
+				<div className="flex items-center gap-3">
+					<ShieldCheck className="h-7 w-7 text-emerald-400" />
+					<div>
+						<h2 className="text-lg font-semibold text-white">Workflow Compliance</h2>
+						<p className="text-xs text-gray-500">Track DeepSeek delegation and workflow adherence</p>
 					</div>
-				</TabsContent>
+				</div>
+				<Badge
+					status={parseFloat(stats?.complianceRate || "0") >= 80 ? "healthy" : "warning"}
+					label={`${stats?.complianceRate || 0}% Compliant`}
+				/>
+			</div>
 
-				<TabsContent value="commits">
+			{/* Stats Grid */}
+			<div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+				<StatCard
+					label="Compliance Rate"
+					value={`${stats?.complianceRate || 0}%`}
+					sub={`${stats?.fullyCompliant || 0} tasks`}
+					color={parseFloat(stats?.complianceRate || "0") >= 80 ? "text-emerald-400" : "text-yellow-400"}
+				/>
+				<StatCard
+					label="DeepSeek Usage"
+					value={`${stats?.delegationRate || 0}%`}
+					sub={`${stats?.withDeepSeek || 0} tasks`}
+					color="text-purple-400"
+				/>
+				<StatCard
+					label="API Calls"
+					value={(deepseekStats?.totalCalls || 0).toString()}
+					sub={`${(deepseekStats?.totalTokens || 0).toLocaleString()} tokens`}
+					color="text-blue-400"
+				/>
+				<StatCard
+					label="Avg Latency"
+					value={`${deepseekStats?.averageLatencyMs || 0}ms`}
+					sub={
+						(deepseekStats?.averageLatencyMs || 0) < 1000
+							? "Good"
+							: (deepseekStats?.averageLatencyMs || 0) < 2000
+								? "Fair"
+								: "Slow"
+					}
+					color={
+						(deepseekStats?.averageLatencyMs || 0) < 1000
+							? "text-emerald-400"
+							: (deepseekStats?.averageLatencyMs || 0) < 2000
+								? "text-yellow-400"
+								: "text-red-400"
+					}
+				/>
+			</div>
+
+			{/* Tabs */}
+			<div className="flex gap-1 overflow-x-auto border-b border-[#1e2535] pb-1">
+				{tabs.map((tab) => (
+					<button
+						key={tab.id}
+						onClick={() => setActiveTab(tab.id)}
+						className={cn(
+							"flex items-center gap-2 rounded-t-lg px-4 py-2 text-sm transition-colors",
+							activeTab === tab.id
+								? "border-b-2 border-emerald-500 bg-emerald-500/10 text-emerald-300"
+								: "text-gray-500 hover:text-gray-300 hover:bg-white/5",
+						)}>
+						<tab.icon className="h-4 w-4" />
+						{tab.label}
+					</button>
+				))}
+			</div>
+
+			{/* Overview Tab */}
+			{activeTab === "overview" && (
+				<div className="space-y-4">
 					<Card>
-						<CardHeader>
-							<CardTitle>Recent Commits</CardTitle>
-							<CardDescription>Latest commits with workflow tracking</CardDescription>
-						</CardHeader>
-						<CardContent>
-							<div className="space-y-4">
-								{commits.length === 0 ? (
-									<div className="text-center py-8 text-muted-foreground">
-										No commits with workflow tracking found
-									</div>
-								) : (
-									commits.map((commit) => <CommitItem key={commit.id} commit={commit} />)
-								)}
-							</div>
-						</CardContent>
-					</Card>
-				</TabsContent>
-
-				<TabsContent value="deepseek">
-					<Card>
-						<CardHeader>
-							<CardTitle>DeepSeek Statistics</CardTitle>
-							<CardDescription>Detailed DeepSeek API usage</CardDescription>
-						</CardHeader>
-						<CardContent className="space-y-6">
-							<div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-								<MetricCard
-									label="Delegation Rate"
-									value={`${deepseekStats?.delegationRate}%`}
-									description="Tasks using DeepSeek"
-								/>
-								<MetricCard
-									label="Success Rate"
-									value={`${deepseekStats?.successRate}%`}
-									description="Successful API calls"
-								/>
-								<MetricCard
-									label="Avg Latency"
-									value={`${deepseekStats?.averageLatencyMs}ms`}
-									description="Response time"
-								/>
-								<MetricCard
-									label="Fallback Rate"
-									value={`${deepseekStats?.fallbackRate}%`}
-									description="Fallback to other providers"
-								/>
-							</div>
-
-							{deepseekStats?.callsByModel && Object.keys(deepseekStats.callsByModel).length > 0 && (
-								<div>
-									<h4 className="text-sm font-medium mb-3">Calls by Model</h4>
-									<div className="space-y-2">
-										{Object.entries(deepseekStats.callsByModel).map(([model, count]) => (
-											<div key={model} className="flex items-center gap-4">
-												<div className="w-32 text-sm truncate">{model}</div>
-												<Progress
-													value={(count / (deepseekStats.totalCalls || 1)) * 100}
-													className="flex-1 h-2"
-												/>
-												<div className="w-12 text-sm text-right">{count}</div>
-											</div>
-										))}
-									</div>
+						<h3 className="mb-4 text-sm font-semibold text-gray-300">Workflow Compliance</h3>
+						<div className="space-y-4">
+							<div>
+								<div className="mb-1 flex justify-between text-xs">
+									<span className="text-gray-400">Compliant Tasks</span>
+									<span className="text-emerald-400">
+										{stats?.fullyCompliant || 0} / {stats?.totalCommits || 0}
+									</span>
 								</div>
-							)}
-						</CardContent>
-					</Card>
-				</TabsContent>
-
-				<TabsContent value="violations">
-					<Card>
-						<CardHeader>
-							<CardTitle>Workflow Violations</CardTitle>
-							<CardDescription>Commits that didn't follow the workflow</CardDescription>
-						</CardHeader>
-						<CardContent>
-							<div className="space-y-4">
-								{commits.filter((c) => c.workflowCompliance && !c.workflowCompliance.isCompliant)
-									.length === 0 ? (
-									<div className="text-center py-8">
-										<CheckCircle2 className="h-12 w-12 text-green-500 mx-auto mb-2" />
-										<div className="text-muted-foreground">No violations found!</div>
-									</div>
-								) : (
-									commits
-										.filter((c) => c.workflowCompliance && !c.workflowCompliance.isCompliant)
-										.map((commit) => <ViolationItem key={commit.id} commit={commit} />)
-								)}
+								<div className="h-2 rounded-full bg-[#1e2535]">
+									<div
+										className="h-full rounded-full bg-emerald-500 transition-all"
+										style={{ width: `${stats?.complianceRate || 0}%` }}
+									/>
+								</div>
 							</div>
-						</CardContent>
+							<div>
+								<div className="mb-1 flex justify-between text-xs">
+									<span className="text-gray-400">DeepSeek Delegated</span>
+									<span className="text-purple-400">
+										{stats?.withDeepSeek || 0} / {stats?.withModelUsage || 0}
+									</span>
+								</div>
+								<div className="h-2 rounded-full bg-[#1e2535]">
+									<div
+										className="h-full rounded-full bg-purple-500 transition-all"
+										style={{ width: `${stats?.delegationRate || 0}%` }}
+									/>
+								</div>
+							</div>
+						</div>
+						<div className="mt-4 grid grid-cols-2 gap-4 text-xs">
+							<div className="rounded bg-[#0a0e1a] p-3">
+								<div className="text-gray-500">With Model Tracking</div>
+								<div className="text-lg font-bold text-gray-300">{stats?.withModelUsage || 0}</div>
+							</div>
+							<div className="rounded bg-[#0a0e1a] p-3">
+								<div className="text-gray-500">Skipped DeepSeek</div>
+								<div className="text-lg font-bold text-yellow-400">{stats?.withoutDeepSeek || 0}</div>
+							</div>
+						</div>
 					</Card>
-				</TabsContent>
-			</Tabs>
+
+					<Card>
+						<h3 className="mb-4 text-sm font-semibold text-gray-300">DeepSeek Usage</h3>
+						<div className="grid grid-cols-2 gap-4">
+							<div className="rounded bg-[#0a0e1a] p-3">
+								<div className="text-xs text-gray-500">Total Calls</div>
+								<div className="text-xl font-bold text-gray-200">{deepseekStats?.totalCalls || 0}</div>
+							</div>
+							<div className="rounded bg-[#0a0e1a] p-3">
+								<div className="text-xs text-gray-500">Total Tokens</div>
+								<div className="text-xl font-bold text-gray-200">
+									{(deepseekStats?.totalTokens || 0).toLocaleString()}
+								</div>
+							</div>
+							<div className="rounded bg-[#0a0e1a] p-3">
+								<div className="text-xs text-gray-500">Success Rate</div>
+								<div className="text-xl font-bold text-emerald-400">
+									{deepseekStats?.successRate || 0}%
+								</div>
+							</div>
+							<div className="rounded bg-[#0a0e1a] p-3">
+								<div className="text-xs text-gray-500">Fallback Rate</div>
+								<div className="text-xl font-bold text-yellow-400">
+									{deepseekStats?.fallbackRate || 0}%
+								</div>
+							</div>
+						</div>
+						{deepseekStats?.apiKeysUsed && deepseekStats.apiKeysUsed.length > 0 && (
+							<div className="mt-4">
+								<div className="mb-2 text-xs text-gray-500">API Keys Used</div>
+								<div className="flex flex-wrap gap-2">
+									{deepseekStats.apiKeysUsed.map((key) => (
+										<div
+											key={key}
+											className="flex items-center gap-1 rounded bg-[#1e2535] px-2 py-1 text-xs">
+											<Key className="h-3 w-3" />
+											****{key}
+										</div>
+									))}
+								</div>
+							</div>
+						)}
+					</Card>
+				</div>
+			)}
+
+			{/* Commits Tab */}
+			{activeTab === "commits" && (
+				<Card>
+					<h3 className="mb-4 text-sm font-semibold text-gray-300">Recent Commits</h3>
+					<div className="space-y-3">
+						{commits.length === 0 ? (
+							<div className="py-8 text-center text-gray-500">
+								No commits with workflow tracking found
+							</div>
+						) : (
+							commits.map((commit) => <CommitItem key={commit.id} commit={commit} />)
+						)}
+					</div>
+				</Card>
+			)}
+
+			{/* DeepSeek Tab */}
+			{activeTab === "deepseek" && (
+				<Card>
+					<h3 className="mb-4 text-sm font-semibold text-gray-300">DeepSeek Statistics</h3>
+					<div className="grid grid-cols-2 gap-4">
+						<StatCard
+							label="Delegation Rate"
+							value={`${deepseekStats?.delegationRate || 0}%`}
+							sub="Tasks using DeepSeek"
+							color="text-purple-400"
+						/>
+						<StatCard
+							label="Success Rate"
+							value={`${deepseekStats?.successRate || 0}%`}
+							sub="Successful API calls"
+							color="text-emerald-400"
+						/>
+						<StatCard
+							label="Avg Latency"
+							value={`${deepseekStats?.averageLatencyMs || 0}ms`}
+							sub="Response time"
+							color="text-blue-400"
+						/>
+						<StatCard
+							label="Fallback Rate"
+							value={`${deepseekStats?.fallbackRate || 0}%`}
+							sub="Fallback to other providers"
+							color="text-yellow-400"
+						/>
+					</div>
+					{deepseekStats?.callsByModel && Object.keys(deepseekStats.callsByModel).length > 0 && (
+						<div className="mt-6">
+							<h4 className="mb-3 text-xs font-medium text-gray-400">Calls by Model</h4>
+							<div className="space-y-2">
+								{Object.entries(deepseekStats.callsByModel).map(([model, count]) => (
+									<div key={model} className="flex items-center gap-3">
+										<div className="w-32 truncate text-xs text-gray-400">{model}</div>
+										<div className="flex-1 rounded-full bg-[#1e2535]">
+											<div
+												className="h-2 rounded-full bg-purple-500"
+												style={{
+													width: `${(count / (deepseekStats.totalCalls || 1)) * 100}%`,
+												}}
+											/>
+										</div>
+										<div className="w-8 text-right text-xs text-gray-400">{count}</div>
+									</div>
+								))}
+							</div>
+						</div>
+					)}
+				</Card>
+			)}
+
+			{/* Violations Tab */}
+			{activeTab === "violations" && (
+				<Card>
+					<h3 className="mb-4 text-sm font-semibold text-gray-300">Workflow Violations</h3>
+					<div className="space-y-3">
+						{commits.filter((c) => c.workflowCompliance && !c.workflowCompliance.isCompliant).length ===
+						0 ? (
+							<div className="py-8 text-center">
+								<CheckCircle2 className="mx-auto mb-2 h-12 w-12 text-emerald-500" />
+								<div className="text-gray-500">No violations found!</div>
+							</div>
+						) : (
+							commits
+								.filter((c) => c.workflowCompliance && !c.workflowCompliance.isCompliant)
+								.map((commit) => <ViolationItem key={commit.id} commit={commit} />)
+						)}
+					</div>
+				</Card>
+			)}
 		</div>
 	)
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function StatCard({
-	title,
-	value,
-	icon,
-	trend,
-}: {
-	title: string
-	value: string
-	icon: React.ReactNode
-	trend: "good" | "warning" | "bad" | "neutral"
-}) {
-	const trendColors = {
-		good: "text-green-500",
-		warning: "text-yellow-500",
-		bad: "text-red-500",
-		neutral: "text-muted-foreground",
-	}
-
-	const TrendIcon = trend === "good" ? TrendingUp : trend === "warning" || trend === "bad" ? TrendingDown : Activity
-
-	return (
-		<Card>
-			<CardContent className="p-6">
-				<div className="flex items-center justify-between">
-					<div className="flex items-center gap-2 text-muted-foreground">
-						{icon}
-						<span className="text-sm">{title}</span>
-					</div>
-					<TrendIcon className={`h-4 w-4 ${trendColors[trend]}`} />
-				</div>
-				<div className="mt-2 text-3xl font-bold">{value}</div>
-			</CardContent>
-		</Card>
-	)
-}
-
-function MetricCard({ label, value, description }: { label: string; value: string; description: string }) {
-	return (
-		<div className="p-4 rounded-lg border">
-			<div className="text-sm text-muted-foreground">{label}</div>
-			<div className="text-2xl font-bold mt-1">{value}</div>
-			<div className="text-xs text-muted-foreground mt-1">{description}</div>
-		</div>
-	)
-}
-
 function CommitItem({ commit }: { commit: Commit }) {
 	const isCompliant = commit.workflowCompliance?.isCompliant
 	const hasDeepSeek = commit.modelsUsed?.some((m) => m.phase === "coding" && m.provider === "deepseek")
 
 	return (
-		<div className="flex items-start gap-4 p-4 rounded-lg border">
+		<div className="flex items-start gap-3 rounded bg-[#0a0e1a] p-3">
 			<div className="mt-0.5">
 				{isCompliant ? (
-					<CheckCircle2 className="h-5 w-5 text-green-500" />
+					<CheckCircle2 className="h-4 w-4 text-emerald-500" />
 				) : (
-					<XCircle className="h-5 w-5 text-red-500" />
+					<XCircle className="h-4 w-4 text-red-500" />
 				)}
 			</div>
-			<div className="flex-1 min-w-0">
+			<div className="min-w-0 flex-1">
 				<div className="flex items-center gap-2">
-					<span className="font-medium truncate">{commit.title}</span>
-					<Badge variant={hasDeepSeek ? "default" : "secondary"} className="text-xs">
+					<span className="truncate text-sm font-medium text-gray-200">{commit.title}</span>
+					<div
+						className={cn(
+							"rounded px-1.5 py-0.5 text-[10px]",
+							hasDeepSeek ? "bg-purple-500/20 text-purple-300" : "bg-gray-500/20 text-gray-400",
+						)}>
 						{hasDeepSeek ? "DeepSeek" : "Other"}
-					</Badge>
+					</div>
 				</div>
-				<div className="text-sm text-muted-foreground mt-1">
+				<div className="mt-1 text-xs text-gray-500">
 					{commit.commitSha.substring(0, 8)} • {commit.agent} • {new Date(commit.timestamp).toLocaleString()}
 				</div>
 				{commit.modelsUsed && commit.modelsUsed.length > 0 && (
-					<div className="flex flex-wrap gap-2 mt-2">
+					<div className="mt-2 flex flex-wrap gap-1">
 						{commit.modelsUsed.map((model, idx) => (
-							<Badge key={idx} variant="outline" className="text-xs">
+							<div
+								key={idx}
+								className="rounded border border-[#1e2535] px-1.5 py-0.5 text-[10px] text-gray-400">
 								{model.phase}: {model.provider}/{model.model}
 								{model.apiKeyLast4 && ` (****${model.apiKeyLast4})`}
-							</Badge>
+							</div>
 						))}
 					</div>
 				)}
@@ -457,15 +457,15 @@ function CommitItem({ commit }: { commit: Commit }) {
 
 function ViolationItem({ commit }: { commit: Commit }) {
 	return (
-		<div className="flex items-start gap-4 p-4 rounded-lg border border-red-200 bg-red-50 dark:bg-red-950/20">
-			<AlertTriangle className="h-5 w-5 text-red-500 mt-0.5" />
-			<div className="flex-1">
-				<div className="font-medium">{commit.title}</div>
-				<div className="text-sm text-muted-foreground">
+		<div className="flex items-start gap-3 rounded border border-red-500/30 bg-red-500/10 p-3">
+			<AlertTriangle className="mt-0.5 h-4 w-4 text-red-400" />
+			<div className="min-w-0 flex-1">
+				<div className="text-sm font-medium text-gray-200">{commit.title}</div>
+				<div className="mt-1 text-xs text-gray-500">
 					{commit.commitSha.substring(0, 8)} • {new Date(commit.timestamp).toLocaleString()}
 				</div>
 				{commit.workflowCompliance?.violations && (
-					<ul className="mt-2 text-sm text-red-600 dark:text-red-400 list-disc list-inside">
+					<ul className="mt-2 list-inside list-disc text-xs text-red-300">
 						{commit.workflowCompliance.violations.map((violation, idx) => (
 							<li key={idx}>{violation}</li>
 						))}
