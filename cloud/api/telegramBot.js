@@ -854,16 +854,37 @@ async function saveConversationHistory() {
  * @returns {string} A plain-text summary of the conversation
  */
 function buildConversationSummary(chatId, maxMessages) {
-	if (maxMessages === undefined) maxMessages = 10
+	if (maxMessages === undefined) maxMessages = 15
 	var history = conversationHistory.get(chatId)
 	if (!history || history.length === 0) return ""
 
 	var recent = history.slice(-maxMessages)
 	var lines = []
+
+	// Add smart context (last command, intent, error, project)
+	var smartCtx = getSmartContext(chatId)
+	if (smartCtx) {
+		if (smartCtx.lastCommand) lines.push("[Context] Last command: " + smartCtx.lastCommand)
+		if (smartCtx.lastIntent) lines.push("[Context] Last intent: " + smartCtx.lastIntent)
+		if (smartCtx.lastError) lines.push("[Context] Last error: " + smartCtx.lastError.substring(0, 200))
+		if (smartCtx.lastProject) lines.push("[Context] Active project: " + smartCtx.lastProject)
+		if (smartCtx.lastFixApplied)
+			lines.push("[Context] Last fix applied: " + smartCtx.lastFixApplied.substring(0, 200))
+		if (smartCtx.workflowHistory && smartCtx.workflowHistory.length > 0) {
+			var recentWorkflows = smartCtx.workflowHistory.slice(-3)
+			for (var w = 0; w < recentWorkflows.length; w++) {
+				lines.push(
+					"[Workflow] " + (recentWorkflows[w].type || "task") + ": " + (recentWorkflows[w].status || "?"),
+				)
+			}
+		}
+	}
+
+	// Add conversation messages
 	for (var i = 0; i < recent.length; i++) {
 		var msg = recent[i]
 		var prefix = msg.role === "user" ? "User" : "Assistant"
-		var content = msg.content.slice(0, 200) // Truncate long messages
+		var content = msg.content.slice(0, 300) // Increased from 200 to 300 chars
 		lines.push(prefix + ": " + content)
 	}
 	return "=== Recent Conversation History ===\n" + lines.join("\n") + "\n=== End of History ==="
@@ -962,7 +983,9 @@ function buildSystemPrompt() {
 		"- When showing code, always use ```language blocks with syntax highlighting\n" +
 		"- Use emojis sparingly but meaningfully: 🛠️ for fixes, 🚀 for deploys, 🔍 for debugging, 📊 for stats\n" +
 		"- Keep responses concise — Telegram is a chat platform, not a document\n" +
-		"- If the answer is long, provide a summary first then offer to expand\n\n" +
+		"- If the answer is long, provide a summary first then offer to expand\n" +
+		"- **CRITICAL: When the user asks you to DO something (upgrade, improve, fix, deploy, code, debug), do NOT write a long analysis. Instead, immediately route to the appropriate specialist agent and respond with a brief confirmation (2-3 sentences max). Long analysis when action is needed frustrates the user.**\n" +
+		"- **CRITICAL: When the user says 'upgrade yourself', 'improve yourself', 'make yourself smarter', or 'coder to upgrade you', do NOT analyze the request. Immediately acknowledge and route to the Coder agent. Your response should be: '🔄 Upgrading... [brief description]' followed by routing.**\n\n" +
 		"## SuperRoo System Architecture\n\n" +
 		"The SuperRoo system is organized into 19 core modules:\n\n" +
 		"### 1. Orchestrator\n" +
@@ -1178,7 +1201,64 @@ async function askAI(message, providers, chatId, options) {
 	// ── Step 4: Add current user message ────────────────────────────────
 	messages.push({ role: "user", content: message })
 
-	// ── Step 5: Try each provider in order ──────────────────────────────
+	// ── Step 5: Try Ollama (local, FREE) first ─────────────────────────
+	// Uses http.request instead of fetch because Node.js 20's built-in fetch (undici)
+	// has a default headersTimeout of ~20s, but Ollama can take ~30s on cold start.
+	var ollamaBaseUrl = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434"
+	var ollamaModel = process.env.OLLAMA_CHAT_MODEL || "qwen2.5:0.5b"
+	try {
+		var http = require("http")
+		var postData = JSON.stringify({
+			model: ollamaModel,
+			messages: messages,
+			stream: false,
+			options: { temperature: 0.7, num_predict: 4096 },
+		})
+		var ollamaReply = await new Promise(function (resolve) {
+			var req = http.request(
+				ollamaBaseUrl + "/api/chat",
+				{
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"Content-Length": Buffer.byteLength(postData),
+					},
+					timeout: 120_000,
+				},
+				function (res) {
+					var body = ""
+					res.on("data", function (chunk) {
+						body += chunk
+					})
+					res.on("end", function () {
+						try {
+							var data = JSON.parse(body)
+							resolve(data.message?.content || data.response || null)
+						} catch (e) {
+							resolve(null)
+						}
+					})
+				},
+			)
+			req.on("error", function () {
+				resolve(null)
+			})
+			req.on("timeout", function () {
+				req.destroy()
+				resolve(null)
+			})
+			req.write(postData)
+			req.end()
+		})
+		if (ollamaReply) {
+			console.log("[telegram] askAI handled by Ollama (FREE)")
+			return ollamaReply
+		}
+	} catch (ollamaErr) {
+		console.log("[telegram] Ollama unavailable (" + ollamaErr.message + "), falling back to cloud API")
+	}
+
+	// ── Step 6: Try each cloud provider in order ────────────────────────
 	for (var i = 0; i < providers.length; i++) {
 		var provider = providers[i]
 		if (!provider.apiKey) continue
@@ -1322,6 +1402,80 @@ async function askAI(message, providers, chatId, options) {
 			continue
 		}
 	}
+
+	// ── Step 5b: Offline fallback — try local Ollama when all cloud providers fail ──
+	// This enables the RAG learning loop: Ollama retrieves similar past fixes from
+	// pgvector and uses them as context to generate a response.
+	try {
+		var ollamaBaseUrl = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434"
+		var ollamaModel = process.env.OLLAMA_CHAT_MODEL || "qwen2.5:0.5b"
+
+		console.log("[telegram] All cloud providers failed — trying local Ollama at " + ollamaBaseUrl)
+		var http = require("http")
+		var postData = JSON.stringify({
+			model: ollamaModel,
+			messages: messages,
+			stream: false,
+			options: { temperature: 0.7, num_predict: 2048 },
+		})
+		var ollamaReply = await new Promise(function (resolve) {
+			var req = http.request(
+				ollamaBaseUrl + "/api/chat",
+				{
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"Content-Length": Buffer.byteLength(postData),
+					},
+					timeout: 120_000,
+				},
+				function (res) {
+					var body = ""
+					res.on("data", function (chunk) {
+						body += chunk
+					})
+					res.on("end", function () {
+						try {
+							var data = JSON.parse(body)
+							resolve(data.message?.content || data.response || null)
+						} catch (e) {
+							resolve(null)
+						}
+					})
+				},
+			)
+			req.on("error", function () {
+				resolve(null)
+			})
+			req.on("timeout", function () {
+				req.destroy()
+				resolve(null)
+			})
+			req.write(postData)
+			req.end()
+		})
+
+		if (ollamaReply) {
+			// Log the exchange
+			if (chatId !== undefined && chatId !== null) {
+				addToConversationContext(chatId, "user", message)
+				addToConversationContext(chatId, "assistant", ollamaReply)
+			}
+			logChatExchange(chatId, "user", message, { intent: "ask" }).catch(function () {})
+			logChatExchange(chatId, "assistant", ollamaReply, { provider: "ollama", model: ollamaModel }).catch(
+				function () {},
+			)
+
+			console.log("[telegram] Ollama offline fallback succeeded for chat " + chatId)
+			return ollamaReply + "\n\n_(responded via local Ollama — cloud AI providers were unavailable)_"
+		} else {
+			var ollamaErrBody = "no response"
+			console.error("[telegram] Ollama fallback error: " + ollamaRes.status + " " + ollamaErrBody.slice(0, 100))
+		}
+	} catch (ollamaErr) {
+		console.error("[telegram] Ollama fallback failed: " + ollamaErr.message)
+	}
+
 	var triedProviders = providers
 		.filter(function (p) {
 			return p.apiKey
@@ -1333,7 +1487,7 @@ async function askAI(message, providers, chatId, options) {
 	return (
 		"Sorry, I couldn't reach any AI provider (" +
 		(triedProviders || "none configured") +
-		"). Please check that API keys are configured and working in the dashboard (API Keys tab). If using DeepSeek, it may be experiencing high traffic — try again later or switch to OpenAI."
+		"). Please check that API keys are configured and working in the dashboard (API Keys tab). DeepSeek is the primary provider — if it's experiencing high traffic, try again later."
 	)
 }
 
@@ -1556,16 +1710,125 @@ async function handleConsultant(botToken, chatId, question, providers, options) 
 	}
 }
 
+// ─── GUI Upgrade: /menu — Clickable action grid ──────────────────────────
+/**
+ * Shows a rich menu grid with clickable buttons for all major actions.
+ * Reduces reliance on slash commands — users can tap buttons instead.
+ */
+async function handleMenu(botToken, chatId) {
+	var menuText =
+		"*SuperRoo Menu* 🤖\n\n" +
+		"Tap a button below to get started. No slash commands needed!\n\n" +
+		"_Tip: You can also just type naturally — I'll understand what you need._"
+
+	var buttons = [
+		[
+			{ text: "💻 Code", callback_data: "menu:code" },
+			{ text: "🪲 Debug", callback_data: "menu:debug" },
+		],
+		[
+			{ text: "🚀 Deploy", callback_data: "menu:deploy" },
+			{ text: "📊 Status", callback_data: "menu:status" },
+		],
+		[
+			{ text: "🔄 Upgrade Bot", callback_data: "menu:upgrade" },
+			{ text: "📁 Projects", callback_data: "menu:projects" },
+		],
+		[
+			{ text: "🧠 Brain", callback_data: "menu:brain" },
+			{ text: "🔍 Consultant", callback_data: "menu:consultant" },
+		],
+		[
+			{ text: "🧠 Hermes", callback_data: "menu:hermes" },
+			{ text: "📚 Skills", callback_data: "menu:skills" },
+		],
+		[
+			{ text: "📂 Resources", callback_data: "menu:resources" },
+			{ text: "📋 Logs", callback_data: "menu:logs" },
+		],
+		[
+			{ text: "🧪 Tests", callback_data: "menu:tests" },
+			{ text: "❓ Help", callback_data: "menu:help" },
+		],
+		[{ text: "ℹ️ About", callback_data: "menu:about" }],
+	]
+
+	await sendInlineKeyboard(botToken, chatId, menuText, buttons)
+}
+
+// ─── GUI Upgrade: /recent — Show recent tasks ────────────────────────────
+/**
+ * Shows the user's most recent coding tasks with quick-action buttons.
+ */
+async function handleRecent(botToken, chatId) {
+	var tasks = userTasks.get(chatId) || []
+	if (tasks.length === 0) {
+		await sendMessage(botToken, chatId, "No recent tasks found. Use `/code <instruction>` to start coding!")
+		return
+	}
+
+	// Show last 5 tasks
+	var recentTasks = tasks.slice(-5).reverse()
+	var text = "*Recent Tasks* 📋\n\n"
+	for (var i = 0; i < recentTasks.length; i++) {
+		var t = recentTasks[i]
+		var statusEmoji =
+			t.status === "done" || t.status === "deployed"
+				? "✅"
+				: t.status === "failed"
+					? "❌"
+					: t.status === "queued" || t.status === "processing"
+						? "⏳"
+						: "📝"
+		text += statusEmoji + " `" + t.id + "` — " + t.instruction.slice(0, 60) + "\n"
+	}
+
+	var buttons = []
+	if (recentTasks.length > 0) {
+		var lastTask = recentTasks[0]
+		buttons.push([
+			{ text: "🔄 Run Again", callback_data: "coder:retry:" + lastTask.id },
+			{ text: "📊 Status", callback_data: "notify:status:" + lastTask.id },
+		])
+	}
+	buttons.push([{ text: "🔙 Back to Menu", callback_data: "menu:back" }])
+
+	await sendInlineKeyboard(botToken, chatId, text, buttons)
+}
+
+// ─── GUI Upgrade: /again — Repeat last task ──────────────────────────────
+/**
+ * Re-runs the user's most recent coding task with the same instruction.
+ */
+async function handleAgain(botToken, chatId, queue, orchestratorBridge) {
+	var tasks = userTasks.get(chatId) || []
+	if (tasks.length === 0) {
+		await sendMessage(botToken, chatId, "No previous task to repeat. Use `/code <instruction>` to start coding!")
+		return
+	}
+
+	var lastTask = tasks[tasks.length - 1]
+	await sendMessage(botToken, chatId, "🔄 Repeating last task: `" + lastTask.instruction.slice(0, 100) + "`")
+	await handleCode(botToken, chatId, lastTask.instruction.split(/\s+/), queue, orchestratorBridge)
+}
+
 /**
  * Handles /code <instruction> - creates a coding task.
  */
 async function handleCode(botToken, chatId, args, queue, orchestratorBridge) {
+	// Parse --auto flag for fully automated coding (no approval clicks needed)
+	var autoIndex = args.indexOf("--auto")
+	var isAuto = autoIndex !== -1
+	if (isAuto) {
+		args.splice(autoIndex, 1) // Remove --auto from args
+	}
+
 	var instruction = args.join(" ")
 	if (!instruction) {
 		await sendMessage(
 			botToken,
 			chatId,
-			"Please provide an instruction.\n\nExample: `/code fix the login timeout bug`",
+			"Please provide an instruction.\n\nExample: `/code fix the login timeout bug`\n\nUse `--auto` for fully automated mode (plan → apply → commit → deploy).",
 		)
 		return
 	}
@@ -1577,16 +1840,21 @@ async function handleCode(botToken, chatId, args, queue, orchestratorBridge) {
 	// Build conversation summary for the worker so it has context
 	var conversationSummary = buildConversationSummary(chatId)
 
-	var job = await queue.add("telegram-" + taskId, {
+	var job = await queue.add("coder-plan-" + taskId, {
 		task: instruction,
-		agentId: "superroo-debugger-agent",
-		commands: [],
-		network: "none",
+		agentId: "superroo-coder-agent",
+		phase: "plan",
+		taskId: taskId,
+		workspaceDir: "/opt/superroo2",
+		repoName: "superroo2",
+		branch: branchName,
 		telegram: {
+			botToken: botToken,
 			chatId: chatId,
 			taskId: taskId,
 			branchName: branchName,
 			conversationSummary: conversationSummary,
+			auto: isAuto,
 		},
 	})
 
@@ -1609,7 +1877,7 @@ async function handleCode(botToken, chatId, args, queue, orchestratorBridge) {
 				tgTaskId: taskId,
 				chatId: chatId,
 				instruction: instruction,
-				agentType: "superroo-debugger-agent",
+				agentType: "superroo-coder-agent",
 				branchName: branchName,
 				source: "/code",
 			})
@@ -1619,7 +1887,12 @@ async function handleCode(botToken, chatId, args, queue, orchestratorBridge) {
 	}
 
 	// Send rich notification with action buttons
-	await telegramNotifier.sendTaskStarted(botToken, chatId, taskId, instruction, "superroo-debugger-agent")
+	await telegramNotifier.sendTaskStarted(botToken, chatId, taskId, instruction, "superroo-coder-agent")
+
+	// Start typing indicator for streaming feel during long operations
+	if (isAuto) {
+		sendChatAction(botToken, chatId, "typing").catch(function () {})
+	}
 }
 
 /**
@@ -2465,6 +2738,60 @@ async function handleMiniIde(botToken, chatId, telegramUserId) {
  *   /brain help               — Show brain command help
  */
 async function handleBrain(botToken, chatId, args, providers) {
+	// If no subcommand or "central" subcommand, show Central Brain info
+	var subcommand = (args[0] || "").toLowerCase()
+	if (!subcommand || subcommand === "central" || subcommand === "info") {
+		var query = args.slice(1).join(" ")
+		try {
+			var res = await fetch("http://127.0.0.1:8787/brain")
+			var data = await res.json()
+			if (data.success && data.brain) {
+				var b = data.brain
+				var msg =
+					"*🧠 SuperRoo Central Brain*\n\n" +
+					"*Name:* " +
+					b.name +
+					"\n" +
+					"*Version:* " +
+					b.version +
+					"\n" +
+					"*Status:* " +
+					b.status +
+					"\n\n" +
+					"*Agents:*\n" +
+					"• *Hermes Claw* — Memory & Context (" +
+					b.agents.hermesClaw.capabilities.join(", ") +
+					")\n" +
+					"• *Ollama* — Cheap Local AI (" +
+					(b.agents.ollama.models || []).join(", ") +
+					")\n" +
+					"• *Cloud Coder* — Complex Coding\n\n" +
+					"*Capabilities:*\n" +
+					"• Memory & Context (pgvector RAG)\n" +
+					"• Commit/Deploy Tracking\n" +
+					"• Telegram Bot Interface\n" +
+					"• Infinite Learning Loop\n\n" +
+					"*API Base:* `https://dev.abcx124.xyz/api`\n" +
+					"*Dashboard:* `https://dev.abcx124.xyz`\n" +
+					"*Telegram:* @SuperRooBot\n\n" +
+					"*For AI Bots:* `GET /api/brain` to discover all endpoints\n\n" +
+					"*Subcommands:*\n" +
+					"• `/brain` — Show this Central Brain info\n" +
+					"• `/brain plan <query>` — Terminal Brain planning\n" +
+					"• `/brain exec <cmd>` — Execute command safely\n" +
+					"• `/brain analyze <output>` — Analyze errors\n" +
+					"• `/brain fix <output>` — Suggest fixes\n" +
+					"• `/brain memory` — Terminal memory stats\n" +
+					"• `/brain context` — Project context\n" +
+					"• `/brain pipeline <query>` — Full pipeline"
+				await sendMessage(botToken, chatId, msg)
+				return
+			}
+		} catch (err) {
+			// Fall through to Terminal Brain handler
+		}
+	}
+
 	if (!_terminalBrainAvailable) {
 		await sendMessage(
 			botToken,
@@ -2472,10 +2799,13 @@ async function handleBrain(botToken, chatId, args, providers) {
 			"*🧠 Terminal Brain — Not Available*\n\n" +
 				"The Terminal Brain packages are not loaded on this server. " +
 				"This feature requires the Terminal Brain Layer to be installed.\n\n" +
-				"Available commands: `/debug`, `/logs`, `/tests`, `/restart`, `/ask`",
+				"Available commands: `/debug`, `/logs`, `/tests`, `/restart`, `/ask`\n\n" +
+				"*Tip:* Use `/brain` (no subcommand) to see Central Brain info.",
 		)
 		return
 	}
+
+	subcommand = (args[0] || "").toLowerCase()
 
 	var subcommand = (args[0] || "").toLowerCase()
 	var query = args.slice(1).join(" ")
@@ -2699,6 +3029,638 @@ async function handleBrain(botToken, chatId, args, providers) {
 	} catch (err) {
 		logTelegramError("/brain:" + subcommand, chatId, null, err, { query: query })
 		await sendMessage(botToken, chatId, "*Brain Error* ❌\n\n" + err.message)
+	}
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Hermes Claw — Memory, Learning, Skills & Resources
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Hermes Claw subcommands for correction suggestions.
+ */
+const HERMES_SUBCOMMANDS = [
+	"recall",
+	"learn",
+	"skill",
+	"pattern",
+	"patterns",
+	"query",
+	"stats",
+	"lesson",
+	"lessons",
+	"help",
+]
+
+/**
+ * Handles the /hermes command — Hermes Claw memory, learning, and skill management.
+ * Integrates with the pgvector RAG knowledge base and Ollama embeddings.
+ *
+ * Subcommands:
+ *   /hermes recall <query>       — Recall context from memory (RAG-powered)
+ *   /hermes learn <topic> | <content> — Store a new lesson
+ *   /hermes skill <name> | <desc> — Create a new skill
+ *   /hermes pattern [scope]      — Analyze patterns (bugs, workflow, code)
+ *   /hermes query <question>     — Query the knowledge base
+ *   /hermes stats                — Show Hermes Claw statistics
+ *   /hermes lesson <phases>      — Extract lessons from an interaction
+ *   /hermes help                 — Show this help
+ *
+ * @param {string} botToken - Telegram bot token
+ * @param {number|string} chatId - Chat ID
+ * @param {Array<string>} args - Command arguments
+ * @param {Array} providers - AI provider configs
+ */
+async function handleHermes(botToken, chatId, args, providers) {
+	var subcommand = (args[0] || "").toLowerCase()
+	var query = args.slice(1).join(" ")
+
+	if (!subcommand || subcommand === "help") {
+		await sendMessage(
+			botToken,
+			chatId,
+			"*🧠 Hermes Claw — Commands*\n\n" +
+				"Hermes Claw is your memory & learning agent. It stores lessons from every interaction, " +
+				"builds a knowledge base with vector search (pgvector + Ollama), and gets smarter over time.\n\n" +
+				"*Subcommands:*\n" +
+				"• `/hermes recall <query>` — Recall context from memory (RAG-powered)\n" +
+				"  Example: `/hermes recall how to fix build errors`\n\n" +
+				"• `/hermes learn <topic> | <content>` — Store a new lesson\n" +
+				"  Example: `/hermes learn deploy | Always run tests before deploy`\n\n" +
+				"• `/hermes skill <name> | <description>` — Create a reusable skill\n" +
+				"  Example: `/hermes skill deploy-flow | Standard deploy: test, build, deploy`\n\n" +
+				"• `/hermes pattern [scope]` — Analyze patterns (bugs, workflow, code)\n" +
+				"  Example: `/hermes pattern bugs`\n\n" +
+				"• `/hermes query <question>` — Query the knowledge base\n" +
+				"  Example: `/hermes query what causes port conflicts`\n\n" +
+				"• `/hermes stats` — Show Hermes Claw statistics\n" +
+				"• `/hermes lesson <phases>` — Extract lessons from an interaction\n\n" +
+				"*Quick commands:*\n" +
+				"• `/skills` — List all available skills\n" +
+				"• `/resources` — List all available resources\n\n" +
+				"_The more you use it, the smarter it gets._ 🧠",
+		)
+		return
+	}
+
+	await sendChatAction(botToken, chatId, "typing")
+
+	try {
+		if (subcommand === "recall") {
+			if (!query) {
+				await sendMessage(
+					botToken,
+					chatId,
+					"*Usage:* `/hermes recall <query>`\n\nExample: `/hermes recall how to fix build errors`\n\nThis searches the knowledge base using vector similarity (pgvector + Ollama embeddings).",
+				)
+				return
+			}
+			var recallResult = await tgEndpoints.hermesRecall(query)
+			if (!recallResult.ok) {
+				await sendMessage(
+					botToken,
+					chatId,
+					"*Hermes Recall Error* ❌\n\n" + (recallResult.error || "Unknown error"),
+				)
+				return
+			}
+			var recallReply = telegramEngineer.formatHermesRecall(recallResult)
+			await sendMessage(botToken, chatId, recallReply)
+		} else if (subcommand === "learn") {
+			if (!query || !query.includes("|")) {
+				await sendMessage(
+					botToken,
+					chatId,
+					"*Usage:* `/hermes learn <topic> | <content>`\n\nExample: `/hermes learn deploy | Always run tests before deploying to production`\n\nThis stores a lesson in the knowledge base for future recall.",
+				)
+				return
+			}
+			var parts = query.split("|").map(function (s) {
+				return s.trim()
+			})
+			var topic = parts[0]
+			var content = parts.slice(1).join(" | ")
+			var learnResult = await tgEndpoints.hermesLearn({ topic: topic, content: content, source: "telegram" })
+			if (!learnResult.ok) {
+				await sendMessage(
+					botToken,
+					chatId,
+					"*Hermes Learn Error* ❌\n\n" + (learnResult.error || "Unknown error"),
+				)
+				return
+			}
+			var learnReply = telegramEngineer.formatHermesLearn(learnResult)
+			await sendMessage(botToken, chatId, learnReply)
+		} else if (subcommand === "skill") {
+			if (!query || !query.includes("|")) {
+				await sendMessage(
+					botToken,
+					chatId,
+					"*Usage:* `/hermes skill <name> | <description>`\n\nExample: `/hermes skill deploy-flow | Standard deploy: test, build, deploy to staging, verify, deploy to production`\n\nThis creates a reusable skill that the bot can apply automatically.",
+				)
+				return
+			}
+			var skillParts = query.split("|").map(function (s) {
+				return s.trim()
+			})
+			var skillName = skillParts[0]
+			var skillDesc = skillParts.slice(1).join(" | ")
+			var skillResult = await tgEndpoints.hermesCreateSkill({ name: skillName, description: skillDesc })
+			if (!skillResult.ok) {
+				await sendMessage(
+					botToken,
+					chatId,
+					"*Hermes Skill Error* ❌\n\n" + (skillResult.error || "Unknown error"),
+				)
+				return
+			}
+			var skillReply = telegramEngineer.formatHermesSkill(skillResult)
+			await sendMessage(botToken, chatId, skillReply)
+		} else if (subcommand === "pattern" || subcommand === "patterns") {
+			var scope = query || "all"
+			var patternResult = await tgEndpoints.hermesAnalyzePatterns(scope)
+			if (!patternResult.ok) {
+				await sendMessage(
+					botToken,
+					chatId,
+					"*Hermes Pattern Error* ❌\n\n" + (patternResult.error || "Unknown error"),
+				)
+				return
+			}
+			var patternReply = telegramEngineer.formatHermesPatterns(patternResult)
+			await sendMessage(botToken, chatId, patternReply)
+		} else if (subcommand === "query") {
+			if (!query) {
+				await sendMessage(
+					botToken,
+					chatId,
+					"*Usage:* `/hermes query <question>`\n\nExample: `/hermes query what causes port conflicts`\n\nThis queries the structured knowledge base for specific information.",
+				)
+				return
+			}
+			var queryResult = await tgEndpoints.hermesQuery(query)
+			if (!queryResult.ok) {
+				await sendMessage(
+					botToken,
+					chatId,
+					"*Hermes Query Error* ❌\n\n" + (queryResult.error || "Unknown error"),
+				)
+				return
+			}
+			var queryReply = telegramEngineer.formatHermesQuery(queryResult)
+			await sendMessage(botToken, chatId, queryReply)
+		} else if (subcommand === "stats") {
+			var statsResult = await tgEndpoints.hermesStats()
+			if (!statsResult.ok) {
+				await sendMessage(
+					botToken,
+					chatId,
+					"*Hermes Stats Error* ❌\n\n" + (statsResult.error || "Unknown error"),
+				)
+				return
+			}
+			var statsReply = telegramEngineer.formatHermesStats(statsResult)
+			await sendMessage(botToken, chatId, statsReply)
+		} else if (subcommand === "lesson" || subcommand === "lessons") {
+			if (!query) {
+				await sendMessage(
+					botToken,
+					chatId,
+					"*Usage:* `/hermes lesson <interaction description>`\n\nExample: `/hermes lesson Fixed a port conflict by changing from 3000 to 3001`\n\nThis extracts lessons from an interaction and stores them for future learning.",
+				)
+				return
+			}
+			var lessonResult = await tgEndpoints.hermesExtractLessons({
+				phases: [{ name: "interaction", description: query }],
+				context: "Telegram user interaction",
+				outcome: "completed",
+			})
+			if (!lessonResult.ok) {
+				await sendMessage(
+					botToken,
+					chatId,
+					"*Hermes Lesson Error* ❌\n\n" + (lessonResult.error || "Unknown error"),
+				)
+				return
+			}
+			var lessonReply = telegramEngineer.formatHermesLessons(lessonResult)
+			await sendMessage(botToken, chatId, lessonReply)
+		} else {
+			await sendMessage(
+				botToken,
+				chatId,
+				"*Unknown hermes subcommand:* `" +
+					subcommand +
+					"`\n\n" +
+					"Use `/hermes help` to see available subcommands.",
+			)
+		}
+	} catch (err) {
+		logTelegramError("/hermes:" + subcommand, chatId, null, err, { query: query })
+		await sendMessage(botToken, chatId, "*Hermes Error* ❌\n\n" + err.message)
+	}
+}
+
+/**
+ * Handles the /skills command — lists all available skills.
+ *
+ * @param {string} botToken - Telegram bot token
+ * @param {number|string} chatId - Chat ID
+ */
+/**
+ * Handles /upgrade — triggers a self-improvement coding task.
+ * Creates a coding task that targets the bot's own source files,
+ * allowing the bot to upgrade itself based on the user's description.
+ *
+ * @param {string} botToken - Telegram bot token
+ * @param {number} chatId - Chat ID
+ * @param {Array} args - Command arguments (upgrade description)
+ * @param {Object} queue - BullMQ queue
+ * @param {Object} orchestratorBridge - Optional orchestrator bridge
+ */
+async function handleUpgrade(botToken, chatId, args, queue, orchestratorBridge) {
+	var upgradeGoal = args.join(" ") || "Improve the bot's capabilities and fix any known issues"
+	var taskId =
+		"UPG-" + Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).slice(2, 6).toUpperCase()
+
+	await sendChatAction(botToken, chatId, "typing")
+
+	try {
+		// Create a coding task targeting the bot's own source files
+		var job = await queue.add("coder-plan-" + taskId, {
+			task: upgradeGoal,
+			agentId: "superroo-coder-agent",
+			phase: "plan",
+			taskId: taskId,
+			workspaceDir: "/opt/superroo2",
+			repoName: "superroo2",
+			branch: "upgrade/" + taskId.toLowerCase(),
+			telegram: {
+				botToken: botToken,
+				chatId: chatId,
+			},
+		})
+
+		if (!userTasks.has(chatId)) userTasks.set(chatId, [])
+		userTasks.get(chatId).push({
+			id: taskId,
+			instruction: upgradeGoal,
+			status: "queued",
+			branchName: "upgrade/" + taskId.toLowerCase(),
+			changedFiles: 0,
+			linesAdded: 0,
+			createdAt: new Date().toISOString(),
+			jobId: job.id,
+		})
+
+		// Also record in Cloud Orchestrator if bridge is available
+		if (orchestratorBridge) {
+			orchestratorBridge
+				.createTask({
+					tgTaskId: taskId,
+					chatId: chatId,
+					instruction: upgradeGoal,
+					agentType: "superroo-coder-agent",
+					branchName: "upgrade/" + taskId.toLowerCase(),
+					source: "upgrade",
+				})
+				.catch(function (err) {
+					console.error("[telegram] Failed to record upgrade task in orchestrator:", err.message)
+				})
+		}
+
+		// Also learn from this upgrade request via Hermes Claw
+		try {
+			var tgEndpoints = require("./tgEndpoints")
+			tgEndpoints
+				.hermesLearn({
+					topic: "User requested self-upgrade",
+					content: upgradeGoal,
+					taskId: taskId,
+				})
+				.catch(function (err) {
+					console.log("[telegram] Upgrade lesson recording non-fatal:", err.message)
+				})
+		} catch (learnErr) {
+			// Non-fatal
+		}
+
+		await sendMessage(
+			botToken,
+			chatId,
+			"*🔄 Self-Upgrade Initiated*\n\n" +
+				"Task ID: `" +
+				taskId +
+				"`\n" +
+				"Goal: _" +
+				upgradeGoal +
+				"_\n\n" +
+				"The Coder agent is analyzing how to improve the bot. You'll receive updates here.\n\n" +
+				"*What happens next:*\n" +
+				"1. 📋 Coder plans the changes\n" +
+				"2. 🔧 Changes are applied to the bot's source files\n" +
+				"3. 🧪 Tests are run to verify nothing is broken\n" +
+				"4. 🚀 You can approve and deploy when ready\n\n" +
+				"Use `/status` to check progress.",
+		)
+	} catch (err) {
+		logTelegramError("/upgrade", chatId, null, err, { goal: upgradeGoal })
+		await sendMessage(botToken, chatId, "*Upgrade Error* ❌\n\n" + err.message)
+	}
+}
+
+async function handleSkills(botToken, chatId) {
+	await sendChatAction(botToken, chatId, "typing")
+	try {
+		var skillsResult = await tgEndpoints.hermesListSkills()
+		if (!skillsResult.ok) {
+			await sendMessage(botToken, chatId, "*Skills Error* ❌\n\n" + (skillsResult.error || "Unknown error"))
+			return
+		}
+		var skillsReply = telegramEngineer.formatSkillsList(skillsResult)
+		await sendMessage(botToken, chatId, skillsReply)
+	} catch (err) {
+		logTelegramError("/skills", chatId, null, err)
+		await sendMessage(botToken, chatId, "*Skills Error* ❌\n\n" + err.message)
+	}
+}
+
+/**
+ * Handles the /resources command — lists all available resources.
+ *
+ * @param {string} botToken - Telegram bot token
+ * @param {number|string} chatId - Chat ID
+ */
+async function handleResources(botToken, chatId) {
+	await sendChatAction(botToken, chatId, "typing")
+	try {
+		var resourcesResult = await tgEndpoints.hermesListResources()
+		if (!resourcesResult.ok) {
+			await sendMessage(botToken, chatId, "*Resources Error* ❌\n\n" + (resourcesResult.error || "Unknown error"))
+			return
+		}
+		var resourcesReply = telegramEngineer.formatResourcesList(resourcesResult)
+		await sendMessage(botToken, chatId, resourcesReply)
+	} catch (err) {
+		logTelegramError("/resources", chatId, null, err)
+		await sendMessage(botToken, chatId, "*Resources Error* ❌\n\n" + err.message)
+	}
+}
+
+/**
+ * Handles the /mcp command — Telegram ↔ MCP Bridge.
+ * Allows executing MCP actions directly from Telegram.
+ *
+ * Usage:
+ *   /mcp                    — Show available MCP actions
+ *   /mcp <action>           — Execute an MCP action with default params
+ *   /mcp <action> <json>    — Execute with custom params (JSON string)
+ *
+ * Supported actions:
+ *   health, query_memory, list_projects, get_active_task, get_recent_bugs,
+ *   hermes_recall, hermes_learn, hermes_list_skills, hermes_list_resources,
+ *   hermes_stats, commit_deploy_status, qdrant_search, qdrant_collections,
+ *   run_task, run_debug, run_deploy, get_pipeline, list_resources, read_resource
+ *
+ * @param {string} botToken - Telegram bot token
+ * @param {number|string} chatId - Chat ID
+ * @param {string[]} args - Command arguments
+ * @param {Array} providers - AI providers
+ */
+async function handleMcp(botToken, chatId, args, providers) {
+	await sendChatAction(botToken, chatId, "typing")
+
+	if (!args || args.length === 0) {
+		// Show available MCP actions
+		var mcpHelp = [
+			"*🧠 MCP Bridge — Available Actions*\n",
+			"*System:*",
+			"• `health` — Check system health",
+			"• `list_projects` — List all projects",
+			"• `get_active_task` — Get current active task",
+			"• `get_recent_bugs` — Get recent bugs",
+			"• `commit_deploy_status` — Get commit/deploy history",
+			"",
+			"*Ollama (Local AI):*",
+			"• `ollama_health` — Check Ollama service status & models",
+			"• `ollama_summarize <logs>` — Summarize logs via Ollama",
+			"",
+			"*Hermes Claw:*",
+			"• `hermes_recall <query>` — Semantic memory search",
+			"• `hermes_learn <json>` — Store a lesson",
+			"• `hermes_list_skills` — List all skills",
+			"• `hermes_list_resources` — List all resources",
+			"• `hermes_stats` — Hermes Claw statistics",
+			"",
+			"*Qdrant:*",
+			"• `qdrant_search <collection> <query>` — Vector search",
+			"• `qdrant_collections` — List Qdrant collections",
+			"",
+			"*Agent Orchestration:*",
+			"• `run_task <description>` — Submit a coding task",
+			"• `run_debug <description>` — Submit a debug task",
+			"• `run_deploy` — Submit a deploy task",
+			"• `get_pipeline` — Get pipeline status",
+			"",
+			"*Resources:*",
+			"• `list_resources` — List brain:// URIs",
+			"• `read_resource <uri>` — Read a brain:// resource",
+			"",
+			"*Examples:*",
+			"`/mcp health`",
+			"`/mcp ollama_health`",
+			"`/mcp ollama_summarize npm build failed with error TS2304`",
+			"`/mcp hermes_recall how to fix build errors`",
+			'`/mcp hermes_learn {"lesson":"Always run tests before deploy","type":"best_practice"}`',
+			"`/mcp qdrant_search bug_knowledge login error`",
+			"`/mcp run_task Add a login page`",
+		].join("\n")
+		await sendMessage(botToken, chatId, mcpHelp)
+		return
+	}
+
+	var action = args[0].toLowerCase()
+	var restArgs = args.slice(1)
+	var params = {}
+
+	// Parse params — if second arg looks like JSON, parse it; otherwise treat as query string
+	if (restArgs.length > 0) {
+		try {
+			params = JSON.parse(restArgs.join(" "))
+		} catch {
+			// Not JSON — treat as query/description string
+			params.query = restArgs.join(" ")
+			params.description = restArgs.join(" ")
+		}
+	}
+
+	try {
+		// Call the MCP bridge endpoint
+		var mcpRes = await fetch("http://127.0.0.1:8787/brain/mcp/telegram", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ action, params, chatId }),
+		})
+		var mcpData = await mcpRes.json()
+
+		if (!mcpData.success) {
+			await sendMessage(botToken, chatId, "*MCP Error* ❌\n\n" + (mcpData.error || "Unknown error"))
+			return
+		}
+
+		// Format the result based on action type
+		var reply = "*🧠 MCP Result — " + action + "*\n\n"
+		var result = mcpData.result || {}
+
+		if (action === "health") {
+			reply += "• Status: " + (result.health ? result.health.status : "unknown") + "\n"
+			reply += "• Redis: " + (result.health ? (result.health.redis ? "✅" : "❌") : "unknown") + "\n"
+			reply += "• Worker: " + (result.health ? (result.health.worker ? "✅" : "❌") : "unknown") + "\n"
+			reply += "• Hermes Claw: " + (result.health ? (result.health.hermesClaw ? "✅" : "❌") : "unknown")
+		} else if (action === "list_projects") {
+			var projects = result.projects || []
+			if (projects.length === 0) {
+				reply += "No projects found."
+			} else {
+				reply += projects
+					.map(function (p) {
+						return "• `" + p + "`"
+					})
+					.join("\n")
+			}
+		} else if (action === "hermes_stats") {
+			var stats = result.stats || {}
+			reply += "• Operations: " + (stats.operationCount || 0) + "\n"
+			reply += "• Total Duration: " + (stats.totalDurationMs || 0) + "ms\n"
+			reply += "• Knowledge Store: " + (stats.knowledgeStore ? JSON.stringify(stats.knowledgeStore) : "N/A")
+		} else if (action === "commit_deploy_status") {
+			var commits = result.commits || []
+			var deploys = result.deploys || []
+			reply += "*Commits:* " + commits.length + "\n"
+			reply += "*Deploys:* " + deploys.length + "\n"
+			if (commits.length > 0) {
+				reply += "\n*Recent Commits:*\n"
+				reply += commits
+					.slice(0, 3)
+					.map(function (c) {
+						return "• `" + (c.sha ? c.sha.slice(0, 8) : "?") + "` " + (c.title || "")
+					})
+					.join("\n")
+			}
+			if (deploys.length > 0) {
+				reply += "\n*Recent Deploys:*\n"
+				reply += deploys
+					.slice(0, 3)
+					.map(function (d) {
+						return "• v" + (d.version || "?") + " — " + (d.status || "")
+					})
+					.join("\n")
+			}
+		} else if (action === "list_resources") {
+			var resources = result.resources || []
+			if (resources.length === 0) {
+				reply += "No resources available."
+			} else {
+				reply += resources
+					.map(function (r) {
+						return "• `" + r.uri + "` — " + (r.description || "")
+					})
+					.join("\n")
+			}
+		} else if (action === "read_resource") {
+			reply += "```json\n" + JSON.stringify(result, null, 2).slice(0, 1500) + "\n```"
+		} else if (action === "get_pipeline") {
+			var pipeline = result.pipeline || {}
+			reply += "• Status: " + (pipeline.status || "idle") + "\n"
+			reply += "• Current Stage: " + (pipeline.currentStage || "none") + "\n"
+			reply += "• Progress: " + (pipeline.progress || 0) + "%"
+		} else if (action === "qdrant_collections") {
+			var collections = result.collections || []
+			if (collections.length === 0) {
+				reply += "No Qdrant collections found."
+			} else {
+				reply += collections
+					.map(function (c) {
+						return "• `" + c + "`"
+					})
+					.join("\n")
+			}
+		} else if (action === "hermes_recall" || action === "qdrant_search") {
+			var memory = result.memory || result.results || []
+			if (Array.isArray(memory) && memory.length > 0) {
+				reply += memory
+					.slice(0, 3)
+					.map(function (m) {
+						return "• " + (m.summary || m.content || JSON.stringify(m).slice(0, 200))
+					})
+					.join("\n")
+			} else if (result.output) {
+				reply += result.output.slice(0, 1000)
+			} else {
+				reply += "No results found."
+			}
+		} else if (action === "ollama_health") {
+			var ollama = result.ollama || {}
+			reply += "• Status: " + (ollama.ok ? "✅ Online" : "❌ Offline") + "\n"
+			reply += "• Base URL: `" + (ollama.baseUrl || "unknown") + "`\n"
+			if (ollama.models && ollama.models.length > 0) {
+				reply +=
+					"• Models:\n" +
+					ollama.models
+						.map(function (m) {
+							return "  - `" + m + "`"
+						})
+						.join("\n")
+			} else if (ollama.error) {
+				reply += "• Error: " + ollama.error
+			}
+		} else if (action === "ollama_summarize") {
+			reply += "• Source: " + (result.source || "ollama") + "\n"
+			if (result.summary) {
+				var s = result.summary
+				reply += "\n*Severity:* " + (s.severity || "unknown") + "\n"
+				reply += "*One-line:* " + (s.oneLine || "N/A") + "\n"
+				reply += "*Root Cause:* " + (s.rootCause || "unknown") + "\n"
+				if (s.evidence && s.evidence.length > 0) {
+					reply +=
+						"\n*Evidence:*\n" +
+						s.evidence
+							.slice(0, 3)
+							.map(function (e) {
+								return "• " + e
+							})
+							.join("\n") +
+						"\n"
+				}
+				if (s.affectedFiles && s.affectedFiles.length > 0) {
+					reply +=
+						"\n*Affected Files:*\n" +
+						s.affectedFiles
+							.slice(0, 5)
+							.map(function (f) {
+								return "• `" + f + "`"
+							})
+							.join("\n") +
+						"\n"
+				}
+				if (s.suggestedFix) {
+					reply += "\n*Suggested Fix:* " + s.suggestedFix.slice(0, 500) + "\n"
+				}
+				reply += "\n*Retry Safe:* " + (s.retrySafe ? "✅" : "❌") + "\n"
+				reply += "*Needs Review:* " + (s.needsSeniorReview ? "⚠️ Yes" : "✅ No")
+			}
+			if (result.error) {
+				reply += "\n*Error:* " + result.error
+			}
+		} else {
+			// Generic JSON output for other actions
+			reply += "```json\n" + JSON.stringify(result, null, 2).slice(0, 1500) + "\n```"
+		}
+
+		await sendMessage(botToken, chatId, reply)
+	} catch (err) {
+		logTelegramError("/mcp", chatId, null, err, { action: action })
+		await sendMessage(botToken, chatId, "*MCP Error* ❌\n\n" + err.message)
 	}
 }
 
@@ -3107,6 +4069,14 @@ const KNOWN_COMMANDS = [
 	"/settings",
 	"/agents",
 	"/brain",
+	"/hermes",
+	"/skills",
+	"/resources",
+	"/upgrade",
+	"/mcp",
+	"/menu",
+	"/recent",
+	"/again",
 	"/code",
 	"/diff",
 	"/approve",
@@ -3123,6 +4093,9 @@ const KNOWN_COMMANDS = [
 
 /** Brain subcommands for correction */
 const BRAIN_SUBCOMMANDS = ["plan", "exec", "execute", "analyze", "fix", "memory", "context", "pipeline", "help"]
+
+/** Hermes Claw subcommands for correction (defined above at line 2949) */
+// const HERMES_SUBCOMMANDS = ["recall", "learn", "skill", "pattern", "patterns", "query", "stats", "lesson", "lessons", "help"]
 
 /**
  * Calculates Levenshtein distance between two strings.
@@ -4052,12 +5025,43 @@ async function handleNaturalLanguageInstruction(
 			return true
 		}
 
+		// ─── Upgrade Self Intent ────────────────────────────────────────────
+		// Route "upgrade yourself" / "improve yourself" to the Coder agent
+		// which will modify the bot's own source files.
+		if (intentKind === "upgrade_self") {
+			await sendChatAction(botToken, chatId, "typing")
+			try {
+				await handleUpgrade(botToken, chatId, [text], queue, orchestratorBridge)
+			} catch (err) {
+				logTelegramError("nlp:upgrade_self", chatId, telegramUserId, err, { text: text.slice(0, 100) })
+				await sendMessage(botToken, chatId, "*Upgrade Error* ❌\n\n" + err.message)
+			}
+			return true
+		}
+
+		// ─── Commit Status Intent ───────────────────────────────────────────
+		// Route "commit status", "deploy status", "latest commit" to the
+		// CommitDeployLog query endpoint.
+		if (intentKind === "commit_status") {
+			await sendChatAction(botToken, chatId, "typing")
+			try {
+				var commitStatusResult = await tgEndpoints.getCommitDeployStatus()
+				var commitStatusReply = telegramEngineer.formatCommitDeployStatus(commitStatusResult)
+				await sendMessage(botToken, chatId, commitStatusReply)
+			} catch (err) {
+				logTelegramError("nlp:commit_status", chatId, telegramUserId, err, { text: text.slice(0, 100) })
+				await sendMessage(botToken, chatId, "*Commit/Deploy Status Error* ❌\n\n" + err.message)
+			}
+			return true
+		}
+
 		// ─── Legacy: Agent Routing via BullMQ ───────────────────────────────
 		// For create_branch, create_pr, and other complex actions that need
 		// the full agent pipeline, fall through to the existing BullMQ routing.
 
 		// Map OpenClaw kinds to agent IDs
 		var openclawToLegacy = {
+			coder: "superroo-coder-agent",
 			create_branch: "superroo-debugger-agent",
 			create_pr: "superroo-debugger-agent",
 			deploy: "superroo-deployer-agent",
@@ -5052,6 +6056,251 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 				return
 			}
 
+			// ─── Coder Workflow Callbacks ────────────────────────────────────────
+			// coder:<action>:<taskId> — Handle multi-phase coder workflow (approve/reject/commit/deploy/etc.)
+			if (cqData.startsWith("coder:")) {
+				logTelegramUsage("callback:coder", cqChatId, cqUserId, { data: cqData })
+				try {
+					var coderResult = await telegramNotifier.handleCoderCallback(botToken, cq)
+					if (coderResult && coderResult.action && coderResult.taskId) {
+						var coderTaskId = coderResult.taskId
+						var pendingJob = telegramNotifier.getPendingCoderJob(coderTaskId)
+
+						if (coderResult.action === "approved") {
+							// User approved the plan — enqueue an "apply" job
+							await sendChatAction(botToken, cqChatId, "typing")
+							var applyJob = await queue.add("coder-apply-" + coderTaskId, {
+								task: pendingJob ? pendingJob.instruction : "Apply approved changes",
+								agentId: "superroo-coder-agent",
+								phase: "apply",
+								taskId: coderTaskId,
+								workspaceDir: pendingJob ? pendingJob.workspaceDir : undefined,
+								repoName: pendingJob ? pendingJob.repoName : undefined,
+								branch: pendingJob ? pendingJob.branch : undefined,
+								plan: pendingJob ? pendingJob.plan : undefined,
+								telegram: {
+									botToken: botToken,
+									chatId: cqChatId,
+								},
+							})
+							logTelegramUsage("callback:coder:apply_enqueued", cqChatId, cqUserId, {
+								taskId: coderTaskId,
+								jobId: applyJob.id,
+							})
+						} else if (coderResult.action === "commit") {
+							// User wants to commit — enqueue a "commit" job
+							await sendChatAction(botToken, cqChatId, "typing")
+							var commitJob = await queue.add("coder-commit-" + coderTaskId, {
+								task: pendingJob ? pendingJob.instruction : "Commit changes",
+								agentId: "superroo-coder-agent",
+								phase: "commit",
+								taskId: coderTaskId,
+								workspaceDir: pendingJob ? pendingJob.workspaceDir : undefined,
+								branch: pendingJob ? pendingJob.branch : undefined,
+								telegram: {
+									botToken: botToken,
+									chatId: cqChatId,
+								},
+							})
+							logTelegramUsage("callback:coder:commit_enqueued", cqChatId, cqUserId, {
+								taskId: coderTaskId,
+								jobId: commitJob.id,
+							})
+						} else if (coderResult.action === "deploy") {
+							// User wants to deploy — enqueue a "deploy" job
+							await sendChatAction(botToken, cqChatId, "typing")
+							var deployJob = await queue.add("coder-deploy-" + coderTaskId, {
+								task: pendingJob ? pendingJob.instruction : "Deploy changes",
+								agentId: "superroo-coder-agent",
+								phase: "deploy",
+								taskId: coderTaskId,
+								workspaceDir: pendingJob ? pendingJob.workspaceDir : undefined,
+								branch: pendingJob ? pendingJob.branch : undefined,
+								telegram: {
+									botToken: botToken,
+									chatId: cqChatId,
+								},
+							})
+							logTelegramUsage("callback:coder:deploy_enqueued", cqChatId, cqUserId, {
+								taskId: coderTaskId,
+								jobId: deployJob.id,
+							})
+						} else if (coderResult.action === "rejected" || coderResult.action === "cancelled") {
+							// User rejected or cancelled — clean up
+							telegramNotifier.removePendingCoderJob(coderTaskId)
+							logTelegramUsage("callback:coder:" + coderResult.action, cqChatId, cqUserId, {
+								taskId: coderTaskId,
+							})
+						} else if (coderResult.action === "retry") {
+							// User wants to retry with more details — enqueue a new "plan" job
+							await sendChatAction(botToken, cqChatId, "typing")
+							var retryJob = await queue.add("coder-plan-" + coderTaskId, {
+								task: pendingJob ? pendingJob.instruction : "Retry coding task",
+								agentId: "superroo-coder-agent",
+								phase: "plan",
+								taskId: coderTaskId,
+								workspaceDir: pendingJob ? pendingJob.workspaceDir : undefined,
+								repoName: pendingJob ? pendingJob.repoName : undefined,
+								branch: pendingJob ? pendingJob.branch : undefined,
+								telegram: {
+									botToken: botToken,
+									chatId: cqChatId,
+								},
+							})
+							logTelegramUsage("callback:coder:retry_enqueued", cqChatId, cqUserId, {
+								taskId: coderTaskId,
+								jobId: retryJob.id,
+							})
+						} else if (coderResult.action === "done") {
+							// User confirmed done — clean up
+							telegramNotifier.removePendingCoderJob(coderTaskId)
+							logTelegramUsage("callback:coder:done", cqChatId, cqUserId, { taskId: coderTaskId })
+						} else if (coderResult.action === "diff") {
+							// View diff — already handled by handleCoderCallback (edits message)
+							logTelegramUsage("callback:coder:diff", cqChatId, cqUserId, { taskId: coderTaskId })
+						} else if (coderResult.action === "back") {
+							// Go back — already handled by handleCoderCallback (edits message)
+							logTelegramUsage("callback:coder:back", cqChatId, cqUserId, { taskId: coderTaskId })
+						}
+					}
+				} catch (err) {
+					logTelegramError("callback:coder", cqChatId, cqUserId, err, { data: cqData })
+					await sendMessage(botToken, cqChatId, "*Coder Workflow Error* ❌\n\n" + err.message)
+				}
+				return
+			}
+
+			// ─── Menu Callbacks ────────────────────────────────────────────────
+			// menu:<action> — Handle menu button clicks (GUI upgrade, no slash commands needed)
+			if (cqData.startsWith("menu:")) {
+				var menuAction = cqData.slice(5)
+				logTelegramUsage("callback:menu", cqChatId, cqUserId, { action: menuAction })
+				try {
+					switch (menuAction) {
+						case "code":
+							// Prompt user to type their coding instruction
+							await editMessageText(
+								botToken,
+								cqChatId,
+								cqMessageId,
+								'💻 *Coding*\n\nPlease type your coding instruction below.\n\n_Example: "Add a login page with email and password fields"_\n\nOr use `/code <instruction>` for power users.',
+							)
+							break
+						case "debug":
+							await editMessageText(
+								botToken,
+								cqChatId,
+								cqMessageId,
+								"🪲 *Debugging*\n\nPlease describe the bug you're experiencing below.\n\n_Example: \"The login button doesn't work on mobile\"_\n\nOr use `/debug <description>` for power users.",
+							)
+							break
+						case "deploy":
+							await handleDeploy(botToken, cqChatId, [], queue, orchestratorBridge)
+							break
+						case "status":
+							await handleStatus(botToken, cqChatId, [], queue)
+							break
+						case "upgrade":
+							await editMessageText(
+								botToken,
+								cqChatId,
+								cqMessageId,
+								'🔄 *Upgrade Bot*\n\nPlease describe what you\'d like to improve or upgrade about the bot.\n\n_Examples:_\n• "Add commit/deploy query capability"\n• "Make the bot learn from past conversations"\n• "Improve error handling in the Telegram bot"\n\nOr use `/upgrade <description>` for power users.',
+							)
+							break
+						case "recent":
+							await handleRecent(botToken, cqChatId)
+							break
+						case "projects":
+							await handleProjects(botToken, cqChatId, cqUserId)
+							break
+						case "brain":
+							try {
+								var brainRes = await fetch("http://127.0.0.1:8787/brain")
+								var brainData = await brainRes.json()
+								if (brainData.success && brainData.brain) {
+									var b = brainData.brain
+									await editMessageText(
+										botToken,
+										cqChatId,
+										cqMessageId,
+										"*🧠 SuperRoo Central Brain*\n\n" +
+											"*Status:* " +
+											b.status +
+											"\n" +
+											"*Agents:* Hermes Claw, Ollama, Cloud Coder\n" +
+											"*Capabilities:* Memory (RAG), Commit/Deploy Tracking, Learning Loop\n\n" +
+											"*API Base:* `https://dev.abcx124.xyz/api`\n" +
+											"*Dashboard:* `https://dev.abcx124.xyz`\n" +
+											"*Telegram:* @SuperRooBot\n\n" +
+											"*For AI Bots:* `GET /api/brain` to discover all endpoints\n\n" +
+											"*Commands:*\n" +
+											"• `/brain` — Show this info\n" +
+											"• `/brain plan <query>` — Terminal Brain planning\n" +
+											"• `/brain exec <cmd>` — Execute command safely\n" +
+											"• `/brain memory` — Terminal memory stats\n" +
+											"• `/brain context` — Project context",
+									)
+								} else {
+									throw new Error("Invalid response")
+								}
+							} catch (err) {
+								await editMessageText(
+									botToken,
+									cqChatId,
+									cqMessageId,
+									'🧠 *Central Brain*\n\nType your command or question.\n\n_Example: "Check system status" or "Run npm test"_\n\nOr use `/brain <command>` for power users.',
+								)
+							}
+							break
+						case "consultant":
+							await editMessageText(
+								botToken,
+								cqChatId,
+								cqMessageId,
+								'🔍 *Consultant*\n\nWhat would you like me to research or analyze?\n\n_Example: "Compare PostgreSQL vs MongoDB for a chat app"_',
+							)
+							break
+						case "hermes":
+							await editMessageText(
+								botToken,
+								cqChatId,
+								cqMessageId,
+								'🧠 *Hermes Claw*\n\nType your Hermes Claw command below.\n\n_Examples:_\n• "Recall how to fix build errors"\n• "Learn that I should always run tests before deploy"\n• "Show stats"\n\nOr use `/hermes <subcommand>` for power users.',
+							)
+							break
+						case "skills":
+							await handleSkills(botToken, cqChatId)
+							break
+						case "resources":
+							await handleResources(botToken, cqChatId)
+							break
+						case "logs":
+							await handleLogs(botToken, cqChatId, [])
+							break
+						case "tests":
+							await handleTest(botToken, cqChatId, [], queue)
+							break
+						case "help":
+							await handleHelp(botToken, cqChatId)
+							break
+						case "about":
+							await handleAbout(botToken, cqChatId)
+							break
+						case "back":
+							// Show the menu again
+							await handleMenu(botToken, cqChatId)
+							break
+						default:
+							await handleMenu(botToken, cqChatId)
+					}
+				} catch (err) {
+					logTelegramError("callback:menu", cqChatId, cqUserId, err, { action: menuAction })
+					await sendMessage(botToken, cqChatId, "*Menu Error* ❌\n\n" + err.message)
+				}
+				return
+			}
+
 			// Unhandled callback data — log warning for Ace Team monitoring
 			logTelegramWarning("callback:unknown", cqChatId, cqUserId, "Unhandled callback data", { data: cqData })
 		} catch (err) {
@@ -5250,6 +6499,30 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 		} else if (command === "/brain") {
 			logTelegramUsage("/brain", chatId, telegramUserId, { args: cmdArgs.join(" ") })
 			await handleBrain(botToken, chatId, cmdArgs, providers || [])
+		} else if (command === "/hermes") {
+			logTelegramUsage("/hermes", chatId, telegramUserId, { args: cmdArgs.join(" ") })
+			await handleHermes(botToken, chatId, cmdArgs, providers || [])
+		} else if (command === "/skills") {
+			logTelegramUsage("/skills", chatId, telegramUserId)
+			await handleSkills(botToken, chatId)
+		} else if (command === "/resources") {
+			logTelegramUsage("/resources", chatId, telegramUserId)
+			await handleResources(botToken, chatId)
+		} else if (command === "/upgrade") {
+			logTelegramUsage("/upgrade", chatId, telegramUserId, { args: cmdArgs.join(" ") })
+			await handleUpgrade(botToken, chatId, cmdArgs, queue, orchestratorBridge)
+		} else if (command === "/mcp") {
+			logTelegramUsage("/mcp", chatId, telegramUserId, { args: cmdArgs.join(" ") })
+			await handleMcp(botToken, chatId, cmdArgs, providers || [])
+		} else if (command === "/menu") {
+			logTelegramUsage("/menu", chatId, telegramUserId)
+			await handleMenu(botToken, chatId)
+		} else if (command === "/recent") {
+			logTelegramUsage("/recent", chatId, telegramUserId)
+			await handleRecent(botToken, chatId)
+		} else if (command === "/again") {
+			logTelegramUsage("/again", chatId, telegramUserId)
+			await handleAgain(botToken, chatId, queue, orchestratorBridge)
 		} else if (command === "/code") {
 			logTelegramUsage("/code", chatId, telegramUserId, { args: cmdArgs.join(" ") })
 			await handleCode(botToken, chatId, cmdArgs, queue, orchestratorBridge)
@@ -5483,4 +6756,12 @@ module.exports = {
 	tgEndpoints,
 	// Terminal Brain
 	handleBrain,
+	// Hermes Claw
+	handleHermes,
+	handleSkills,
+	handleResources,
+	// Self-Upgrade
+	handleUpgrade,
+	// MCP Bridge
+	handleMcp,
 }
