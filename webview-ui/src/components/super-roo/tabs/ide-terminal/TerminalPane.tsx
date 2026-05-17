@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react"
 import { Terminal, Plus, X } from "lucide-react"
-import { TerminalOutput } from "../../chat/TerminalOutput"
+import { TerminalOutput } from "../../../chat/TerminalOutput"
 import type { TerminalSession } from "../../lib/ideWorkspaceApi"
 
 interface TerminalPaneProps {
