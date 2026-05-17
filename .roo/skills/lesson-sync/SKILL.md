@@ -17,6 +17,8 @@ Use this skill when:
 
 ## Quick Commands
 
+### In superroo2 repo:
+
 ```bash
 # Retrieve top lessons for current context
 node -e "const {getLessonRetriever} = require('./src/super-roo/lessons'); const retriever = getLessonRetriever(); retriever.load().then(() => retriever.getTopLessons(5)).then(lessons => console.log(JSON.stringify(lessons, null, 2)))"
@@ -40,18 +42,34 @@ node scripts/ollama-summarize-lesson.mjs
 node scripts/central-brain-store-lesson.mjs
 ```
 
+### From ANY project (cross-project):
+
+```bash
+# Query lessons from all projects
+node /path/to/superroo2/tools/superroo-learn.mjs query "how to fix race conditions"
+
+# Or after installing globally:
+superroo-learn query "deployment best practices"
+superroo-learn store "React hooks" "useEffect cleanup pattern..."
+superroo-learn recall "memory leaks"
+superroo-learn status
+
+# Install global git hook (one-time)
+node /path/to/superroo2/tools/install-global-hook.mjs
+```
+
 ## File Locations
 
-| File | Purpose |
-| ---- | ------- |
-| `memory/lessons-learned.md` | Human-readable lesson archive |
-| `memory/lesson-index.jsonl` | Machine-readable JSONL index for retrieval |
-| `memory/lesson-summaries.json` | Ollama embeddings and summaries |
-| `memory/bugs-fixed.md` | Bug-specific lessons and root causes |
-| `memory/feature-knowledge.md` | Feature-specific knowledge and decisions |
-| `memory/central-brain-store-log.json` | Central Brain sync queue/status |
-| `src/super-roo/lessons/LessonRetriever.ts` | Programmatic lesson retrieval API |
-| `src/super-roo/lessons/PromptEnhancer.ts` | Auto-inject lessons into model prompts |
+| File                                       | Purpose                                    |
+| ------------------------------------------ | ------------------------------------------ |
+| `memory/lessons-learned.md`                | Human-readable lesson archive              |
+| `memory/lesson-index.jsonl`                | Machine-readable JSONL index for retrieval |
+| `memory/lesson-summaries.json`             | Ollama embeddings and summaries            |
+| `memory/bugs-fixed.md`                     | Bug-specific lessons and root causes       |
+| `memory/feature-knowledge.md`              | Feature-specific knowledge and decisions   |
+| `memory/central-brain-store-log.json`      | Central Brain sync queue/status            |
+| `src/super-roo/lessons/LessonRetriever.ts` | Programmatic lesson retrieval API          |
+| `src/super-roo/lessons/PromptEnhancer.ts`  | Auto-inject lessons into model prompts     |
 
 ## Lesson Format
 
@@ -67,28 +85,36 @@ Confidence: [high/medium/low]
 Related files: [comma-separated list]
 
 #### Task Summary
+
 [What was accomplished?]
 
 #### Files Changed
+
 - [file1]
 - [file2]
 
 #### Bug Cause
+
 [Root cause if applicable]
 
 #### Fix Applied
+
 [What fixed it?]
 
 #### Test Result
+
 [pass/fail/unknown]
 
 #### Lesson Learned
+
 [Reusable engineering insight]
 
 #### Reusable Rule
+
 [Specific actionable rule for future agents]
 
 #### Tags
+
 [tag1, tag2, tag3]
 
 ---
@@ -103,6 +129,7 @@ Related files: [comma-separated list]
 ## Agent Sync Pledge
 
 This agent is permanently synced to the learning layer:
+
 - ✅ Reads lessons before every substantial coding task
 - ✅ Writes lessons after every task completion
 - ✅ Uses LessonRetriever API when available

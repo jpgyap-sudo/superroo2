@@ -53,10 +53,16 @@ export class PromptEnhancer {
 
 	/**
 	 * Select relevant lessons based on options
+	 *
+	 * When using remote (cross-project) mode, increases the lesson count
+	 * to compensate for broader, less-specific matches across projects.
 	 */
 	private async selectLessons(options: EnhanceOptions): Promise<Lesson[]> {
-		const limit = options.maxLessons || 5
-		const minRelevance = options.minRelevance || 0.8
+		// When using remote Central Brain (cross-project mode), fetch more lessons
+		// since cross-project matches are broader and less specific
+		const isRemote = this.retriever.isUsingRemote()
+		const limit = options.maxLessons || (isRemote ? 10 : 5)
+		const minRelevance = isRemote ? 0.6 : options.minRelevance || 0.8
 
 		// If we have file paths, get lessons specific to those files
 		if (options.filePaths && options.filePaths.length > 0) {

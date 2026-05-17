@@ -69,28 +69,36 @@ Confidence: [high/medium/low]
 Related files: [comma-separated list]
 
 #### Task Summary
+
 [What was accomplished?]
 
 #### Files Changed
+
 - [file1]
 - [file2]
 
 #### Bug Cause
+
 [Root cause if applicable]
 
 #### Fix Applied
+
 [What fixed it?]
 
 #### Test Result
+
 [pass/fail/unknown]
 
 #### Lesson Learned
+
 [Reusable engineering insight]
 
 #### Reusable Rule
+
 [Specific actionable rule for future agents]
 
 #### Tags
+
 [tag1, tag2, tag3]
 
 ---
@@ -195,6 +203,7 @@ node -e "const {getLessonRetriever} = require('./src/super-roo/lessons'); const 
 ```
 
 Agents SHOULD also:
+
 - Search `memory/lessons-learned.md` for keywords related to the task
 - Search `memory/bugs-fixed.md` for similar bugs
 - Search `memory/feature-knowledge.md` for related features
@@ -215,6 +224,7 @@ If a commit was not made (e.g., config fix, docs update), manually append the le
 ### Agent Sync Pledge
 
 This agent (Kimi Code CLI) is permanently synced:
+
 - ✅ Reads lessons before every substantial coding task
 - ✅ Writes lessons after every task completion
 - ✅ Uses the LessonRetriever API when available
@@ -240,3 +250,98 @@ Ask:
 3. What files are usually involved?
 4. What test catches this issue?
 5. What reusable rule should be enforced?
+
+## Cross-Project Learning Layer
+
+The SuperRoo learning layer now works across **any project**, not just this repo.
+
+### How It Works
+
+| Component                | In superroo2 repo                       | In another project                        |
+| ------------------------ | --------------------------------------- | ----------------------------------------- |
+| **LessonRetriever**      | Reads local `memory/lesson-index.jsonl` | Falls back to Central Brain via MCP       |
+| **PromptEnhancer**       | Injects local lessons (max 5)           | Injects cross-project lessons (max 10)    |
+| **Git post-commit hook** | `.husky/post-commit` (repo-local)       | Global hook via `install-global-hook.mjs` |
+| **CLI**                  | `node tools/superroo-learn.mjs`         | `superroo-learn` from any directory       |
+| **Central Brain**        | Stores all lessons with project tags    | Same — all projects share the brain       |
+
+### Installation (One-Time)
+
+Run this once to enable cross-project learning:
+
+```bash
+# Install global git hook (auto-extracts lessons from ANY repo)
+node tools/install-global-hook.mjs
+
+# Add to PATH (optional, for superroo-learn from anywhere)
+export PATH="$HOME/.superroo/bin:$PATH"
+```
+
+### Workflow for Any Project
+
+**Before coding:**
+
+```bash
+# Query lessons from all projects
+superroo-learn query "how to fix database connection leaks"
+
+# Or query a specific project
+superroo-learn query "deployment best practices" "superroo2"
+```
+
+**After coding:**
+
+```bash
+# Store a lesson manually
+superroo-learn store "React performance" "Disable strict mode in production to avoid double-rendering"
+
+# Or just commit — the global hook auto-extracts lessons:
+git commit -m "fix: resolved memory leak in WebSocket connection pool"
+# Lesson is auto-stored in Central Brain
+```
+
+**Check status:**
+
+```bash
+superroo-learn status
+superroo-learn projects
+```
+
+### Architecture
+
+```
+Any Project Directory
+        │
+        ├── git commit ──► global post-commit hook
+        │                      │
+        │                      ▼
+        │              superroo-learn extract-commit
+        │                      │
+        │                      ▼
+        │            Central Brain (pgvector / Qdrant)
+        │                      │
+        │                      ▼
+        │            All projects can query all lessons
+        │
+        ├── coding session ──► LessonRetriever
+        │                      │
+        │              ┌───────┴────────┐
+        │              ▼                ▼
+        │      Local memory/     Central Brain
+        │      lesson-index.jsonl (MCP fallback)
+        │              │                │
+        │              └───────┬────────┘
+        │                      ▼
+        │                PromptEnhancer
+        │                      │
+        │                      ▼
+        │              Injected into model prompt
+```
+
+### Key Principles
+
+1. **Local-first**: `LessonRetriever` prefers local files (faster, no network). Falls back to Central Brain only when local index is missing.
+2. **Project-tagged**: Every lesson is tagged with its source project. Queries can filter by project or search across all.
+3. **Non-blocking**: The global git hook runs in the background. `git commit` is never slowed down.
+4. **Zero-config for most projects**: Project name is auto-detected from `git remote`. Only override via `SUPERROO_PROJECT` env var if needed.
+5. **No breaking changes**: All existing superroo2 code continues to work exactly as before. The new behavior is purely additive.
