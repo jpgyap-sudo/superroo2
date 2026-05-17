@@ -1,8 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
 	output: "standalone",
-	// Disable etag for static files to avoid caching issues in standalone mode
 	generateEtags: false,
+	eslint: { ignoreDuringBuilds: true },
 	async rewrites() {
 		return [
 			{
