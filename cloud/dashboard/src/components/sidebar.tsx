@@ -57,6 +57,7 @@ const NAV = [
 	{ id: "ide-terminal", icon: Terminal, label: "IDE Terminal" },
 	{ id: "auto-deploy", icon: Rocket, label: "Auto Deploy" },
 	{ id: "commit-deploy", icon: GitCommit, label: "Commit/Deploy" },
+	{ id: "intelligence-layer", icon: BrainCircuit, label: "Intelligence Layer" },
 	{ id: "brain", icon: BrainCircuit, label: "Central Brain" },
 ]
 

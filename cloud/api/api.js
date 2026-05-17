@@ -2380,6 +2380,223 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// Intelligence Layer — aggregated stats from memory files
+		if (method === "GET" && (url === "/intelligence-layer" || normalizedUrl === "/intelligence-layer")) {
+			try {
+				const fs = require("fs")
+				const path = require("path")
+				const memoryDir = path.join(__dirname, "..", "..", "memory")
+				const serverMemoryDir = path.join(__dirname, "..", "..", "server", "src", "memory")
+
+				// ── Lessons ──
+				let totalLessons = 0
+				let lessonsToday = 0
+				const tagCounts = {}
+				const modelCounts = {}
+				const today = new Date().toISOString().slice(0, 10)
+
+				// Read lesson-index.jsonl
+				try {
+					const indexRaw = fs.readFileSync(path.join(memoryDir, "lesson-index.jsonl"), "utf8")
+					const lines = indexRaw.trim().split("\n").filter(Boolean)
+					totalLessons = lines.length
+					for (const line of lines) {
+						try {
+							const entry = JSON.parse(line)
+							if (entry.date === today) lessonsToday++
+							if (entry.tags) entry.tags.forEach((t) => { tagCounts[t] = (tagCounts[t] || 0) + 1 })
+							if (entry.model) modelCounts[entry.model] = (modelCounts[entry.model] || 0) + 1
+						} catch { /* skip malformed lines */ }
+					}
+				} catch { /* file may not exist */ }
+
+				// ── Bugs fixed ──
+				let totalBugs = 0
+				const bugSources = {}
+				try {
+					const bugsRaw = fs.readFileSync(path.join(memoryDir, "bugs-fixed.md"), "utf8")
+					const bugMatches = bugsRaw.match(/### Legacy Lesson:/g)
+					totalBugs = bugMatches ? bugMatches.length : 0
+				} catch { /* file may not exist */ }
+
+				// ── Healing incidents ──
+				let totalIncidents = 0
+				let criticalIncidents = 0
+				const incidentCategories = {}
+				try {
+					const incidentsRaw = fs.readFileSync(path.join(memoryDir, "healing-incidents.json"), "utf8")
+					const incidents = JSON.parse(incidentsRaw)
+					totalIncidents = incidents.length
+					for (const inc of incidents) {
+						if (inc.severity === "critical") criticalIncidents++
+						const cat = inc.rootCauseCategory || "UNKNOWN"
+						incidentCategories[cat] = (incidentCategories[cat] || 0) + 1
+					}
+				} catch { /* file may not exist */ }
+
+				// ── Healing metrics ──
+				let totalHealingAttempts = 0
+				let totalHealingSuccesses = 0
+				let totalHealingFailures = 0
+				const healingByCategory = {}
+				try {
+					const metricsRaw = fs.readFileSync(path.join(memoryDir, "healing-metrics.json"), "utf8")
+					const metrics = JSON.parse(metricsRaw)
+					if (metrics.byCategory) {
+						for (const [cat, data] of Object.entries(metrics.byCategory)) {
+							totalHealingAttempts += data.totalAttempts || 0
+							totalHealingSuccesses += data.successCount || 0
+							totalHealingFailures += data.failureCount || 0
+							healingByCategory[cat] = data
+						}
+					}
+				} catch { /* file may not exist */ }
+
+				// ── Model decisions ──
+				let totalModelDecisions = 0
+				const modelDecisionModels = {}
+				try {
+					const decisionsRaw = fs.readFileSync(path.join(memoryDir, "model-decisions.md"), "utf8")
+					const decisionMatches = decisionsRaw.match(/### Legacy Lesson:/g)
+					totalModelDecisions = decisionMatches ? decisionMatches.length : 0
+					// Count model mentions
+					const modelMatches = decisionsRaw.match(/Model\/API used:\s*(.+)/g)
+					if (modelMatches) {
+						for (const m of modelMatches) {
+							const modelName = m.replace("Model/API used:", "").trim()
+							modelDecisionModels[modelName] = (modelDecisionModels[modelName] || 0) + 1
+						}
+					}
+				} catch { /* file may not exist */ }
+
+				// ── Commit/Deploy log ──
+				let totalCommits = 0
+				let totalDeploys = 0
+				let commitsToday = 0
+				let deploysToday = 0
+				const commitTypes = {}
+				const deployStatuses = {}
+				try {
+					const cdLogRaw = fs.readFileSync(path.join(serverMemoryDir, "commit-deploy-log.json"), "utf8")
+					const cdLog = JSON.parse(cdLogRaw)
+					if (cdLog.commits) {
+						totalCommits = cdLog.commits.length
+						for (const c of cdLog.commits) {
+							if (c.timestamp && c.timestamp.slice(0, 10) === today) commitsToday++
+							const t = c.type || "other"
+							commitTypes[t] = (commitTypes[t] || 0) + 1
+						}
+					}
+					if (cdLog.deploys) {
+						totalDeploys = cdLog.deploys.length
+						for (const d of cdLog.deploys) {
+							if (d.timestamp && d.timestamp.slice(0, 10) === today) deploysToday++
+							const s = d.status || "unknown"
+							deployStatuses[s] = (deployStatuses[s] || 0) + 1
+						}
+					}
+				} catch { /* file may not exist */ }
+
+				// ── Feature knowledge ──
+				let totalFeatures = 0
+				try {
+					const fkRaw = fs.readFileSync(path.join(memoryDir, "feature-knowledge.md"), "utf8")
+					const fkLines = fkRaw.split("\n").filter((l) => l.startsWith("## "))
+					totalFeatures = fkLines.length
+				} catch { /* file may not exist */ }
+
+				// ── Top tags (most used) ──
+				const topTags = Object.entries(tagCounts)
+					.sort((a, b) => b[1] - a[1])
+					.slice(0, 15)
+					.map(([tag, count]) => ({ tag, count }))
+
+				// ── Top models ──
+				const topModels = Object.entries(modelCounts)
+					.sort((a, b) => b[1] - a[1])
+					.slice(0, 10)
+					.map(([model, count]) => ({ model, count }))
+
+				// ── Most common bug categories ──
+				const topBugCategories = Object.entries(incidentCategories)
+					.sort((a, b) => b[1] - a[1])
+					.map(([category, count]) => ({ category, count }))
+
+				// ── Most reused fixes (from healing metrics) ──
+				const topFixPatterns = Object.entries(healingByCategory)
+					.sort((a, b) => (b[1].successCount || 0) - (a[1].successCount || 0))
+					.map(([category, data]) => ({ category, successCount: data.successCount, totalAttempts: data.totalAttempts }))
+
+				// ── Memory growth (commits per day, last 14 days) ──
+				const memoryGrowth = []
+				try {
+					const cdLogRaw = fs.readFileSync(path.join(serverMemoryDir, "commit-deploy-log.json"), "utf8")
+					const cdLog = JSON.parse(cdLogRaw)
+					const dayCounts = {}
+					if (cdLog.commits) {
+						for (const c of cdLog.commits) {
+							if (c.timestamp) {
+								const day = c.timestamp.slice(0, 10)
+								dayCounts[day] = (dayCounts[day] || 0) + 1
+							}
+						}
+					}
+					const sortedDays = Object.entries(dayCounts).sort((a, b) => a[0].localeCompare(b[0]))
+					const recentDays = sortedDays.slice(-14)
+					for (const [day, count] of recentDays) {
+						memoryGrowth.push({ date: day, commits: count })
+					}
+				} catch { /* file may not exist */ }
+
+				sendJson(res, 200, {
+					success: true,
+					data: {
+						lessons: {
+							total: totalLessons,
+							today: lessonsToday,
+							topTags,
+							topModels,
+						},
+						bugs: {
+							total: totalBugs,
+						},
+						healing: {
+							totalIncidents,
+							criticalIncidents,
+							totalAttempts: totalHealingAttempts,
+							totalSuccesses: totalHealingSuccesses,
+							totalFailures: totalHealingFailures,
+							successRate: totalHealingAttempts > 0 ? Math.round((totalHealingSuccesses / totalHealingAttempts) * 100) : 0,
+							topBugCategories,
+							topFixPatterns,
+						},
+						modelDecisions: {
+							total: totalModelDecisions,
+							models: modelDecisionModels,
+						},
+						commits: {
+							total: totalCommits,
+							today: commitsToday,
+							byType: commitTypes,
+						},
+						deploys: {
+							total: totalDeploys,
+							today: deploysToday,
+							byStatus: deployStatuses,
+						},
+						features: {
+							total: totalFeatures,
+						},
+						memoryGrowth,
+					},
+				})
+			} catch (err) {
+				writeApiLog("error", "intelligence-layer", "Failed to aggregate stats", { error: err.message })
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
 		// Queue stats
 		if (method === "GET" && (url === "/queue/stats" || normalizedUrl === "/queue/stats")) {
 			const counts = await getJobCounts()

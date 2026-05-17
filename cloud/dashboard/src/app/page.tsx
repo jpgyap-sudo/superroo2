@@ -26,6 +26,7 @@ import { TelegramView } from "@/components/views/telegram"
 import { AutoDeployView } from "@/components/views/auto-deploy"
 import { CommitDeployView } from "@/components/views/commit-deploy"
 import { BrainView } from "@/components/views/brain"
+import { IntelligenceLayerView } from "@/components/views/intelligence-layer"
 import WorkflowComplianceView from "@/components/views/workflow-compliance"
 import { LoginPage } from "@/components/auth/login"
 
@@ -53,6 +54,7 @@ const PAGES: Record<string, React.FC> = {
 	telegram: TelegramView,
 	"auto-deploy": AutoDeployView,
 	"commit-deploy": CommitDeployView,
+	"intelligence-layer": IntelligenceLayerView,
 	brain: BrainView,
 }
 
