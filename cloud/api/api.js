@@ -8130,6 +8130,50 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// POST /api/lessons/sync — batch-sync lessons from local lesson-index to Central Brain DB
+		// Accepts array of lesson objects (lesson-index.jsonl format)
+		// Called by sync-lessons-to-central-brain.mjs running on dev machine
+		if (
+			method === "POST" &&
+			(url === "/lessons/sync" || normalizedUrl === "/lessons/sync")
+		) {
+			try {
+				const data = await parseBody(req)
+				const lessons = Array.isArray(data) ? data : data.lessons || []
+				if (lessons.length === 0) {
+					sendJson(res, 400, { success: false, error: "No lessons provided" })
+					return
+				}
+				const { BugKnowledgeStore } = require("../orchestrator/stores/BugKnowledgeStore")
+				const store = new BugKnowledgeStore()
+				const results = []
+				for (const lesson of lessons) {
+					try {
+						const r = await store.storeLesson({
+							lesson_type: lesson.type || "best_practice",
+							topic: lesson.title || lesson.topic || "Untitled",
+							content: [
+								lesson.lesson_summary || "",
+								lesson.rule_summary ? `\nRule: ${lesson.rule_summary}` : "",
+								lesson.files?.length ? `\nFiles: ${lesson.files.join(", ")}` : "",
+							].join(""),
+							source_task_id: lesson.source || lesson.id || null,
+							project: lesson.project || "superroo2",
+							metadata: { tags: lesson.tags || [], date: lesson.date, confidence: lesson.confidence },
+						})
+						results.push({ id: lesson.id, stored: r.id, success: r.success })
+					} catch (e) {
+						results.push({ id: lesson.id, success: false, error: e.message })
+					}
+				}
+				const synced = results.filter((r) => r.success).length
+				sendJson(res, 200, { success: true, synced, failed: results.filter((r) => !r.success).length, results })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
 		// POST /orchestrator/hermes/lesson — receive a lesson notification from agent runners
 		if (
 			method === "POST" &&
