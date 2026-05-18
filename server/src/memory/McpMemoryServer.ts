@@ -6,19 +6,22 @@
  * memory. It exposes:
  *
  *   Tools:
- *     - query_memory(query, project?) — Search memory with RAG context
+ *     - query_memory(query, project?, maxResults?, offset?) — Search memory with RAG context
  *     - get_project_info(project?) — Get project namespace details
  *     - list_projects() — List all registered projects
+ *     - register_project(name, directory) — Register a new project
  *     - get_active_task(project?) — Get current active task for a project
  *     - get_recent_bugs(project?, limit?) — Get recent bugs for a project
  *     - search_code(query, project?, file_pattern?) — Search indexed code
  *     - submit_task(goal, project?, agent?) — Submit a new task
  *     - hermes_recall(query, limit?) — Semantic memory search via Hermes Claw
  *     - hermes_learn(topic, content) — Store a lesson via Hermes Claw
+ *     - hermes_learn_batch(lessons) — Store multiple lessons in bulk
  *     - hermes_list_skills() — List all created skills
  *     - hermes_list_resources() — List all knowledge resources
  *     - hermes_stats() — Get Hermes Claw statistics
  *     - commit_deploy_status(limit?) — Get commit/deploy history
+ *     - sync_status() — Get Central Brain sync status and health
  *     - codex_task_upsert(...) — Create or update persistent Codex task memory
  *     - codex_task_list(limit?) — List recent Codex tasks
  *     - codex_task_get(id) — Fetch one Codex task
@@ -49,6 +52,7 @@ import * as http from "node:http"
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import * as crypto from "node:crypto"
+import * as os from "node:os"
 
 // ── Configuration ──
 
@@ -64,6 +68,13 @@ const CLAUDE_TASK_LOG_PATH =
 	process.env.CLAUDE_TASK_LOG_PATH || path.resolve(process.cwd(), "server/src/memory/claudetask.json")
 const MEMORY_DIR = path.resolve(process.cwd(), "server/src/memory")
 const HEALING_DIR = path.resolve(process.cwd(), "memory")
+const SUPERROO_CONFIG_PATH = path.resolve(os.homedir(), ".superroo", "config.json")
+const LESSONS_LEARNED_PATH = path.resolve(process.cwd(), "memory", "lessons-learned.md")
+const LESSON_INDEX_PATH = path.resolve(process.cwd(), "memory", "lesson-index.jsonl")
+
+// Rate limiting config
+const RATE_LIMIT_WINDOW_MS = Number(process.env.MCP_RATE_LIMIT_WINDOW_MS || "60_000") // 1 minute
+const RATE_LIMIT_MAX_CALLS = Number(process.env.MCP_RATE_LIMIT_MAX_CALLS || "120") // 120 calls/minute
 
 // ── MCP Protocol Types ──
 
@@ -127,17 +138,68 @@ interface ClaudeTaskLogFile {
 	tasks: ClaudeTaskRecord[]
 }
 
+// ── Rate Limiter ──
+
+interface RateLimitEntry {
+	count: number
+	resetAt: number
+}
+
+class RateLimiter {
+	private store = new Map<string, RateLimitEntry>()
+
+	check(key: string): { allowed: boolean; remaining: number; resetAt: number } {
+		const now = Date.now()
+		const entry = this.store.get(key)
+		if (!entry || now >= entry.resetAt) {
+			this.store.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS })
+			return { allowed: true, remaining: RATE_LIMIT_MAX_CALLS - 1, resetAt: now + RATE_LIMIT_WINDOW_MS }
+		}
+		if (entry.count >= RATE_LIMIT_MAX_CALLS) {
+			return { allowed: false, remaining: 0, resetAt: entry.resetAt }
+		}
+		entry.count++
+		return { allowed: true, remaining: RATE_LIMIT_MAX_CALLS - entry.count, resetAt: entry.resetAt }
+	}
+
+	/** Clean up expired entries periodically */
+	cleanup(): void {
+		const now = Date.now()
+		for (const [key, entry] of this.store) {
+			if (now >= entry.resetAt) this.store.delete(key)
+		}
+	}
+}
+
+// ── SuperRoo Config (from ~/.superroo/config.json) ──
+
+interface SuperrooProjectConfig {
+	name?: string
+	directory?: string
+	registeredAt?: string
+	registered?: string
+	firstSeen?: string
+}
+
+interface SuperrooConfig {
+	projects?: Record<string, SuperrooProjectConfig>
+}
+
 // ── MCP Server ──
 
 class McpMemoryServer {
 	private server: http.Server
 	private tools: McpToolDefinition[] = []
 	private resources: McpResourceDefinition[] = []
+	private rateLimiter = new RateLimiter()
+	private startTime = Date.now()
 
 	constructor() {
 		this.server = http.createServer((req, res) => this._handleRequest(req, res))
 		this._registerTools()
 		this._registerResources()
+		// Clean up rate limiter entries every 5 minutes
+		setInterval(() => this.rateLimiter.cleanup(), 5 * 60 * 1000)
 	}
 
 	/**
@@ -165,8 +227,31 @@ class McpMemoryServer {
 							type: "number",
 							description: "Maximum number of results to return (default: 10)",
 						},
+						offset: {
+							type: "number",
+							description: "Number of results to skip for pagination (default: 0)",
+						},
 					},
 					required: ["query"],
+				},
+			},
+			{
+				name: "register_project",
+				description:
+					"Register a new project with the Central Brain. Adds the project to ~/.superroo/config.json so it appears in list_projects and cross-project queries.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						name: {
+							type: "string",
+							description: "Project name/ID (e.g., my-project)",
+						},
+						directory: {
+							type: "string",
+							description: "Optional absolute path to the project directory",
+						},
+					},
+					required: ["name"],
 				},
 			},
 			{
@@ -313,6 +398,29 @@ class McpMemoryServer {
 				},
 			},
 			{
+				name: "hermes_learn_batch",
+				description:
+					"Store multiple lessons in bulk. Each lesson has a topic and content. More efficient than calling hermes_learn repeatedly.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						lessons: {
+							type: "array",
+							description: "Array of lessons to store",
+							items: {
+								type: "object",
+								properties: {
+									topic: { type: "string", description: "The topic or subject of the lesson" },
+									content: { type: "string", description: "The lesson content or knowledge to store" },
+								},
+								required: ["topic", "content"],
+							},
+						},
+					},
+					required: ["lessons"],
+				},
+			},
+			{
 				name: "hermes_list_skills",
 				description: "List all reusable skills that have been created from recurring patterns and solutions.",
 				inputSchema: {
@@ -337,7 +445,7 @@ class McpMemoryServer {
 					properties: {},
 				},
 			},
-			// ── Commit/Deploy Tool ──
+			// ── Commit/Deploy & Sync Tools ──
 			{
 				name: "commit_deploy_status",
 				description:
@@ -350,6 +458,15 @@ class McpMemoryServer {
 							description: "Maximum number of commits and deploys to return (default: 5)",
 						},
 					},
+				},
+			},
+			{
+				name: "sync_status",
+				description:
+					"Get Central Brain sync status and health. Returns daemon connectivity, REST API status, local fallback availability, and sync state.",
+				inputSchema: {
+					type: "object",
+					properties: {},
 				},
 			},
 			{
@@ -571,14 +688,38 @@ class McpMemoryServer {
 			return
 		}
 
-		// Health check
+		// Health check — rich diagnostics
 		if (req.method === "GET" && req.url === "/health") {
-			this._json(res, 200, {
+			const uptimeSeconds = Math.floor((Date.now() - this.startTime) / 1000)
+			const health = {
 				ok: true,
 				server: "mcp-memory",
-				brainUrl: CENTRAL_BRAIN_URL,
-				restFallback: REST_API_FALLBACK_URL,
-			})
+				version: "2.0.0",
+				uptime: {
+					seconds: uptimeSeconds,
+					human: `${Math.floor(uptimeSeconds / 60)}m ${uptimeSeconds % 60}s`,
+					startedAt: new Date(this.startTime).toISOString(),
+				},
+				backends: {
+					daemon: CENTRAL_BRAIN_URL,
+					restApi: REST_API_FALLBACK_URL,
+				},
+				tools: {
+					count: this.tools.length,
+					names: this.tools.map((t) => t.name),
+				},
+				rateLimiter: {
+					windowMs: RATE_LIMIT_WINDOW_MS,
+					maxCalls: RATE_LIMIT_MAX_CALLS,
+				},
+				config: {
+					port: MCP_SERVER_PORT,
+					host: MCP_SERVER_HOST,
+					memoryDir: MEMORY_DIR,
+					healingDir: HEALING_DIR,
+				},
+			}
+			this._json(res, 200, health)
 			return
 		}
 
@@ -700,6 +841,15 @@ class McpMemoryServer {
 		const project = (args?.project as string) || "superroo2"
 		const query = (args?.query as string) || ""
 		const limit = Number(args?.maxResults || args?.limit || 10)
+		const offset = Number(args?.offset || 0)
+
+		// ── Rate limiting ──
+		const rateCheck = this.rateLimiter.check(name)
+		if (!rateCheck.allowed) {
+			throw new Error(
+				`Rate limit exceeded for tool '${name}'. Try again after ${new Date(rateCheck.resetAt).toISOString()}. Limit: ${RATE_LIMIT_MAX_CALLS} calls per ${RATE_LIMIT_WINDOW_MS / 1000}s window.`,
+			)
+		}
 
 		switch (name) {
 			// ── Daemon-proxied tools ──
@@ -708,7 +858,14 @@ class McpMemoryServer {
 					query,
 					project,
 					maxResults: limit,
+					offset,
 				})
+			}
+
+			case "register_project": {
+				const projName = (args?.name as string) || ""
+				if (!projName) throw new Error("'name' is required")
+				return await this._registerProject(projName, (args?.directory as string) || "")
 			}
 
 			case "get_project_info": {
@@ -759,10 +916,55 @@ class McpMemoryServer {
 				if (!topic || !content) {
 					throw new Error("Both 'topic' and 'content' are required")
 				}
+				// Deduplication: check if a lesson with the same topic already exists locally
+				const existing = await this._findDuplicateLesson(topic)
+				if (existing) {
+					return {
+						success: true,
+						deduplicated: true,
+						existingLesson: existing,
+						note: `Lesson with topic "${topic}" already exists. Use a different topic or update the existing lesson.`,
+						source: "dedup_check",
+					}
+				}
 				return await this._proxyWithFallback("hermes_learn", {
 					topic,
 					content,
 				})
+			}
+
+			case "hermes_learn_batch": {
+				const lessons = args?.lessons as Array<{ topic: string; content: string }> | undefined
+				if (!Array.isArray(lessons) || lessons.length === 0) {
+					throw new Error("'lessons' must be a non-empty array of { topic, content } objects")
+				}
+				const results: Array<{ topic: string; status: string; error?: string }> = []
+				for (const lesson of lessons) {
+					try {
+						if (!lesson.topic || !lesson.content) {
+							results.push({ topic: lesson.topic || "(untitled)", status: "skipped", error: "Missing topic or content" })
+							continue
+						}
+						// Dedup check for each lesson
+						const existing = await this._findDuplicateLesson(lesson.topic)
+						if (existing) {
+							results.push({ topic: lesson.topic, status: "deduplicated" })
+							continue
+						}
+						const resp = await this._proxyWithFallback("hermes_learn", {
+							topic: lesson.topic,
+							content: lesson.content,
+						})
+						results.push({ topic: lesson.topic, status: "stored" })
+					} catch (err) {
+						results.push({
+							topic: lesson.topic,
+							status: "error",
+							error: err instanceof Error ? err.message : String(err),
+						})
+					}
+				}
+				return { success: true, results, total: lessons.length, stored: results.filter((r) => r.status === "stored").length }
 			}
 
 			case "hermes_list_skills": {
@@ -777,12 +979,16 @@ class McpMemoryServer {
 				return await this._proxyWithFallback("hermes_stats", {})
 			}
 
-			// ── Commit/Deploy tool ──
+			// ── Commit/Deploy & Sync tools ──
 			case "commit_deploy_status": {
 				const cdLimit = Number(args?.limit || 5)
 				return await this._proxyWithFallback("commit_deploy_status", {
 					limit: cdLimit,
 				})
+			}
+
+			case "sync_status": {
+				return await this._getSyncStatus()
 			}
 
 			case "codex_task_upsert": {
@@ -925,20 +1131,41 @@ class McpMemoryServer {
 	/**
 	 * Proxy a request with fallback chain:
 	 *   1. Try Central Brain daemon (CENTRAL_BRAIN_URL)
-	 *   2. If daemon fails, try REST API fallback (REST_API_FALLBACK_URL)
-	 *   3. If both fail, use local JSON file fallback
+	 *   2. If daemon succeeds but returns { success: false }, also fall through
+	 *   3. If daemon fails, try REST API fallback (REST_API_FALLBACK_URL)
+	 *   4. If both fail, use local JSON file fallback
 	 */
 	private async _proxyWithFallback(action: string, params: Record<string, unknown>): Promise<unknown> {
 		// Try daemon first
 		try {
-			return await this._proxyToDaemon(action, params)
+			const result = await this._proxyToDaemon(action, params)
+			// CRITICAL FIX: Check if daemon returned success: false (e.g., HermesClaw not initialized)
+			// If so, treat it as a failure and fall through to REST API / local fallback
+			if (result && typeof result === "object" && "success" in (result as Record<string, unknown>)) {
+				const r = result as Record<string, unknown>
+				if (r.success === false) {
+					console.log(
+						`[mcp-memory] Daemon returned success:false for '${action}', trying fallback: ${(r.error as string) || "unknown error"}`,
+					)
+					throw new Error(`Daemon returned success:false: ${(r.error as string) || "unknown error"}`)
+				}
+			}
+			return result
 		} catch (daemonErr) {
 			console.log(
 				`[mcp-memory] Daemon proxy failed for '${action}', trying REST API fallback: ${daemonErr instanceof Error ? daemonErr.message : String(daemonErr)}`,
 			)
 			// Fall back to REST API
 			try {
-				return await this._proxyToRestApi(action, params)
+				const restResult = await this._proxyToRestApi(action, params)
+				// Also check REST API for success:false
+				if (restResult && typeof restResult === "object" && "success" in (restResult as Record<string, unknown>)) {
+					const r = restResult as Record<string, unknown>
+					if (r.success === false) {
+						throw new Error(`REST API returned success:false: ${(r.error as string) || "unknown error"}`)
+					}
+				}
+				return restResult
 			} catch (restErr) {
 				console.log(
 					`[mcp-memory] REST fallback failed for '${action}', using local JSON fallback: ${restErr instanceof Error ? restErr.message : String(restErr)}`,
@@ -956,13 +1183,19 @@ class McpMemoryServer {
 		const project = (params.project as string) || "superroo2"
 		const limit = Number(params.limit || params.maxResults || 10)
 		const query = (params.query as string) || ""
+		const offset = Number(params.offset || 0)
 
 		switch (action) {
 			case "query_memory": {
-				const results = await this._searchLocalMemory(query, limit)
+				const results = await this._searchLocalMemory(query, limit + offset)
+				// Apply pagination: slice from offset to offset+limit
+				const paginated = results.slice(offset, offset + limit)
 				return {
 					success: true,
-					results,
+					results: paginated,
+					total: results.length,
+					offset,
+					limit,
 					source: "local_json_fallback",
 					note: "Central Brain offline — serving from local JSON files",
 				}
@@ -980,7 +1213,17 @@ class McpMemoryServer {
 			}
 
 			case "list_projects": {
-				return { success: true, projects: ["superroo2"], source: "local_json_fallback" }
+				// Scan ~/.superroo/config.json for registered projects
+				const configProjects = await this._readSuperrooConfig()
+				const projects = Object.keys(configProjects).length > 0
+					? Object.keys(configProjects)
+					: ["superroo2"]
+				return {
+					success: true,
+					projects,
+					projectDetails: configProjects,
+					source: "local_json_fallback",
+				}
 			}
 
 			case "get_active_task": {
@@ -1126,9 +1369,197 @@ class McpMemoryServer {
 		return results.slice(0, limit)
 	}
 
+	// ── New Helper Methods ──
+
 	/**
-	 * Proxy a request to the Central Brain daemon.
-	 */
+		* Read the ~/.superroo/config.json file and return registered projects.
+		* Returns an empty object if the file doesn't exist or is invalid.
+		*/
+	private async _readSuperrooConfig(): Promise<Record<string, SuperrooProjectConfig>> {
+		try {
+			const raw = await fs.readFile(SUPERROO_CONFIG_PATH, "utf8")
+			const parsed = JSON.parse(raw) as { projects?: Record<string, SuperrooProjectConfig> }
+			if (parsed && typeof parsed === "object" && parsed.projects && typeof parsed.projects === "object") {
+				return parsed.projects as Record<string, SuperrooProjectConfig>
+			}
+			return {}
+		} catch (err) {
+			if (isNodeError(err) && (err.code === "ENOENT" || err.code === "ENOTDIR")) {
+				return {}
+			}
+			// Log unexpected errors but don't crash
+			console.warn(`[mcp-memory] Failed to read superroo config at ${SUPERROO_CONFIG_PATH}:`, err instanceof Error ? err.message : String(err))
+			return {}
+		}
+	}
+
+	/**
+		* Register a project in ~/.superroo/config.json.
+		* Creates the file and parent directories if they don't exist.
+		*/
+	private async _registerProject(name: string, directory: string): Promise<unknown> {
+		if (!name) {
+			throw new Error("Project name is required")
+		}
+
+		const configDir = path.dirname(SUPERROO_CONFIG_PATH)
+		await fs.mkdir(configDir, { recursive: true })
+
+		let config: { projects: Record<string, SuperrooProjectConfig> }
+		try {
+			const raw = await fs.readFile(SUPERROO_CONFIG_PATH, "utf8")
+			const parsed = JSON.parse(raw) as Partial<{ projects: Record<string, SuperrooProjectConfig> }>
+			config = { projects: (parsed?.projects as Record<string, SuperrooProjectConfig>) || {} }
+		} catch {
+			config = { projects: {} }
+		}
+
+		const resolvedDir = directory || process.cwd()
+		config.projects[name] = {
+			name,
+			directory: resolvedDir,
+			registeredAt: new Date().toISOString(),
+		}
+
+		// Atomic write
+		const tempPath = `${SUPERROO_CONFIG_PATH}.tmp`
+		await fs.writeFile(tempPath, JSON.stringify(config, null, 2), "utf8")
+		await fs.rename(tempPath, SUPERROO_CONFIG_PATH)
+
+		return {
+			success: true,
+			project: config.projects[name],
+			source: "local_config",
+		}
+	}
+
+	/**
+		* Find a duplicate lesson by searching local lesson files for a matching topic.
+		* Checks both lessons-learned.md and lesson-index.jsonl.
+		*/
+	private async _findDuplicateLesson(topic: string): Promise<{ topic: string; content?: string; source: string } | null> {
+		if (!topic) return null
+
+		const normalizedTopic = topic.toLowerCase().trim()
+
+		// Check lesson-index.jsonl first (faster)
+		try {
+			const raw = await fs.readFile(LESSON_INDEX_PATH, "utf8")
+			const lines = raw.split("\n").filter((l) => l.trim())
+			for (const line of lines) {
+				try {
+					const entry = JSON.parse(line) as { topic?: string; title?: string }
+					const entryTopic = (entry.topic || entry.title || "").toLowerCase().trim()
+					if (entryTopic === normalizedTopic || entryTopic.includes(normalizedTopic)) {
+						return { topic: entry.topic || entry.title || topic, source: "lesson_index" }
+					}
+				} catch {
+					// Skip malformed JSON lines
+				}
+			}
+		} catch (err) {
+			if (!isNodeError(err) || err.code !== "ENOENT") {
+				console.warn(`[mcp-memory] Failed to read lesson index: ${err instanceof Error ? err.message : String(err)}`)
+			}
+		}
+
+		// Fall back to lessons-learned.md
+		try {
+			const raw = await fs.readFile(LESSONS_LEARNED_PATH, "utf8")
+			const lessonBlocks = raw.split("### ")
+			for (const block of lessonBlocks) {
+				if (!block.trim()) continue
+				const titleLine = block.split("\n")[0]?.trim() || ""
+				if (titleLine.toLowerCase().includes(normalizedTopic)) {
+					return { topic: titleLine, content: block.slice(0, 500), source: "lessons_learned_md" }
+				}
+			}
+		} catch (err) {
+			if (!isNodeError(err) || err.code !== "ENOENT") {
+				console.warn(`[mcp-memory] Failed to read lessons file: ${err instanceof Error ? err.message : String(err)}`)
+			}
+		}
+
+		return null
+	}
+
+	/**
+		* Get sync status by testing connectivity to all available backends.
+		* Tests daemon, REST API fallback, and local fallback.
+		*/
+	private async _getSyncStatus(): Promise<unknown> {
+		const status: Record<string, unknown> = {
+			server: {
+				uptime: Date.now() - this.startTime,
+				uptimeSeconds: Math.floor((Date.now() - this.startTime) / 1000),
+				startedAt: new Date(this.startTime).toISOString(),
+			},
+			rateLimiter: {
+				windowMs: RATE_LIMIT_WINDOW_MS,
+				maxCalls: RATE_LIMIT_MAX_CALLS,
+			},
+			backends: {} as Record<string, unknown>,
+		}
+
+		// Test daemon connectivity
+		try {
+			const daemonResult = await this._proxyToDaemon("ping", {})
+			;(status.backends as Record<string, unknown>).daemon = {
+				reachable: true,
+				url: CENTRAL_BRAIN_URL,
+				response: daemonResult,
+			}
+		} catch (err) {
+			;(status.backends as Record<string, unknown>).daemon = {
+				reachable: false,
+				url: CENTRAL_BRAIN_URL,
+				error: err instanceof Error ? err.message : String(err),
+			}
+		}
+
+		// Test REST API fallback connectivity
+		try {
+			const restResult = await this._proxyToRestApi("ping", {})
+			;(status.backends as Record<string, unknown>).restApi = {
+				reachable: true,
+				url: REST_API_FALLBACK_URL,
+				response: restResult,
+			}
+		} catch (err) {
+			;(status.backends as Record<string, unknown>).restApi = {
+				reachable: false,
+				url: REST_API_FALLBACK_URL,
+				error: err instanceof Error ? err.message : String(err),
+			}
+		}
+
+		// Test local fallback
+		try {
+			const localResult = await this._handleLocalFallback("list_projects", {})
+			;(status.backends as Record<string, unknown>).localFallback = {
+				reachable: true,
+				source: (localResult as Record<string, unknown>)?.source || "unknown",
+			}
+		} catch (err) {
+			;(status.backends as Record<string, unknown>).localFallback = {
+				reachable: false,
+				error: err instanceof Error ? err.message : String(err),
+			}
+		}
+
+		// Determine overall health
+		const backends = status.backends as Record<string, { reachable: boolean }>
+		const reachableCount = Object.values(backends).filter((b) => b.reachable).length
+		status.overall = reachableCount >= 2 ? "healthy" : reachableCount === 1 ? "degraded" : "offline"
+		status.reachableBackends = reachableCount
+		status.totalBackends = Object.keys(backends).length
+
+		return { success: true, status, source: "sync_status_check" }
+	}
+
+	/**
+		* Proxy a request to the Central Brain daemon.
+		*/
 	private async _proxyToDaemon(action: string, params: Record<string, unknown>): Promise<unknown> {
 		const headers: Record<string, string> = {
 			"content-type": "application/json",

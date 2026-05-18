@@ -922,6 +922,7 @@ export default function IdeTerminalView() {
 								problems={hook.editorProblems}
 								onProblemClick={(file: string, line: number, column: number) => {
 									hook.handleFileSelect(file)
+									hook.setJumpToPosition({ line, column })
 									hook.setShowProblemsPanel(false)
 								}}
 								onClose={() => hook.setShowProblemsPanel(false)}

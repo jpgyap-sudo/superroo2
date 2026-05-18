@@ -35,6 +35,10 @@ interface MonacoEditorProps {
 	onLspChangeDocument?: (lang: string, uri: string, text: string, version: number) => Promise<any>
 	// LSP diagnostics from language server
 	lspDiagnostics?: LspDiagnostic[]
+	// Jump to position (line, column) — set externally e.g. from ProblemsPanel click
+	jumpToPosition?: { line: number; column: number } | null
+	// Callback when file is closed / switched away
+	onLspCloseDocument?: (lang: string, uri: string) => Promise<any>
 }
 
 interface InlineAction {
@@ -102,6 +106,8 @@ export default function MonacoEditor({
 	onLspOpenDocument,
 	onLspChangeDocument,
 	lspDiagnostics = [],
+	jumpToPosition,
+	onLspCloseDocument,
 }: MonacoEditorProps) {
 	const editorRef = useRef<any>(null)
 	const monacoRef = useRef<any>(null)
@@ -385,6 +391,7 @@ export default function MonacoEditor({
 	}
 
 	// ── Sync external value changes ────────────────────────────
+	const prevFilePathRef = useRef<string | null>(null)
 	useEffect(() => {
 		const editor = editorRef.current
 		if (!editor) return
@@ -393,7 +400,12 @@ export default function MonacoEditor({
 			editor.setValue(value)
 			setIsDirty(false)
 		}
-	}, [value])
+		// Send didClose for previous file when switching
+		if (prevFilePathRef.current && prevFilePathRef.current !== filePath && onLspCloseDocument) {
+			onLspCloseDocument(lang, prevFilePathRef.current).catch(() => {})
+		}
+		prevFilePathRef.current = filePath || null
+	}, [value, filePath, lang, onLspCloseDocument])
 
 	// ── Apply LSP diagnostics as model markers ─────────────────
 	useEffect(() => {
@@ -421,6 +433,18 @@ export default function MonacoEditor({
 
 		monaco.editor.setModelMarkers(model, "lsp", markers)
 	}, [lspDiagnostics, filePath])
+
+	// ── Jump to position (e.g. from ProblemsPanel click) ───────
+	useEffect(() => {
+		const editor = editorRef.current
+		if (!editor || !jumpToPosition) return
+		editor.setPosition({
+			lineNumber: jumpToPosition.line,
+			column: jumpToPosition.column,
+		})
+		editor.revealLineInCenter(jumpToPosition.line)
+		editor.focus()
+	}, [jumpToPosition])
 
 	// ── Handle editor changes ──────────────────────────────────
 	const handleChange = useCallback(
@@ -496,6 +520,28 @@ export default function MonacoEditor({
 					<span className="text-[#519aba] font-medium">{lang}</span>
 					{filePath && <span className="truncate max-w-[200px]">{filePath}</span>}
 					{isDirty && <span className="text-[#d29922]">● unsaved</span>}
+						{/* Diagnostic counts for current file */}
+						{(() => {
+							const fileDiags = lspDiagnostics.filter((d) => d.file === filePath || d.file.endsWith(filePath))
+							const errors = fileDiags.filter((d) => d.severity === "error").length
+							const warnings = fileDiags.filter((d) => d.severity === "warning").length
+							return (
+								<>
+									{errors > 0 && (
+										<span className="flex items-center gap-0.5 text-red-500">
+											<span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+											{errors}
+										</span>
+									)}
+									{warnings > 0 && (
+										<span className="flex items-center gap-0.5 text-yellow-500">
+											<span className="w-1.5 h-1.5 rounded-full bg-yellow-500" />
+											{warnings}
+										</span>
+									)}
+								</>
+							)
+						})()}
 				</div>
 				<div className="flex items-center gap-1">
 					{/* Font size controls */}

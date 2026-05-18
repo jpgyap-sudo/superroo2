@@ -31,6 +31,8 @@ interface CodeEditorProps {
 	onLspOpenDocument?: (lang: string, uri: string, text: string, version: number) => Promise<any>
 	onLspChangeDocument?: (lang: string, uri: string, text: string, version: number) => Promise<any>
 	lspDiagnostics?: any[]
+	jumpToPosition?: { line: number; column: number } | null
+	onLspCloseDocument?: (lang: string, uri: string) => Promise<any>
 }
 
 export default function CodeEditor(props: CodeEditorProps) {

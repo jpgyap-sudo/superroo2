@@ -265,6 +265,7 @@ export function useIdeTerminal() {
 	const [showSettingsPanel, setShowSettingsPanel] = useState(false)
 	const [showExtensionsPanel, setShowExtensionsPanel] = useState(false)
 	const [editorProblems, setEditorProblems] = useState<any[]>([])
+	const [jumpToPosition, setJumpToPosition] = useState<{ line: number; column: number } | null>(null)
 	const [lspConnected, setLspConnected] = useState(false)
 	// Terminal search local state
 	const [terminalSearchLocalQuery, setTerminalSearchLocalQuery] = useState("")
@@ -586,6 +587,10 @@ export function useIdeTerminal() {
 
 	const onLspChangeDocument = useCallback((lang: string, uri: string, text: string, version: number) => {
 		return sendLspRequest("change", lang, uri, 0, 0, { text, version })
+	}, [])
+
+	const onLspCloseDocument = useCallback((lang: string, uri: string) => {
+		return sendLspRequest("close", lang, uri, 0, 0)
 	}, [])
 
 	// ── Load workspace data on mount ─────────────────────────────────────
@@ -1510,6 +1515,8 @@ export function useIdeTerminal() {
 		setShowExtensionsPanel,
 		editorProblems,
 		setEditorProblems,
+		jumpToPosition,
+		setJumpToPosition,
 		lspConnected,
 
 		// Refs
@@ -1551,6 +1558,7 @@ export function useIdeTerminal() {
 		onLspReferences,
 		onLspOpenDocument,
 		onLspChangeDocument,
+		onLspCloseDocument,
 
 		// PTY handlers
 		handlePtyCreate,

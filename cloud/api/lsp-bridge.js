@@ -342,6 +342,16 @@ class LspBridge {
 					result = { ok: true }
 					break
 				}
+				case "close": {
+					if (server.documents.has(lspUri)) {
+						server.documents.delete(lspUri)
+						server.sendNotification("textDocument/didClose", {
+							textDocument: { uri: lspUri },
+						})
+					}
+					result = { ok: true }
+					break
+				}
 				case "completion": {
 					result = await server.sendRequest("textDocument/completion", {
 						textDocument: { uri: lspUri },

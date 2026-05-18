@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useState, useEffect, useCallback } from "react"
 import { cn } from "@/lib/utils"
@@ -1071,14 +1071,26 @@ export function TelegramView() {
 												)}
 												{task.savepointHash && (
 													<div className="mt-3">
-														<button className="w-full rounded-xl border border-violet-500/30 bg-violet-500/10 px-4 py-2.5 text-sm font-semibold text-violet-300 hover:bg-violet-500/20">
-															<Undo2
-																size={14}
-																className="
-inline mr-1"
-															/>
-															Rollback to Savepoint
-														</button>
+														
+<button
+															
+onClick={(e) => {
+															
+  e.stopPropagation()
+															
+  void handleRollback(task.savepointHash!)
+														
+}}
+														
+disabled={actionLoading[ollback-${task.savepointHash}]}
+														
+className="w-full rounded-xl border border-violet-500/30 bg-violet-500/10 px-4 py-2.5 text-sm font-semibold text-violet-300 hover:bg-violet-500/20 disabled:opacity-50">
+															
+<Undo2 size={14} className="inline mr-1" />
+															
+Rollback to Savepoint
+														
+</button>
 													</div>
 												)}
 											</div>
@@ -1098,7 +1110,7 @@ inline mr-1"
 							right={<Pill type="neutral">Live</Pill>}
 						/>
 						<div className="space-y-3 p-5">
-							{ACTIVITY.map((item) => {
+							{activity.map((item) => {
 								const iconMap: Record<string, React.ElementType> = {
 									code: Code,
 									diff: FileText,
