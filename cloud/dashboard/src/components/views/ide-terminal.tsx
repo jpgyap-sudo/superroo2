@@ -431,6 +431,7 @@ export default function IdeTerminalView() {
 										onLspReferences={hook.onLspReferences}
 										onLspOpenDocument={hook.onLspOpenDocument}
 										onLspChangeDocument={hook.onLspChangeDocument}
+										lspDiagnostics={hook.editorProblems}
 									/>
 								</ErrorBoundary>
 							) : (

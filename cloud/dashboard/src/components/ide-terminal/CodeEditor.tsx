@@ -30,6 +30,7 @@ interface CodeEditorProps {
 	onLspReferences?: (lang: string, uri: string, line: number, column: number) => Promise<any>
 	onLspOpenDocument?: (lang: string, uri: string, text: string, version: number) => Promise<any>
 	onLspChangeDocument?: (lang: string, uri: string, text: string, version: number) => Promise<any>
+	lspDiagnostics?: any[]
 }
 
 export default function CodeEditor(props: CodeEditorProps) {

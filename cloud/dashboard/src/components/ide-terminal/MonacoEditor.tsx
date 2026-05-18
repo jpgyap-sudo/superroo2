@@ -4,6 +4,15 @@ import { useRef, useEffect, useCallback, useState, useMemo } from "react"
 import { Loader2, Save, Bug, MessageCircle, Zap, Search, Lightbulb } from "lucide-react"
 
 // ── Types ──────────────────────────────────────────────────────
+interface LspDiagnostic {
+	file: string
+	line: number
+	column: number
+	message: string
+	severity: "error" | "warning" | "info"
+	source?: string
+}
+
 interface MonacoEditorProps {
 	value: string
 	language?: string
@@ -24,6 +33,8 @@ interface MonacoEditorProps {
 	onLspCodeActions?: (lang: string, uri: string, line: number, column: number, diagnostics: any[]) => Promise<any>
 	onLspOpenDocument?: (lang: string, uri: string, text: string, version: number) => Promise<any>
 	onLspChangeDocument?: (lang: string, uri: string, text: string, version: number) => Promise<any>
+	// LSP diagnostics from language server
+	lspDiagnostics?: LspDiagnostic[]
 }
 
 interface InlineAction {
@@ -90,6 +101,7 @@ export default function MonacoEditor({
 	onLspCodeActions,
 	onLspOpenDocument,
 	onLspChangeDocument,
+	lspDiagnostics = [],
 }: MonacoEditorProps) {
 	const editorRef = useRef<any>(null)
 	const monacoRef = useRef<any>(null)
@@ -382,6 +394,33 @@ export default function MonacoEditor({
 			setIsDirty(false)
 		}
 	}, [value])
+
+	// ── Apply LSP diagnostics as model markers ─────────────────
+	useEffect(() => {
+		const monaco = monacoRef.current
+		const editor = editorRef.current
+		if (!monaco || !editor || !filePath) return
+
+		const model = editor.getModel()
+		if (!model) return
+
+		const fileDiagnostics = lspDiagnostics.filter((d) => d.file === filePath || d.file.endsWith(filePath))
+		const markers = fileDiagnostics.map((d) => ({
+			severity:
+				d.severity === "error"
+					? monaco.MarkerSeverity.Error
+					: d.severity === "warning"
+						? monaco.MarkerSeverity.Warning
+						: monaco.MarkerSeverity.Info,
+			message: `[${d.source || "LSP"}] ${d.message}`,
+			startLineNumber: d.line,
+			startColumn: d.column,
+			endLineNumber: d.line,
+			endColumn: d.column + 1,
+		}))
+
+		monaco.editor.setModelMarkers(model, "lsp", markers)
+	}, [lspDiagnostics, filePath])
 
 	// ── Handle editor changes ──────────────────────────────────
 	const handleChange = useCallback(

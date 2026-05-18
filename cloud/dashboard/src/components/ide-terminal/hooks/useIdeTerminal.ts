@@ -415,6 +415,22 @@ export function useIdeTerminal() {
 						const data = JSON.parse(event.data)
 						if (data.type === "status") {
 							setLspConnected(data.available)
+						} else if (data.type === "diagnostics") {
+							// Convert LSP diagnostics to editor problems format
+							const uriPath = data.uri?.replace("file://", "") || ""
+							const problems = (data.diagnostics || []).map((d: any) => ({
+								file: uriPath,
+								line: (d.range?.start?.line ?? 0) + 1,
+								column: (d.range?.start?.character ?? 0) + 1,
+								message: d.message || "",
+								severity: d.severity === 1 ? "error" : d.severity === 2 ? "warning" : "info",
+								source: d.source || "LSP",
+							}))
+							setEditorProblems((prev) => {
+								// Remove old problems for this file, add new ones
+								const filtered = prev.filter((p) => p.file !== uriPath)
+								return [...filtered, ...problems]
+							})
 						} else if (data.id !== undefined) {
 							const pending = lspPendingRef.current.get(String(data.id))
 							if (pending) {

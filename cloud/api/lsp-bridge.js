@@ -261,6 +261,16 @@ class LspBridge {
 		}
 
 		const server = new LanguageServerProcess(key, this.workspaceDir, config.cmd, config.args)
+		// Forward diagnostics from language server to all WebSocket clients
+		server.diagnosticsCallbacks.add((params) => {
+			const payload = JSON.stringify({ type: "diagnostics", uri: params.uri, diagnostics: params.diagnostics })
+			for (const client of this.wsClients) {
+				if (client.readyState === 1) {
+					// WebSocket.OPEN
+					client.send(payload)
+				}
+			}
+		})
 		this.servers.set(key, server)
 		return server
 	}
