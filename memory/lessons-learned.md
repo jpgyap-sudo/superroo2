@@ -8899,3 +8899,81 @@ When adding cross-cutting concerns (tracking, logging, metrics) to provider hand
 model-usage-tracking, workflow-compliance, openai-codex, provider-handlers, typescript
 
 ---
+
+### Auto-Extracted Lesson: Feat(cloud-ide): decompose IDE Terminal, wire APIs, fix routing, add E2E tests
+
+Date: 2026-05-18
+Source: Git commit 1ebac203
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/api/api.js, cloud/api/auth.js, cloud/dashboard/e2e/ide-terminal.spec.ts, cloud/dashboard/src/app/layout.tsx, cloud/dashboard/src/app/page.tsx
+
+#### Task Summary
+
+feat(cloud-ide): decompose IDE Terminal, wire APIs, fix routing, add E2E tests
+
+#### Files Changed
+
+- `cloud/api/api.js`
+- `cloud/api/auth.js`
+- `cloud/dashboard/e2e/ide-terminal.spec.ts`
+- `cloud/dashboard/src/app/layout.tsx`
+- `cloud/dashboard/src/app/page.tsx`
+- `cloud/dashboard/src/components/ide-terminal/api.ts`
+- `cloud/dashboard/src/components/ide-terminal/hooks/useIdeTerminal.ts`
+- `cloud/dashboard/src/components/ide-terminal/hooks/useWebSocket.ts`
+- `cloud/dashboard/src/components/views/memory-explorer.tsx`
+- `cloud/dashboard/test-results/ide-terminal-IDE-Terminal--38fca-nt-panel-toggles-open-close-chromium/error-context.md`
+- `cloud/dashboard/test-results/ide-terminal-IDE-Terminal--3bc66-is-focused-not-AI-textarea--chromium/error-context.md`
+- `cloud/dashboard/test-results/ide-terminal-IDE-Terminal--d7774-ste-works-in-terminal-input-chromium/error-context.md`
+- `cloud/dashboard/test-results/ide-terminal-IDE-Terminal-page-loads-and-renders-terminal-UI-chromium/error-context.md`
+- `cloud/orchestrator/modules/AutonomousLoop.js`
+- `cloud/orchestrator/modules/CommitDeployLog.js`
+- `cloud/orchestrator/modules/ModelUsageTracker.js`
+- `memory/context/latest-agent-context.md`
+- `memory/lesson-index.jsonl`
+- `memory/lessons-learned.md`
+- `scripts/seed-workflow-compliance.mjs`
+- `server/src/memory/commit-deploy-log.json`
+- `server/src/memory/model-usage-log.json`
+- `server/src/memory/task-usage-summaries.json`
+- `src/api/providers/anthropic.ts`
+- `src/api/providers/base-provider.ts`
+- `src/api/providers/openai-codex.ts`
+- `src/api/providers/openai.ts`
+- `src/extension.ts`
+- `src/super-roo/product-memory/NoopEventLog.ts`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 1ebac203.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 1ebac203 by JPG Yap.
+
+#### Test Result
+
+Tests were included in this commit.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+testing, api, deployment, bugfix
+
+---
