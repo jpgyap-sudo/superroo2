@@ -33,6 +33,7 @@ WORKDIR /app
 COPY --from=builder /app/cloud/dashboard/.next/standalone/ ./
 COPY --from=builder /app/cloud/dashboard/.next/static/ ./.next/static/
 COPY --from=builder /app/cloud/dashboard/public/ ./public/
+COPY --from=builder /app/cloud/dashboard/node_modules/ ./node_modules/
 
 EXPOSE 3001
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
