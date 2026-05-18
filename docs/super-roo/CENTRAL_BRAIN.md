@@ -137,25 +137,36 @@ The dedicated MCP server runs at `http://127.0.0.1:3419` and proxies to the Cent
 
 **Available MCP Tools:**
 
-| Tool                    | Description                                   | Parameters                                                                                                     |
-| ----------------------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `query_memory`          | Search Central Brain memory with RAG context  | `query` (required), `project`, `maxResults`                                                                    |
-| `get_project_info`      | Get project namespace details                 | `project`                                                                                                      |
-| `list_projects`         | List all registered projects                  | _(none)_                                                                                                       |
-| `get_active_task`       | Get current active task                       | `project`                                                                                                      |
-| `get_recent_bugs`       | Get recent bugs and incidents                 | `project`, `limit`                                                                                             |
-| `search_code`           | Search indexed code in Qdrant                 | `query` (required), `project`, `filePattern`, `maxResults`                                                     |
-| `submit_task`           | Submit a new task to the orchestrator         | `goal` (required), `project`, `agent`                                                                          |
-| `hermes_recall`         | Semantic memory search via Hermes Claw        | `query` (required), `limit`                                                                                    |
-| `hermes_learn`          | Store a lesson via Hermes Claw                | `topic` (required), `content` (required)                                                                       |
-| `hermes_list_skills`    | List all created skills                       | _(none)_                                                                                                       |
-| `hermes_list_resources` | List all knowledge resources                  | _(none)_                                                                                                       |
-| `hermes_stats`          | Get Hermes Claw statistics                    | _(none)_                                                                                                       |
-| `commit_deploy_status`  | Get commit/deploy history                     | `limit`                                                                                                        |
-| `codex_task_upsert`     | Create or update persistent Codex task memory | `title` (required), `id`, `summary`, `status`, `project`, `agent`, `filesChanged`, `featuresAffected`, `notes` |
-| `codex_task_list`       | List recent persistent Codex tasks            | `limit`                                                                                                        |
-| `codex_task_get`        | Get one persistent Codex task                 | `id` (required)                                                                                                |
-| `codex_task_get_active` | Get the current active Codex task             | _(none)_                                                                                                       |
+| Tool                     | Description                                    | Parameters                                                                                                     |
+| ------------------------ | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `query_memory`           | Search Central Brain memory with RAG context   | `query` (required), `project`, `maxResults`, `offset` (pagination)                                             |
+| `get_project_info`       | Get project namespace details                  | `project`                                                                                                      |
+| `list_projects`          | List all registered projects                   | _(none)_                                                                                                       |
+| `register_project`       | Register a new project in local config         | `name` (required), `directory`                                                                                 |
+| `get_active_task`        | Get current active task                        | `project`                                                                                                      |
+| `get_recent_bugs`        | Get recent bugs and incidents                  | `project`, `limit`                                                                                             |
+| `search_code`            | Search indexed code in Qdrant                  | `query` (required), `project`, `filePattern`, `maxResults`                                                     |
+| `submit_task`            | Submit a new task to the orchestrator          | `goal` (required), `project`, `agent`                                                                          |
+| `hermes_recall`          | Semantic memory search via Hermes Claw         | `query` (required), `limit`                                                                                    |
+| `hermes_learn`           | Store a lesson via Hermes Claw (with dedup)    | `topic` (required), `content` (required)                                                                       |
+| `hermes_learn_batch`     | Store multiple lessons in one call             | `lessons` (required, array of `{topic, content}`)                                                              |
+| `hermes_list_skills`     | List all created skills                        | _(none)_                                                                                                       |
+| `hermes_list_resources`  | List all knowledge resources                   | _(none)_                                                                                                       |
+| `hermes_stats`           | Get Hermes Claw statistics                     | _(none)_                                                                                                       |
+| `commit_deploy_status`   | Get commit/deploy history                      | `limit`                                                                                                        |
+| `sync_status`            | Check connectivity to all backends             | _(none)_                                                                                                       |
+| `codex_task_upsert`      | Create or update persistent Codex task memory  | `title` (required), `id`, `summary`, `status`, `project`, `agent`, `filesChanged`, `featuresAffected`, `notes` |
+| `codex_task_list`        | List recent persistent Codex tasks             | `limit`                                                                                                        |
+| `codex_task_get`         | Get one persistent Codex task                  | `id` (required)                                                                                                |
+| `codex_task_get_active`  | Get the current active Codex task              | _(none)_                                                                                                       |
+| `kimi_task_upsert`       | Create or update persistent Kimi task memory   | `title` (required), `id`, `summary`, `status`, `project`, `agent`, `filesChanged`, `featuresAffected`, `notes` |
+| `kimi_task_list`         | List recent persistent Kimi tasks              | `limit`                                                                                                        |
+| `kimi_task_get`          | Get one persistent Kimi task                   | `id` (required)                                                                                                |
+| `kimi_task_get_active`   | Get the current active Kimi task               | _(none)_                                                                                                       |
+| `claude_task_upsert`     | Create or update persistent Claude task memory | `title` (required), `id`, `summary`, `status`, `project`, `agent`, `filesChanged`, `featuresAffected`, `notes` |
+| `claude_task_list`       | List recent persistent Claude tasks            | `limit`                                                                                                        |
+| `claude_task_get`        | Get one persistent Claude task                 | `id` (required)                                                                                                |
+| `claude_task_get_active` | Get the current active Claude task             | _(none)_                                                                                                       |
 
 **Available MCP Resources:**
 
@@ -201,7 +212,7 @@ curl -X POST https://dev.abcx124.xyz/api/brain/mcp \
   -d '{"action": "health"}'
 ```
 
-**Supported actions:** `query_memory`, `list_projects`, `get_active_task`, `get_recent_bugs`, `hermes_recall`, `hermes_learn`, `hermes_list_skills`, `hermes_list_resources`, `hermes_stats`, `commit_deploy_status`, `codex_task_upsert`, `codex_task_list`, `codex_task_get`, `codex_task_get_active`, `health`, `qdrant_search`, `qdrant_collections`, `run_task`, `run_debug`, `run_deploy`, `get_pipeline`, `list_resources`, `read_resource`
+**Supported actions:** `query_memory`, `list_projects`, `register_project`, `get_project_info`, `get_active_task`, `get_recent_bugs`, `search_code`, `submit_task`, `hermes_recall`, `hermes_learn`, `hermes_learn_batch`, `hermes_list_skills`, `hermes_list_resources`, `hermes_stats`, `commit_deploy_status`, `sync_status`, `codex_task_upsert`, `codex_task_list`, `codex_task_get`, `codex_task_get_active`, `kimi_task_upsert`, `kimi_task_list`, `kimi_task_get`, `kimi_task_get_active`, `claude_task_upsert`, `claude_task_list`, `claude_task_get`, `claude_task_get_active`, `health`, `qdrant_search`, `qdrant_collections`, `run_task`, `run_debug`, `run_deploy`, `get_pipeline`, `list_resources`, `read_resource`
 
 ### Fallback Chain
 
@@ -214,6 +225,92 @@ The system has a 3-tier fallback chain for MCP access:
         ↓ (if API unreachable)
 3. Direct Daemon (port 3417) — Last resort, Docker container
 ```
+
+### New Features (v2.0)
+
+#### Rate Limiting
+
+The MCP server enforces rate limiting to prevent abuse. Default: **120 calls per 60-second window** per tool. Configurable via environment variables:
+
+| Variable                   | Default | Description            |
+| -------------------------- | ------- | ---------------------- |
+| `MCP_RATE_LIMIT_WINDOW_MS` | 60000   | Rate limit window (ms) |
+| `MCP_RATE_LIMIT_MAX_CALLS` | 120     | Max calls per window   |
+
+When exceeded, the server returns a `Rate limit exceeded` error with the reset time.
+
+#### Pagination
+
+The `query_memory` tool now supports pagination via the `offset` parameter:
+
+```bash
+# Get first 10 results
+curl -X POST http://127.0.0.1:3419/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"query_memory","arguments":{"query":"deployment","maxResults":10,"offset":0}}}'
+
+# Get next 10 results
+curl -X POST http://127.0.0.1:3419/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"query_memory","arguments":{"query":"deployment","maxResults":10,"offset":10}}}'
+```
+
+Responses include `total`, `offset`, and `limit` fields for client-side pagination UI.
+
+#### Deduplication
+
+The `hermes_learn` tool now checks for duplicate lessons before storing. If a lesson with the same topic already exists in `memory/lessons-learned.md` or `memory/lesson-index.jsonl`, the server returns:
+
+```json
+{
+	"success": true,
+	"deduplicated": true,
+	"note": "Lesson with topic \"...\" already exists."
+}
+```
+
+The `hermes_learn_batch` tool processes each lesson independently — deduplicated lessons are skipped with a `"deduplicated"` status.
+
+#### Project Registration
+
+Projects can be registered in `~/.superroo/config.json` via the `register_project` tool:
+
+```bash
+curl -X POST http://127.0.0.1:3419/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"register_project","arguments":{"name":"my-project","directory":"/path/to/project"}}}'
+```
+
+The `list_projects` tool reads from this config file. If no projects are registered, it falls back to `["superroo2"]`.
+
+#### Sync Status
+
+The `sync_status` tool checks connectivity to all three backends (daemon, REST API, local fallback) and returns:
+
+```json
+{
+  "success": true,
+  "status": {
+    "server": { "uptime": 12345, "uptimeSeconds": 12, "startedAt": "..." },
+    "backends": {
+      "daemon": { "reachable": true, "url": "http://127.0.0.1:3417" },
+      "restApi": { "reachable": false, "url": "http://127.0.0.1:8787", "error": "..." },
+      "localFallback": { "reachable": true, "source": "local_json_fallback" }
+    },
+    "overall": "healthy" | "degraded" | "offline"
+  }
+}
+```
+
+#### Rich Health Endpoint
+
+The `/health` HTTP endpoint now returns detailed diagnostics:
+
+```bash
+curl http://127.0.0.1:3419/health
+```
+
+Response includes uptime, tool count, rate limiter config, backend URLs, and memory directory paths.
 
 ## Real-Time Events (SSE)
 
