@@ -65,8 +65,8 @@ async function install() {
 	await fs.mkdir(BIN_DIR, { recursive: true })
 	console.log(`   📁 Created ${HOOKS_DIR}`)
 
-	// Copy the hook template
-	const hookTemplate = path.resolve(TOOLS_DIR, "global-post-commit")
+	// Copy the hook template (Node.js version — cross-platform)
+	const hookTemplate = path.resolve(TOOLS_DIR, "global-post-commit.mjs")
 	const hookContent = await fs.readFile(hookTemplate, "utf-8")
 	await fs.writeFile(HOOK_FILE, hookContent, { mode: 0o755 })
 	console.log(`   📝 Installed post-commit hook: ${HOOK_FILE}`)
@@ -78,11 +78,21 @@ async function install() {
 	await fs.writeFile(cliDest, cliContent, { mode: 0o755 })
 	console.log(`   📝 Installed CLI: ${cliDest}`)
 
-	// Also create a wrapper script for PATH
+	// Also create a wrapper script for PATH (cross-platform)
 	const wrapperPath = path.join(BIN_DIR, "superroo-learn")
-	const wrapperContent = `#!/bin/sh
+	const isWindows = process.platform === "win32"
+	let wrapperContent
+	if (isWindows) {
+		// Windows batch wrapper
+		wrapperContent = `@echo off
+node "${cliDest}" %*
+`
+	} else {
+		// Unix shell wrapper
+		wrapperContent = `#!/bin/sh
 node "${cliDest}" "$@"
 `
+	}
 	await fs.writeFile(wrapperPath, wrapperContent, { mode: 0o755 })
 	console.log(`   📝 Installed wrapper: ${wrapperPath}`)
 

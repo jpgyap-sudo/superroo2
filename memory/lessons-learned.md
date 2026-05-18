@@ -10806,3 +10806,53 @@ To be determined — this commit was auto-flagged as potentially containing a le
 api, deployment, bugfix
 
 ---
+
+### Lesson: Ollama container restart loop — entrypoint set -e + unconditional ollama pull with broken DNS
+
+Date: 2026-05-18
+Source: Codex e2e health scan
+Model/API used: deepseek-chat
+Confidence: high
+Related files: docker/ollama-entrypoint.sh
+
+#### Task Summary
+
+During e2e health scan of the VPS, discovered superroo-ollama Docker container stuck in a restart loop. The entrypoint script used set -e and ran ollama pull nomic-embed-text and ollama pull qwen2.5:0.5b unconditionally. When DNS resolution failed inside the container (custom bridge network superroo-brain-net could not reach external DNS), the pull commands failed, the script exited with error, and Docker restarted the container creating an infinite restart loop.
+
+#### Files Changed
+
+- docker/ollama-entrypoint.sh — Rewrote to make model pulls non-fatal and check if models already exist before pulling
+
+#### Bug Cause
+
+1. Entrypoint script used set -e (exit on error) which made any command failure fatal
+2. ollama pull commands were unconditional — no check if models already existed
+3. Docker custom bridge network (superroo-brain-net) had DNS issues — container could not resolve registry.ollama.ai or ollama.com
+4. Models had never been successfully downloaded (blobs/ and manifests/ directories were empty)
+5. The container was first started at May 18 06:29 and had been failing since, consuming CPU/memory with constant restarts
+
+#### Fix Applied
+
+1. Removed set -e from the entrypoint script
+2. Added model existence check using ollama list before pulling — if model already exists, skip pull
+3. Wrapped ollama pull commands in || fallback so failures log a warning instead of crashing the container
+4. Recreated the container with explicit --dns 8.8.8.8 --dns 1.1.1.1 flags
+5. Connected container to superroo-brain-net network after creation
+
+#### Test Result
+
+pass — Container is now Up and stable. Ollama API responds on port 11434. Model pulls fail gracefully with warnings. Container no longer restart-loops.
+
+#### Lesson Learned
+
+Docker entrypoint scripts for containers that need network access should never use set -e with unconditional network-dependent commands. Always check if resources already exist before attempting to download them, and make network-dependent operations non-fatal so the container can start in degraded mode when the network is unavailable.
+
+#### Reusable Rule
+
+When writing Docker entrypoint scripts that pull remote resources (models, packages, data): (1) Do NOT use set -e if any command depends on external network access; (2) Check if resources already exist before pulling; (3) Wrap pull/download commands in || true or || echo WARNING so failures do not crash the container; (4) The container should start and serve even when network-dependent initialization steps fail.
+
+#### Tags
+
+docker, ollama, container, restart-loop, dns, entrypoint, e2e, health-scan
+
+---
