@@ -4667,7 +4667,10 @@ const server = http.createServer(async (req, res) => {
 						lastCommit: null,
 						lastDeploy: null,
 					}
-					const isActive = currentWorkspace.repoName === p.repoName
+					// Active if it matches the current workspace OR has recent presence activity (within last 24h)
+					const isActive =
+						currentWorkspace.repoName === p.repoName ||
+						(latestPresence && latestPresence.status === "active")
 
 					return {
 						...p,
@@ -4762,7 +4765,8 @@ const server = http.createServer(async (req, res) => {
 						severity: "low",
 					})
 				}
-				activityEvents.sort((a, b) => new Date(b.time) - new Date(a.time)).slice(0, 20)
+				activityEvents.sort((a, b) => new Date(b.time) - new Date(a.time))
+				activityEvents.splice(20) // keep only top 20
 
 				sendJson(res, 200, {
 					success: true,

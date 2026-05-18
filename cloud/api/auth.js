@@ -1024,4 +1024,11 @@ module.exports = {
 	handleTelegramProjects,
 	handleTelegramProjectSelect,
 	handleOrchestratorInstruction,
+	// Expose in-memory stores for other modules (e.g., api.js /projects endpoint)
+	get projects() {
+		return projects
+	},
+	get projectPresence() {
+		return projectPresence
+	},
 }
