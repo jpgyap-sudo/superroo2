@@ -72,6 +72,22 @@ interface DeployEntry {
 	agent: string
 	status: string
 	timestamp: number
+	startedAt: number | null
+	completedAt: number | null
+	durationMs: number | null
+	environment: string | null
+	healthCheckPassed: boolean | null
+	healthCheckLatencyMs: number | null
+	failureReason: string | null
+}
+
+interface DeploySummary {
+	totalDeploys: number
+	successRate: number | null
+	avgDuration: string | null
+	failuresByReason: { reason: string; count: number }[]
+	deploysByDay: { date: string; count: number }[]
+	recentDeploys: DeployEntry[]
 }
 
 interface CommitDeployData {
@@ -80,6 +96,7 @@ interface CommitDeployData {
 	deploys: DeployEntry[]
 	totalCommits: number
 	totalDeploys: number
+	deploySummary?: DeploySummary
 	note?: string
 }
 
@@ -402,6 +419,18 @@ export function DeployView() {
 			if (!res.ok) throw new Error(`HTTP ${res.status}`)
 			const json = await res.json()
 			setCdData(json)
+
+			// Also update health metrics from deploySummary if available
+			if (json.deploySummary) {
+				setHealthMetrics((prev) => ({
+					...prev,
+					successRate: json.deploySummary.successRate ?? prev.successRate,
+					totalDeploys: json.deploySummary.totalDeploys ?? prev.totalDeploys,
+					avgDuration: json.deploySummary.avgDuration ?? prev.avgDuration,
+					failuresByReason: json.deploySummary.failuresByReason ?? prev.failuresByReason,
+					deploysByDay: json.deploySummary.deploysByDay ?? prev.deploysByDay,
+				}))
+			}
 		} catch (err: any) {
 			setCdError(err.message || "Failed to fetch commit/deploy data")
 		} finally {
@@ -458,6 +487,8 @@ export function DeployView() {
 
 	useEffect(() => {
 		fetchCdData()
+		const iv = setInterval(fetchCdData, 15000)
+		return () => clearInterval(iv)
 	}, [fetchCdData])
 
 	useEffect(() => {
@@ -836,12 +867,33 @@ export function DeployView() {
 								<div className="mt-1 text-sm font-bold text-[#e2e8f0]">{cdData.totalDeploys}</div>
 							</div>
 							<div className="rounded-lg border border-[#1e2535] bg-[#0f1117]/60 p-3">
-								<div className="text-[10px] uppercase tracking-wider text-gray-500">Recent Commits</div>
-								<div className="mt-1 text-sm font-bold text-[#e2e8f0]">{cdData.commits.length}</div>
+								<div className="text-[10px] uppercase tracking-wider text-gray-500">Success Rate</div>
+								<div className="mt-1 flex items-center gap-2">
+									<span className="text-sm font-bold text-[#e2e8f0]">
+										{cdData.deploySummary?.successRate === null ||
+										cdData.deploySummary?.successRate === undefined
+											? "—"
+											: `${cdData.deploySummary.successRate}%`}
+									</span>
+									{cdData.deploySummary?.successRate !== null &&
+									cdData.deploySummary?.successRate !== undefined &&
+									cdData.deploySummary.successRate >= 80 ? (
+										<CheckCircle2 className="h-3 w-3 text-emerald-400" />
+									) : cdData.deploySummary?.successRate !== null &&
+									  cdData.deploySummary?.successRate !== undefined &&
+									  cdData.deploySummary.successRate >= 50 ? (
+										<AlertTriangle className="h-3 w-3 text-amber-400" />
+									) : cdData.deploySummary?.successRate !== null &&
+									  cdData.deploySummary?.successRate !== undefined ? (
+										<XCircle className="h-3 w-3 text-red-400" />
+									) : null}
+								</div>
 							</div>
 							<div className="rounded-lg border border-[#1e2535] bg-[#0f1117]/60 p-3">
-								<div className="text-[10px] uppercase tracking-wider text-gray-500">Recent Deploys</div>
-								<div className="mt-1 text-sm font-bold text-[#e2e8f0]">{cdData.deploys.length}</div>
+								<div className="text-[10px] uppercase tracking-wider text-gray-500">Avg Duration</div>
+								<div className="mt-1 text-sm font-bold text-[#e2e8f0]">
+									{cdData.deploySummary?.avgDuration || "—"}
+								</div>
 							</div>
 						</div>
 					)}
@@ -952,11 +1004,23 @@ export function DeployView() {
 												<span className="text-[10px]">{STATUS_EMOJI[d.status] || "🚀"}</span>
 											</div>
 											<div className="flex-1 min-w-0">
-												<div className="flex items-center gap-2">
+												<div className="flex items-center gap-2 flex-wrap">
 													<span className="text-[11px] font-medium text-[#e2e8f0]">
 														v{d.version}
 													</span>
 													<StatusBadge state={d.status} />
+													{d.environment && (
+														<span className="rounded bg-blue-500/10 px-1.5 py-0.5 text-[8px] text-blue-300">
+															{d.environment}
+														</span>
+													)}
+													{d.durationMs !== null && (
+														<span className="text-[9px] text-gray-500">
+															{d.durationMs < 60000
+																? `${Math.round(d.durationMs / 1000)}s`
+																: `${Math.floor(d.durationMs / 60000)}m ${Math.round((d.durationMs % 60000) / 1000)}s`}
+														</span>
+													)}
 													<button
 														onClick={() => handleCopySha(d.sha)}
 														className="group flex items-center gap-1 font-mono text-[9px] text-violet-400 hover:text-violet-300 ml-auto"
@@ -968,7 +1032,7 @@ export function DeployView() {
 														)}
 													</button>
 												</div>
-												<div className="flex items-center gap-2 mt-1">
+												<div className="flex items-center gap-2 mt-1 flex-wrap">
 													<span className="flex items-center gap-1 text-[9px] text-gray-500">
 														<User className="h-2.5 w-2.5" />
 														{d.agent}
@@ -977,7 +1041,21 @@ export function DeployView() {
 													<span className="text-[9px] text-gray-500">
 														{formatDateTime(d.timestamp)}
 													</span>
+													{d.healthCheckPassed !== null && (
+														<>
+															<span className="text-[9px] text-gray-600">•</span>
+															<span
+																className={`flex items-center gap-1 text-[9px] ${d.healthCheckPassed ? "text-emerald-400" : "text-red-400"}`}>
+																{d.healthCheckPassed ? "✅" : "❌"} Health
+																{d.healthCheckLatencyMs !== null &&
+																	` (${d.healthCheckLatencyMs}ms)`}
+															</span>
+														</>
+													)}
 												</div>
+												{d.failureReason && (
+													<p className="text-[10px] text-red-400 mt-1">{d.failureReason}</p>
+												)}
 												{/* Rollback button for failed/unhealthy deploys */}
 												{(d.status === "failed" || d.status === "unhealthy") && (
 													<button

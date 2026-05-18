@@ -170,6 +170,8 @@ export default function AiChatPanel({
 	onClearChat,
 }: AiChatPanelProps) {
 	const [showTaskPicker, setShowTaskPicker] = useState(false)
+	const [showSearch, setShowSearch] = useState(false)
+	const [searchQuery, setSearchQuery] = useState("")
 
 	const handleKeyDown = useCallback(
 		(e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -358,6 +360,21 @@ export default function AiChatPanel({
 					</button>
 				))}
 				<div className="flex-1" />
+				<button
+					className={
+						"flex items-center gap-1 px-2.5 py-1.5 text-[11px] transition-colors " +
+						(showSearch
+							? "text-[#1f6feb] bg-[#1f6feb11]"
+							: "text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#1e2535]")
+					}
+					onClick={() => {
+						setShowSearch((v) => !v)
+						setSearchQuery("")
+					}}
+					title="Search messages">
+					<Search className="w-3.5 h-3.5" />
+					Search
+				</button>
 				{onClearChat && (
 					<button
 						className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] text-[#8b949e] hover:text-[#f85149] hover:bg-[#f8514911] transition-colors"
