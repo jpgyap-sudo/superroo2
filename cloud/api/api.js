@@ -36,7 +36,22 @@ const telegramClassifier = require("./telegramClassifier")
 const healingMetrics = require("./routes/healing-metrics")
 const monitoring = require("./routes/monitoring")
 const workflowCompliance = require("./routes/workflow-compliance")
+const { LspBridge } = require("./lsp-bridge")
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || ""
+
+// ── LSP Bridge (lazy init — uses the current workspace dir) ────────────────────
+let lspBridge = null
+function getLspBridge() {
+	if (!lspBridge) {
+		const wsDir =
+			(global.__ideWorkspace && global.__ideWorkspace.workspaceDir) ||
+			process.env.WORKSPACE_ROOT ||
+			(fsSync.existsSync("/opt/superroo2") ? "/opt/superroo2" : process.cwd())
+		lspBridge = new LspBridge(wsDir)
+	}
+	return lspBridge
+}
+const lspWss = new WebSocketServer({ noServer: true })
 
 // ── IDE Workspace Persistence ─────────────────────────────────────────────────
 
@@ -390,11 +405,97 @@ const SETTINGS_DIR = process.env.SETTINGS_DIR || "/opt/superroo2/cloud/data/sett
 const ORCHESTRATOR_DB_PATH =
 	process.env.ORCHESTRATOR_DB_PATH || path.join(__dirname, "..", "orchestrator", "data", "orchestrator.db")
 
-const connection = new IORedis(REDIS_URL, {
-	maxRetriesPerRequest: null,
-})
+// ── Redis / BullMQ (optional in dev) ───────────────────────────────────────────
+// In production Redis is required. In dev, if Redis is unavailable, we degrade
+// gracefully with a NoopQueue to avoid endless ECONNREFUSED reconnect loops.
+const IS_DEV = process.env.NODE_ENV !== "production"
 
-const queue = new Queue(QUEUE_NAME, { connection })
+class NoopQueue {
+	async getWaitingCount() {
+		return 0
+	}
+	async getActiveCount() {
+		return 0
+	}
+	async getCompletedCount() {
+		return 0
+	}
+	async getFailedCount() {
+		return 0
+	}
+	async getDelayedCount() {
+		return 0
+	}
+	async getWaiting() {
+		return []
+	}
+	async getActive() {
+		return []
+	}
+	async getCompleted() {
+		return []
+	}
+	async getFailed() {
+		return []
+	}
+	async getJob() {
+		return null
+	}
+	async add(name, data, opts) {
+		console.warn(`[NoopQueue] Job "${name}" not enqueued — Redis is unavailable in dev`)
+		return { id: `noop-${Date.now()}`, name, data, opts }
+	}
+}
+
+let connection = null
+let queue = null
+
+function initQueue() {
+	connection = new IORedis(REDIS_URL, {
+		maxRetriesPerRequest: null,
+		enableOfflineQueue: false,
+		retryStrategy: IS_DEV ? () => null : undefined,
+		connectTimeout: 3000,
+	})
+
+	// Suppress connection-error noise in dev after first warning
+	connection.on("error", (err) => {
+		if (IS_DEV && err.code === "ECONNREFUSED") {
+			if (!global.__redisDevWarningLogged) {
+				console.warn(`[api] Redis unavailable at ${REDIS_URL} — running in degraded mode (no BullMQ queue)`)
+				global.__redisDevWarningLogged = true
+			}
+		}
+	})
+
+	queue = new Queue(QUEUE_NAME, { connection })
+}
+
+initQueue()
+
+// Health-check Redis asynchronously; fallback to NoopQueue in dev if unreachable
+if (IS_DEV) {
+	setTimeout(async () => {
+		try {
+			await connection.ping()
+		} catch {
+			console.warn("[api] Switching to NoopQueue — Redis is not reachable in dev")
+			try {
+				await queue.close()
+			} catch {}
+			try {
+				await connection.quit()
+			} catch {}
+			queue = new NoopQueue()
+			connection = {
+				status: "down",
+				ping: async () => {
+					throw new Error("Redis unavailable")
+				},
+			}
+		}
+	}, 2000)
+}
 
 // ── Cloud Orchestrator Initialization ──────────────────────────────────────────
 
@@ -2209,6 +2310,30 @@ brainWss.on("connection", (ws, req) => {
 		brainClients.delete(ws)
 		clearInterval(heartbeatIv)
 		writeApiLog("error", "brain-ws", "Brain WebSocket error", { error: err.message })
+	})
+})
+
+// ── LSP WebSocket Handler ─────────────────────────────────────────────────────
+lspWss.on("connection", (ws, req) => {
+	const bridge = getLspBridge()
+	bridge.addClient(ws)
+	ws.send(JSON.stringify({ type: "status", available: true }))
+
+	ws.on("message", (data) => {
+		try {
+			const msg = JSON.parse(data.toString())
+			bridge.handleMessage(ws, msg)
+		} catch (err) {
+			console.error("[LSP WS] invalid message:", err.message)
+		}
+	})
+
+	ws.on("close", () => {
+		bridge.wsClients.delete(ws)
+	})
+
+	ws.on("error", (err) => {
+		console.error("[LSP WS] connection error:", err.message)
 	})
 })
 
@@ -7468,7 +7593,8 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
-		// GET /memory-explorer — search engineering lessons from memory/lessons.jsonl
+		// GET /memory-explorer — search engineering lessons from memory/lesson-index.jsonl
+		// Also queries Central Brain MCP for cross-project lessons
 		if (method === "GET" && (url.startsWith("/memory-explorer") || normalizedUrl.startsWith("/memory-explorer"))) {
 			try {
 				const fs = require("fs")
@@ -7479,9 +7605,12 @@ const server = http.createServer(async (req, res) => {
 					.toLowerCase()
 					.split(/\s+/)
 					.filter(Boolean)
-				let lessons = []
+				const projectFilter = String(requestUrl.searchParams.get("project") || "").trim()
+
+				// 1. Load local lessons (superroo2 project)
+				let localLessons = []
 				if (fs.existsSync(lessonsPath)) {
-					lessons = fs
+					localLessons = fs
 						.readFileSync(lessonsPath, "utf8")
 						.split(/\r?\n/)
 						.filter(Boolean)
@@ -7505,25 +7634,92 @@ const server = http.createServer(async (req, res) => {
 							fix: lesson.rule_summary || "No reusable rule recorded.",
 							reusable_rule: lesson.rule_summary || "No reusable rule recorded.",
 							date: lesson.date,
+							project: lesson.project || "superroo2",
 						}))
 				}
+
+				// 2. Query Central Brain MCP for cross-project lessons (best-effort, non-blocking)
+				let crossProjectLessons = []
+				try {
+					const mcpUrl = process.env.CENTRAL_BRAIN_MCP_URL || "http://127.0.0.1:3419/mcp"
+					const mcpRes = await fetch(mcpUrl, {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({
+							jsonrpc: "2.0",
+							id: Date.now(),
+							method: "tools/call",
+							params: {
+								name: "query_memory",
+								arguments: {
+									query: terms.join(" ") || "",
+									maxResults: 50,
+								},
+							},
+						}),
+						signal: AbortSignal.timeout(5_000),
+					})
+					if (mcpRes.ok) {
+						const mcpData = await mcpRes.json()
+						if (!mcpData.error) {
+							const raw = mcpData.result
+							const results = Array.isArray(raw) ? raw : raw?.results || raw?.lessons || []
+							crossProjectLessons = results
+								.filter((r) => r && r.project !== "superroo2")
+								.map((lesson) => ({
+									id: lesson.id || `cb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+									task: lesson.title || lesson.topic || "Untitled lesson",
+									task_type: lesson.type || "",
+									risk: lesson.relevance_factors?.is_bug_fix ? "high" : "medium",
+									tags: Array.isArray(lesson.tags) ? lesson.tags : [],
+									files: Array.isArray(lesson.files) ? lesson.files : [],
+									models: lesson.model ? [lesson.model] : [],
+									root_cause:
+										lesson.lesson_summary || lesson.content || "No lesson summary recorded.",
+									fix: lesson.rule_summary || "No reusable rule recorded.",
+									reusable_rule: lesson.rule_summary || "No reusable rule recorded.",
+									date: lesson.date,
+									project: lesson.project || "cross-project",
+								}))
+						}
+					}
+				} catch {
+					// Central Brain unreachable — silently skip cross-project lessons
+				}
+
+				// 3. Merge local + cross-project lessons
+				let allLessons = [...localLessons, ...crossProjectLessons]
+
+				// 4. Apply project filter if specified
+				if (projectFilter) {
+					allLessons = allLessons.filter((l) => l.project === projectFilter)
+				}
+
+				// 5. Apply search term filter
 				const filtered = terms.length
-					? lessons.filter((lesson) => {
+					? allLessons.filter((lesson) => {
 							const haystack = JSON.stringify(lesson).toLowerCase()
 							return terms.every((term) => haystack.includes(term))
 						})
-					: lessons
+					: allLessons
+
+				// 6. Compute tag counts across all lessons
 				const tagCounts = {}
-				lessons.forEach((l) => {
+				allLessons.forEach((l) => {
 					;(l.tags || []).forEach((t) => {
 						tagCounts[t] = (tagCounts[t] || 0) + 1
 					})
 				})
+
+				// 7. Collect unique project names
+				const projects = [...new Set(allLessons.map((l) => l.project).filter(Boolean))]
+
 				sendJson(res, 200, {
 					lessons: filtered,
-					total: lessons.length,
+					total: allLessons.length,
 					filtered: filtered.length,
 					tagCounts,
+					projects,
 				})
 			} catch (err) {
 				sendJson(res, 500, { success: false, error: err.message })
@@ -9369,6 +9565,10 @@ server.on("upgrade", (request, socket, head) => {
 	} else if (normalizedUrl.startsWith("/brain/ws")) {
 		brainWss.handleUpgrade(request, socket, head, (ws) => {
 			brainWss.emit("connection", ws, request)
+		})
+	} else if (normalizedUrl.startsWith("/ws/lsp")) {
+		lspWss.handleUpgrade(request, socket, head, (ws) => {
+			lspWss.emit("connection", ws, request)
 		})
 	} else {
 		socket.destroy()

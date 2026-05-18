@@ -1080,6 +1080,68 @@
 					"Missing summarization phase (Ollama summary not completed)"
 				]
 			}
+		},
+		{
+			"id": "commit_kimi_cloud_ide_terminal_1779072908500",
+			"commitSha": "1ebac2037",
+			"agent": "Kimi",
+			"type": "feature",
+			"title": "feat(cloud-ide): decompose IDE Terminal, wire APIs, fix routing, add E2E tests",
+			"description": "Decomposed 2674-line monolithic IDE Terminal into 15 sub-components with Monaco Editor. Fixed API routing, added missing stubs, fixed WebSocket proxying in dev, added URL routing, added Playwright E2E tests.",
+			"filesChanged": [
+				"cloud/api/api.js",
+				"cloud/api/auth.js",
+				"cloud/dashboard/e2e/ide-terminal.spec.ts",
+				"cloud/dashboard/src/app/layout.tsx",
+				"cloud/dashboard/src/app/page.tsx",
+				"cloud/dashboard/src/components/ide-terminal/api.ts",
+				"cloud/dashboard/src/components/ide-terminal/hooks/useIdeTerminal.ts",
+				"cloud/dashboard/src/components/ide-terminal/hooks/useWebSocket.ts",
+				"cloud/dashboard/src/components/views/memory-explorer.tsx",
+				"cloud/orchestrator/modules/AutonomousLoop.js",
+				"cloud/orchestrator/modules/CommitDeployLog.js",
+				"cloud/orchestrator/modules/ModelUsageTracker.js",
+				"memory/context/latest-agent-context.md",
+				"memory/lesson-index.jsonl",
+				"memory/lessons-learned.md",
+				"scripts/seed-workflow-compliance.mjs",
+				"server/src/memory/model-usage-log.json",
+				"server/src/memory/task-usage-summaries.json",
+				"src/api/providers/anthropic.ts",
+				"src/api/providers/base-provider.ts",
+				"src/api/providers/openai-codex.ts",
+				"src/api/providers/openai.ts",
+				"src/extension.ts",
+				"src/super-roo/product-memory/NoopEventLog.ts"
+			],
+			"featuresAffected": ["cloud-ide", "cloud-dashboard", "cloud-api", "learning-layer"],
+			"bugsFixed": [
+				"Next.js dev WebSocket proxy failure",
+				"workspace loading blocked by hydratedRef guard",
+				"Windows path missing fallback"
+			],
+			"timestamp": "2026-05-18T02:55:08.500Z",
+			"modelsUsed": [
+				{
+					"phase": "coding",
+					"provider": "kimi",
+					"model": "kimi-k2",
+					"promptTokens": 0,
+					"completionTokens": 0,
+					"latencyMs": 0,
+					"success": true
+				}
+			],
+			"workflowCompliance": {
+				"isCompliant": false,
+				"steps": {
+					"lessonsRead": true,
+					"deepseekDelegated": false,
+					"codexReviewed": false,
+					"ollamaSummarized": false
+				},
+				"violations": ["Missing review phase (Codex review not completed)"]
+			}
 		}
 	],
 	"deploys": [

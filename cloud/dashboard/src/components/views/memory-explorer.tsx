@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Database, RefreshCw, Search, Tag, AlertTriangle, BookOpen, X } from "lucide-react"
+import { Database, RefreshCw, Search, Tag, AlertTriangle, BookOpen, X, Globe } from "lucide-react"
 
 interface Lesson {
 	id: string
@@ -15,6 +15,7 @@ interface Lesson {
 	fix: string
 	reusable_rule: string
 	date?: string
+	project?: string
 }
 
 interface MemoryData {
@@ -22,6 +23,7 @@ interface MemoryData {
 	total: number
 	filtered: number
 	tagCounts: Record<string, number>
+	projects?: string[]
 }
 
 const RISK_STYLE: Record<string, string> = {
@@ -46,14 +48,24 @@ export function MemoryExplorerView() {
 	const [error, setError] = useState<string | null>(null)
 	const [query, setQuery] = useState("")
 	const [activeTag, setActiveTag] = useState<string | null>(null)
+	const [activeProject, setActiveProject] = useState<string>("")
 	const [expanded, setExpanded] = useState<string | null>(null)
 
-	const fetchData = async (q = "") => {
+	const buildQueryString = (q: string, tag: string | null, project: string) => {
+		const params = new URLSearchParams()
+		if (q) params.set("q", q)
+		if (tag) params.set("q", `${q} ${tag}`.trim())
+		if (project) params.set("project", project)
+		return params.toString()
+	}
+
+	const fetchData = async (q = "", tag: string | null = null, project = "") => {
 		setLoading(true)
 		setError(null)
 		try {
 			const token = localStorage.getItem("superroo_auth_token")
-			const res = await fetch(`/api/memory-explorer?q=${encodeURIComponent(q)}`, {
+			const qs = buildQueryString(q, tag, project)
+			const res = await fetch(`/api/memory-explorer?${qs}`, {
 				headers: token ? { Authorization: `Bearer ${token}` } : undefined,
 			})
 			if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -70,14 +82,18 @@ export function MemoryExplorerView() {
 	}, [])
 
 	const handleSearch = () => {
-		const q = activeTag ? `${query} ${activeTag}`.trim() : query
-		fetchData(q)
+		fetchData(query, activeTag, activeProject)
 	}
 
 	const handleTag = (tag: string) => {
 		const next = activeTag === tag ? null : tag
 		setActiveTag(next)
-		fetchData(next ? `${query} ${next}`.trim() : query)
+		fetchData(query, next, activeProject)
+	}
+
+	const handleProjectChange = (project: string) => {
+		setActiveProject(project)
+		fetchData(query, activeTag, project)
 	}
 
 	const topTags = data
@@ -100,14 +116,14 @@ export function MemoryExplorerView() {
 					)}
 				</div>
 				<button
-					onClick={() => fetchData(activeTag ? `${query} ${activeTag}`.trim() : query)}
+					onClick={() => fetchData(query, activeTag, activeProject)}
 					className="flex items-center gap-1.5 rounded-lg border border-[#1e2535] bg-[#0f1117] px-3 py-1.5 text-xs text-gray-400 hover:text-gray-200 transition-colors">
 					<RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
 					Refresh
 				</button>
 			</div>
 
-			{/* Search */}
+			{/* Search + Project Filter */}
 			<div className="flex gap-2">
 				<div className="relative flex-1">
 					<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
@@ -119,17 +135,31 @@ export function MemoryExplorerView() {
 						onKeyDown={(e) => e.key === "Enter" && handleSearch()}
 					/>
 				</div>
+				{data?.projects && data.projects.length > 1 && (
+					<select
+						value={activeProject}
+						onChange={(e) => handleProjectChange(e.target.value)}
+						className="rounded-lg border border-[#1e2535] bg-[#0f1117] px-3 py-2 text-sm text-[#e2e8f0] focus:border-[#60a5fa] focus:outline-none">
+						<option value="">All Projects</option>
+						{data.projects.map((p) => (
+							<option key={p} value={p}>
+								{p}
+							</option>
+						))}
+					</select>
+				)}
 				<button
 					onClick={handleSearch}
 					className="rounded-lg border border-[#1e2535] bg-[#1e293b] px-4 py-2 text-sm text-[#e2e8f0] hover:bg-[#1e2535] transition-colors">
 					Search
 				</button>
-				{(query || activeTag) && (
+				{(query || activeTag || activeProject) && (
 					<button
 						onClick={() => {
 							setQuery("")
 							setActiveTag(null)
-							fetchData("")
+							setActiveProject("")
+							fetchData("", null, "")
 						}}
 						className="rounded-lg border border-[#1e2535] px-3 py-2 text-gray-500 hover:text-gray-200 transition-colors">
 						<X className="h-4 w-4" />
@@ -194,6 +224,12 @@ export function MemoryExplorerView() {
 										<span
 											className={`rounded-full px-2 py-0.5 text-xs ${TYPE_STYLE[lesson.task_type] || "bg-gray-800 text-gray-400"}`}>
 											{lesson.task_type}
+										</span>
+									)}
+									{lesson.project && lesson.project !== "superroo2" && (
+										<span className="flex items-center gap-1 rounded-full border border-emerald-700/40 bg-emerald-900/30 px-2 py-0.5 text-xs text-emerald-300">
+											<Globe className="h-3 w-3" />
+											{lesson.project}
 										</span>
 									)}
 									{lesson.date && <span className="text-xs text-gray-600">{lesson.date}</span>}

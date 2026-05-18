@@ -8977,3 +8977,54 @@ To be determined — this commit was auto-flagged as potentially containing a le
 testing, api, deployment, bugfix
 
 ---
+
+### Auto-Extracted Lesson: Feat: model usage tracking, dashboard improvements, provider updates
+
+Date: 2026-05-18
+Source: Git commit 7ff6f5d3
+Model/API used: unknown
+Confidence: medium
+Related files: memory/lesson-index.jsonl, memory/lessons-learned.md
+
+#### Task Summary
+
+feat: model usage tracking, dashboard improvements, provider updates
+
+#### Files Changed
+
+- `memory/lesson-index.jsonl`
+- `memory/lessons-learned.md`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 7ff6f5d3.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 7ff6f5d3 by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+bugfix
+
+---
