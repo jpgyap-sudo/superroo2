@@ -175,8 +175,8 @@ Date: ${date}
 Source: superroo-learn CLI (local fallback)
 Model/API used: local
 Confidence: medium
-Related files: 
-Tags: 
+Related files:
+Tags:
 
 #### Task Summary
 
@@ -211,6 +211,7 @@ cross-project, local-fallback
 			source: "superroo-learn-cli",
 			model: "local",
 			confidence: "medium",
+			project: project,
 			files: [],
 			tags: ["cross-project", "local-fallback"],
 			relevance_score: 0.7,
@@ -806,10 +807,357 @@ async function cmdSync(options = {}) {
 	}
 }
 
-async function cmdRetry(options = {}) {
-	console.error(`🔄 Processing retry queue...`)
-	const result = await processRetryQueue(options)
-	console.log(JSON.stringify(result, null, 2))
+/**
+ * Infer the project name from a lesson object.
+ * Checks the `project` field first, then falls back to parsing the `source` field.
+ */
+function inferProject(lesson) {
+	if (lesson.project) return lesson.project
+	if (lesson.source) {
+		// Try to extract project name from source like "Codex task completion" or "[superroo2] fix: ..."
+		const sourceMatch = lesson.source.match(/\[(.+?)\]/)
+		if (sourceMatch) return sourceMatch[1]
+	}
+	return "unknown"
+}
+
+/**
+ * Generate a comprehensive report of all lessons across projects.
+ * Queries Central Brain (with local fallback) and produces rich statistics.
+ */
+async function cmdReport(options = {}) {
+	const { format = "text" } = options
+	console.error("📊 Generating cross-project lesson report...")
+	console.error("")
+
+	// Collect lessons from Central Brain
+	let allLessons = []
+	let sourceInfo = ""
+
+	try {
+		const result = await mcpToolCall("query_memory", { query: "", maxResults: 1000 })
+		allLessons = Array.isArray(result) ? result : (result?.results || result?.lessons || [])
+		sourceInfo = "Central Brain"
+	} catch (err) {
+		console.error(`⚠️  Central Brain unreachable: ${err.message}`)
+		console.error("   Falling back to local lesson files...")
+		const local = await queryLocalLessons("", 1000)
+		allLessons = local?.results?.flatMap(r => r.matches.map(m => {
+			try { return JSON.parse(m.text) } catch { return { title: m.text } }
+		})) || []
+		sourceInfo = "local files"
+	}
+
+	// Also load local JSONL directly for richer data
+	const localFiles = findLocalLessonFiles()
+	let localLessons = []
+	if (localFiles.jsonl) {
+		try {
+			const content = await fs.readFile(localFiles.jsonl, "utf-8")
+			localLessons = content.split("\n").filter(l => l.trim()).map(l => {
+				try { return JSON.parse(l) } catch { return null }
+			}).filter(Boolean)
+		} catch {}
+	}
+
+	// Merge: prefer local JSONL data (richer structure), fall back to Central Brain results
+	const mergedLessons = localLessons.length > 0 ? localLessons : allLessons
+
+	if (mergedLessons.length === 0) {
+		console.error("📭 No lessons found.")
+		console.log(JSON.stringify({ total: 0, projects: {}, types: {}, tags: {}, confidence: {}, timeline: {} }, null, 2))
+		return
+	}
+
+	// ── Compute Statistics ──
+
+	// 1. By project
+	const byProject = {}
+	for (const lesson of mergedLessons) {
+		const proj = inferProject(lesson)
+		if (!byProject[proj]) byProject[proj] = { count: 0, types: {}, tags: {}, lastDate: null }
+		byProject[proj].count++
+		const type = lesson.type || "unknown"
+		byProject[proj].types[type] = (byProject[proj].types[type] || 0) + 1
+		for (const tag of (lesson.tags || [])) {
+			byProject[proj].tags[tag] = (byProject[proj].tags[tag] || 0) + 1
+		}
+		if (lesson.date && (!byProject[proj].lastDate || lesson.date > byProject[proj].lastDate)) {
+			byProject[proj].lastDate = lesson.date
+		}
+	}
+
+	// 2. By type
+	const byType = {}
+	for (const lesson of mergedLessons) {
+		const type = lesson.type || "unknown"
+		if (!byType[type]) byType[type] = { count: 0, projects: {} }
+		byType[type].count++
+		const proj = inferProject(lesson)
+		byType[type].projects[proj] = (byType[type].projects[proj] || 0) + 1
+	}
+
+	// 3. By confidence
+	const byConfidence = {}
+	for (const lesson of mergedLessons) {
+		const conf = lesson.confidence || "unknown"
+		byConfidence[conf] = (byConfidence[conf] || 0) + 1
+	}
+
+	// 4. By tag
+	const byTag = {}
+	for (const lesson of mergedLessons) {
+		for (const tag of (lesson.tags || [])) {
+			if (!byTag[tag]) byTag[tag] = { count: 0, projects: {} }
+			byTag[tag].count++
+			const proj = inferProject(lesson)
+			byTag[tag].projects[proj] = (byTag[tag].projects[proj] || 0) + 1
+		}
+	}
+
+	// 5. Timeline (lessons per month)
+	const timeline = {}
+	for (const lesson of mergedLessons) {
+		if (lesson.date) {
+			const month = lesson.date.slice(0, 7) // YYYY-MM
+			if (!timeline[month]) timeline[month] = { count: 0, projects: {} }
+			timeline[month].count++
+			const proj = inferProject(lesson)
+			timeline[month].projects[proj] = (timeline[month].projects[proj] || 0) + 1
+		}
+	}
+
+	// 6. Sync status
+	const retryQueue = await readRetryQueue()
+	const syncState = { retryQueueLength: retryQueue.length }
+
+	// Build report
+	const report = {
+		generatedAt: new Date().toISOString(),
+		source: sourceInfo,
+		totalLessons: mergedLessons.length,
+		projects: Object.keys(byProject).sort(),
+		projectCount: Object.keys(byProject).length,
+		byProject,
+		byType,
+		byConfidence,
+		byTag: Object.fromEntries(
+			Object.entries(byTag).sort((a, b) => b[1].count - a[1].count)
+		),
+		timeline: Object.fromEntries(
+			Object.entries(timeline).sort((a, b) => a[0].localeCompare(b[0]))
+		),
+		syncState,
+	}
+
+	// ── Text Output ──
+	if (format === "text") {
+		console.error("")
+		console.error("╔══════════════════════════════════════════════════════════╗")
+		console.error("║     📊 SuperRoo Cross-Project Lesson Report             ║")
+		console.error("╚══════════════════════════════════════════════════════════╝")
+		console.error("")
+		console.error(`   Generated:     ${report.generatedAt}`)
+		console.error(`   Source:        ${report.source}`)
+		console.error(`   Total lessons: ${report.totalLessons}`)
+		console.error(`   Projects:      ${report.projectCount}`)
+		console.error("")
+		console.error("── Projects ──────────────────────────────────────────────")
+		for (const [proj, data] of Object.entries(byProject).sort((a, b) => b[1].count - a[1].count)) {
+			const typesStr = Object.entries(data.types).map(([t, c]) => `${t}:${c}`).join(", ")
+			console.error(`   ${proj.padEnd(20)} ${String(data.count).padStart(3)} lessons  [${typesStr}]  last: ${data.lastDate || "?"}`)
+		}
+		console.error("")
+		console.error("── By Type ───────────────────────────────────────────────")
+		for (const [type, data] of Object.entries(byType).sort((a, b) => b[1].count - a[1].count)) {
+			const projs = Object.entries(data.projects).map(([p, c]) => `${p}:${c}`).join(", ")
+			console.error(`   ${type.padEnd(15)} ${String(data.count).padStart(3)}  (${projs})`)
+		}
+		console.error("")
+		console.error("── By Confidence ─────────────────────────────────────────")
+		for (const [conf, count] of Object.entries(byConfidence).sort((a, b) => b[1] - a[1])) {
+			console.error(`   ${conf.padEnd(10)} ${String(count).padStart(3)}`)
+		}
+		console.error("")
+		console.error("── Top Tags ──────────────────────────────────────────────")
+		const topTags = Object.entries(byTag).sort((a, b) => b[1].count - a[1].count).slice(0, 15)
+		for (const [tag, data] of topTags) {
+			const projs = Object.keys(data.projects).join(", ")
+			console.error(`   #${tag.padEnd(25)} ${String(data.count).padStart(3)}  (${projs})`)
+		}
+		console.error("")
+		console.error("── Timeline ──────────────────────────────────────────────")
+		for (const [month, data] of Object.entries(timeline).sort((a, b) => a[0].localeCompare(b[0]))) {
+			const projs = Object.entries(data.projects).map(([p, c]) => `${p}:${c}`).join(", ")
+			console.error(`   ${month}  ${String(data.count).padStart(3)} lessons  (${projs})`)
+		}
+		console.error("")
+		console.error("── Sync Status ───────────────────────────────────────────")
+		console.error(`   Retry queue: ${syncState.retryQueueLength > 0 ? `⚠️  ${syncState.retryQueueLength} pending` : "✅ Empty"}`)
+		console.error("")
+		console.error("── Cross-Project Activity ────────────────────────────────")
+		const activeProjects = Object.entries(byProject).filter(([p]) => p !== "unknown").sort((a, b) => b[1].count - a[1].count)
+		if (activeProjects.length > 1) {
+			console.error(`   ✅ Cross-project learning is ACTIVE — ${activeProjects.length} projects contributing lessons:`)
+			for (const [proj, data] of activeProjects) {
+				console.error(`      • ${proj}: ${data.count} lessons (last: ${data.lastDate || "?"})`)
+			}
+		} else if (activeProjects.length === 1) {
+			console.error(`   ⚠️  Only 1 project has contributed lessons so far.`)
+			console.error(`      Install the global hook in other projects to enable cross-project learning.`)
+		} else {
+			console.error(`   ❌ No project-tagged lessons found.`)
+		}
+		console.error("")
+	}
+
+	console.log(JSON.stringify(report, null, 2))
+}
+
+/**
+ * Trace a specific lesson or topic across projects.
+ * Shows where the lesson originated, which files it affects, and which projects reference it.
+ */
+async function cmdTrace(query) {
+	console.error(`🔍 Tracing: "${query}"`)
+	console.error("")
+
+	// Search Central Brain
+	let results = []
+	let sourceInfo = ""
+
+	try {
+		const result = await mcpToolCall("query_memory", { query, maxResults: 50 })
+		results = Array.isArray(result) ? result : (result?.results || result?.lessons || [])
+		sourceInfo = "Central Brain"
+	} catch (err) {
+		console.error(`⚠️  Central Brain unreachable: ${err.message}`)
+		console.error("   Falling back to local lesson files...")
+		const local = await queryLocalLessons(query, 50)
+		results = local?.results?.flatMap(r => r.matches.map(m => {
+			try { return JSON.parse(m.text) } catch { return { title: m.text, summary: m.text } }
+		})) || []
+		sourceInfo = "local files"
+	}
+
+	// Also load local JSONL for richer trace data
+	const localFiles = findLocalLessonFiles()
+	let localLessons = []
+	if (localFiles.jsonl) {
+		try {
+			const content = await fs.readFile(localFiles.jsonl, "utf-8")
+			const queryLower = query.toLowerCase()
+			localLessons = content.split("\n").filter(l => l.trim()).map(l => {
+				try {
+					const lesson = JSON.parse(l)
+					const searchText = [lesson.title, lesson.lesson_summary, lesson.rule_summary, ...(lesson.tags || [])].filter(Boolean).join(" ").toLowerCase()
+					if (searchText.includes(queryLower)) return lesson
+					return null
+				} catch { return null }
+			}).filter(Boolean)
+		} catch {}
+	}
+
+	const mergedResults = localLessons.length > 0 ? localLessons : results
+
+	if (mergedResults.length === 0) {
+		console.error(`📭 No lessons found matching "${query}".`)
+		console.log(JSON.stringify({ query, matches: 0, results: [] }, null, 2))
+		return
+	}
+
+	// Build trace data
+	const trace = {
+		query,
+		source: sourceInfo,
+		totalMatches: mergedResults.length,
+		byProject: {},
+		byFile: {},
+		byAgent: {},
+		byTag: {},
+		results: [],
+	}
+
+	for (const lesson of mergedResults) {
+		const proj = inferProject(lesson)
+		if (!trace.byProject[proj]) trace.byProject[proj] = { count: 0, lessons: [] }
+		trace.byProject[proj].count++
+		trace.byProject[proj].lessons.push(lesson.title || "untitled")
+
+		for (const file of (lesson.files || [])) {
+			if (!trace.byFile[file]) trace.byFile[file] = { count: 0, projects: {} }
+			trace.byFile[file].count++
+			trace.byFile[file].projects[proj] = (trace.byFile[file].projects[proj] || 0) + 1
+		}
+
+		const agent = lesson.source || lesson.agent || "unknown"
+		if (!trace.byAgent[agent]) trace.byAgent[agent] = { count: 0, projects: {} }
+		trace.byAgent[agent].count++
+		trace.byAgent[agent].projects[proj] = (trace.byAgent[agent].projects[proj] || 0) + 1
+
+		for (const tag of (lesson.tags || [])) {
+			if (!trace.byTag[tag]) trace.byTag[tag] = { count: 0, projects: {} }
+			trace.byTag[tag].count++
+			trace.byTag[tag].projects[proj] = (trace.byTag[tag].projects[proj] || 0) + 1
+		}
+
+		trace.results.push({
+			id: lesson.id || lesson.title,
+			title: lesson.title,
+			type: lesson.type || "unknown",
+			project: proj,
+			confidence: lesson.confidence || "unknown",
+			date: lesson.date || "unknown",
+			agent: lesson.source || lesson.agent || "unknown",
+			files: lesson.files || [],
+			tags: lesson.tags || [],
+			summary: (lesson.lesson_summary || "").slice(0, 200),
+			rule: (lesson.rule_summary || "").slice(0, 200),
+		})
+	}
+
+	// ── Text Output ──
+	console.error("")
+	console.error("╔══════════════════════════════════════════════════════════╗")
+	console.error("║     🔍 SuperRoo Lesson Trace                            ║")
+	console.error("╚══════════════════════════════════════════════════════════╝")
+	console.error("")
+	console.error(`   Query:         "${query}"`)
+	console.error(`   Source:        ${sourceInfo}`)
+	console.error(`   Total matches: ${trace.totalMatches}`)
+	console.error("")
+	console.error("── By Project ────────────────────────────────────────────")
+	for (const [proj, data] of Object.entries(trace.byProject).sort((a, b) => b[1].count - a[1].count)) {
+		console.error(`   ${proj.padEnd(20)} ${String(data.count).padStart(3)} matches`)
+		for (const title of data.lessons.slice(0, 3)) {
+			console.error(`      • ${title.slice(0, 80)}`)
+		}
+		if (data.lessons.length > 3) console.error(`      ... and ${data.lessons.length - 3} more`)
+	}
+	console.error("")
+	console.error("── By Agent ──────────────────────────────────────────────")
+	for (const [agent, data] of Object.entries(trace.byAgent).sort((a, b) => b[1].count - a[1].count)) {
+		const projs = Object.keys(data.projects).join(", ")
+		console.error(`   ${agent.padEnd(25)} ${String(data.count).padStart(3)}  (${projs})`)
+	}
+	console.error("")
+	console.error("── Affected Files ────────────────────────────────────────")
+	const topFiles = Object.entries(trace.byFile).sort((a, b) => b[1].count - a[1].count).slice(0, 10)
+	for (const [file, data] of topFiles) {
+		const projs = Object.keys(data.projects).join(", ")
+		console.error(`   ${file.padEnd(50)} ${String(data.count).padStart(2)}  (${projs})`)
+	}
+	if (topFiles.length === 0) console.error("   (no file data)")
+	console.error("")
+	console.error("── Tags ──────────────────────────────────────────────────")
+	const topTags = Object.entries(trace.byTag).sort((a, b) => b[1].count - a[1].count).slice(0, 10)
+	for (const [tag, data] of topTags) {
+		const projs = Object.keys(data.projects).join(", ")
+		console.error(`   #${tag.padEnd(25)} ${String(data.count).padStart(2)}  (${projs})`)
+	}
+	console.error("")
+
+	console.log(JSON.stringify(trace, null, 2))
 }
 
 // ── Main ──
@@ -833,6 +1181,8 @@ async function main() {
 		 superroo-learn health                      Check Central Brain and local fallback health
 		 superroo-learn sync [--force|--dry-run|--status]  Push local lessons to Central Brain
 		 superroo-learn retry [--flush]             Process retry queue (failed MCP stores)
+		 superroo-learn report                      Generate cross-project lesson report (stats by project, type, tag, confidence, timeline)
+		 superroo-learn trace "<text>"              Trace a lesson/topic across projects (origin, files, agents, tags)
 		 superroo-learn --help                      Show this help
 	
 	Local Fallback:
@@ -921,6 +1271,17 @@ async function main() {
 					flush: args.includes("--flush") || args.includes("-f"),
 				}
 				await cmdRetry(retryOptions)
+				break
+			}
+
+			case "report":
+				await cmdReport()
+				break
+
+			case "trace": {
+				const query = args[1]
+				if (!query) throw new Error('Usage: superroo-learn trace "<text>"')
+				await cmdTrace(query)
 				break
 			}
 
