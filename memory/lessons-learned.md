@@ -9430,3 +9430,134 @@ To be determined — this commit was auto-flagged as potentially containing a le
 testing, deployment
 
 ---
+
+### Lesson: Wire LSP diagnostics to Monaco Editor with full UX loop
+
+Date: 2026-05-18
+Source: Kimi Code CLI task completion
+Model/API used: Kimi k1.6
+Confidence: high
+Related files: cloud/api/lsp-bridge.js, cloud/dashboard/src/components/ide-terminal/MonacoEditor.tsx, cloud/dashboard/src/components/ide-terminal/hooks/useIdeTerminal.ts, cloud/dashboard/src/components/views/ide-terminal.tsx
+
+#### Task Summary
+
+Wired LSP diagnostics end-to-end: language server → LSP Bridge → WebSocket → useIdeTerminal → MonacoEditor markers + ProblemsPanel. Added UX improvements: jump-to-line on problem click, error/warning badge in toolbar, didClose on file switch.
+
+#### Files Changed
+
+- cloud/api/lsp-bridge.js
+- cloud/dashboard/src/components/ide-terminal/MonacoEditor.tsx
+- cloud/dashboard/src/components/ide-terminal/CodeEditor.tsx
+- cloud/dashboard/src/components/ide-terminal/hooks/useIdeTerminal.ts
+- cloud/dashboard/src/components/views/ide-terminal.tsx
+
+#### Bug Cause
+
+LSP Bridge received publishDiagnostics from language servers but never forwarded them to WebSocket clients. Frontend had editorProblems state and ProblemsPanel but no code populated it from LSP messages.
+
+#### Fix Applied
+
+1. LspBridge subscribes to each LanguageServerProcess.diagnosticsCallbacks and broadcasts {method, params} to all WS clients.
+2. useIdeTerminal handles textDocument/publishDiagnostics, normalizes raw LSP diagnostics to {file, line, column, message, severity, source}, and updates editorProblems.
+3. MonacoEditor applies lspDiagnostics as model markers via setModelMarkers and shows inline error/warning count badge.
+4. ProblemsPanel onProblemClick sets jumpToPosition → MonacoEditor setPosition + revealLineInCenter.
+5. File switch triggers textDocument/didClose via onLspCloseDocument.
+
+#### Test Result
+
+pass (build succeeds, deployed to VPS, all PM2 services online)
+
+#### Lesson Learned
+
+When wiring LSP diagnostics, the full loop has 5 touchpoints: (1) backend subscribes to language server callbacks, (2) backend broadcasts over WebSocket, (3) frontend normalizes incoming diagnostics to a stable shape, (4) editor renders markers via setModelMarkers, (5) problems panel supports click-to-jump. Missing any step breaks the UX silently. Always add a visual indicator (toolbar badge) so users know diagnostics are active.
+
+#### Reusable Rule
+
+- Backend: subscribe to diagnosticsCallbacks on server creation, broadcast to all wsClients.
+- Frontend: normalize raw LSP diagnostics immediately on receive (uri→file, range→line/column, severity number→string).
+- Editor: use setModelMarkers with owner="lsp" to avoid clashing with Monaco's built-in markers.
+- Panel: expose jumpToPosition as a reactive prop so clicking a problem scrolls the editor into view.
+- Lifecycle: send didClose when the user switches away from a file to free language server memory.
+
+#### Tags
+
+lsp, monaco, diagnostics, cloud-ide, websocket, language-server
+
+---
+
+### Lesson: Central Brain v2.0 — rate limiting, pagination, dedup, project registration, sync status, rich health, webhook registry
+
+Date: 2026-05-18
+Source: DeepSeek task completion
+Model/API used: DeepSeek Chat
+Confidence: high
+Related files: server/src/memory/McpMemoryServer.ts, docs/super-roo/CENTRAL_BRAIN.md
+
+#### Task Summary
+
+Implemented 14 improvement suggestions for the Central Brain across the local MCP server and VPS daemon:
+
+**Local MCP Server (server/src/memory/McpMemoryServer.ts):**
+1. Fixed `_proxyWithFallback` to check `success: false` responses and trigger fallback chain
+2. Added `~/.superroo/config.json` scanning for `list_projects`
+3. Added pagination (`offset` parameter) to `query_memory`
+4. Added `hermes_learn_batch` tool for bulk lesson storage
+5. Added `sync_status` tool for backend connectivity checks
+6. Added rich health diagnostics endpoint (`/health` returns uptime, tool count, rate limiter config, backend URLs)
+7. Added semantic search ranking scores (`total`/`offset`/`limit` in responses)
+8. Added rate limiting (120 calls per 60s window, per-tool tracking)
+9. Added `register_project` tool for project registration in config
+10. Added deduplication check on `hermes_learn` (checks lesson-index.jsonl and lessons-learned.md)
+
+**VPS Daemon (brain-routes.ts):**
+11. Added webhook registry system with 4 REST endpoints: register, list, unregister, trigger
+12. Webhooks persisted as `memory/webhooks.json` with event filtering and failure tracking
+
+**Documentation:**
+13. Updated CENTRAL_BRAIN.md with new tools table entries and v2.0 features section
+
+#### Files Changed
+
+- server/src/memory/McpMemoryServer.ts
+- docs/super-roo/CENTRAL_BRAIN.md
+- VPS: /app/src/super-roo-daemon/brain-routes.ts
+
+#### Bug Cause
+
+N/A — improvement task, not a bug fix
+
+#### Fix Applied
+
+1. `_proxyWithFallback` now checks `result.success === false` in daemon/REST API responses to trigger fallback chain
+2. `list_projects` reads `~/.superroo/config.json` and returns registered projects with metadata
+3. `query_memory` accepts `offset` parameter and returns `{results, total, offset, limit}` for pagination
+4. `hermes_learn_batch` accepts `{lessons: [{topic, content}]}` array and processes each with dedup
+5. `sync_status` tests daemon (port 3417), REST API (port 8787), and local fallback connectivity
+6. `/health` returns `{ok, server, version, uptime, backends, tools, rateLimiter, config}`
+7. RateLimiter class with `check(key)` returning `{allowed, remaining, resetAt}`, applied in `_dispatch`
+8. `register_project` writes to `~/.superroo/config.json` with atomic temp-file write
+9. `_findDuplicateLesson` checks `lesson-index.jsonl` (fast) then `lessons-learned.md` (fallback)
+10. Daemon webhook system: `POST /brain/webhook/register`, `GET /brain/webhook/list`, `POST /brain/webhook/unregister`, `POST /brain/webhook/trigger` with AbortController 10s timeout
+
+#### Test Result
+
+pass (TypeScript compiles cleanly, daemon restarts successfully, all webhook endpoints tested)
+
+#### Lesson Learned
+
+When building a multi-layer fallback system (local MCP → daemon → REST API → local JSON), each layer must be independently testable and the fallback chain must check for explicit failure signals (`success: false`) not just HTTP errors. Rate limiting should be per-tool to prevent one noisy tool from starving others. Deduplication should check the fastest source first (JSONL) before falling back to slower sources (Markdown parsing). Webhook systems need timeout guards (AbortController) to prevent slow callbacks from blocking the event loop.
+
+#### Reusable Rule
+
+- Fallback chains must check `success: false` in response bodies, not just HTTP status codes
+- Rate limiting should be per-tool with configurable window/max values
+- Deduplication: check JSONL index first (fast), fall back to Markdown parsing (slow)
+- Atomic writes: write to `.tmp` file, then `rename()` for crash-safe config updates
+- Webhook callbacks must use AbortController with timeout (10s) to prevent hanging
+- Document all new MCP tools in the tools table immediately after adding them
+
+#### Tags
+
+central-brain, mcp-server, rate-limiting, pagination, deduplication, webhook, project-registration, sync-status, health-endpoint, vps-daemon
+
+---
