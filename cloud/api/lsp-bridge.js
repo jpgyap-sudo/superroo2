@@ -6,6 +6,10 @@
  *
  * Supported languages:
  *   - typescript, javascript, tsx, jsx → typescript-language-server
+ *   - json, css, scss, less, html → vscode-langservers-extracted
+ *   - python → pyright-langserver
+ *   - go → gopls
+ *   - rust → rust-analyzer
  *
  * Frontend protocol (WebSocket JSON):
  *   { type: "completion", lang: "typescript", uri: "src/foo.ts", line: 10, column: 5, id: 1 }
@@ -239,6 +243,9 @@ class LspBridge {
 			scss: "css",
 			less: "css",
 			html: "html",
+			python: "python",
+			go: "go",
+			rust: "rust",
 		}
 		return map[lang] || lang
 	}
@@ -253,6 +260,9 @@ class LspBridge {
 			json: { cmd: "vscode-json-language-server", args: ["--stdio"] },
 			css: { cmd: "vscode-css-language-server", args: ["--stdio"] },
 			html: { cmd: "vscode-html-language-server", args: ["--stdio"] },
+			python: { cmd: "pyright-langserver", args: ["--stdio"] },
+			go: { cmd: "gopls" },
+			rust: { cmd: "rust-analyzer" },
 		}
 
 		const config = serverConfig[key]
@@ -292,6 +302,9 @@ class LspBridge {
 			scss: "scss",
 			less: "less",
 			html: "html",
+			python: "python",
+			go: "go",
+			rust: "rust",
 		}
 		return map[lang] || lang
 	}

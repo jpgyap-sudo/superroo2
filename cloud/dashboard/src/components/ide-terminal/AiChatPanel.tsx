@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useRef, useCallback, useEffect } from "react"
+import React, { useState, useRef, useCallback, useEffect, useMemo } from "react"
 import {
 	Send,
 	Bot,
@@ -63,6 +63,64 @@ interface AiChatPanelProps {
 	textareaRef: React.RefObject<HTMLTextAreaElement | null>
 	slashCommandFilter: string
 	onClearChat?: () => void
+}
+
+function SearchBar({
+	query,
+	onChange,
+	matchCount,
+	currentMatch,
+	onNext,
+	onPrev,
+	onClose,
+}: {
+	query: string
+	onChange: (q: string) => void
+	matchCount: number
+	currentMatch: number
+	onNext: () => void
+	onPrev: () => void
+	onClose: () => void
+}) {
+	const inputRef = useRef<HTMLInputElement>(null)
+	useEffect(() => {
+		inputRef.current?.focus()
+	}, [])
+
+	return (
+		<div className="flex items-center gap-1.5 px-2 py-1.5 bg-[#161b22] border-b border-[#1e2535] shrink-0">
+			<Search className="w-3 h-3 text-[#8b949e] shrink-0" />
+			<input
+				ref={inputRef}
+				className="flex-1 min-w-0 bg-transparent text-[11px] text-[#e6edf3] placeholder-[#484f58] outline-none"
+				placeholder="Search messages..."
+				value={query}
+				onChange={(e) => onChange(e.target.value)}
+				onKeyDown={(e) => {
+					if (e.key === "Enter") e.shiftKey ? onPrev() : onNext()
+					if (e.key === "Escape") onClose()
+				}}
+			/>
+			{query && (
+				<span className="text-[10px] text-[#8b949e] shrink-0">
+					{matchCount > 0 ? currentMatch + 1 : 0} / {matchCount}
+				</span>
+			)}
+			{query && (
+				<button
+					className="text-[#8b949e] hover:text-[#e6edf3] p-0.5 transition-colors shrink-0"
+					onClick={() => onChange("")}>
+					<X className="w-3 h-3" />
+				</button>
+			)}
+			<button
+				className="text-[#8b949e] hover:text-[#e6edf3] p-0.5 transition-colors shrink-0"
+				onClick={onClose}
+				title="Close search">
+				<X className="w-3 h-3" />
+			</button>
+		</div>
+	)
 }
 
 function renderMessageContent(content: string): React.ReactNode[] {
@@ -172,6 +230,15 @@ export default function AiChatPanel({
 	const [showTaskPicker, setShowTaskPicker] = useState(false)
 	const [showSearch, setShowSearch] = useState(false)
 	const [searchQuery, setSearchQuery] = useState("")
+	const [currentMatch, setCurrentMatch] = useState(0)
+
+	const matchCount = useMemo(() => {
+		if (!searchQuery.trim()) return 0
+		const q = searchQuery.toLowerCase()
+		return aiMessages.reduce((count, msg) => {
+			return count + (msg.content.toLowerCase().split(q).length - 1)
+		}, 0)
+	}, [searchQuery, aiMessages])
 
 	const handleKeyDown = useCallback(
 		(e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -390,6 +457,24 @@ export default function AiChatPanel({
 			<div className="flex-1 overflow-y-auto border-b border-[#1e2535]">{renderBrainTab()}</div>
 
 			{/* Chat messages */}
+			{showSearch && (
+				<SearchBar
+					query={searchQuery}
+					onChange={(q) => {
+						setSearchQuery(q)
+						setCurrentMatch(0)
+					}}
+					matchCount={matchCount}
+					currentMatch={currentMatch}
+					onNext={() => setCurrentMatch((m) => (matchCount > 0 ? (m + 1) % matchCount : 0))}
+					onPrev={() => setCurrentMatch((m) => (matchCount > 0 ? (m - 1 + matchCount) % matchCount : 0))}
+					onClose={() => {
+						setShowSearch(false)
+						setSearchQuery("")
+						setCurrentMatch(0)
+					}}
+				/>
+			)}
 			<div className="flex-1 overflow-y-auto">
 				{aiMessages.length === 0 ? (
 					<div className="flex flex-col items-center justify-center h-full text-center px-4">
