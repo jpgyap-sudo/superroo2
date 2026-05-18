@@ -11248,3 +11248,61 @@ Any script wired into a git hook or Claude PostToolUse hook MUST: (1) exit 0 on 
 ollama, summarization, hooks, claude, git, post-commit, learning-layer
 
 ---
+
+### Auto-Extracted Lesson: Docker bind-mount cloud/node_modules from host, remove npm install from API/M...
+
+Date: 2026-05-18
+Source: Git commit 2088515f
+Model/API used: unknown
+Confidence: medium
+Related files: .husky/post-commit, cloud/docker/Dockerfile.api, cloud/docker/Dockerfile.mini-ide, cloud/docker/docker-compose.yml, memory/lesson-index.jsonl
+
+#### Task Summary
+
+fix: Docker bind-mount cloud/node_modules from host, remove npm install from API/Mini-IDE Dockerfiles
+
+#### Files Changed
+
+- `.husky/post-commit`
+- `cloud/docker/Dockerfile.api`
+- `cloud/docker/Dockerfile.mini-ide`
+- `cloud/docker/docker-compose.yml`
+- `memory/lesson-index.jsonl`
+- `memory/lessons-learned.md`
+- `scripts/claude-hook-lesson-sync.mjs`
+- `scripts/ollama-summarize-lesson.mjs`
+- `tools/global-post-commit.mjs`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 2088515f.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 2088515f by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+bugfix
+
+---
