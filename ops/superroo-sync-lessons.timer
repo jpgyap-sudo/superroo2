@@ -1,0 +1,18 @@
+[Unit]
+Description=SuperRoo Lesson Sync Timer — hourly push of local lessons to Central Brain
+After=network-online.target superroo-daemon.service
+
+[Timer]
+# Run every hour
+OnCalendar=hourly
+# Also run 5 minutes after boot (give daemon time to start)
+OnBootSec=5min
+# Run 5 minutes after network comes up
+OnUnitActiveSec=1h
+# If the system was off, catch up immediately
+Persistent=true
+# Randomize delay slightly to avoid thundering herd
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

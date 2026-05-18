@@ -220,6 +220,9 @@ If a commit was not made (e.g., config fix, docs update), manually append the le
 - **Backfill script** (`scripts/backfill-lessons.mjs`): batch-processes git history to extract missed lessons. Already backfilled 104 lessons from May 2026.
 - **Lesson index** (`memory/lesson-index.jsonl`): machine-readable JSONL for programmatic retrieval
 - **Lesson summaries** (`memory/lesson-summaries.json`): Ollama-generated embeddings and summaries
+- **Sync script** ([`scripts/sync-lessons-to-central-brain.mjs`](scripts/sync-lessons-to-central-brain.mjs)): batch-pushes all locally-stored lessons to Central Brain with sync state tracking (`memory/.sync-state.json`). Supports `--dry-run`, `--status`, `--force` flags.
+- **Retry queue** (`~/.superroo/retry-queue.json`): auto-queues failed MCP store operations with exponential backoff (2s base, doubles, capped at 60s, max 5 attempts). Processed via `superroo-learn retry`.
+- **Systemd timer** ([`ops/superroo-sync-lessons.timer`](ops/superroo-sync-lessons.timer)): hourly VPS cron that runs the sync script and retry queue. Deploy with `sudo cp ops/superroo-sync-lessons.* /etc/systemd/system/ && sudo systemctl enable --now superroo-sync-lessons.timer`.
 
 ### Agent Sync Pledge
 
@@ -255,15 +258,63 @@ Ask:
 
 The SuperRoo learning layer now works across **any project**, not just this repo.
 
+### Multi-Layer Fallback Architecture
+
+The learning layer uses a **3-layer fallback strategy** to ensure lessons are never lost:
+
+| Layer                     | Source                                   | Speed     | Network Required | When Used                                   |
+| ------------------------- | ---------------------------------------- | --------- | ---------------- | ------------------------------------------- |
+| **1 — Local JSONL**       | `memory/lesson-index.jsonl`              | ⚡ Fast   | No               | Default in superroo2 repo                   |
+| **2 — Central Brain**     | MCP server (`http://127.0.0.1:3419/mcp`) | 🐢 Slower | Yes              | When local JSONL missing (cross-project)    |
+| **3 — Markdown Fallback** | `memory/lessons-learned.md`              | ⚡ Fast   | No               | When JSONL + Central Brain both unavailable |
+
+All three layers are transparent to callers — the system degrades gracefully.
+
 ### How It Works
 
 | Component                | In superroo2 repo                       | In another project                        |
 | ------------------------ | --------------------------------------- | ----------------------------------------- |
-| **LessonRetriever**      | Reads local `memory/lesson-index.jsonl` | Falls back to Central Brain via MCP       |
+| **LessonRetriever**      | Layer 1 → Layer 3 (if no Central Brain) | Layer 2 → Layer 3 (if Central Brain down) |
 | **PromptEnhancer**       | Injects local lessons (max 5)           | Injects cross-project lessons (max 10)    |
 | **Git post-commit hook** | `.husky/post-commit` (repo-local)       | Global hook via `install-global-hook.mjs` |
 | **CLI**                  | `node tools/superroo-learn.mjs`         | `superroo-learn` from any directory       |
 | **Central Brain**        | Stores all lessons with project tags    | Same — all projects share the brain       |
+
+### Fallback Details
+
+#### LessonRetriever ([`src/super-roo/lessons/LessonRetriever.ts`](src/super-roo/lessons/LessonRetriever.ts))
+
+1. **Layer 1**: Tries `memory/lesson-index.jsonl` (fastest, no network)
+2. **Layer 2**: Tries Central Brain MCP with **retry logic** (2 retries, exponential backoff) and **health check** (3s timeout ping)
+3. **Layer 3**: Parses `memory/lessons-learned.md` extracting `### Lesson:` blocks with title, date, tags, and summaries
+4. If all layers fail, returns empty array (no crash)
+
+#### PromptEnhancer ([`src/super-roo/lessons/PromptEnhancer.ts`](src/super-roo/lessons/PromptEnhancer.ts))
+
+- **Local mode**: strict relevance threshold (0.8+), max 5 lessons
+- **Remote mode**: broader threshold (0.6+), max 10 lessons
+- **Markdown fallback mode**: neutral threshold (0.4+), max 8 lessons
+- Lessons are annotated with source indicators (🌐 for remote, 📄 for markdown fallback)
+
+#### superroo-learn CLI ([`tools/superroo-learn.mjs`](tools/superroo-learn.mjs))
+
+- **Primary**: Central Brain MCP server
+- **Fallback**: Local `memory/lesson-index.jsonl` or `memory/lessons-learned.md` in current/parent directories
+- **Store fallback**: Appends to local `memory/lessons-learned.md` + `memory/lesson-index.jsonl`
+- **Health check**: `superroo-learn health` command to diagnose connectivity
+- **Disable**: Set `SUPERROO_NO_FALLBACK=1` to force Central Brain only
+
+#### Global Post-Commit Hook ([`tools/global-post-commit`](tools/global-post-commit))
+
+- Calls `superroo-learn extract-commit` which handles its own fallback
+- If Central Brain is unreachable, lesson is stored locally in the repo's `memory/` directory
+- Runs in background — `git commit` is never slowed down
+
+#### extract-lesson-from-commit.mjs ([`scripts/extract-lesson-from-commit.mjs`](scripts/extract-lesson-from-commit.mjs))
+
+- **Always** writes to local `memory/lessons-learned.md` + `memory/lesson-index.jsonl`
+- **Best-effort** syncs to Central Brain via MCP (non-blocking, 5s timeout)
+- Supports `--sync-central-brain` flag to batch-push all local lessons
 
 ### Installation (One-Time)
 
@@ -287,23 +338,27 @@ superroo-learn query "how to fix database connection leaks"
 
 # Or query a specific project
 superroo-learn query "deployment best practices" "superroo2"
+
+# Check if Central Brain is reachable
+superroo-learn health
 ```
 
 **After coding:**
 
 ```bash
-# Store a lesson manually
+# Store a lesson manually (auto-fallback to local if Central Brain is down)
 superroo-learn store "React performance" "Disable strict mode in production to avoid double-rendering"
 
 # Or just commit — the global hook auto-extracts lessons:
 git commit -m "fix: resolved memory leak in WebSocket connection pool"
-# Lesson is auto-stored in Central Brain
+# Lesson is auto-stored in Central Brain (or locally if Central Brain is down)
 ```
 
 **Check status:**
 
 ```bash
 superroo-learn status
+superroo-learn health
 superroo-learn projects
 ```
 
@@ -316,32 +371,47 @@ Any Project Directory
         │                      │
         │                      ▼
         │              superroo-learn extract-commit
-        │                      │
-        │                      ▼
-        │            Central Brain (pgvector / Qdrant)
-        │                      │
-        │                      ▼
+        │                 ┌────┴────┐
+        │                 ▼         ▼
+        │          Central Brain  Local files
+        │          (primary)      (fallback)
+        │                 │         │
+        │                 ▼         ▼
         │            All projects can query all lessons
         │
         ├── coding session ──► LessonRetriever
-        │                      │
-        │              ┌───────┴────────┐
-        │              ▼                ▼
-        │      Local memory/     Central Brain
-        │      lesson-index.jsonl (MCP fallback)
-        │              │                │
-        │              └───────┬────────┘
-        │                      ▼
-        │                PromptEnhancer
-        │                      │
-        │                      ▼
-        │              Injected into model prompt
+        │                 ┌──────┴──────────┐
+        │                 ▼                 ▼
+        │          ┌─────────────┐   ┌───────────┐
+        │          │ Layer 1     │   │ Layer 2   │
+        │          │ Local JSONL │──►│ Central   │
+        │          │ (fastest)   │   │ Brain MCP │
+        │          └─────────────┘   └─────┬─────┘
+        │                 │               │
+        │                 ▼               ▼
+        │          ┌─────────────┐   ┌───────────┐
+        │          │ Layer 3     │   │ Retry x2  │
+        │          │ Markdown    │◄──│ + Health  │
+        │          │ Fallback    │   │ Check     │
+        │          └─────────────┘   └───────────┘
+        │                 │
+        │                 ▼
+        │           PromptEnhancer
+        │          (source-aware)
+        │                 │
+        │                 ▼
+        │       Injected into model prompt
+        │       (with source indicators)
 ```
 
 ### Key Principles
 
 1. **Local-first**: `LessonRetriever` prefers local files (faster, no network). Falls back to Central Brain only when local index is missing.
-2. **Project-tagged**: Every lesson is tagged with its source project. Queries can filter by project or search across all.
-3. **Non-blocking**: The global git hook runs in the background. `git commit` is never slowed down.
-4. **Zero-config for most projects**: Project name is auto-detected from `git remote`. Only override via `SUPERROO_PROJECT` env var if needed.
-5. **No breaking changes**: All existing superroo2 code continues to work exactly as before. The new behavior is purely additive.
+2. **Graceful degradation**: Every component has a fallback path. No single point of failure.
+3. **Retry with backoff**: Central Brain calls retry up to 2 times with exponential backoff.
+4. **Health-aware**: Components check Central Brain health before attempting calls.
+5. **Project-tagged**: Every lesson is tagged with its source project. Queries can filter by project or search across all.
+6. **Non-blocking**: The global git hook runs in the background. `git commit` is never slowed down.
+7. **Zero-config for most projects**: Project name is auto-detected from `git remote`. Only override via `SUPERROO_PROJECT` env var if needed.
+8. **No breaking changes**: All existing superroo2 code continues to work exactly as before. The new behavior is purely additive.
+9. **Transparent fallback**: Callers don't need to know which layer is active. The system handles it automatically.

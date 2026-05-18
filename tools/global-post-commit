@@ -8,26 +8,42 @@
 # Auto-extracts lessons from ANY git repo and stores them
 # in the Central Brain via superroo-learn.
 #
+# Fallback behavior:
+#   1. Try Central Brain MCP server (primary)
+#   2. If Central Brain is unreachable, store locally in the repo's
+#      memory/lessons-learned.md and memory/lesson-index.jsonl
+#   3. If neither is available, silently skip (no data loss)
+#
 # This is non-blocking — runs in background so git commit stays fast.
 
-# Only run if superroo-learn is available
+# Only run if node is available
 if ! command -v node >/dev/null 2>&1; then
   exit 0
 fi
 
-SUPERROO_LEARN="$HOME/.superroo/bin/superroo-learn"
-if [ ! -f "$SUPERROO_LEARN" ]; then
-  # Try finding it relative to the superroo2 repo
-  SUPERROO_LEARN=""
-  for dir in "$HOME/superroo/superroo2" "$HOME/projects/superroo2" "$HOME/code/superroo2"; do
+SUPERROO_LEARN=""
+SUPERROO_LEARN_DIR=""
+
+# Find superroo-learn CLI
+if [ -f "$HOME/.superroo/bin/superroo-learn" ]; then
+  SUPERROO_LEARN="$HOME/.superroo/bin/superroo-learn"
+  SUPERROO_LEARN_DIR="$HOME/.superroo/bin"
+elif [ -f "$HOME/.superroo/bin/superroo-learn.mjs" ]; then
+  SUPERROO_LEARN="node $HOME/.superroo/bin/superroo-learn.mjs"
+  SUPERROO_LEARN_DIR="$HOME/.superroo/bin"
+else
+  # Try finding it relative to common repo locations
+  for dir in "$HOME/superroo/superroo2" "$HOME/projects/superroo2" "$HOME/code/superroo2" "/c/Users/User/superroo/superroo2"; do
     if [ -f "$dir/tools/superroo-learn.mjs" ]; then
       SUPERROO_LEARN="node $dir/tools/superroo-learn.mjs"
+      SUPERROO_LEARN_DIR="$dir/tools"
       break
     fi
   done
-  if [ -z "$SUPERROO_LEARN" ]; then
-    exit 0
-  fi
+fi
+
+if [ -z "$SUPERROO_LEARN" ]; then
+  exit 0
 fi
 
 # Get commit info
@@ -39,12 +55,11 @@ FILES_CHANGED=$(git diff-tree --no-commit-id --name-only -r HEAD 2>/dev/null | t
 # Check if commit looks lesson-worthy
 if echo "$COMMIT_MSG" | grep -qiE "(fix|bug|lesson|learned|workaround|solution|issue|error|crash|race|leak|performance|optimize|refactor|breaking)"; then
   # Run in background — don't slow down git commit
-  if [ -n "$SUPERROO_LEARN" ]; then
-    if echo "$SUPERROO_LEARN" | grep -q "^node "; then
-      eval "$SUPERROO_LEARN extract-commit \"$COMMIT_SHA\" \"$COMMIT_MSG\" \"$COMMIT_AUTHOR\" \"$FILES_CHANGED\"" >/dev/null 2>&1 &
-    else
-      node "$SUPERROO_LEARN" extract-commit "$COMMIT_SHA" "$COMMIT_MSG" "$COMMIT_AUTHOR" "$FILES_CHANGED" >/dev/null 2>&1 &
-    fi
+  # The CLI now handles its own fallback (Central Brain -> local)
+  if echo "$SUPERROO_LEARN" | grep -q "^node "; then
+    eval "$SUPERROO_LEARN extract-commit \"$COMMIT_SHA\" \"$COMMIT_MSG\" \"$COMMIT_AUTHOR\" \"$FILES_CHANGED\"" >/dev/null 2>&1 &
+  else
+    node "$SUPERROO_LEARN" extract-commit "$COMMIT_SHA" "$COMMIT_MSG" "$COMMIT_AUTHOR" "$FILES_CHANGED" >/dev/null 2>&1 &
   fi
 fi
 
