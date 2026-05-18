@@ -30,4 +30,9 @@ if [ -f "scripts/extract-lesson-from-commit.mjs" ]; then
   node scripts/extract-lesson-from-commit.mjs "$COMMIT_SHA" "$COMMIT_MSG" "$COMMIT_AUTHOR" "$FILES_CHANGED" &
 fi
 
+# Ollama summarization (graceful if Ollama offline)
+if [ -f "scripts/ollama-summarize-lesson.mjs" ]; then
+  node scripts/ollama-summarize-lesson.mjs --quiet --last-only &
+fi
+
 exit 0

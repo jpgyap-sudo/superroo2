@@ -117,9 +117,11 @@ async function main() {
 		// fallback to default
 	}
 
-	// Run extract + sync in background (non-blocking)
-	// We spawn a single Node process that runs both steps sequentially
-	// If sync fails, we fall back to the retry queue so superroo-learn retry can pick it up
+	// Run extract + sync + summarize in background (non-blocking)
+	// We spawn a single Node process that runs all steps sequentially:
+	//   Step 1: Extract lesson locally
+	//   Step 2: Sync to Central Brain (with retry queue fallback)
+	//   Step 3: Ollama summarization (graceful if Ollama offline)
 	const runner = `
 import { execSync } from "child_process"
 import { appendFile, mkdir, readFile, writeFile } from "fs/promises"
@@ -199,6 +201,17 @@ try {
 	   ].join("\\n")
 	   await enqueueRetry("hermes_learn", topic, content, project)
 	 }
+}
+
+// Step 3: Ollama summarization (graceful if Ollama offline)
+try {
+	 execSync(
+	   "node scripts/ollama-summarize-lesson.mjs --quiet --last-only",
+	   { cwd: ${JSON.stringify(SUPERROO_ROOT)}, encoding: "utf-8", stdio: "ignore", timeout: 30000 }
+	 )
+	 await log("ollama-summarize: done")
+} catch (e) {
+	 await log("ollama-summarize: skipped — " + e.message)
 }
 `
 

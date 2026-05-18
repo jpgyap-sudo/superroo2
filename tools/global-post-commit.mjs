@@ -180,6 +180,23 @@ function main() {
 	const escapedMessage = message.replace(/"/g, '\\"')
 	const extractCmd = `${superrooLearn} extract-commit "${sha}" "${escapedMessage}" "${author}" "${files}"`
 	runBackground(extractCmd)
+
+	// Also run Ollama summarization in background (graceful if Ollama offline)
+	// Try to find the ollama-summarize-lesson.mjs script in the repo
+	const repoPaths = [
+		path.join(os.homedir(), "superroo", "superroo2"),
+		path.join(os.homedir(), "projects", "superroo2"),
+		path.join(os.homedir(), "code", "superroo2"),
+		"C:\\Users\\User\\superroo\\superroo2",
+	]
+	for (const dir of repoPaths) {
+		const ollamaScript = path.join(dir, "scripts", "ollama-summarize-lesson.mjs")
+		if (existsSync(ollamaScript)) {
+			const ollamaCmd = `node "${ollamaScript}" --quiet --last-only`
+			runBackground(ollamaCmd)
+			break
+		}
+	}
 }
 
 main()

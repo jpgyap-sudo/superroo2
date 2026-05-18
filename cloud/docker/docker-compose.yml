@@ -50,6 +50,7 @@ services:
       - orchestrator-data:/opt/superroo2/cloud/orchestrator/data
       - hermes-data:/opt/superroo2/cloud/data
       - logs:/opt/superroo2/cloud/logs
+      - /opt/superroo2/cloud/node_modules:/opt/superroo2/cloud/node_modules:ro
     mem_limit: 256m
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8787/health"]
@@ -104,6 +105,7 @@ services:
     volumes:
       - uploads:/opt/superroo2/cloud/mini-ide/uploads
       - logs:/opt/superroo2/cloud/logs
+      - /opt/superroo2/cloud/node_modules:/opt/superroo2/cloud/node_modules:ro
     mem_limit: 256m
     depends_on:
       superroo-api:

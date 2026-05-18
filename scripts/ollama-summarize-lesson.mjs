@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 /**
  * Ollama Lesson Summarizer
- * 
+ *
  * Summarizes lessons from memory files using Ollama for embedding generation
  * and natural language summarization.
- * 
+ *
  * Usage: node scripts/ollama-summarize-lesson.mjs [file]
  * Default: processes memory/lessons-learned.md
+ *
+ * Supports both modern "### Lesson:" and legacy "### Legacy Lesson:" formats.
+ * Gracefully handles Ollama being offline — logs warning and exits cleanly.
  */
 
 import fs from 'fs/promises'
@@ -21,32 +24,68 @@ const OLLAMA_URL = process.env.OLLAMA_URL || 'http://127.0.0.1:11434'
 const SUMMARIZE_MODEL = process.env.OLLAMA_SUMMARIZE_MODEL || 'qwen2.5:3b'
 
 /**
- * Parse legacy lessons from markdown file
+ * Parse lessons from markdown file — supports both modern and legacy formats
  */
 function parseLessons(content) {
   const lessons = []
-  const lessonRegex = /### Legacy Lesson: (.+?)\n\nDate: (.+?)\nSource: (.+?)\nModel\/API used: (.+?)\nConfidence: (.+?)\nRelated files: (.+?)(?=\n\n####)/gs
+  
+  // Modern format: ### Lesson: Title
+  const modernRegex = /### (?:Legacy )?Lesson: (.+?)(?:\n\n|\n(?=Date:))/gs
+  // Legacy format: ### Legacy Lesson: Title with Date/Source/Model/Confidence/Related files header
+  const legacyRegex = /### Legacy Lesson: (.+?)\n\nDate: (.+?)\nSource: (.+?)\nModel\/API used: (.+?)\nConfidence: (.+?)\nRelated files: (.+?)(?=\n\n####)/gs
   
   let match
-  while ((match = lessonRegex.exec(content)) !== null) {
-    const [_, title, date, source, model, confidence, files] = match
-    
-    // Extract the full lesson section
+  
+  // Try modern format first
+  while ((match = modernRegex.exec(content)) !== null) {
+    const title = match[1].trim()
     const startIdx = match.index
-    const nextLessonIdx = content.indexOf('### Legacy Lesson:', startIdx + 1)
-    const lessonContent = nextLessonIdx > 0 
+    
+    // Find the next lesson boundary
+    const nextLessonIdx = content.indexOf('\n### ', startIdx + 1)
+    const lessonContent = nextLessonIdx > 0
       ? content.slice(startIdx, nextLessonIdx)
       : content.slice(startIdx)
     
+    // Extract metadata from the lesson content
+    const dateMatch = lessonContent.match(/Date: (.+?)(?:\n|$)/)
+    const sourceMatch = lessonContent.match(/Source: (.+?)(?:\n|$)/)
+    const modelMatch = lessonContent.match(/Model\/API used: (.+?)(?:\n|$)/)
+    const confidenceMatch = lessonContent.match(/Confidence: (.+?)(?:\n|$)/)
+    const filesMatch = lessonContent.match(/Related files: (.+?)(?:\n|$)/)
+    
     lessons.push({
-      title: title.trim(),
-      date: date.trim(),
-      source: source.trim(),
-      model: model.trim(),
-      confidence: confidence.trim(),
-      files: files.trim().split(',').map(f => f.trim()),
-      content: lessonContent
+      title,
+      date: dateMatch ? dateMatch[1].trim() : 'unknown',
+      source: sourceMatch ? sourceMatch[1].trim() : 'unknown',
+      model: modelMatch ? modelMatch[1].trim() : 'unknown',
+      confidence: confidenceMatch ? confidenceMatch[1].trim() : 'unknown',
+      files: filesMatch ? filesMatch[1].trim().split(',').map(f => f.trim()) : [],
+      content: lessonContent.trim()
     })
+  }
+  
+  // If no modern lessons found, try legacy format
+  if (lessons.length === 0) {
+    while ((match = legacyRegex.exec(content)) !== null) {
+      const [_, title, date, source, model, confidence, files] = match
+      
+      const startIdx = match.index
+      const nextLessonIdx = content.indexOf('### Legacy Lesson:', startIdx + 1)
+      const lessonContent = nextLessonIdx > 0
+        ? content.slice(startIdx, nextLessonIdx)
+        : content.slice(startIdx)
+      
+      lessons.push({
+        title: title.trim(),
+        date: date.trim(),
+        source: source.trim(),
+        model: model.trim(),
+        confidence: confidence.trim(),
+        files: files.trim().split(',').map(f => f.trim()),
+        content: lessonContent
+      })
+    }
   }
   
   return lessons
@@ -113,16 +152,48 @@ async function generateEmbeddings(text) {
 }
 
 /**
+ * Quick-check if Ollama is reachable (timeout-safe)
+ */
+async function isOllamaReachable() {
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 2000)
+    const res = await fetch(`${OLLAMA_URL}/api/tags`, { signal: controller.signal })
+    clearTimeout(timeout)
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+/**
  * Main function
+ *
+ * CLI flags:
+ *   --quiet     Suppress all console output (for hook usage)
+ *   --last-only Only process the most recent lesson (for hook usage after commit)
+ *   [file]      Path to lessons file (default: memory/lessons-learned.md)
  */
 async function main() {
-  const targetFile = process.argv[2] || 'memory/lessons-learned.md'
+  const args = process.argv.slice(2)
+  const quiet = args.includes('--quiet')
+  const lastOnly = args.includes('--last-only')
+  const targetFile = args.find(a => !a.startsWith('--')) || 'memory/lessons-learned.md'
   const filePath = path.resolve(ROOT, targetFile)
-  
-  console.log(`📚 Ollama Lesson Summarizer`)
-  console.log(`Target: ${targetFile}`)
-  console.log(`Ollama URL: ${OLLAMA_URL}`)
-  console.log('')
+
+  if (!quiet) {
+    console.log(`📚 Ollama Lesson Summarizer`)
+    console.log(`Target: ${targetFile}`)
+    console.log(`Ollama URL: ${OLLAMA_URL}`)
+    console.log('')
+  }
+
+  // Check Ollama availability first
+  const ollamaOk = await isOllamaReachable()
+  if (!ollamaOk) {
+    if (!quiet) console.log('⚠️  Ollama not reachable — skipping summarization')
+    process.exit(0) // Graceful exit, not an error
+  }
 
   try {
     // Check if file exists
@@ -130,21 +201,26 @@ async function main() {
     
     // Read and parse lessons
     const content = await fs.readFile(filePath, 'utf-8')
-    const lessons = parseLessons(content)
+    let lessons = parseLessons(content)
     
-    console.log(`Found ${lessons.length} legacy lessons`)
-    console.log('')
+    if (!quiet) console.log(`Found ${lessons.length} lessons`)
+    if (!quiet) console.log('')
 
     if (lessons.length === 0) {
-      console.log('No lessons to process.')
+      if (!quiet) console.log('No lessons to process.')
       return
+    }
+
+    // If --last-only, only process the most recent lesson
+    if (lastOnly) {
+      lessons = [lessons[lessons.length - 1]]
     }
 
     // Process each lesson
     const summaries = []
     for (let i = 0; i < lessons.length; i++) {
       const lesson = lessons[i]
-      console.log(`[${i + 1}/${lessons.length}] Processing: ${lesson.title}`)
+      if (!quiet) console.log(`[${i + 1}/${lessons.length}] Processing: ${lesson.title}`)
       
       // Generate summary
       const summary = await generateSummary(lesson)
@@ -163,19 +239,21 @@ async function main() {
     }
 
     // Output summary report
-    console.log('')
-    console.log('═'.repeat(60))
-    console.log('SUMMARY REPORT')
-    console.log('═'.repeat(60))
-    
-    for (const s of summaries) {
-      console.log(`\n📖 ${s.title}`)
-      console.log(`   Model: ${s.model} | Confidence: ${s.confidence}`)
-      if (s.summary) {
-        console.log(`   Summary: ${s.summary}`)
-      }
-      if (s.embeddings) {
-        console.log(`   Embeddings: ${s.embeddings}`)
+    if (!quiet) {
+      console.log('')
+      console.log('═'.repeat(60))
+      console.log('SUMMARY REPORT')
+      console.log('═'.repeat(60))
+      
+      for (const s of summaries) {
+        console.log(`\n📖 ${s.title}`)
+        console.log(`   Model: ${s.model} | Confidence: ${s.confidence}`)
+        if (s.summary) {
+          console.log(`   Summary: ${s.summary}`)
+        }
+        if (s.embeddings) {
+          console.log(`   Embeddings: ${s.embeddings}`)
+        }
       }
     }
 
@@ -197,12 +275,11 @@ async function main() {
       }))
     }, null, 2))
     
-    console.log('')
-    console.log(`✅ Summaries saved to: memory/lesson-summaries.json`)
+    if (!quiet) console.log(`✅ Summaries saved to: memory/lesson-summaries.json`)
 
   } catch (error) {
-    console.error('❌ Error:', error.message)
-    process.exit(1)
+    if (!quiet) console.error('❌ Error:', error.message)
+    process.exit(0) // Non-zero exit would alarm hooks — exit cleanly
   }
 }
 

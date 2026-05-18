@@ -10,7 +10,7 @@ Related files: tools/global-post-commit.mjs, tools/install-global-hook.mjs, supe
 
 #### Task Summary
 
-Investigated why the Claude VS Code extension (superroo-vsix) does not auto-record lessons to the learning layer when commits are made. Found that the global post-commit hook at ~/.superroo/git-hooks/post-commit was correctly installed and the global hooksPath was set, but the superroo-vsix repo had a stale local core.hooksPath=.husky/_ config that overrode the global setting. Since the .husky/ directory no longer exists, no hooks ran at all for superroo-vsix commits.
+Investigated why the Claude VS Code extension (superroo-vsix) does not auto-record lessons to the learning layer when commits are made. Found that the global post-commit hook at ~/.superroo/git-hooks/post-commit was correctly installed and the global hooksPath was set, but the superroo-vsix repo had a stale local core.hooksPath=.husky/\_ config that overrode the global setting. Since the .husky/ directory no longer exists, no hooks ran at all for superroo-vsix commits.
 
 #### Files Changed
 
@@ -10909,9 +10909,11 @@ Confidence: medium
 Related files: .husky/post-commit, memory/lesson-index.jsonl, memory/lessons-learned.md, server/src/memory/commit-deploy-log.json, tools/global-post-commit.mjs
 
 #### Task Summary
+
 fix: test auto-lesson extraction from hook
 
 #### Files Changed
+
 - `.husky/post-commit`
 - `memory/lesson-index.jsonl`
 - `memory/lessons-learned.md`
@@ -10920,25 +10922,35 @@ fix: test auto-lesson extraction from hook
 - `tools/install-global-hook.mjs`
 
 #### Bug Cause
+
 <!-- TODO: Document what caused the issue -->
+
 Unknown — extracted from commit e90b7f95.
 
 #### Fix Applied
+
 <!-- TODO: Document the solution -->
+
 See commit e90b7f95 by JPG Yap.
 
 #### Test Result
+
 Unknown — no test files detected.
 
 #### Lesson Learned
+
 <!-- TODO: Extract reusable lesson -->
+
 To be determined — this commit was auto-flagged as potentially containing a lesson.
 
 #### Reusable Rule
+
 <!-- TODO: Define a specific rule for future agents -->
+
 **TODO: Add a specific, actionable rule based on this commit.**
 
 #### Tags
+
 deployment, bugfix
 
 ---
@@ -10952,31 +10964,43 @@ Confidence: medium
 Related files: scripts/claude-hook-lesson-sync.mjs
 
 #### Task Summary
+
 feat: Claude Code PostToolUse hook for auto lesson sync
 
 #### Files Changed
+
 - `scripts/claude-hook-lesson-sync.mjs`
 
 #### Bug Cause
+
 <!-- TODO: Document what caused the issue -->
+
 Unknown — extracted from commit 88ddc3d5.
 
 #### Fix Applied
+
 <!-- TODO: Document the solution -->
+
 See commit 88ddc3d5 by JPG Yap.
 
 #### Test Result
+
 Unknown — no test files detected.
 
 #### Lesson Learned
+
 <!-- TODO: Extract reusable lesson -->
+
 To be determined — this commit was auto-flagged as potentially containing a lesson.
 
 #### Reusable Rule
+
 <!-- TODO: Define a specific rule for future agents -->
+
 **TODO: Add a specific, actionable rule based on this commit.**
 
 #### Tags
+
 general
 
 ---
@@ -11025,6 +11049,7 @@ Before chaining promise methods onto an integration helper, verify whether it ac
 telegram, orchestrator, error-handling, ux, retries
 
 ---
+
 ### Lesson: Claude Code PostToolUse hook — add retry queue fallback when Central Brain sync fails
 
 Date: 2026-05-18
@@ -11067,5 +11092,159 @@ When adding a PostToolUse hook or any background sync mechanism that calls a rem
 #### Tags
 
 claude-hook, learning-layer, fallback, retry-queue, central-brain, sync, resilience
+
+---
+
+### Auto-Extracted Lesson: Add @monaco-editor/react to dashboard deps for Docker build
+
+Date: 2026-05-18
+Source: Git commit dd097d29
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/dashboard/package.json, memory/.sync-state.json, pnpm-lock.yaml
+
+#### Task Summary
+
+fix: add @monaco-editor/react to dashboard deps for Docker build
+
+#### Files Changed
+
+- `cloud/dashboard/package.json`
+- `memory/.sync-state.json`
+- `pnpm-lock.yaml`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit dd097d29.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit dd097d29 by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+bugfix
+
+---
+
+### Auto-Extracted Lesson: Exclude /lessons/sync from auth gate so sync script can reach it
+
+Date: 2026-05-18
+Source: Git commit 4b756327
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/api/auth.js
+
+#### Task Summary
+
+fix: exclude /lessons/sync from auth gate so sync script can reach it
+
+#### Files Changed
+
+- `cloud/api/auth.js`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 4b756327.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 4b756327 by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+api, bugfix
+
+---
+
+### Lesson: Wire Ollama summarization into all three hook pipelines
+
+Date: 2026-05-18
+Source: DeepSeek task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: scripts/ollama-summarize-lesson.mjs, scripts/claude-hook-lesson-sync.mjs, .husky/post-commit, tools/global-post-commit.mjs
+
+#### Task Summary
+
+Wired Ollama lesson summarization into all three hook pipelines (Claude PostToolUse, local git post-commit, global git post-commit) so every extracted lesson gets auto-summarized by Ollama. Also fixed the ollama-summarize-lesson.mjs script to support both modern "### Lesson:" and legacy "### Legacy Lesson:" formats, added --quiet and --last-only flags for hook usage, and added a graceful Ollama availability check (2s timeout) so hooks never block when Ollama is offline.
+
+#### Files Changed
+
+- scripts/ollama-summarize-lesson.mjs
+- scripts/claude-hook-lesson-sync.mjs
+- .husky/post-commit
+- tools/global-post-commit.mjs
+
+#### Bug Cause
+
+The ollama-summarize-lesson.mjs script only parsed "### Legacy Lesson:" sections (not modern "### Lesson:" format), had no --quiet mode for hook usage, and was never called by any hook or automated pipeline — it was a standalone script that required manual invocation.
+
+#### Fix Applied
+
+1. Updated parseLessons() to support both modern and legacy lesson formats
+2. Added isOllamaReachable() with 2s timeout for graceful offline handling
+3. Added --quiet flag to suppress console output for hook usage
+4. Added --last-only flag to only process the most recent lesson
+5. Changed exit code to 0 on error so hooks don't alarm
+6. Added Step 3 (Ollama summarization) to claude-hook-lesson-sync.mjs background worker
+7. Added Ollama summarization call to .husky/post-commit (local hook)
+8. Added Ollama summarization call to tools/global-post-commit.mjs (global hook)
+
+#### Test Result
+
+Unknown — Ollama is not running locally, but the script gracefully exits with code 0 when Ollama is unreachable.
+
+#### Lesson Learned
+
+When wiring a new service into hook pipelines, always make it graceful (non-blocking, silent on failure, exit 0 on error) so hooks never slow down or break the commit flow. The --quiet and --last-only flags are essential for hook integration — hooks should never produce visible output or process all historical data.
+
+#### Reusable Rule
+
+Any script wired into a git hook or Claude PostToolUse hook MUST: (1) exit 0 on all errors, (2) support --quiet mode, (3) have a short timeout, (4) never block the parent process. Use background spawning (detached child process) for any operation that could take more than 100ms.
+
+#### Tags
+
+ollama, summarization, hooks, claude, git, post-commit, learning-layer
 
 ---
