@@ -1612,12 +1612,23 @@ async function handleAsk(botToken, chatId, args, providers) {
 	}
 
 	await sendChatAction(botToken, chatId, "typing")
-
 	console.log("[telegram] AI query from " + chatId + ": " + question.slice(0, 100))
 
-	var reply = await askAI(question, providers, chatId)
+	// Inject workspace context even in fallback mode so unauthenticated chat still
+	// answers about the right project.
+	var askBoundWs = groupWorkspaces.get(String(chatId))
+	if (askBoundWs) {
+		var askCtx = getSmartContext(chatId)
+		question =
+			"[Context: This Telegram group is linked to the project '" +
+			askBoundWs +
+			"'" +
+			(askCtx.activeFile ? ", active file: " + askCtx.activeFile : "") +
+			". Answer specifically about that project, not SuperRoo itself.]\n\n" +
+			question
+	}
 
-	// sendMessage auto-splits long messages to respect Telegram's 4096-char limit
+	var reply = await askAI(question, providers, chatId)
 	await sendMessage(botToken, chatId, reply)
 }
 
@@ -5307,10 +5318,10 @@ async function handleNaturalLanguageInstruction(
 ) {
 	try {
 		var authSession = await checkAuthSession(telegramUserId, chatId)
-		if (!authSession) {
-			// If not authenticated, treat as /ask
-			return false
-		}
+
+		// Read-only intents (chat, feature_query, commit_status, read_logs) don't require auth.
+		// Destructive / queue-submitting intents require a valid session.
+		// We defer the auth check until we know the intent kind below.
 
 		// ─── Smart NLP: Check for direct coding intents first ──────────────
 		// NL-First Chat Mode: Auto-detect coding intent without requiring /brain prefix.
@@ -5366,10 +5377,39 @@ async function handleNaturalLanguageInstruction(
 			await sendChatAction(botToken, chatId, "typing")
 			console.log("[telegram] AI query from " + chatId + ": " + text.slice(0, 100))
 			var chatBoundWs = groupWorkspaces.get(String(chatId))
+
+			// If the message looks like a coding instruction misclassified as chat,
+			// and the user is authenticated, redirect to the coder queue.
+			var chatLower = text.toLowerCase()
+			var isCodingInstruction =
+				authSession &&
+				(chatLower.match(
+					/^(add|implement|create|build|write|make|develop|refactor|update|change|modify|rename|extract|integrate)\s+/,
+				) ||
+					chatLower.includes("add a button") ||
+					chatLower.includes("add a page") ||
+					chatLower.includes("add a feature") ||
+					chatLower.includes("add a route") ||
+					chatLower.includes("add a function") ||
+					chatLower.includes("add a component") ||
+					chatLower.includes("implement the") ||
+					chatLower.includes("implement a") ||
+					chatLower.includes("create a page") ||
+					chatLower.includes("create a component") ||
+					chatLower.includes("create a function") ||
+					chatLower.includes("refactor the") ||
+					chatLower.includes("wire up") ||
+					chatLower.includes("hook up") ||
+					(chatLower.includes("make the") && chatBoundWs))
+			if (isCodingInstruction) {
+				console.log("[telegram] chat re-routed to code_task for: " + text.slice(0, 60))
+				await handleCode(botToken, chatId, [text], queue, orchestratorBridge)
+				return true
+			}
+
 			var chatPrompt = text
 			if (chatBoundWs) {
 				// For improvement/feature/analysis queries, read project files for real context
-				var chatLower = text.toLowerCase()
 				var needsProjectContext =
 					chatLower.includes("improve") ||
 					chatLower.includes("improvement") ||
@@ -5434,6 +5474,29 @@ async function handleNaturalLanguageInstruction(
 			return true
 		}
 
+		// ─── Per-intent auth check ──────────────────────────────────────────
+		// Read-only intents don't need auth. Queue-submitting intents do.
+		var authRequiredIntents = new Set([
+			"debug_plan",
+			"run_tests",
+			"create_branch",
+			"create_pr",
+			"restart_worker",
+			"code_task",
+			"upgrade_self",
+			"deploy",
+			"delete_data",
+			"shell",
+		])
+		if (!authSession && authRequiredIntents.has(intentKind)) {
+			await sendMessage(
+				botToken,
+				chatId,
+				"🔒 *Login required for this action*\n\nUse `/login` to authenticate, then try again.\n\nYou can still ask questions without logging in.",
+			)
+			return true
+		}
+
 		// ─── OpenClaw: Policy Check ─────────────────────────────────────────
 		// Check if the action can run without approval.
 		// Blocked actions (deploy, delete_data, shell) require dashboard approval.
@@ -5453,6 +5516,24 @@ async function handleNaturalLanguageInstruction(
 		if (intentKind === "debug_plan") {
 			await sendChatAction(botToken, chatId, "typing")
 			try {
+				// If the message looks like "fix X" (actionable coding), route to coder queue
+				// rather than the debugger queue which has no active agent implementation.
+				var dbLower = text.toLowerCase()
+				var isFixableIntent =
+					dbLower.match(/^fix\s+/) ||
+					dbLower.match(/^resolve\s+/) ||
+					dbLower.match(/^repair\s+/) ||
+					dbLower.includes("fix the bug") ||
+					dbLower.includes("fix this bug") ||
+					dbLower.includes("fix the error") ||
+					dbLower.includes("fix this error") ||
+					dbLower.includes("fix the issue")
+				if (isFixableIntent) {
+					console.log("[telegram] debug_plan re-routed to code_task (fix intent): " + text.slice(0, 60))
+					await handleCode(botToken, chatId, [text], queue, orchestratorBridge)
+					return true
+				}
+
 				var debugTaskId = "DBG-" + Date.now().toString(36).toUpperCase()
 				var debugRepo = "superroo2"
 				try {
@@ -5472,7 +5553,7 @@ async function handleNaturalLanguageInstruction(
 				}
 				await queue.add("debug-" + debugTaskId, {
 					task: text,
-					agentId: "superroo-debugger-agent",
+					agentId: "superroo-coder-agent",
 					goal: text,
 					repo: debugRepo,
 					commands: [],
@@ -5672,6 +5753,19 @@ async function handleNaturalLanguageInstruction(
 			} catch (err) {
 				logTelegramError("nlp:feature_query", chatId, telegramUserId, err, { text: text.slice(0, 100) })
 				await sendMessage(botToken, chatId, "*Feature Query Error* ❌\n\n" + err.message)
+			}
+			return true
+		}
+
+		// ─── Code Task Intent ───────────────────────────────────────────────
+		// The primary NL coding path. Routes directly to the coder queue.
+		// "add a login page", "implement the auth flow", "refactor the API" etc.
+		if (intentKind === "code_task") {
+			try {
+				await handleCode(botToken, chatId, [text], queue, orchestratorBridge)
+			} catch (err) {
+				logTelegramError("nlp:code_task", chatId, telegramUserId, err, { text: text.slice(0, 100) })
+				await sendMessage(botToken, chatId, "*Coding task error* ❌\n\n" + err.message)
 			}
 			return true
 		}

@@ -39,6 +39,10 @@ var safeActions = new Set([
 	"create_branch",
 	"create_pr",
 	"restart_worker",
+	"code_task",
+	"feature_query",
+	"commit_status",
+	"upgrade_self",
 ])
 
 /**

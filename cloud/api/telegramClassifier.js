@@ -320,6 +320,52 @@ function keywordFallback(text) {
 		return "shell"
 	}
 
+	// Code task — user wants to ADD, IMPLEMENT, CREATE, BUILD, or MODIFY code.
+	// Must come LAST (after deploy/delete/shell) so it doesn't swallow those intents.
+	// But must come BEFORE the chat default so coding instructions don't become chat.
+	if (
+		lower.match(
+			/^(add|implement|create|build|write|make|develop|refactor|update|change|modify|rename|move|extract|integrate)\s+/,
+		) ||
+		lower.match(/^(add|create|build|write|make|implement)\s+a\s+/) ||
+		lower.includes("implement the") ||
+		lower.includes("implement a") ||
+		lower.includes("add a button") ||
+		lower.includes("add a page") ||
+		lower.includes("add a feature") ||
+		lower.includes("add a route") ||
+		lower.includes("add a function") ||
+		lower.includes("add a component") ||
+		lower.includes("add a field") ||
+		lower.includes("add support for") ||
+		lower.includes("add an endpoint") ||
+		lower.includes("add an api") ||
+		lower.includes("write a function") ||
+		lower.includes("write a component") ||
+		lower.includes("write a test") ||
+		lower.includes("write tests") ||
+		lower.includes("create a page") ||
+		lower.includes("create a component") ||
+		lower.includes("create a function") ||
+		lower.includes("create an endpoint") ||
+		lower.includes("build a") ||
+		lower.includes("refactor the") ||
+		lower.includes("refactor this") ||
+		lower.includes("update the") ||
+		lower.includes("change the") ||
+		lower.includes("modify the") ||
+		lower.includes("make the") ||
+		lower.includes("make it") ||
+		lower.includes("make a") ||
+		lower.includes("integrate") ||
+		lower.includes("wire up") ||
+		lower.includes("hook up") ||
+		lower.includes("connect the") ||
+		(lower.includes("fix") && !lower.includes("fix bug") && lower.match(/fix\s+the\s+\w/))
+	) {
+		return "code_task"
+	}
+
 	// Default: chat
 	return "chat"
 }
@@ -336,15 +382,16 @@ function buildClassifierPrompt() {
 	return (
 		"You are SuperRoo Telegram Assistant, a senior engineer dispatcher.\n" +
 		"Convert the user's Telegram message into one JSON object only.\n" +
-		"Allowed kind values: chat, debug_plan, read_logs, run_tests, create_branch, create_pr, restart_worker, deploy, delete_data, shell, upgrade_self, commit_status, feature_query.\n" +
+		"Allowed kind values: chat, debug_plan, read_logs, run_tests, create_branch, create_pr, restart_worker, deploy, delete_data, shell, upgrade_self, commit_status, feature_query, code_task.\n" +
 		"Prefer safe engineering actions. For destructive or broad commands choose deploy/delete_data/shell ONLY when the user EXPLICITLY asks to run a terminal command, execute a script, or perform a system operation.\n" +
 		"NEVER use shell/deploy/delete_data for informational questions. Questions like 'is there any api', 'what apis are exposed', 'what services run', 'what project are we in', 'are there any endpoints' → use feature_query or chat.\n" +
 		"IMPORTANT: If the message starts with '[Quoted message:' it means the user is REPLYING to a previous bot message. Treat this as a follow-up question (kind: chat) unless the reply explicitly asks for a new action.\n" +
 		"SPECIAL INTENTS:\n" +
+		"- code_task: Use when the user wants to ADD, IMPLEMENT, CREATE, BUILD, WRITE, MAKE, DEVELOP, REFACTOR, UPDATE, MODIFY, or CHANGE code. Examples: 'add a login page', 'implement auth', 'create a button', 'build the checkout flow', 'refactor the API', 'write a function to X'. This is the PRIMARY coding intent.\n" +
 		"- feature_query: Use for ANY question about what the app does, what APIs/routes/services exist, what features are available, how the system works. This includes 'is there any api on my app', 'what endpoints does it have', 'what does this project do'.\n" +
 		"- upgrade_self: When the user asks to upgrade, improve, or make the bot/assistant smarter.\n" +
 		"- commit_status: When the user asks about commit history, deploy status, latest commits/deploys.\n" +
-		"- chat: For clarifying questions, follow-ups, 'what app are we talking about', 'what project', conversational messages.\n" +
+		"- chat: For clarifying questions, follow-ups, 'what app are we talking about', 'what project', conversational messages. NOT for coding instructions.\n" +
 		"Return compact JSON with: kind, project, target, message, confidence.\n" +
 		"confidence is a number between 0 and 1 indicating how sure you are."
 	)
@@ -415,6 +462,7 @@ async function classifyIntent(text, providers) {
 					"upgrade_self",
 					"commit_status",
 					"feature_query",
+					"code_task",
 				]
 				if (allowedKinds.indexOf(intent.kind) === -1) {
 					intent.kind = "chat"
