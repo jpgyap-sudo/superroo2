@@ -10203,3 +10203,157 @@ To be determined — this commit was auto-flagged as potentially containing a le
 bugfix
 
 ---
+
+### Auto-Extracted Lesson: Remove UTF-8 BOM from telegram.tsx
+
+Date: 2026-05-18
+Source: Git commit 1d36e451
+Model/API used: unknown
+Confidence: medium
+Related files: memory/lesson-index.jsonl, memory/lessons-learned.md
+
+#### Task Summary
+
+fix: remove UTF-8 BOM from telegram.tsx
+
+#### Files Changed
+
+- `memory/lesson-index.jsonl`
+- `memory/lessons-learned.md`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 1d36e451.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 1d36e451 by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+bugfix
+
+---
+
+### Auto-Extracted Lesson: Remove UTF-8 BOM from telegram.tsx to fix SWC parse error
+
+Date: 2026-05-18
+Source: Git commit 371e8baf
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/dashboard/src/components/views/telegram.tsx
+
+#### Task Summary
+
+fix: remove UTF-8 BOM from telegram.tsx to fix SWC parse error
+
+#### Files Changed
+
+- `cloud/dashboard/src/components/views/telegram.tsx`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 371e8baf.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 371e8baf by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+bugfix
+
+---
+
+### Auto-Extracted Lesson: Repair telegram.tsx JSX structure after prettier mangling
+
+Date: 2026-05-18
+Source: Git commit 1caedee9
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/dashboard/src/components/views/telegram.tsx, memory/lesson-index.jsonl, memory/lessons-learned.md, tmp_fix_telegram.py
+
+#### Task Summary
+
+fix: repair telegram.tsx JSX structure after prettier mangling
+
+#### Files Changed
+
+- `cloud/dashboard/src/components/views/telegram.tsx`
+- `memory/lesson-index.jsonl`
+- `memory/lessons-learned.md`
+- `tmp_fix_telegram.py`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 1caedee9.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 1caedee9 by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+bugfix
+
+---
