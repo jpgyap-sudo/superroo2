@@ -10357,3 +10357,55 @@ To be determined — this commit was auto-flagged as potentially containing a le
 bugfix
 
 ---
+
+### Auto-Extracted Lesson: Repair telegram.tsx JSX structure after prettier mangling
+
+Date: 2026-05-18
+Source: Git commit ae2e2b5e
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/dashboard/src/components/views/telegram.tsx, memory/lesson-index.jsonl, memory/lessons-learned.md
+
+#### Task Summary
+
+fix: repair telegram.tsx JSX structure after prettier mangling
+
+#### Files Changed
+
+- `cloud/dashboard/src/components/views/telegram.tsx`
+- `memory/lesson-index.jsonl`
+- `memory/lessons-learned.md`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit ae2e2b5e.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit ae2e2b5e by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+bugfix
+
+---
