@@ -911,6 +911,9 @@ async function handleAuthRoute(method, url, req, res) {
 	// Don't intercept IDE workspace routes — they are handled by api.js directly
 	if (normalizedPath.startsWith("/ide-workspace/")) return false
 
+	// Don't intercept Projects API — handled by api.js directly (multi-project dashboard)
+	if (normalizedPath === "/projects" || normalizedPath === "/api/projects") return false
+
 	// Don't intercept Terminal Brain routes — they are handled by api.js directly
 	if (normalizedPath.startsWith("/terminal-brain/")) return false
 

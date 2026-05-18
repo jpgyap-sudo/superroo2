@@ -525,6 +525,50 @@ function mapApiLog(l: any, idx: number): ActivityItem {
 	}
 }
 
+function WebhookConfigForm() {
+	const [url, setUrl] = useState("")
+	const [status, setStatus] = useState<"idle" | "saving" | "ok" | "err">("idle")
+
+	const save = async () => {
+		if (!url.startsWith("https://")) return
+		setStatus("saving")
+		try {
+			const res = await fetch("/api/telegram/set-webhook", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ url }),
+			})
+			const json = await res.json()
+			setStatus(json.success ? "ok" : "err")
+		} catch {
+			setStatus("err")
+		}
+		setTimeout(() => setStatus("idle"), 3000)
+	}
+
+	return (
+		<div className="space-y-3">
+			<div className="flex gap-2">
+				<input
+					value={url}
+					onChange={(e) => setUrl(e.target.value)}
+					placeholder="https://yourdomain.com/telegram/webhook"
+					className="flex-1 rounded-xl border border-[#1e2535] bg-[#070b14] px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:ring-2 focus:ring-cyan-500/20"
+				/>
+				<button
+					onClick={save}
+					disabled={status === "saving" || !url.startsWith("https://")}
+					className="rounded-xl bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400 disabled:opacity-50">
+					{status === "saving" ? "…" : status === "ok" ? "Saved ✓" : status === "err" ? "Error" : "Set"}
+				</button>
+			</div>
+			<p className="text-[11px] text-slate-500">
+				Must start with https://. Telegram requires a public HTTPS URL.
+			</p>
+		</div>
+	)
+}
+
 export function TelegramView() {
 	const [message, setMessage] = useState("/code fix the Telegram auth session timeout bug")
 	const [selectedTask, setSelectedTask] = useState<CodingTask | null>(null)
@@ -1255,6 +1299,18 @@ export function TelegramView() {
 						</div>
 					</Card>
 
+					{/* Webhook Config */}
+					<Card className="border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a]">
+						<CardHeader
+							icon={Webhook}
+							title="Webhook Config"
+							subtitle="Set the URL Telegram sends updates to."
+						/>
+						<div className="space-y-3 p-5">
+							<WebhookConfigForm />
+						</div>
+					</Card>
+
 					{/* Alert Rules */}
 					<Card className="border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a]">
 						<CardHeader icon={Bell} title="Alert Rules" subtitle="Events pushed to your Telegram group." />
@@ -1279,9 +1335,7 @@ export function TelegramView() {
 										<div className="flex items-center gap-2 text-sm text-slate-300">
 											<Icon size={16} /> {rule.label}
 										</div>
-										<Pill type={rule.enabled ? "connected" : "neutral"}>
-											{rule.enabled ? "On" : "Off"}
-										</Pill>
+										<Toggle enabled={rule.enabled} />
 									</button>
 								)
 							})}
@@ -1309,6 +1363,66 @@ export function TelegramView() {
 									Reject
 								</button>
 							</div>
+						</div>
+					</Card>
+
+					{/* Advanced Commands */}
+					<Card className="border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a]">
+						<CardHeader
+							icon={Terminal}
+							title="Advanced Commands"
+							subtitle="Power-user features available via Telegram."
+						/>
+						<div className="space-y-2 p-5">
+							{[
+								{
+									cmd: "/hermes",
+									desc: "Knowledge base: recall, learn, skills, patterns, lessons",
+									color: "text-violet-300",
+									border: "border-violet-500/20",
+									bg: "bg-violet-500/5",
+								},
+								{
+									cmd: "/mcp",
+									desc: "MCP bridge: query connected tools and resources",
+									color: "text-indigo-300",
+									border: "border-indigo-500/20",
+									bg: "bg-indigo-500/5",
+								},
+								{
+									cmd: "/upgrade",
+									desc: "Request a bot self-upgrade from Telegram",
+									color: "text-amber-300",
+									border: "border-amber-500/20",
+									bg: "bg-amber-500/5",
+								},
+								{
+									cmd: "/shell",
+									desc: "Execute read-only shell commands (safe subset only)",
+									color: "text-rose-300",
+									border: "border-rose-500/20",
+									bg: "bg-rose-500/5",
+								},
+								{
+									cmd: "/aceteam",
+									desc: "Autonomous multi-agent debug team mode",
+									color: "text-cyan-300",
+									border: "border-cyan-500/20",
+									bg: "bg-cyan-500/5",
+								},
+								{
+									cmd: "/brain",
+									desc: "Terminal Brain: plan, exec, analyze, fix, memory, pipeline",
+									color: "text-emerald-300",
+									border: "border-emerald-500/20",
+									bg: "bg-emerald-500/5",
+								},
+							].map(({ cmd, desc, color, border, bg }) => (
+								<div key={cmd} className={`rounded-xl border ${border} ${bg} px-3 py-2.5`}>
+									<p className={`font-mono text-xs font-semibold ${color}`}>{cmd}</p>
+									<p className="mt-0.5 text-[11px] text-slate-400">{desc}</p>
+								</div>
+							))}
 						</div>
 					</Card>
 				</div>
