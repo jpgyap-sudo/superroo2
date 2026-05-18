@@ -117,6 +117,54 @@ node "${cliDest}" "$@"
 	execSync(`git config --global core.hooksPath "${HOOKS_DIR}"`, { stdio: "inherit" })
 	console.log(`   ✅ Set git config --global core.hooksPath = ${HOOKS_DIR}`)
 
+	// Scan for repos with local hooksPath overrides that block the global hook
+	console.log("\n   🔍 Scanning for repos with local hooksPath overrides...")
+	try {
+		const scannedDirs = [
+			os.homedir(),
+			path.join(os.homedir(), "superroo"),
+			path.join(os.homedir(), "projects"),
+			path.join(os.homedir(), "code"),
+		]
+		const blockedRepos = []
+		for (const dir of scannedDirs) {
+			try {
+				const entries = await fs.readdir(dir, { withFileTypes: true })
+				for (const entry of entries) {
+					if (!entry.isDirectory()) continue
+					const gitDir = path.join(dir, entry.name, ".git")
+					try {
+						await fs.access(gitDir)
+						const localHooks = execSync(
+							`git config --local core.hooksPath`,
+							{ cwd: path.join(dir, entry.name), encoding: "utf-8", stdio: ["pipe", "pipe", "ignore"] },
+						).trim()
+						if (localHooks) {
+							blockedRepos.push({ repo: entry.name, path: path.join(dir, entry.name), hooksPath: localHooks })
+						}
+					} catch {
+						// Not a git repo or no local hooksPath
+					}
+				}
+			} catch {
+				// Directory doesn't exist
+			}
+		}
+		if (blockedRepos.length > 0) {
+			console.log(`   ⚠️  Found ${blockedRepos.length} repo(s) with local hooksPath that may block the global hook:`)
+			for (const r of blockedRepos) {
+				console.log(`      - ${r.repo} (${r.path}) → hooksPath: ${r.hooksPath}`)
+			}
+			console.log("")
+			console.log("   💡 To fix, run in each repo:")
+			console.log('       git config --local --unset core.hooksPath')
+		} else {
+			console.log("   ✅ No local hooksPath overrides found.")
+		}
+	} catch {
+		// Scan failure is non-critical
+	}
+
 	// Add ~/.superroo/bin to PATH suggestion
 	console.log("\n─── Setup Complete ───")
 	console.log("")

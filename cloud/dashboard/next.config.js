@@ -7,9 +7,10 @@ const nextConfig = {
 		return [
 			{
 				source: "/api/:path*",
-				// Use NEXT_PUBLIC_API_URL env var for Docker networking (superroo-api:8787)
+				// API_INTERNAL_URL is used server-side inside Docker containers
+				// NEXT_PUBLIC_API_URL is used client-side (browser → host port)
 				// Falls back to localhost:8787 for PM2/host mode
-				destination: `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8787"}/:path*`,
+				destination: `${process.env.API_INTERNAL_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8787"}/:path*`,
 			},
 		]
 	},

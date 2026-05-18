@@ -106,40 +106,99 @@ async function main() {
 		process.exit(0)
 	}
 
+	// Detect project name from git remote for retry queue fallback
+	let projectName = "superroo2"
+	try {
+		const remoteUrl = execSync("git remote get-url origin", { cwd: SUPERROO_ROOT, encoding: "utf-8", stdio: ["pipe", "pipe", "ignore"] }).trim()
+		// Extract repo name from git URL: git@github.com:user/repo.git or https://github.com/user/repo.git
+		const match = remoteUrl.match(/[\/:]([^\/]+?)(?:\.git)?$/)
+		if (match) projectName = match[1]
+	} catch {
+		// fallback to default
+	}
+
 	// Run extract + sync in background (non-blocking)
 	// We spawn a single Node process that runs both steps sequentially
+	// If sync fails, we fall back to the retry queue so superroo-learn retry can pick it up
 	const runner = `
 import { execSync } from "child_process"
-import { appendFile, mkdir } from "fs/promises"
+import { appendFile, mkdir, readFile, writeFile } from "fs/promises"
 import path from "path"
 import os from "os"
 
 const LOG = path.join(os.homedir(), ".superroo", "claude-hook.log")
+const RETRY_FILE = path.join(os.homedir(), ".superroo", "retry-queue.json")
 const ts = () => new Date().toISOString()
 const log = async (m) => { try { await mkdir(path.dirname(LOG), {recursive:true}); await appendFile(LOG, "["+ts()+"] "+m+"\\n") } catch {} }
 
-try {
-  execSync(
-    "node scripts/extract-lesson-from-commit.mjs " +
-    ${JSON.stringify(JSON.stringify(commit.sha))} + " " +
-    ${JSON.stringify(JSON.stringify(commit.message))} + " " +
-    ${JSON.stringify(JSON.stringify(commit.author))} + " " +
-    ${JSON.stringify(JSON.stringify(commit.files))},
-    { cwd: ${JSON.stringify(SUPERROO_ROOT)}, encoding: "utf-8", stdio: "ignore", timeout: 15000 }
-  )
-  await log("extract: done for ${commit.sha.slice(0, 8)}")
-} catch (e) {
-  await log("extract: failed — " + e.message)
+// Helper: enqueue a retry item so superroo-learn retry can pick it up later
+async function enqueueRetry(operation, topic, content, project) {
+	 try {
+	   await mkdir(path.dirname(RETRY_FILE), { recursive: true })
+	   let queue = []
+	   try {
+	     const raw = await readFile(RETRY_FILE, "utf-8")
+	     queue = JSON.parse(raw)
+	   } catch {}
+	   queue.push({
+	     id: "retry-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8),
+	     operation,
+	     topic,
+	     content,
+	     project,
+	     attempts: 0,
+	     lastAttempt: null,
+	     createdAt: new Date().toISOString(),
+	   })
+	   await writeFile(RETRY_FILE, JSON.stringify(queue, null, 2), "utf-8")
+	   await log("retry-queue: enqueued (" + queue.length + " pending)")
+	 } catch (e) {
+	   await log("retry-queue: failed to enqueue — " + e.message)
+	 }
 }
 
+// Step 1: Extract lesson locally
+let extractOk = false
 try {
-  execSync(
-    "node scripts/sync-lessons-to-central-brain.mjs",
-    { cwd: ${JSON.stringify(SUPERROO_ROOT)}, encoding: "utf-8", stdio: "ignore", timeout: 60000 }
-  )
-  await log("sync: complete")
+	 execSync(
+	   "node scripts/extract-lesson-from-commit.mjs " +
+	   ${JSON.stringify(JSON.stringify(commit.sha))} + " " +
+	   ${JSON.stringify(JSON.stringify(commit.message))} + " " +
+	   ${JSON.stringify(JSON.stringify(commit.author))} + " " +
+	   ${JSON.stringify(JSON.stringify(commit.files))},
+	   { cwd: ${JSON.stringify(SUPERROO_ROOT)}, encoding: "utf-8", stdio: "ignore", timeout: 15000 }
+	 )
+	 await log("extract: done for ${commit.sha.slice(0, 8)}")
+	 extractOk = true
 } catch (e) {
-  await log("sync: failed — " + e.message)
+	 await log("extract: failed — " + e.message)
+}
+
+// Step 2: Sync to Central Brain (with fallback to retry queue)
+try {
+	 execSync(
+	   "node scripts/sync-lessons-to-central-brain.mjs",
+	   { cwd: ${JSON.stringify(SUPERROO_ROOT)}, encoding: "utf-8", stdio: "ignore", timeout: 60000 }
+	 )
+	 await log("sync: complete")
+} catch (e) {
+	 await log("sync: failed — " + e.message)
+	 // Fallback: enqueue retry so superroo-learn retry picks it up later
+	 if (extractOk) {
+	   const project = "${JSON.stringify(projectName)}"
+	   const topic = "${JSON.stringify(commit.message.split("\\n")[0].slice(0, 120))}"
+	   const content = [
+	     "## Auto-extracted from commit ${commit.sha.slice(0, 8)}",
+	     "",
+	     "**Project:** " + project,
+	     "**Author:** ${JSON.stringify(commit.author)}",
+	     "**Message:** ${JSON.stringify(commit.message)}",
+	     "**Files:** ${JSON.stringify(commit.files)}",
+	     "",
+	     "**Lesson:** Review this commit for reusable engineering insights.",
+	   ].join("\\n")
+	   await enqueueRetry("hermes_learn", topic, content, project)
+	 }
 }
 `
 

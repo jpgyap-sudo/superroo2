@@ -1,50 +1,68 @@
 # Latest Agent Context
 
-Generated: 2026-05-18T07:08:37.504Z
-Task: repair dashboard next install and continue dashboard improvements
+Generated: 2026-05-18T12:42:47.173Z
+Task: improve Telegram coding task error and clarification flow shown in screenshot
 
 ## Relevant Lessons
-
-1. **Comprehensive Gap Analysis and Full-Stack Improvement Execution**
-    - Rule: Before implementing any improvement from a gap analysis document, verify the actual source code to confirm the gap still exists. For Vitest ESM mocking of default imports, always include "default: { ... }" alongside named exports in the mock factory.
-    - Why: When doing a comprehensive codebase gap analysis, always verify which gaps have already been filled by checking the actual source code rather than relying on the gap analysis document. Many items from NEXT_IMPROVEMENTS.md had already been implemented in a previous pass. For ESM module mocking in Vitest, default imports (import fs from "fs/promises") require the "default:" key in the mock factory, not just named exports. The createPopulatedRetriever() pattern using type assertion to bypass load() is more reliable than mocking filesystem operations for filtering/sorting/formatting tests.
-2. **Repair malformed JSX at the first broken boundary before chasing follow-on parser errors**
-    - Rule: For JSX parse cascades, inspect the first reported malformed element and nearby unmatched closing tags before making broad edits elsewhere in the file.
-    - Why: A malformed rollback button and mismatched closing tag caused a JSX parser cascade; fixing the earliest broken boundary restored the file and exposed the next real compiler issue.
-3. **A missing pnpm package payload can masquerade as a React runtime bug**
-    - Rule: For startup-time React/Next failures, verify require.resolve, package symlink targets, and actual package contents before assuming a version mismatch.
-    - Why: The dashboard build failed before app code because the local pnpm store had an empty react@18.3.1 payload; inspecting package contents revealed install corruption rather than a framework incompatibility.
-4. **Next.js dev WebSocket proxying, Redis NoopQueue fallback, LSP Bridge Backend**
-    - Rule: Next.js rewrites do not proxy WebSocket upgrades. In dev, connect WS directly to the API server. Make Redis optional in dev with a NoopQueue fallback. LSP stdio requires Content-Length JSON-RPC framing with buffered reads.
-    - Why: Implemented full LSP Bridge Backend for Cloud IDE, fixed Next.js dev WebSocket proxy issue by connecting directly to API port, and eliminated Redis reconnect loops in dev via NoopQueue fallback.
-5. **Overview dashboards should summarize canonical live sources, not parallel mock state**
-    - Rule: For dashboard overview surfaces, derive summaries from existing canonical endpoints, prioritize exceptions and next actions, and avoid hard-coded operational metrics once live sources exist.
-    - Why: Overview pages earn trust when they compose canonical live sources into decisions and next actions instead of mixing a few live values with hard-coded operational panels.
+1. **Auto-Retry on Empty Assistant Response**
+   - Rule: Implement auto-retry with exponential backoff for empty API responses. Log each retry attempt.
+   - Why: APIs can return empty responses due to transient issues. Auto-retry with backoff improves reliability without user intervention.
+2. **Safe JSON Parsing in Database Registries**
+   - Rule: All registry modules MUST use safeJsonParse() instead of raw JSON.parse() when reading from database.
+   - Why: Always use safe JSON parsing with fallback values when reading from persistent storage. Database corruption can happen at any time; code should be resilient.
+3. **Intent-to-Agent Routing Fix**
+   - Rule: Always verify intent-to-agent routing with real user queries. Add classifier feedback loops to detect and correct routing errors.
+   - Why: Intent classification must be continuously validated against actual outcomes. Routing mismatches cause user frustration and wasted compute cycles.
+4. **Model Router Service Task Routing**
+   - Rule: Use the Model Router for all AI calls. Route by task type, not just by user preference. Always have fallback providers configured.
+   - Why: Different AI providers excel at different task types. A routing layer improves both cost-efficiency and output quality.
+5. **Complete Codex's Unfinished Learning Layer Release + Security Hardening**
+   - Rule: When converting a hardcoded string to a runtime variable in JavaScript, always use a regex search for the exact old string value across the entire file to catch all string literal usages that need template literal interpolation.
+   - Why: When env-var-izing hardcoded URLs, always search for ALL usages of the old value — including string concatenation and template literals. A variable declaration change without updating all consumers creates silent bugs that manifest as broken links in production.
 
 ## Active Codex Tasks
-
 - Release learning layer workflow (codex_task_learning_layer_release_20260517)
 
 ## Architecture Reminder
+# SuperRoo Working Tree
 
-         │     ├── Repair Plan Builder (structured fix generation)
+> **Purpose**: This document is the single source of truth for the SuperRoo product architecture. All agents should read this to understand the system structure, module interactions, and product features before making changes.
 
-- **Features**: Priority queuing, Job retry & backoff, Concurrency control
-- **Features**: Feature lifecycle tracking (planned → building → testing → working → deprecated), Health monitoring (unknown → healthy → degraded → failing), Bug-to-feature mapping - **Repair Plan Builder** ([`src/super-roo/healing/RepairPlanBuilder.ts`](../src/super-roo/healing/RepairPlanBuilder.ts)) - Structured fix generation - **API Keys View** ([`cloud/dashboard/src/components/views/api-keys.tsx`](../cloud/dashboard/src/components/views/api-keys.tsx)) - Provider key management UI with save/test/delete
-  Incident Detection → Healing Bus → Root Cause Classifier → Repair Plan Builder → Self-Healing Loop → Fix → Verify
+## Overview
+
+The SuperRoo system is organized into **18 core modules** spanning orchestration, agent execution, safety, persistence, self-healing, machine learning, product memory, commit/deploy tracking, parallel execution, and infrastructure. Each module has a status, owner, connections to other modules, and specific product features it enables.
+
+## Module Map
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        ORCHESTRATOR                                 │
+│  Task dispatch, agent lifecycle, workflow orchestration             │
+└──────────┬────────────────────────────────────────────────┬─────────┘
+           │ routes tasks to                                  │ manages
+           ▼                                                 ▼
+┌──────────────────┐  ┌──────────────────┐  ┌──────────────────────────┐
+│   AGENT SYSTEM   │  │   SAFETY SYSTEM  │  │      TASK QUEUE          │
+│  Coder, Debugger │◄─┤  Mode-based ACL  │  │  Priority-based queue    │
+│  PM, Tester, ... │  │  Capability gate │  │  BullMQ integration      │
+└────────┬─────────┘  └──────────────────┘  └──────────────────────────┘
+         │
+         ├──► MEMORY SYSTEM (SQLite persistence for all entities)
+         ├──► FEATURE REGISTRY (Feature lifecycle & health tracking)
+         ├──► BUG REGISTRY (Bug tracking & fix management)
+         ├──► EVENT LOG (Append-only event stream for observability)
+         │
 
 ## Task Signals
-
-Inferred tags: ui
+No strong task tags inferred.
 
 ## Feature Knowledge
-
 # feature-knowledge.md
 
 Initialized by SuperRoo workflow check.
 
-## Recent Bug Memory
 
+## Recent Bug Memory
 # bugs-fixed.md
 
 Initialized by SuperRoo workflow check.
@@ -87,7 +105,6 @@ Implemented `safeJsonParse<T>(json, fallback)` helper function that:
 - HealingBus already used this pattern; extended to other registries
 
 ## Model Decisions
-
 # model-decisions.md
 
 Initialized by SuperRoo workflow check.

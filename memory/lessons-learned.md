@@ -1,5 +1,48 @@
 # lessons-learned.md
 
+### Lesson: Global git hook blocked by stale local hooksPath override in superroo-vsix
+
+Date: 2026-05-18
+Source: Roo (DeepSeek) task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: tools/global-post-commit.mjs, tools/install-global-hook.mjs, superroo-vsix/.git/config
+
+#### Task Summary
+
+Investigated why the Claude VS Code extension (superroo-vsix) does not auto-record lessons to the learning layer when commits are made. Found that the global post-commit hook at ~/.superroo/git-hooks/post-commit was correctly installed and the global hooksPath was set, but the superroo-vsix repo had a stale local core.hooksPath=.husky/_ config that overrode the global setting. Since the .husky/ directory no longer exists, no hooks ran at all for superroo-vsix commits.
+
+#### Files Changed
+
+- tools/install-global-hook.mjs (added local hooksPath scan during installation)
+
+#### Bug Cause
+
+The superroo-vsix repo had a leftover `core.hooksPath=.husky/_` in its local git config from a previous husky initialization. Git's local config takes precedence over the global config, so the global hook at ~/.superroo/git-hooks/post-commit was never executed when committing inside superroo-vsix. The .husky/ directory no longer existed, so no hooks ran at all.
+
+#### Fix Applied
+
+1. Removed the stale local hooksPath: `git config --local --unset core.hooksPath` in superroo-vsix
+2. Added a scan step to tools/install-global-hook.mjs that detects repos with local hooksPath overrides that would block the global hook, and warns the user during installation
+
+#### Test Result
+
+pass — Verified the local hooksPath was removed and the global hook is now unblocked for superroo-vsix
+
+#### Lesson Learned
+
+A global git hooksPath (core.hooksPath) is silently blocked by any local hooksPath override in a repo's .git/config. When debugging why a global hook doesn't fire, always check `git config --local core.hooksPath` in the target repo. Stale husky configs are a common source of this issue.
+
+#### Reusable Rule
+
+When installing a global git hook, scan common repo directories for local hooksPath overrides and warn the user. When debugging hook failures, always check `git config --local core.hooksPath` first — a stale local override silently blocks the global hook.
+
+#### Tags
+
+git-hooks, learning-layer, cross-project, debugging, husky, global-hook
+
+---
+
 ### Lesson: Telegram bot offline — PM2 env vars not loaded, token empty
 
 Date: 2026-05-18
@@ -10854,5 +10897,175 @@ When writing Docker entrypoint scripts that pull remote resources (models, packa
 #### Tags
 
 docker, ollama, container, restart-loop, dns, entrypoint, e2e, health-scan
+
+---
+
+### Auto-Extracted Lesson: Test auto-lesson extraction from hook
+
+Date: 2026-05-18
+Source: Git commit e90b7f95
+Model/API used: unknown
+Confidence: medium
+Related files: .husky/post-commit, memory/lesson-index.jsonl, memory/lessons-learned.md, server/src/memory/commit-deploy-log.json, tools/global-post-commit.mjs
+
+#### Task Summary
+fix: test auto-lesson extraction from hook
+
+#### Files Changed
+- `.husky/post-commit`
+- `memory/lesson-index.jsonl`
+- `memory/lessons-learned.md`
+- `server/src/memory/commit-deploy-log.json`
+- `tools/global-post-commit.mjs`
+- `tools/install-global-hook.mjs`
+
+#### Bug Cause
+<!-- TODO: Document what caused the issue -->
+Unknown — extracted from commit e90b7f95.
+
+#### Fix Applied
+<!-- TODO: Document the solution -->
+See commit e90b7f95 by JPG Yap.
+
+#### Test Result
+Unknown — no test files detected.
+
+#### Lesson Learned
+<!-- TODO: Extract reusable lesson -->
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+<!-- TODO: Define a specific rule for future agents -->
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+deployment, bugfix
+
+---
+
+### Auto-Extracted Lesson: Feat: Claude Code PostToolUse hook for auto lesson sync
+
+Date: 2026-05-18
+Source: Git commit 88ddc3d5
+Model/API used: unknown
+Confidence: medium
+Related files: scripts/claude-hook-lesson-sync.mjs
+
+#### Task Summary
+feat: Claude Code PostToolUse hook for auto lesson sync
+
+#### Files Changed
+- `scripts/claude-hook-lesson-sync.mjs`
+
+#### Bug Cause
+<!-- TODO: Document what caused the issue -->
+Unknown — extracted from commit 88ddc3d5.
+
+#### Fix Applied
+<!-- TODO: Document the solution -->
+See commit 88ddc3d5 by JPG Yap.
+
+#### Test Result
+Unknown — no test files detected.
+
+#### Lesson Learned
+<!-- TODO: Extract reusable lesson -->
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+<!-- TODO: Define a specific rule for future agents -->
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+general
+
+---
+
+### Lesson: Separate Retryable System Failures from User Clarification
+
+Date: 2026-05-18
+Source: Codex task completion
+Model/API used: gpt-5
+Confidence: high
+Related files: cloud/api/telegramBot.js, cloud/api/telegramNotifier.js, cloud/worker/agentRunners.js, cloud/test-verify-fixes.js
+
+#### Task Summary
+
+Improved the Telegram coding-task failure flow shown in chat by fixing synchronous orchestrator task recording calls and splitting retryable model failures from genuine user clarification requests.
+
+#### Files Changed
+
+- `cloud/api/telegramBot.js`
+- `cloud/api/telegramNotifier.js`
+- `cloud/worker/agentRunners.js`
+- `cloud/test-verify-fixes.js`
+
+#### Bug Cause
+
+`TelegramOrchestratorBridge.createTask()` returns synchronously, but Telegram handlers chained `.catch()` onto it as if it were a promise. Separately, worker-side LLM/system failures reused the clarification card, which incorrectly implied the user had provided insufficient detail.
+
+#### Fix Applied
+
+Wrapped synchronous bridge calls in `try/catch`, added a dedicated retryable-failure Telegram notification, preserved retry context for model failures, and left true `needsClarification` responses on the existing clarification path.
+
+#### Test Result
+
+pass - `node --check` for touched JS files and targeted Telegram verification checks passed; `cloud/test-verify-fixes.js` still has one pre-existing unrelated Markdown fallback failure.
+
+#### Lesson Learned
+
+Do not reuse user-action UX for infrastructure failures. A recoverable system failure should preserve retry context and say what happened without shifting blame onto the user.
+
+#### Reusable Rule
+
+Before chaining promise methods onto an integration helper, verify whether it actually returns a promise; for Telegram workflows, keep `clarification` and `retryable_failure` as distinct states with distinct copy and recovery actions.
+
+#### Tags
+
+telegram, orchestrator, error-handling, ux, retries
+
+---
+### Lesson: Claude Code PostToolUse hook — add retry queue fallback when Central Brain sync fails
+
+Date: 2026-05-18
+Source: Code agent task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: scripts/claude-hook-lesson-sync.mjs
+
+#### Task Summary
+
+Investigated Claude's self-upgrade (PostToolUse hook at `scripts/claude-hook-lesson-sync.mjs`) that auto-extracts lessons from git commits and syncs them to Central Brain. Confirmed the hook IS working (verified via `~/.superroo/claude-hook.log`). Added a fallback mechanism: when the sync to Central Brain fails (e.g., VPS down, network issue), the lesson data is now preserved in the retry queue at `~/.superroo/retry-queue.json` so `superroo-learn retry` can pick it up later.
+
+#### Files Changed
+
+- `scripts/claude-hook-lesson-sync.mjs` — Added retry queue fallback in the background worker; added project name detection from git remote
+
+#### Bug Cause
+
+The Claude hook's background worker called `scripts/sync-lessons-to-central-brain.mjs` which POSTs to the cloud API (`https://dev.abcx124.xyz/api/lessons/sync`). If the API is unreachable (dev machine offline, VPS down, network issue), the sync failed silently with `stdio: "ignore"` and the lesson was never retried. The extract step writes locally, but the sync step had no local fallback.
+
+#### Fix Applied
+
+1. Added `projectName` detection from `git remote get-url origin` before spawning the background worker
+2. Added an `enqueueRetry()` helper function inside the background worker that writes to `~/.superroo/retry-queue.json` with the same format used by `superroo-learn.mjs`
+3. When the sync step fails, the background worker now enqueues a retry item with operation `hermes_learn`, the commit topic, content, and project name
+4. The retry queue is processed by `superroo-learn retry` (CLI) or the systemd timer (`superroo-sync-lessons.timer`) on the VPS
+
+#### Test Result
+
+pass — Verified the hook log shows successful extraction and sync for previous commits. The retry queue fallback is triggered only when sync fails, preserving the existing happy path.
+
+#### Lesson Learned
+
+Any background process that calls a remote API must have a local fallback. The `withFallback()` pattern used by `superroo-learn.mjs` (try Central Brain → fall back to local storage) should be replicated everywhere. The retry queue at `~/.superroo/retry-queue.json` is the canonical mechanism for deferred sync — use it instead of letting failures silently disappear.
+
+#### Reusable Rule
+
+When adding a PostToolUse hook or any background sync mechanism that calls a remote API, always add a fallback that writes to `~/.superroo/retry-queue.json` on failure. The retry queue format is: `{ id, operation, topic, content, project, attempts, lastAttempt, createdAt }`. This ensures lessons are never lost even when Central Brain is unreachable.
+
+#### Tags
+
+claude-hook, learning-layer, fallback, retry-queue, central-brain, sync, resilience
 
 ---

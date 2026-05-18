@@ -1,13 +1,31 @@
 /**
  * SuperRoo Product Memory Module
  *
- * Centralized tracking for commits, deployments, model usage, and workflow compliance.
- *
- * Exports:
- * - CommitDeployLog: Track commits and deployments
- * - ModelUsageTracker: Track AI model API usage
- * - WorkflowEnforcer: Enforce SuperRoo workflow compliance
+ * Centralized tracking for commits, deployments, model usage, workflow compliance,
+ * product features, updates, test history, and bug-to-feature mappings.
  */
+
+// Export ProductMemoryService
+export { ProductMemoryService } from "./ProductMemoryService"
+
+// Export Agents
+export {
+	ProductFeatureAgent,
+	ProductUpdatesAgent,
+	FeatureTesterAgent,
+	BugFeatureMapperAgent,
+	WorkingTreeAgent,
+} from "./agents"
+
+// Export Agent Options
+export type {
+	ProductFeatureAgentOptions,
+	ProductUpdatesAgentOptions,
+	FeatureTesterAgentOptions,
+	BugFeatureMapperAgentOptions,
+	WorkingTreeAgentOptions,
+	WorkingTreeSnapshot,
+} from "./agents"
 
 // Export CommitDeployLog
 export {
@@ -43,3 +61,19 @@ export {
 	type WorkflowViolation,
 	type WorkflowState,
 } from "./WorkflowEnforcer"
+
+// Export Product Memory Types
+export type {
+	ProductFeatureStatus,
+	ProductUpdateType,
+	ProductFeature,
+	ProductUpdate,
+	FeatureTestRecord,
+	BugFeatureMapping,
+	AgentNote,
+	ProductFeaturesFile,
+	ProductUpdatesFile,
+	FeatureTestHistoryFile,
+	BugFeatureMapFile,
+	AgentNotesFile,
+} from "./types"
