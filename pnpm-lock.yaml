@@ -477,6 +477,9 @@ importers:
 
   cloud/dashboard:
     dependencies:
+      '@monaco-editor/react':
+        specifier: ^4.6.0
+        version: 4.7.0(monaco-editor@0.55.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       bullmq:
         specifier: ^5.7.0
         version: 5.76.5
@@ -2784,6 +2787,16 @@ packages:
   '@modelcontextprotocol/sdk@1.12.0':
     resolution: {integrity: sha512-m//7RlINx1F3sz3KqwY1WWzVgTcYX52HYk4bJ1hkBXV3zccAEth+jRvG8DBRrdaQuRsPAJOx2MH3zaHNCKL7Zg==}
     engines: {node: '>=18'}
+
+  '@monaco-editor/loader@1.7.0':
+    resolution: {integrity: sha512-gIwR1HrJrrx+vfyOhYmCZ0/JcWqG5kbfG7+d3f/C1LXk2EvzAbHSg3MQ5lO2sMlo9izoAZ04shohfKLVT6crVA==}
+
+  '@monaco-editor/react@4.7.0':
+    resolution: {integrity: sha512-cyzXQCtO47ydzxpQtCGSQGOC8Gk3ZUeBXFAxD+CWXYFo5OqZyZUonFl0DwUlTyAfRHntBfw2p3w4s9R6oe1eCA==}
+    peerDependencies:
+      monaco-editor: '>= 0.25.0 < 1'
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+      react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
   '@msgpackr-extract/msgpackr-extract-darwin-arm64@3.0.3':
     resolution: {integrity: sha512-QZHtlVgbAdy2zAqNA9Gu1UpIuI8Xvsd1v8ic6B2pZmeFnFcMWiPLfWXh7TVw4eGEZ/C9TH281KwhVoeQUKbyjw==}
@@ -6343,6 +6356,9 @@ packages:
   dompurify@3.2.6:
     resolution: {integrity: sha512-/2GogDQlohXPZe6D6NOgQvXLPSYBqIWMnZ8zzOhn09REE4eyAzb+Hed3jhoM9OkuaJ8P6ZGTTVWQKAi8ieIzfQ==}
 
+  dompurify@3.2.7:
+    resolution: {integrity: sha512-WhL/YuveyGXJaerVlMYGWhvQswa7myDG17P7Vu65EWC05o8vfeNbvNf4d/BOvH99+ZW+LlQsc1GDKMa1vNK6dw==}
+
   dompurify@3.3.1:
     resolution: {integrity: sha512-qkdCKzLNtrgPFP1Vo+98FRzJnBRGe4ffyCea9IwHB1fyxPOeNTHpLKYGd4Uk9xvNoH0ZoOjwZxNptyMwqrId1Q==}
 
@@ -8408,6 +8424,11 @@ packages:
   markdown-table@3.0.4:
     resolution: {integrity: sha512-wiYz4+JrLyb/DqW2hkFJxP7Vd7JuTDm77fvbM8VfEQdmSMqcImWeeRbHwZjBjIFki/VaMK2BhFi7oUUZeM5bqw==}
 
+  marked@14.0.0:
+    resolution: {integrity: sha512-uIj4+faQ+MgHgwUW1l2PsPglZLOLOT1uErt06dAPtx2kjteLAkbsd/0FiYg/MGS+i7ZKLb7w2WClxHkzOOuryQ==}
+    engines: {node: '>= 18'}
+    hasBin: true
+
   marked@16.2.0:
     resolution: {integrity: sha512-LbbTuye+0dWRz2TS9KJ7wsnD4KAtpj0MVkWc90XvBa6AslXsT0hTBVH5k32pcSyHH1fst9XEFJunXHktVy0zlg==}
     engines: {node: '>= 20'}
@@ -8704,6 +8725,9 @@ packages:
     resolution: {integrity: sha512-VlSBxrPYHK4YNOEbFdkCxHQbZMoNzBkoPprqtZRW6311EUF/DlSxoycE2e/2NtRk4WKkIXzyrXDTrlikJMWgbw==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
     hasBin: true
+
+  monaco-editor@0.55.1:
+    resolution: {integrity: sha512-jz4x+TJNFHwHtwuV9vA9rMujcZRb0CEilTEwG2rRSpe/A7Jdkuj8xPKttCgOh+v/lkHy7HsZ64oj+q3xoAFl9A==}
 
   monaco-vscode-textmate-theme-converter@0.1.7:
     resolution: {integrity: sha512-ZMsq1RPWwOD3pvXD0n+9ddnhfzZoiUMwNIWPNUqYqEiQeH2HjyZ9KYOdt/pqe0kkN8WnYWLrxT9C/SrtIsAu2Q==}
@@ -10229,6 +10253,9 @@ packages:
 
   standard-as-callback@2.1.0:
     resolution: {integrity: sha512-qoRRSyROncaz1z0mvYqIE4lCd9p2R90i6GxW3uZv5ucSu8tU7B5HXUP1gG8pVZsYNVaXjk8ClXHPttLyxAL48A==}
+
+  state-local@1.0.7:
+    resolution: {integrity: sha512-HTEHMNieakEnoe33shBYcZ7NX83ACUjCu8c40iOGEZsngj9zRnkqS9j1pqQPXwobB0ZcVTk27REb7COQ0UR59w==}
 
   statuses@2.0.1:
     resolution: {integrity: sha512-RwNA9Z/7PrK06rYLIzFMlaF+l73iwpzsqRIFgbMLbTcLD6cOao82TaWefPXQvB2fOC4AjuYSEndS7N/mTCbkdQ==}
@@ -13299,6 +13326,17 @@ snapshots:
       zod-to-json-schema: 3.24.5(zod@3.25.76)
     transitivePeerDependencies:
       - supports-color
+
+  '@monaco-editor/loader@1.7.0':
+    dependencies:
+      state-local: 1.0.7
+
+  '@monaco-editor/react@4.7.0(monaco-editor@0.55.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+    dependencies:
+      '@monaco-editor/loader': 1.7.0
+      monaco-editor: 0.55.1
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
 
   '@msgpackr-extract/msgpackr-extract-darwin-arm64@3.0.3':
     optional: true
@@ -17031,6 +17069,10 @@ snapshots:
     optionalDependencies:
       '@types/trusted-types': 2.0.7
 
+  dompurify@3.2.7:
+    optionalDependencies:
+      '@types/trusted-types': 2.0.7
+
   dompurify@3.3.1:
     optionalDependencies:
       '@types/trusted-types': 2.0.7
@@ -19325,6 +19367,8 @@ snapshots:
 
   markdown-table@3.0.4: {}
 
+  marked@14.0.0: {}
+
   marked@16.2.0: {}
 
   matcher@3.0.0:
@@ -19872,6 +19916,11 @@ snapshots:
       yargs: 17.7.2
       yargs-parser: 21.1.1
       yargs-unparser: 2.0.0
+
+  monaco-editor@0.55.1:
+    dependencies:
+      dompurify: 3.2.7
+      marked: 14.0.0
 
   monaco-vscode-textmate-theme-converter@0.1.7(tslib@2.8.1):
     dependencies:
@@ -21692,6 +21741,8 @@ snapshots:
       stacktrace-gps: 3.1.2
 
   standard-as-callback@2.1.0: {}
+
+  state-local@1.0.7: {}
 
   statuses@2.0.1: {}
 
