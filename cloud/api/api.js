@@ -4561,6 +4561,230 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// GET /projects — list all tracked projects with aggregated stats
+		if (method === "GET" && (url === "/projects" || normalizedUrl === "/projects")) {
+			try {
+				// 1. Read auth module's projects list (from projects.json)
+				const authProjects = (auth.projects || []).map((p) => ({
+					id: p.id,
+					name: p.name || p.repoName,
+					repoName: p.repoName,
+					branch: p.branch,
+					status: p.status || "unknown",
+					language: p.language || null,
+					localPath: p.localPath || null,
+					repoUrl: p.repoUrl || null,
+					lastActivityAt: p.lastActivityAt || null,
+				}))
+
+				// 2. Read project presence for active/inactive tracking
+				const presenceMap = {}
+				for (const pp of auth.projectPresence || []) {
+					if (!presenceMap[pp.projectId]) {
+						presenceMap[pp.projectId] = []
+					}
+					presenceMap[pp.projectId].push(pp)
+				}
+
+				// 3. Read commit-deploy-log for per-project stats
+				let commitDeployLog = { commits: [], deploys: [] }
+				try {
+					const commitDeployPath =
+						process.env.COMMIT_DEPLOY_LOG_PATH || "/opt/superroo2/server/src/memory/commit-deploy-log.json"
+					const raw = await fs.readFile(commitDeployPath, "utf-8")
+					commitDeployLog = JSON.parse(raw)
+				} catch {
+					// File may not exist yet
+				}
+
+				// 4. Get current IDE workspace
+				const currentWorkspace = global.__ideWorkspace || {}
+
+				// 5. Build per-project stats from commit-deploy-log
+				const projectStats = {}
+				for (const commit of commitDeployLog.commits || []) {
+					const repoName = commit.repoName || "superroo2"
+					if (!projectStats[repoName]) {
+						projectStats[repoName] = {
+							commits: 0,
+							deploys: 0,
+							healthyDeploys: 0,
+							failedDeploys: 0,
+							lastCommit: null,
+							lastDeploy: null,
+						}
+					}
+					projectStats[repoName].commits++
+					if (
+						!projectStats[repoName].lastCommit ||
+						new Date(commit.timestamp) > new Date(projectStats[repoName].lastCommit.timestamp)
+					) {
+						projectStats[repoName].lastCommit = {
+							message: commit.title || "",
+							author: commit.agent || "System",
+							time: commit.timestamp,
+							sha: commit.commitSha?.slice(0, 7) || "",
+						}
+					}
+				}
+				for (const deploy of commitDeployLog.deploys || []) {
+					const repoName = deploy.repoName || "superroo2"
+					if (!projectStats[repoName]) {
+						projectStats[repoName] = {
+							commits: 0,
+							deploys: 0,
+							healthyDeploys: 0,
+							failedDeploys: 0,
+							lastCommit: null,
+							lastDeploy: null,
+						}
+					}
+					projectStats[repoName].deploys++
+					if (deploy.status === "healthy") projectStats[repoName].healthyDeploys++
+					if (deploy.status === "failed") projectStats[repoName].failedDeploys++
+					if (
+						!projectStats[repoName].lastDeploy ||
+						new Date(deploy.startedAt) > new Date(projectStats[repoName].lastDeploy.time)
+					) {
+						projectStats[repoName].lastDeploy = {
+							status: deploy.status,
+							environment: deploy.environment || "production",
+							time: deploy.startedAt,
+							version: deploy.version,
+						}
+					}
+				}
+
+				// 6. Merge everything into a unified project list
+				const mergedProjects = authProjects.map((p) => {
+					const presences = presenceMap[p.id] || []
+					const latestPresence = presences.sort((a, b) => new Date(b.lastSyncAt) - new Date(a.lastSyncAt))[0]
+					const stats = projectStats[p.repoName] || {
+						commits: 0,
+						deploys: 0,
+						healthyDeploys: 0,
+						failedDeploys: 0,
+						lastCommit: null,
+						lastDeploy: null,
+					}
+					const isActive = currentWorkspace.repoName === p.repoName
+
+					return {
+						...p,
+						// Presence info
+						isActive,
+						activeFile: latestPresence?.activeFile || null,
+						currentTask: latestPresence?.currentTask || null,
+						activeAgent: latestPresence?.activeAgent || null,
+						lastSyncAt: latestPresence?.lastSyncAt || null,
+						// Commit/deploy stats
+						totalCommits: stats.commits,
+						totalDeploys: stats.deploys,
+						healthyDeploys: stats.healthyDeploys,
+						failedDeploys: stats.failedDeploys,
+						lastCommit: stats.lastCommit,
+						lastDeploy: stats.lastDeploy,
+						// Deploy success rate
+						deploySuccessRate:
+							stats.deploys > 0 ? Math.round((stats.healthyDeploys / stats.deploys) * 100) : 0,
+					}
+				})
+
+				// 7. If no projects from auth, fall back to commit-deploy-log repos
+				if (mergedProjects.length === 0) {
+					const repoSet = new Set()
+					for (const commit of commitDeployLog.commits || []) {
+						if (commit.repoName) repoSet.add(commit.repoName)
+					}
+					for (const deploy of commitDeployLog.deploys || []) {
+						if (deploy.repoName) repoSet.add(deploy.repoName)
+					}
+					if (repoSet.size === 0) repoSet.add("superroo2")
+
+					for (const repoName of repoSet) {
+						const stats = projectStats[repoName] || {
+							commits: 0,
+							deploys: 0,
+							healthyDeploys: 0,
+							failedDeploys: 0,
+							lastCommit: null,
+							lastDeploy: null,
+						}
+						const isActive = currentWorkspace.repoName === repoName
+						mergedProjects.push({
+							id: `repo-${repoName}`,
+							name: repoName,
+							repoName,
+							branch: "main",
+							status: "active",
+							language: null,
+							localPath: null,
+							repoUrl: null,
+							lastActivityAt: stats.lastCommit?.time || stats.lastDeploy?.time || null,
+							isActive,
+							activeFile: null,
+							currentTask: null,
+							activeAgent: null,
+							lastSyncAt: null,
+							totalCommits: stats.commits,
+							totalDeploys: stats.deploys,
+							healthyDeploys: stats.healthyDeploys,
+							failedDeploys: stats.failedDeploys,
+							lastCommit: stats.lastCommit,
+							lastDeploy: stats.lastDeploy,
+							deploySuccessRate:
+								stats.deploys > 0 ? Math.round((stats.healthyDeploys / stats.deploys) * 100) : 0,
+						})
+					}
+				}
+
+				// 8. Build activity events from commits + deploys across all projects
+				const activityEvents = []
+				for (const deploy of (commitDeployLog.deploys || []).slice(-10).reverse()) {
+					activityEvents.push({
+						id: `deploy_${deploy.id || deploy.version}`,
+						time: deploy.startedAt,
+						agent: deploy.agent || "System",
+						role: "Deployer",
+						title: `Deployed ${deploy.version || ""} to ${deploy.repoName || "superroo2"}`,
+						detail: `Status: ${deploy.status}`,
+						severity: deploy.status === "healthy" ? "low" : deploy.status === "failed" ? "high" : "medium",
+					})
+				}
+				for (const commit of (commitDeployLog.commits || []).slice(-10).reverse()) {
+					activityEvents.push({
+						id: `commit_${commit.commitSha?.slice(0, 7) || Math.random().toString(36).slice(2, 9)}`,
+						time: commit.timestamp,
+						agent: commit.agent || "System",
+						role: "Developer",
+						title: commit.title || "Commit",
+						detail: `Repo: ${commit.repoName || "superroo2"}`,
+						severity: "low",
+					})
+				}
+				activityEvents.sort((a, b) => new Date(b.time) - new Date(a.time)).slice(0, 20)
+
+				sendJson(res, 200, {
+					success: true,
+					data: {
+						projects: mergedProjects,
+						activityEvents,
+						currentWorkspace: {
+							repoName: currentWorkspace.repoName || null,
+							branch: currentWorkspace.branch || null,
+							workspaceDir: currentWorkspace.workspaceDir || null,
+						},
+						totalProjects: mergedProjects.length,
+						activeProjects: mergedProjects.filter((p) => p.isActive).length,
+					},
+				})
+			} catch (err) {
+				console.error("[api] Error reading projects:", err.message)
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
 		// ── Model Router API Routes ──────────────────────────────────────────────
 
 		// GET /model-router/providers — list providers with model router metadata

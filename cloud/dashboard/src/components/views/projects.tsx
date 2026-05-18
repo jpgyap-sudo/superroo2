@@ -1,7 +1,7 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { Card, StatCard } from "@/components/ui/card"
+import { useEffect, useState, useCallback } from "react"
+import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import {
 	GitBranch,
@@ -19,35 +19,40 @@ import {
 	FileCode,
 	ArrowUpRight,
 	FolderGit2,
-	Star,
-	GitFork,
 	Code2,
 	Users,
-	Calendar,
 	ExternalLink,
 	Search,
-	Plus,
-	MoreHorizontal,
 	RefreshCw,
+	Globe,
+	Terminal,
+	BookOpen,
 } from "lucide-react"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-interface RepoStatus {
+interface ProjectInfo {
+	id: string
+	name: string
 	repoName: string
 	branch: string
-	syncStatus: string
-	lastPush: string
-	lastCommit: { message: string; author: string; time: string }
-	deployment: { status: string; environment: string; time: string }
-	openPRs: number
-	pendingReviews: number
-	changedFiles: number
-	modifiedFiles: number
-	stagedFiles: number
-	testPassRate: number
-	testsPassed: number
-	testsFailed: number
+	status: string
+	language: string | null
+	localPath: string | null
+	repoUrl: string | null
+	lastActivityAt: string | null
+	isActive: boolean
+	activeFile: string | null
+	currentTask: string | null
+	activeAgent: string | null
+	lastSyncAt: string | null
+	totalCommits: number
+	totalDeploys: number
+	healthyDeploys: number
+	failedDeploys: number
+	lastCommit: { message: string; author: string; time: string; sha: string } | null
+	lastDeploy: { status: string; environment: string; time: string; version: string } | null
+	deploySuccessRate: number
 }
 
 interface ActivityEvent {
@@ -60,39 +65,15 @@ interface ActivityEvent {
 	severity: string
 }
 
-interface HealthMetric {
-	label: string
-	value: number | string
-	status: string
-	percent?: number
-}
-
-interface PipelineStage {
-	name: string
-	status: string
-	duration: string
-}
-
-interface AiCommit {
-	sha: string
-	message: string
-	author: string
-	model: string
-	risk: string
-	status: string
-	time: string
-}
-
-interface GitHubDashboardData {
-	repoStatus: RepoStatus
-	activityEvents: ActivityEvent[]
-	healthMetrics: HealthMetric[]
-	aiSuggestions: any[]
-	workingTreeFiles: any[]
-	pipelineStages: PipelineStage[]
-	autonomousTask: any
-	aiCommits: AiCommit[]
-	pullRequests: any[]
+interface ProjectsApiResponse {
+	success: boolean
+	data: {
+		projects: ProjectInfo[]
+		activityEvents: ActivityEvent[]
+		currentWorkspace: { repoName: string | null; branch: string | null; workspaceDir: string | null }
+		totalProjects: number
+		activeProjects: number
+	}
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -102,6 +83,7 @@ function statusColor(status: string): string {
 		case "success":
 		case "healthy":
 		case "synced":
+		case "active":
 		case "low":
 			return "text-emerald-400"
 		case "warning":
@@ -152,66 +134,106 @@ function formatTimeAgo(dateStr: string): string {
 	}
 }
 
+function getLanguageColor(lang: string | null): string {
+	switch ((lang || "").toLowerCase()) {
+		case "typescript":
+		case "ts":
+			return "bg-blue-500/20 text-blue-400"
+		case "javascript":
+		case "js":
+			return "bg-yellow-500/20 text-yellow-400"
+		case "python":
+		case "py":
+			return "bg-green-500/20 text-green-400"
+		case "go":
+			return "bg-cyan-500/20 text-cyan-400"
+		case "rust":
+		case "rs":
+			return "bg-orange-500/20 text-orange-400"
+		case "java":
+			return "bg-red-500/20 text-red-400"
+		default:
+			return "bg-gray-500/20 text-gray-400"
+	}
+}
+
 // ── Project Card ───────────────────────────────────────────────────────────────
 
-function ProjectCard({ repo, onRefresh }: { repo: RepoStatus; onRefresh: () => void }) {
-	const deployHealthy = repo.deployment.status === "healthy"
-	const deployFailed = repo.deployment.status === "failed"
+function ProjectCard({ project }: { project: ProjectInfo }) {
+	const deployHealthy = project.lastDeploy?.status === "healthy"
+	const deployFailed = project.lastDeploy?.status === "failed"
+	const successRate = project.deploySuccessRate
 
 	return (
-		<div className="rounded-xl border border-[#1e2535] bg-gradient-to-br from-[#0f1117] to-[#0a0e1a] p-5 shadow-lg hover:border-[#2a3345] transition-colors">
+		<div
+			className={`rounded-xl border bg-gradient-to-br from-[#0f1117] to-[#0a0e1a] p-5 shadow-lg transition-all hover:border-[#2a3345] ${
+				project.isActive ? "border-violet-500/40 ring-1 ring-violet-500/20" : "border-[#1e2535]"
+			}`}>
 			{/* Header */}
 			<div className="flex items-start justify-between mb-4">
-				<div className="flex items-center gap-3">
-					<div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-600/15 text-violet-400">
+				<div className="flex items-center gap-3 min-w-0">
+					<div
+						className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
+							project.isActive ? "bg-violet-600/20 text-violet-400" : "bg-gray-700/30 text-gray-500"
+						}`}>
 						<FolderGit2 className="h-5 w-5" />
 					</div>
-					<div>
-						<h3 className="text-sm font-semibold text-[#e2e8f0]">{repo.repoName}</h3>
-						<div className="flex items-center gap-2 mt-0.5">
-							<GitBranch className="h-3 w-3 text-gray-500" />
-							<span className="text-[11px] text-gray-500">{repo.branch}</span>
-							<span className="text-[10px] text-gray-700">·</span>
-							<Badge status={repo.syncStatus} label={repo.syncStatus} />
+					<div className="min-w-0">
+						<div className="flex items-center gap-2">
+							<h3 className="text-sm font-semibold text-[#e2e8f0] truncate">{project.name}</h3>
+							{project.isActive && (
+								<span className="flex h-2 w-2 shrink-0">
+									<span className="absolute inline-flex h-2 w-2 animate-ping rounded-full bg-violet-400 opacity-75" />
+									<span className="relative inline-flex h-2 w-2 rounded-full bg-violet-500" />
+								</span>
+							)}
+						</div>
+						<div className="flex items-center gap-2 mt-0.5 min-w-0">
+							<GitBranch className="h-3 w-3 shrink-0 text-gray-500" />
+							<span className="text-[11px] text-gray-500 truncate">{project.branch}</span>
+							{project.language && (
+								<>
+									<span className="text-[10px] text-gray-700">·</span>
+									<span
+										className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${getLanguageColor(project.language)}`}>
+										{project.language}
+									</span>
+								</>
+							)}
 						</div>
 					</div>
 				</div>
-				<button
-					onClick={onRefresh}
-					className="flex h-7 w-7 items-center justify-center rounded-md text-gray-500 hover:text-[#e2e8f0] hover:bg-[#1e2535] transition-colors"
-					title="Refresh">
-					<RefreshCw className="h-3.5 w-3.5" />
-				</button>
+				<Badge status={project.isActive ? "active" : "idle"} label={project.isActive ? "Active" : "Inactive"} />
 			</div>
 
 			{/* Stats row */}
 			<div className="grid grid-cols-4 gap-2 mb-4">
 				<div className="rounded-lg bg-[#070b14] p-2.5 text-center">
-					<div className="text-[10px] uppercase tracking-wider text-gray-500 mb-0.5">Files</div>
-					<div className="text-sm font-semibold text-[#e2e8f0]">{repo.changedFiles}</div>
+					<div className="text-[10px] uppercase tracking-wider text-gray-500 mb-0.5">Commits</div>
+					<div className="text-sm font-semibold text-blue-400">{project.totalCommits}</div>
 				</div>
 				<div className="rounded-lg bg-[#070b14] p-2.5 text-center">
-					<div className="text-[10px] uppercase tracking-wider text-gray-500 mb-0.5">PRs</div>
-					<div className="text-sm font-semibold text-[#e2e8f0]">{repo.openPRs}</div>
+					<div className="text-[10px] uppercase tracking-wider text-gray-500 mb-0.5">Deploys</div>
+					<div className="text-sm font-semibold text-violet-400">{project.totalDeploys}</div>
 				</div>
 				<div className="rounded-lg bg-[#070b14] p-2.5 text-center">
-					<div className="text-[10px] uppercase tracking-wider text-gray-500 mb-0.5">Tests</div>
+					<div className="text-[10px] uppercase tracking-wider text-gray-500 mb-0.5">Success</div>
 					<div
 						className={`text-sm font-semibold ${
-							repo.testPassRate >= 80
+							successRate >= 80
 								? "text-emerald-400"
-								: repo.testPassRate >= 50
+								: successRate >= 50
 									? "text-amber-400"
 									: "text-red-400"
 						}`}>
-						{repo.testPassRate}%
+						{successRate}%
 					</div>
 				</div>
 				<div className="rounded-lg bg-[#070b14] p-2.5 text-center">
 					<div className="text-[10px] uppercase tracking-wider text-gray-500 mb-0.5">Deploy</div>
 					<div
 						className={`text-sm font-semibold ${deployHealthy ? "text-emerald-400" : deployFailed ? "text-red-400" : "text-amber-400"}`}>
-						{deployHealthy ? "Live" : deployFailed ? "Down" : "Pending"}
+						{deployHealthy ? "Live" : deployFailed ? "Down" : "—"}
 					</div>
 				</div>
 			</div>
@@ -220,71 +242,55 @@ function ProjectCard({ repo, onRefresh }: { repo: RepoStatus; onRefresh: () => v
 			<div className="space-y-2 text-xs">
 				<div className="flex items-center justify-between">
 					<div className="flex items-center gap-1.5 text-gray-500">
-						<GitCommit className="h-3 w-3" />
+						<GitCommit className="h-3 w-3 shrink-0" />
 						<span>Last commit</span>
 					</div>
-					<div className="flex items-center gap-2">
-						<span className="text-[#e2e8f0] truncate max-w-[120px]">
-							{repo.lastCommit.message.length > 25
-								? repo.lastCommit.message.slice(0, 25) + "…"
-								: repo.lastCommit.message}
-						</span>
-						<span className="text-gray-600">{formatTimeAgo(repo.lastCommit.time)}</span>
+					<div className="flex items-center gap-2 min-w-0">
+						{project.lastCommit ? (
+							<>
+								<span className="text-[#e2e8f0] truncate max-w-[120px]">
+									{project.lastCommit.message.length > 25
+										? project.lastCommit.message.slice(0, 25) + "…"
+										: project.lastCommit.message}
+								</span>
+								<span className="text-gray-600 shrink-0">{formatTimeAgo(project.lastCommit.time)}</span>
+							</>
+						) : (
+							<span className="text-gray-600">No commits yet</span>
+						)}
 					</div>
 				</div>
 				<div className="flex items-center justify-between">
 					<div className="flex items-center gap-1.5 text-gray-500">
-						<Rocket className="h-3 w-3" />
+						<Rocket className="h-3 w-3 shrink-0" />
 						<span>Deployment</span>
 					</div>
-					<div className="flex items-center gap-2">
-						<Badge
-							status={deployHealthy ? "success" : deployFailed ? "failed" : "warning"}
-							label={repo.deployment.status}
-						/>
-						<span className="text-gray-600">{formatTimeAgo(repo.deployment.time)}</span>
+					<div className="flex items-center gap-2 min-w-0">
+						{project.lastDeploy ? (
+							<>
+								<Badge
+									status={deployHealthy ? "success" : deployFailed ? "failed" : "warning"}
+									label={project.lastDeploy.status}
+								/>
+								<span className="text-gray-600 shrink-0">{formatTimeAgo(project.lastDeploy.time)}</span>
+							</>
+						) : (
+							<span className="text-gray-600">No deploys yet</span>
+						)}
 					</div>
 				</div>
 			</div>
-		</div>
-	)
-}
 
-// ── Pipeline Bar ───────────────────────────────────────────────────────────────
-
-function PipelineBar({ stages }: { stages: PipelineStage[] }) {
-	return (
-		<div className="flex items-center gap-2">
-			{stages.map((stage, i) => (
-				<div key={stage.name} className="flex-1">
-					<div className="flex items-center gap-1 mb-1">
-						{stage.status === "success" ? (
-							<CheckCircle className="h-3 w-3 text-emerald-400" />
-						) : stage.status === "failed" ? (
-							<XCircle className="h-3 w-3 text-red-400" />
-						) : stage.status === "running" || stage.status === "active" ? (
-							<Clock className="h-3 w-3 text-blue-400 animate-pulse" />
-						) : (
-							<Clock className="h-3 w-3 text-gray-600" />
-						)}
-						<span className="text-[10px] font-medium text-gray-400">{stage.name}</span>
+			{/* Active task / agent info */}
+			{project.currentTask && (
+				<div className="mt-3 rounded-lg bg-[#070b14] p-2.5">
+					<div className="flex items-center gap-2">
+						<Bot className="h-3 w-3 text-violet-400 shrink-0" />
+						<span className="text-[11px] text-gray-400 truncate">{project.currentTask}</span>
+						{project.activeAgent && <Badge status="active" label={project.activeAgent} />}
 					</div>
-					<div
-						className={`h-1.5 rounded-full ${
-							stage.status === "success"
-								? "bg-emerald-500/50"
-								: stage.status === "failed"
-									? "bg-red-500/50"
-									: stage.status === "running" || stage.status === "active"
-										? "bg-blue-500/50 animate-pulse"
-										: "bg-gray-700/50"
-						}`}
-					/>
-					{stage.duration !== "—" && (
-						<span className="text-[10px] text-gray-600 mt-0.5 block">{stage.duration}</span>
-					)}
 				</div>
-			))}
+			)}
 		</div>
 	)
 }
@@ -329,97 +335,20 @@ function ActivityTimeline({ events }: { events: ActivityEvent[] }) {
 	)
 }
 
-// ── Commits Table ──────────────────────────────────────────────────────────────
-
-function CommitsTable({ commits }: { commits: AiCommit[] }) {
-	return (
-		<div className="overflow-x-auto">
-			{commits.length === 0 ? (
-				<p className="text-xs text-gray-600 py-3 text-center">No commits recorded yet</p>
-			) : (
-				<table className="w-full text-xs">
-					<thead>
-						<tr className="text-gray-500 border-b border-[#1e2535]">
-							<th className="text-left py-2 pr-2 font-medium">SHA</th>
-							<th className="text-left py-2 pr-2 font-medium">Message</th>
-							<th className="text-left py-2 pr-2 font-medium">Author</th>
-							<th className="text-left py-2 pr-2 font-medium">Risk</th>
-							<th className="text-left py-2 pr-2 font-medium">Status</th>
-							<th className="text-right py-2 font-medium">Time</th>
-						</tr>
-					</thead>
-					<tbody>
-						{commits.map((commit) => (
-							<tr
-								key={commit.sha}
-								className="border-b border-[#1e2535] last:border-0 hover:bg-[#0a0e1a]/50 transition-colors">
-								<td className="py-2 pr-2 font-mono text-[10px] text-blue-400">{commit.sha}</td>
-								<td className="py-2 pr-2 text-[#e2e8f0] max-w-48 truncate">{commit.message}</td>
-								<td className="py-2 pr-2 text-gray-400">{commit.author}</td>
-								<td className="py-2 pr-2">
-									<Badge status={severityBadge(commit.risk)} label={commit.risk} />
-								</td>
-								<td className="py-2 pr-2">
-									<Badge
-										status={commit.status === "Deployed" ? "success" : "idle"}
-										label={commit.status}
-									/>
-								</td>
-								<td className="py-2 text-right text-gray-500">{formatTimeAgo(commit.time)}</td>
-							</tr>
-						))}
-					</tbody>
-				</table>
-			)}
-		</div>
-	)
-}
-
-// ── Health Metrics ─────────────────────────────────────────────────────────────
-
-function HealthMetricsList({ metrics }: { metrics: HealthMetric[] }) {
-	return (
-		<div className="space-y-3">
-			{metrics.map((metric) => (
-				<div key={metric.label}>
-					<div className="flex items-center justify-between mb-1">
-						<span className="text-[11px] text-gray-400">{metric.label}</span>
-						<span className={`text-xs font-medium ${statusColor(metric.status)}`}>
-							{typeof metric.value === "number" ? metric.value.toLocaleString() : metric.value}
-						</span>
-					</div>
-					{metric.percent !== undefined && (
-						<div className="h-1.5 rounded-full bg-gray-700/50 overflow-hidden">
-							<div
-								className={`h-full rounded-full transition-all ${
-									metric.status === "success"
-										? "bg-emerald-500/50"
-										: metric.status === "failed"
-											? "bg-red-500/50"
-											: "bg-amber-500/50"
-								}`}
-								style={{ width: `${Math.min(metric.percent, 100)}%` }}
-							/>
-						</div>
-					)}
-				</div>
-			))}
-		</div>
-	)
-}
-
 // ── Main Projects View ─────────────────────────────────────────────────────────
 
 export function ProjectsView() {
-	const [data, setData] = useState<GitHubDashboardData | null>(null)
+	const [data, setData] = useState<ProjectsApiResponse["data"] | null>(null)
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState<string | null>(null)
+	const [searchQuery, setSearchQuery] = useState("")
+	const [filterActive, setFilterActive] = useState(false)
 
-	const fetchData = async () => {
+	const fetchData = useCallback(async () => {
 		try {
-			const res = await fetch("/api/github/dashboard")
+			const res = await fetch("/api/projects")
 			if (!res.ok) throw new Error(`HTTP ${res.status}`)
-			const json = await res.json()
+			const json: ProjectsApiResponse = await res.json()
 			if (json.success && json.data) {
 				setData(json.data)
 			} else {
@@ -431,13 +360,28 @@ export function ProjectsView() {
 		} finally {
 			setLoading(false)
 		}
-	}
+	}, [])
 
 	useEffect(() => {
 		fetchData()
 		const iv = setInterval(fetchData, 15000)
 		return () => clearInterval(iv)
-	}, [])
+	}, [fetchData])
+
+	// Filter projects
+	const filteredProjects = (data?.projects || []).filter((p) => {
+		if (filterActive && !p.isActive) return false
+		if (searchQuery) {
+			const q = searchQuery.toLowerCase()
+			return (
+				p.name.toLowerCase().includes(q) ||
+				p.repoName.toLowerCase().includes(q) ||
+				(p.language || "").toLowerCase().includes(q) ||
+				(p.currentTask || "").toLowerCase().includes(q)
+			)
+		}
+		return true
+	})
 
 	if (loading) {
 		return (
@@ -450,7 +394,7 @@ export function ProjectsView() {
 		)
 	}
 
-	if (error || !data) {
+	if (error && !data) {
 		return (
 			<div className="flex items-center justify-center h-64">
 				<div className="flex flex-col items-center gap-3">
@@ -466,19 +410,49 @@ export function ProjectsView() {
 		)
 	}
 
-	const { repoStatus, activityEvents, healthMetrics, pipelineStages, aiCommits } = data
+	const projects = data?.projects || []
+	const activityEvents = data?.activityEvents || []
+	const currentWorkspace = data?.currentWorkspace
 
 	return (
 		<div className="space-y-5">
 			{/* Header */}
-			<div className="flex items-center justify-between">
+			<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 				<div>
 					<h2 className="text-base font-semibold text-[#e2e8f0]">Projects</h2>
 					<p className="text-xs text-gray-500 mt-0.5">
-						Monitor repositories, deployments, and pipeline status
+						{data?.totalProjects || 0} project{(data?.totalProjects || 0) !== 1 ? "s" : ""} tracked
+						{data?.activeProjects ? (
+							<>
+								<span className="text-gray-700 mx-1">·</span>
+								<span className="text-violet-400">{data.activeProjects} active</span>
+							</>
+						) : null}
 					</p>
 				</div>
 				<div className="flex items-center gap-2">
+					{/* Search */}
+					<div className="relative">
+						<Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-500" />
+						<input
+							type="text"
+							placeholder="Search projects..."
+							value={searchQuery}
+							onChange={(e) => setSearchQuery(e.target.value)}
+							className="w-40 pl-8 pr-3 py-1.5 text-xs bg-[#0f1117] border border-[#1e2535] rounded-lg text-gray-400 placeholder-gray-600 focus:outline-none focus:border-violet-500/50 transition-colors"
+						/>
+					</div>
+					{/* Active filter toggle */}
+					<button
+						onClick={() => setFilterActive(!filterActive)}
+						className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+							filterActive
+								? "text-violet-400 border-violet-500/40 bg-violet-500/10"
+								: "text-gray-400 border-[#1e2535] bg-[#0f1117] hover:text-[#e2e8f0] hover:bg-[#1e2535]"
+						}`}>
+						<Activity className="h-3 w-3" />
+						Active
+					</button>
 					<button
 						onClick={fetchData}
 						className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-400 bg-[#0f1117] border border-[#1e2535] rounded-lg hover:text-[#e2e8f0] hover:bg-[#1e2535] transition-colors">
@@ -489,111 +463,30 @@ export function ProjectsView() {
 			</div>
 
 			{/* Project Cards Grid */}
-			<div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-				<ProjectCard repo={repoStatus} onRefresh={fetchData} />
-
-				{/* Quick Stats Card */}
-				<div className="rounded-xl border border-[#1e2535] bg-gradient-to-br from-[#0f1117] to-[#0a0e1a] p-5 shadow-lg hover:border-[#2a3345] transition-colors">
-					<div className="flex items-center gap-3 mb-4">
-						<div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-600/15 text-emerald-400">
-							<Activity className="h-5 w-5" />
-						</div>
-						<div>
-							<h3 className="text-sm font-semibold text-[#e2e8f0]">Activity Overview</h3>
-							<p className="text-[11px] text-gray-500">Recent project activity</p>
-						</div>
-					</div>
-					<div className="grid grid-cols-2 gap-3">
-						<div className="rounded-lg bg-[#070b14] p-3">
-							<div className="text-[10px] uppercase tracking-wider text-gray-500 mb-1">Commits</div>
-							<div className="text-lg font-bold text-blue-400">
-								{healthMetrics.find((m) => m.label === "Total Commits")?.value ?? 0}
-							</div>
-						</div>
-						<div className="rounded-lg bg-[#070b14] p-3">
-							<div className="text-[10px] uppercase tracking-wider text-gray-500 mb-1">Deploys</div>
-							<div className="text-lg font-bold text-violet-400">
-								{healthMetrics.find((m) => m.label === "Total Deploys")?.value ?? 0}
-							</div>
-						</div>
-						<div className="rounded-lg bg-[#070b14] p-3">
-							<div className="text-[10px] uppercase tracking-wider text-gray-500 mb-1">Successful</div>
-							<div className="text-lg font-bold text-emerald-400">
-								{healthMetrics.find((m) => m.label === "Successful Deploys")?.value ?? 0}
-							</div>
-						</div>
-						<div className="rounded-lg bg-[#070b14] p-3">
-							<div className="text-[10px] uppercase tracking-wider text-gray-500 mb-1">Failed</div>
-							<div className="text-lg font-bold text-red-400">
-								{healthMetrics.find((m) => m.label === "Failed Deploys")?.value ?? 0}
-							</div>
-						</div>
-					</div>
+			{filteredProjects.length === 0 ? (
+				<div className="flex flex-col items-center justify-center py-16 text-center">
+					<FolderGit2 className="h-12 w-12 text-gray-700 mb-3" />
+					<h3 className="text-sm font-medium text-gray-500 mb-1">
+						{searchQuery ? "No projects match your search" : "No projects tracked yet"}
+					</h3>
+					<p className="text-xs text-gray-600 max-w-md">
+						{searchQuery
+							? "Try a different search term or clear the filter."
+							: "Projects appear here when the SuperRoo extension starts working on a repository."}
+					</p>
 				</div>
-
-				{/* System Status Card */}
-				<div className="rounded-xl border border-[#1e2535] bg-gradient-to-br from-[#0f1117] to-[#0a0e1a] p-5 shadow-lg hover:border-[#2a3345] transition-colors">
-					<div className="flex items-center gap-3 mb-4">
-						<div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-600/15 text-amber-400">
-							<Shield className="h-5 w-5" />
-						</div>
-						<div>
-							<h3 className="text-sm font-semibold text-[#e2e8f0]">System Status</h3>
-							<p className="text-[11px] text-gray-500">Autonomous mode & safety</p>
-						</div>
-					</div>
-					<div className="space-y-3">
-						<div className="flex items-center justify-between rounded-lg bg-[#070b14] p-2.5">
-							<div className="flex items-center gap-2">
-								<Bot className="h-3.5 w-3.5 text-gray-500" />
-								<span className="text-xs text-gray-400">Autonomous</span>
-							</div>
-							<Badge
-								status={data.autonomousTask?.title === "No active task" ? "idle" : "active"}
-								label={data.autonomousTask?.title === "No active task" ? "Idle" : "Active"}
-							/>
-						</div>
-						<div className="flex items-center justify-between rounded-lg bg-[#070b14] p-2.5">
-							<div className="flex items-center gap-2">
-								<Shield className="h-3.5 w-3.5 text-gray-500" />
-								<span className="text-xs text-gray-400">Safety Mode</span>
-							</div>
-							<span className="text-xs font-medium text-[#e2e8f0]">
-								{data.autonomousTask?.safetyMode || "Sandbox"}
-							</span>
-						</div>
-						<div className="flex items-center justify-between rounded-lg bg-[#070b14] p-2.5">
-							<div className="flex items-center gap-2">
-								<GitPullRequest className="h-3.5 w-3.5 text-gray-500" />
-								<span className="text-xs text-gray-400">Open PRs</span>
-							</div>
-							<span className="text-xs font-medium text-[#e2e8f0]">{repoStatus.openPRs}</span>
-						</div>
-						<div className="flex items-center justify-between rounded-lg bg-[#070b14] p-2.5">
-							<div className="flex items-center gap-2">
-								<Users className="h-3.5 w-3.5 text-gray-500" />
-								<span className="text-xs text-gray-400">Pending Reviews</span>
-							</div>
-							<span className="text-xs font-medium text-[#e2e8f0]">{repoStatus.pendingReviews}</span>
-						</div>
-					</div>
+			) : (
+				<div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+					{filteredProjects.map((project) => (
+						<ProjectCard key={project.id} project={project} />
+					))}
 				</div>
-			</div>
+			)}
 
-			{/* Two-column layout */}
+			{/* Two-column layout: Activity + Quick Actions */}
 			<div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-				{/* Left column: Pipeline + Activity + Commits */}
+				{/* Left column: Activity Timeline */}
 				<div className="space-y-5 lg:col-span-2">
-					{/* Pipeline */}
-					<Card>
-						<div className="flex items-center gap-2 mb-3">
-							<Layers className="h-4 w-4 text-violet-400" />
-							<h2 className="text-sm font-semibold text-[#e2e8f0]">Pipeline</h2>
-						</div>
-						<PipelineBar stages={pipelineStages} />
-					</Card>
-
-					{/* Activity Timeline */}
 					<Card>
 						<div className="flex items-center gap-2 mb-3">
 							<Activity className="h-4 w-4 text-violet-400" />
@@ -601,26 +494,61 @@ export function ProjectsView() {
 						</div>
 						<ActivityTimeline events={activityEvents} />
 					</Card>
-
-					{/* Recent Commits */}
-					<Card>
-						<div className="flex items-center gap-2 mb-3">
-							<GitCommit className="h-4 w-4 text-violet-400" />
-							<h2 className="text-sm font-semibold text-[#e2e8f0]">Recent AI Commits</h2>
-						</div>
-						<CommitsTable commits={aiCommits} />
-					</Card>
 				</div>
 
-				{/* Right column: Health + Quick Actions */}
+				{/* Right column: Summary + Quick Actions */}
 				<div className="space-y-5">
-					{/* Health Metrics */}
+					{/* Summary Card */}
 					<Card>
 						<div className="flex items-center gap-2 mb-3">
-							<AlertTriangle className="h-4 w-4 text-violet-400" />
-							<h2 className="text-sm font-semibold text-[#e2e8f0]">Repository Health</h2>
+							<Shield className="h-4 w-4 text-violet-400" />
+							<h2 className="text-sm font-semibold text-[#e2e8f0]">Summary</h2>
 						</div>
-						<HealthMetricsList metrics={healthMetrics} />
+						<div className="space-y-3">
+							<div className="flex items-center justify-between rounded-lg bg-[#070b14] p-2.5">
+								<div className="flex items-center gap-2">
+									<FolderGit2 className="h-3.5 w-3.5 text-gray-500" />
+									<span className="text-xs text-gray-400">Total Projects</span>
+								</div>
+								<span className="text-xs font-medium text-[#e2e8f0]">{data?.totalProjects || 0}</span>
+							</div>
+							<div className="flex items-center justify-between rounded-lg bg-[#070b14] p-2.5">
+								<div className="flex items-center gap-2">
+									<Activity className="h-3.5 w-3.5 text-gray-500" />
+									<span className="text-xs text-gray-400">Active Now</span>
+								</div>
+								<span className="text-xs font-medium text-violet-400">{data?.activeProjects || 0}</span>
+							</div>
+							<div className="flex items-center justify-between rounded-lg bg-[#070b14] p-2.5">
+								<div className="flex items-center gap-2">
+									<GitCommit className="h-3.5 w-3.5 text-gray-500" />
+									<span className="text-xs text-gray-400">Total Commits</span>
+								</div>
+								<span className="text-xs font-medium text-blue-400">
+									{projects.reduce((sum, p) => sum + p.totalCommits, 0)}
+								</span>
+							</div>
+							<div className="flex items-center justify-between rounded-lg bg-[#070b14] p-2.5">
+								<div className="flex items-center gap-2">
+									<Rocket className="h-3.5 w-3.5 text-gray-500" />
+									<span className="text-xs text-gray-400">Total Deploys</span>
+								</div>
+								<span className="text-xs font-medium text-violet-400">
+									{projects.reduce((sum, p) => sum + p.totalDeploys, 0)}
+								</span>
+							</div>
+							{currentWorkspace?.repoName && (
+								<div className="flex items-center justify-between rounded-lg bg-[#070b14] p-2.5">
+									<div className="flex items-center gap-2">
+										<Terminal className="h-3.5 w-3.5 text-gray-500" />
+										<span className="text-xs text-gray-400">Current WS</span>
+									</div>
+									<span className="text-xs font-medium text-[#e2e8f0] truncate max-w-[120px]">
+										{currentWorkspace.repoName}
+									</span>
+								</div>
+							)}
+						</div>
 					</Card>
 
 					{/* Quick Actions */}
@@ -634,7 +562,7 @@ export function ProjectsView() {
 								onClick={() => window.open("https://github.com", "_blank")}
 								className="flex items-center gap-2 w-full px-3 py-2.5 text-xs text-gray-400 hover:text-[#e2e8f0] hover:bg-[#1e2535] rounded-lg transition-colors">
 								<GitBranch className="h-3.5 w-3.5" />
-								<span>Open Repository</span>
+								<span>Open GitHub</span>
 								<ExternalLink className="h-3 w-3 ml-auto" />
 							</button>
 							<button
@@ -652,33 +580,15 @@ export function ProjectsView() {
 								<ExternalLink className="h-3 w-3 ml-auto" />
 							</button>
 							<button
-								onClick={() => window.open("https://github.com/superroo2", "_blank")}
-								className="flex items-center gap-2 w-full px-3 py-2.5 text-xs text-gray-400 hover:text-[#e2e8f0] hover:bg-[#1e2535] rounded-lg transition-colors">
-								<Code2 className="h-3.5 w-3.5" />
-								<span>Browse Source</span>
-								<ExternalLink className="h-3 w-3 ml-auto" />
+								onClick={() => {
+									window.dispatchEvent(new CustomEvent("navigate", { detail: "working-tree" }))
+								}}
+								className="flex items-center gap-2 w-full px-3 py-2.5 text-xs text-violet-400 hover:text-violet-300 hover:bg-[#1e2535] rounded-lg transition-colors">
+								<FileCode className="h-3.5 w-3.5" />
+								<span>View Working Tree</span>
+								<ArrowUpRight className="h-3 w-3 ml-auto" />
 							</button>
 						</div>
-					</Card>
-
-					{/* Working Tree Info */}
-					<Card>
-						<div className="flex items-center gap-2 mb-3">
-							<FileCode className="h-4 w-4 text-violet-400" />
-							<h2 className="text-sm font-semibold text-[#e2e8f0]">Working Tree</h2>
-						</div>
-						<p className="text-xs text-gray-500 mb-3">
-							The Working Tree is the single source of truth for the SuperRoo product architecture.
-						</p>
-						<button
-							onClick={() => {
-								window.dispatchEvent(new CustomEvent("navigate", { detail: "working-tree" }))
-							}}
-							className="flex items-center gap-2 w-full px-3 py-2.5 text-xs text-violet-400 hover:text-violet-300 hover:bg-[#1e2535] rounded-lg transition-colors">
-							<FileCode className="h-3.5 w-3.5" />
-							<span>View Working Tree</span>
-							<ArrowUpRight className="h-3 w-3 ml-auto" />
-						</button>
 					</Card>
 				</div>
 			</div>
