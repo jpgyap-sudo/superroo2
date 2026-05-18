@@ -54,15 +54,12 @@ module.exports = {
 			autorestart: true,
 			watch: false,
 			max_memory_restart: "256M",
-			// Crash resilience: exponential backoff restart
-			// Increased min_uptime to 30s so PM2 doesn't restart too aggressively
-			// when the process takes time to acquire the port after a crash
 			exp_backoff_restart_delay: 2000,
 			max_restarts: 15,
 			restart_delay: 10000,
 			min_uptime: 30000,
-			// Graceful shutdown
 			kill_timeout: 30000,
+			env_file: "/opt/superroo2/cloud/.env",
 			env: {
 				NODE_ENV: "production",
 				REDIS_URL: "redis://127.0.0.1:6379",
@@ -112,13 +109,12 @@ module.exports = {
 			autorestart: true,
 			watch: false,
 			max_memory_restart: "512M",
-			// Crash resilience: exponential backoff restart
 			exp_backoff_restart_delay: 2000,
 			max_restarts: 10,
 			restart_delay: 5000,
 			min_uptime: 15000,
-			// Graceful shutdown (matches worker.js shutdown handler)
 			kill_timeout: 30000,
+			env_file: "/opt/superroo2/cloud/.env",
 			env: {
 				NODE_ENV: "production",
 				REDIS_URL: "redis://127.0.0.1:6379",
@@ -187,6 +183,7 @@ module.exports = {
 			restart_delay: 5000,
 			min_uptime: 10000,
 			kill_timeout: 15000,
+			env_file: "/opt/superroo2/cloud/.env",
 			env: {
 				NODE_ENV: "production",
 				MINI_IDE_PORT: "8081",
