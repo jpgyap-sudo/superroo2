@@ -9230,6 +9230,133 @@ Unknown — no test files detected.
 
 To be determined — this commit was auto-flagged as potentially containing a lesson.
 
+### Lesson: Universal Learning Layer — scan + publish + auto-register
+
+Date: 2026-05-18
+Source: DeepSeek task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: tools/superroo-learn.mjs, tools/global-post-commit, tools/install-global-hook.mjs, C:/Users/User/.roo/skills/coding-lessons-from-trading-bot/SKILL.md
+
+#### Task Summary
+
+Investigated why project xsjprd55 failed to auto-enable the SuperRoo learning layer. Found 3 root causes:
+
+1. Global git hook only captures future commits — no retroactive extraction
+2. Custom sync script (`scripts/sync-coding-lessons-to-tll.js`) referenced in the skill file was never built
+3. No project registration automation — only `superroo2` was registered
+
+Implemented 3 improvements:
+
+1. Added `superroo-learn scan` command — retroactively extracts lessons from git history, source patterns, and existing skill files
+2. Added `superroo-learn publish` command — universal mechanism to publish structured lessons from any skill file to Central Brain, replacing project-specific sync scripts
+3. Enhanced `cmdRegister()` to also register with Central Brain via MCP; updated global post-commit hook to auto-register unknown projects on first commit
+
+#### Files Changed
+
+- `tools/superroo-learn.mjs` — Added cmdScan() (~200 lines), cmdPublish() (~150 lines), enhanced cmdRegister(), added scan/publish cases to main switch, updated help text
+- `tools/global-post-commit` — Added auto-register section that detects project name from git remote and registers it on every commit
+- `C:/Users/User/.roo/skills/coding-lessons-from-trading-bot/SKILL.md` — Replaced "Mandatory: Sync to superroo-learn" section referencing non-existent sync script with `superroo-learn publish` and `superroo-learn scan` commands
+
+#### Bug Cause
+
+The learning layer auto-enable mechanism had 3 failure modes:
+
+1. **No retroactive path**: The global hook only fires on future commits. Existing projects with years of git history were invisible.
+2. **No universal sync**: Each project was expected to have its own `scripts/sync-coding-lessons-to-tll.js` — but this file was never created for xsjprd55 (or any project). The skill file referenced infrastructure that didn't exist.
+3. **No auto-registration**: Projects were only registered if manually added to `~/.superroo/config.json`. The global hook never checked or registered unknown projects.
+
+#### Fix Applied
+
+1. **`superroo-learn scan`**: Three-phase scanner — git history (88 commits → 49 lessons), source patterns (54 architecture patterns detected), skill files (5 existing skills). Auto-registers project.
+2. **`superroo-learn publish`**: Parses any skill file's lesson blocks and publishes each to Central Brain via `withFallback()`. Replaces the need for project-specific sync scripts.
+3. **Auto-register in global hook**: On every commit, the hook now extracts the project name from `git remote` and calls `superroo-learn register` to ensure the project is known.
+4. **Enhanced `cmdRegister()`**: Now also registers with Central Brain via MCP (best-effort), not just local config.
+
+#### Test Result
+
+pass
+
+- `superroo-learn scan --dir C:\Users\User\xsjprd55` → 108 lessons extracted (49 commits + 54 patterns + 5 skills)
+- `superroo-learn publish --skill coding-lessons-from-trading-bot` → 10 architecture lessons published
+- `~/.superroo/config.json` now shows both `superroo2` and `xsjprd55` registered
+- Global hook re-installed with auto-register feature
+
+#### Lesson Learned
+
+**Never rely on project-specific sync scripts for cross-project learning.** A universal CLI (`superroo-learn`) with `scan` and `publish` commands eliminates the need for per-project infrastructure. The global post-commit hook should auto-register unknown projects rather than requiring manual setup. Retroactive extraction (`scan`) is essential — future-only hooks miss existing projects.
+
+#### Reusable Rule
+
+When building cross-project infrastructure, always provide:
+
+1. A **retroactive** path for existing projects (not just future events)
+2. A **universal** mechanism that doesn't require per-project scripts
+3. **Auto-registration** so new projects are discovered without manual setup
+4. A **fallback** chain so failures don't cause data loss
+
+#### Tags
+
+learning-layer, cross-project, superroo-learn, scan, publish, auto-register, global-hook, retroactive, xsjprd55, skill-publish
+
+---
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+api, bugfix
+
+---
+
+### Auto-Extracted Lesson: Feat(dashboard): wire overview and queue to real APIs, fix orchestrator init
+
+Date: 2026-05-18
+Source: Git commit 6b45b606
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/api/api.js, cloud/dashboard/src/components/views/overview.tsx, cloud/dashboard/src/components/views/queue.tsx, memory/lesson-index.jsonl, memory/lessons-learned.md
+
+#### Task Summary
+
+feat(dashboard): wire overview and queue to real APIs, fix orchestrator init
+
+#### Files Changed
+
+- `cloud/api/api.js`
+- `cloud/dashboard/src/components/views/overview.tsx`
+- `cloud/dashboard/src/components/views/queue.tsx`
+- `memory/lesson-index.jsonl`
+- `memory/lessons-learned.md`
+- `tools/global-post-commit`
+- `tools/superroo-learn.mjs`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 6b45b606.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 6b45b606 by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
 #### Reusable Rule
 
 <!-- TODO: Define a specific rule for future agents -->

@@ -1180,6 +1180,43 @@
 				},
 				"violations": ["Missing review phase"]
 			}
+		},
+		{
+			"id": "commit_kimi_dashboard_orchestrator_1779078041406",
+			"commitSha": "6b45b6063",
+			"agent": "Kimi",
+			"type": "feature",
+			"title": "feat(dashboard): wire overview and queue to real APIs, fix orchestrator init",
+			"description": "Wired overview.tsx to real system resources, queue stats, health, and agents. Fixed orchestrator module initialization (AgentRegistry, FeatureRegistry, BugRegistry). Added visual-crawler API routes.",
+			"filesChanged": [
+				"cloud/api/api.js",
+				"cloud/dashboard/src/components/views/overview.tsx",
+				"cloud/dashboard/src/components/views/queue.tsx"
+			],
+			"featuresAffected": ["cloud-dashboard", "cloud-api", "cloud-orchestrator", "visual-crawler"],
+			"bugsFixed": ["AgentRegistry.listAgents() method name mismatch", "Orchestrator modules not initialized"],
+			"timestamp": "2026-05-18T04:20:41.406Z",
+			"modelsUsed": [
+				{
+					"phase": "coding",
+					"provider": "kimi",
+					"model": "kimi-k2",
+					"promptTokens": 0,
+					"completionTokens": 0,
+					"latencyMs": 0,
+					"success": true
+				}
+			],
+			"workflowCompliance": {
+				"isCompliant": false,
+				"steps": {
+					"lessonsRead": true,
+					"deepseekDelegated": false,
+					"codexReviewed": false,
+					"ollamaSummarized": false
+				},
+				"violations": ["Missing review phase"]
+			}
 		}
 	],
 	"deploys": [

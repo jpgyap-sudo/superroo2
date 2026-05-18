@@ -143,8 +143,7 @@ const MOCK_BUGS: BugEntry[] = [
 		status: "resolved",
 		service: "deploy",
 		timestamp: new Date(Date.now() - 1000 * 60 * 1200).toISOString(),
-		description:
-			"The deploy health check times out after 5 seconds, which is too short for cold-start services.",
+		description: "The deploy health check times out after 5 seconds, which is too short for cold-start services.",
 		resolution:
 			"Increased default health check timeout from 5s to 30s in DeployOrchestrator.fetch() to accommodate cold-start services.",
 		assignedTo: "dave",
@@ -494,17 +493,44 @@ function ChartsSection({ timeline, errorTypes, services }: ReturnType<typeof bui
 // ── Main View ──────────────────────────────────────────────────────────────────
 
 export function BugsView() {
-	const [bugs] = useState<BugEntry[]>(MOCK_BUGS)
+	const [bugs, setBugs] = useState<BugEntry[]>([])
 	const [selectedBug, setSelectedBug] = useState<BugEntry | null>(null)
 	const [search, setSearch] = useState("")
 	const [severityFilter, setSeverityFilter] = useState<string>("all")
 	const [statusFilter, setStatusFilter] = useState<string>("all")
 	const [loading, setLoading] = useState(true)
 
-	// Simulate loading
 	useEffect(() => {
-		const t = setTimeout(() => setLoading(false), 600)
-		return () => clearTimeout(t)
+		const fetchBugs = async () => {
+			try {
+				const token = localStorage.getItem("superroo_auth_token")
+				const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
+				const res = await fetch("/api/orchestrator/bugs", { headers })
+				if (res.ok) {
+					const data = await res.json()
+					const realBugs = (data.bugs || []).map((b: any) => ({
+						id: b.id || `BUG-${b.rowid || Math.random().toString(36).slice(2, 8)}`,
+						title: b.title || b.summary || "Untitled Bug",
+						severity: (b.severity || "medium").toLowerCase(),
+						status: (b.status || "open").toLowerCase().replace("_", "_") as any,
+						service: b.service || b.source || "unknown",
+						timestamp: b.createdAt || b.timestamp || new Date().toISOString(),
+						description: b.description || b.details || "",
+						stackTrace: b.stackTrace || "",
+						resolution: b.resolution || b.fixDescription || "",
+						assignedTo: b.assignedTo || "",
+					}))
+					setBugs(realBugs.length > 0 ? realBugs : MOCK_BUGS)
+				} else {
+					setBugs(MOCK_BUGS)
+				}
+			} catch {
+				setBugs(MOCK_BUGS)
+			} finally {
+				setLoading(false)
+			}
+		}
+		fetchBugs()
 	}, [])
 
 	const filtered = useMemo(() => {
