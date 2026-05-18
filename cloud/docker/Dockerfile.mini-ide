@@ -1,14 +1,15 @@
 # SuperRoo Mini IDE Container
 # Build context: repo root (needs cloud/ for mini-ide and api routes)
-FROM node:20-alpine
+FROM node:20-slim
 
-RUN apk add --no-cache curl
+RUN apt-get update && apt-get install -y curl \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/superroo2
 
-# Copy already-installed dependencies from host (avoid npm rebuild issues on Alpine)
+# Copy package files first for layer caching
 COPY cloud/package.json ./
-COPY cloud/node_modules/ ./cloud/node_modules/
+RUN npm install --omit=dev
 
 # Copy source code
 COPY cloud/ ./cloud/
