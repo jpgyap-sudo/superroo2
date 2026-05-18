@@ -41,31 +41,17 @@ export async function saveFileContent(filePath: string, content: string) {
 }
 
 export async function createFile(filePath: string, content: string) {
-	return apiFetch<{ success: boolean }>("/ide-workspace/file/save", {
+	return apiFetch<{ success: boolean }>("/ide-workspace/file/create", {
 		method: "POST",
 		body: JSON.stringify({ path: filePath, content }),
 	})
 }
 
 export async function fetchDiff(filePath: string, content: string) {
-	const { content: original } = await fetchFileContent(filePath)
-	const diffRes = await apiFetch<{
-		changes: Array<{ line: number; original: string; modified: string; type: string }>
-	}>("/ide-workspace/diff", {
+	return apiFetch<DiffData>("/ide-workspace/file/diff", {
 		method: "POST",
-		body: JSON.stringify({ original, modified: content }),
+		body: JSON.stringify({ path: filePath, content }),
 	})
-	const changes: DiffChange[] = diffRes.changes.map((c) => ({
-		lineNumber: c.line,
-		content: c.modified || c.original,
-		type: c.type === "added" ? "added" : c.type === "removed" ? "removed" : "unchanged",
-	}))
-	return {
-		filePath,
-		original,
-		modified: content,
-		changes,
-	} as DiffData
 }
 
 /* ── Terminal ──────────────────────────────────────────── */

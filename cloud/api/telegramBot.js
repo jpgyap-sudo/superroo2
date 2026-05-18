@@ -3947,6 +3947,7 @@ function updateSmartContext(chatId, updates) {
 function buildSmartContextPrompt(chatId) {
 	var ctx = getSmartContext(chatId)
 	var parts = []
+	if (ctx.activeFile) parts.push("Active file (user is editing): " + ctx.activeFile)
 	if (ctx.lastCommand) parts.push("Last command executed: `" + ctx.lastCommand + "`")
 	if (ctx.lastError) parts.push("Last error encountered: " + ctx.lastError.slice(0, 200))
 	if (ctx.lastProject) parts.push("Active project: " + ctx.lastProject)
@@ -5052,6 +5053,200 @@ function detectIntent(text) {
 	return "ask"
 }
 
+// ─── Zero-Friction Coding Helpers ────────────────────────────────────────────
+
+/**
+ * Detects whether a message looks like a pasted error / stack trace.
+ * Returns true for: "Error: ...", "TypeError:", "at Object.", traceback lines, etc.
+ * @param {string} text
+ * @returns {boolean}
+ */
+function detectErrorPaste(text) {
+	if (!text || text.length < 20) return false
+	var lines = text.split("\n")
+	var errorLineCount = 0
+	for (var i = 0; i < lines.length; i++) {
+		var l = lines[i].trim()
+		if (
+			/^(Error|TypeError|SyntaxError|ReferenceError|RangeError|URIError|EvalError|AssertionError|UnhandledPromiseRejection):/i.test(
+				l,
+			)
+		)
+			errorLineCount += 3
+		if (/^\s+at\s+\S+\s+\(/.test(l)) errorLineCount++
+		if (/^\s+at\s+\S+:\d+:\d+/.test(l)) errorLineCount++
+		if (/Traceback \(most recent call last\)/i.test(l)) errorLineCount += 3
+		if (/File ".*", line \d+/i.test(l)) errorLineCount++
+		if (/ENOENT|ECONNREFUSED|EADDRINUSE|ETIMEDOUT|EPERM|EACCES/.test(l)) errorLineCount += 2
+		if (/\[error\]|\[Error\]|ERROR:|FATAL:|PANIC:/.test(l)) errorLineCount++
+	}
+	return errorLineCount >= 3
+}
+
+/**
+ * Sends a quick-action inline keyboard after a code/debug response.
+ * Buttons: Run Tests, Show Diff, Open Dashboard.
+ * @param {string} botToken
+ * @param {number|string} chatId
+ * @param {string} [taskId] - Optional task ID to link Diff/Approve to
+ */
+async function sendActionButtons(botToken, chatId, taskId) {
+	var rows = [
+		[
+			{ text: "🧪 Run Tests", callback_data: "action:tests" },
+			{ text: "📊 Show Diff", callback_data: taskId ? "action:diff:" + taskId : "action:diff" },
+		],
+		[
+			{ text: "✅ Approve & Deploy", callback_data: taskId ? "action:approve:" + taskId : "action:approve" },
+			{ text: "📋 Status", callback_data: "action:status" },
+		],
+	]
+	try {
+		await sendInlineKeyboard(botToken, chatId, "What's next?", rows)
+	} catch (e) {
+		// non-critical
+	}
+}
+
+/**
+ * Handles /file <path> — reads a file from the VPS and displays it in a code block.
+ * @param {string} botToken
+ * @param {number|string} chatId
+ * @param {Array} args - command args (file path parts)
+ */
+async function handleFile(botToken, chatId, args) {
+	var filePath = args.join(" ").trim()
+	if (!filePath) {
+		await sendMessage(botToken, chatId, "*Usage:* `/file <path>`\n\nExample: `/file src/index.ts`")
+		return
+	}
+	await sendChatAction(botToken, chatId, "typing")
+	var { execFile } = require("child_process")
+	var { promisify } = require("util")
+	var execFileAsync = promisify(execFile)
+	try {
+		// Resolve relative paths against bound workspace on VPS
+		var resolvedPath = filePath
+		if (!filePath.startsWith("/")) {
+			var ctx = getSmartContext(chatId)
+			var ws = groupWorkspaces.get(String(chatId)) || ctx.lastProject
+			if (ws) {
+				var candidates = ["/root/" + ws, "/opt/" + ws, "/home/" + ws, "/opt/superroo2"]
+				for (var cp of candidates) {
+					try {
+						var fsSync = require("fs")
+						if (fsSync.existsSync(cp + "/" + filePath)) {
+							resolvedPath = cp + "/" + filePath
+							break
+						}
+					} catch (_) {}
+				}
+			}
+		}
+		var { stdout } = await execFileAsync("cat", [resolvedPath], { timeout: 10000 })
+		var ext = resolvedPath.split(".").pop() || ""
+		var langMap = {
+			js: "js",
+			ts: "ts",
+			tsx: "tsx",
+			jsx: "jsx",
+			py: "python",
+			sh: "bash",
+			json: "json",
+			md: "markdown",
+			css: "css",
+			html: "html",
+			go: "go",
+			rs: "rust",
+		}
+		var lang = langMap[ext] || ""
+		var preview = stdout.length > 3000 ? stdout.slice(0, 3000) + "\n... (truncated)" : stdout
+		var lineCount = stdout.split("\n").length
+		updateSmartContext(chatId, { activeFile: resolvedPath })
+		await sendMessage(
+			botToken,
+			chatId,
+			"📄 `" + resolvedPath + "` (" + lineCount + " lines)\n\n```" + lang + "\n" + preview + "\n```",
+		)
+	} catch (err) {
+		await sendMessage(botToken, chatId, "❌ Could not read `" + filePath + "`\n\n" + err.message)
+	}
+}
+
+/**
+ * Handles /fix — auto-debugs the last error stored in smartContext.
+ * If no last error, prompts the user to paste one.
+ * @param {string} botToken
+ * @param {number|string} chatId
+ * @param {Array} args - optional extra context
+ * @param {Array} providers
+ */
+async function handleFix(botToken, chatId, args, providers) {
+	await sendChatAction(botToken, chatId, "typing")
+	var ctx = getSmartContext(chatId)
+	var errorText = args.join(" ").trim() || ctx.lastError || ""
+	var activeFile = ctx.activeFile || ""
+	var ws = groupWorkspaces.get(String(chatId)) || ctx.lastProject || ""
+
+	if (!errorText) {
+		await sendMessage(
+			botToken,
+			chatId,
+			"*No error on record* 🤔\n\nPaste an error message or stack trace and I'll automatically detect and fix it.\n\nOr: `/fix <error text>` to describe the issue.",
+		)
+		return
+	}
+
+	var fixPrompt =
+		"You are a senior engineer. Diagnose and fix the following error" +
+		(ws ? " in the project '" + ws + "'" : "") +
+		(activeFile ? " (file: " + activeFile + ")" : "") +
+		".\n\nError:\n" +
+		errorText +
+		"\n\nProvide: (1) root cause in one sentence, (2) exact fix with code, (3) how to verify the fix."
+
+	try {
+		var fixReply = await askAI(fixPrompt, providers || [], chatId)
+		updateSmartContext(chatId, { lastFixApplied: fixReply.slice(0, 300) })
+		await sendMessage(botToken, chatId, "*Auto-Fix Analysis* 🔧\n\n" + fixReply)
+		await sendActionButtons(botToken, chatId, null)
+	} catch (err) {
+		await sendMessage(botToken, chatId, "❌ Fix analysis failed: " + err.message)
+	}
+}
+
+/**
+ * Handles /focus <file> — sets the active file for context-aware coding.
+ * @param {string} botToken
+ * @param {number|string} chatId
+ * @param {Array} args
+ */
+async function handleFocus(botToken, chatId, args) {
+	var filePath = args.join(" ").trim()
+	if (!filePath) {
+		var ctx = getSmartContext(chatId)
+		var current = ctx.activeFile || "none"
+		await sendMessage(
+			botToken,
+			chatId,
+			"*Active file:* `" +
+				current +
+				"`\n\nUse `/focus <path>` to set a file.\nAll subsequent questions will reference that file.",
+		)
+		return
+	}
+	updateSmartContext(chatId, { activeFile: filePath })
+	await sendMessage(
+		botToken,
+		chatId,
+		"📌 *Focused on* `" +
+			filePath +
+			"`\n\nAll questions now reference this file. Use `/file " +
+			filePath +
+			"` to read it.",
+	)
+}
+
 /**
  * Maps a natural language VPS query to the shell command that answers it.
  * Returns null if the query can't be mapped confidently.
@@ -5728,23 +5923,25 @@ async function handleHelp(botToken, chatId) {
 			"`/agents` - Show available agents\n\n" +
 			"*Coding*\n" +
 			"`/code <instruction>` - Create a coding task\n" +
+			"`/fix [error]` - Auto-diagnose & fix last error (or paste one)\n" +
+			"`/file <path>` - Read a file from your project into context\n" +
+			"`/focus <path>` - Pin a file so all messages reference it\n" +
 			"`/diff <taskId>` - Show changed files\n" +
-			"`/test <taskId>` - Run test suite\n" +
 			"`/approve <taskId>` - Approve pending changes\n" +
 			"`/deploy <taskId>` - Deploy approved build (OTP required)\n" +
 			"`/shell <command>` - Execute safe shell commands on VPS\n\n" +
-			"*OpenClaw AI Assistant*\n" +
-			"`/debug <description>` - Create a structured debug plan\n" +
+			"*AI Assistant*\n" +
+			"`/debug <description>` - Structured debug plan\n" +
 			"`/logs [target] [lines]` - Read PM2/Docker logs\n" +
 			"`/tests [project]` - Run tests for a project\n" +
 			"`/restart <worker>` - Restart a whitelisted PM2 worker\n\n" +
-			"*AI Assistant (Natural Language)*\n" +
-			"• Just type naturally to chat with the AI assistant\n" +
-			'• Say *"debug this issue"* or *"check the logs"* for smart dispatch\n' +
+			"*Zero-Friction Tips*\n" +
+			"• Paste an error/stack trace → I detect it and offer instant fix buttons\n" +
+			"• Reply to any code block I send → I treat it as a code edit request\n" +
+			"• `/focus src/api.ts` → every message now knows you're in that file\n" +
+			"• `/specify <project>` in a group → all queries use that project's context\n" +
 			'• Say *"fix this bug"* or *"code this feature"* to trigger cloud agents\n' +
-			'• Say *"deploy"* or *"test"* to run those actions\n' +
-			'• Ask *"should I use X?"* or *"analyze Y"* for expert consultant analysis\n' +
-			"• In groups, I respond to every message automatically — no need to tag me!\n\n" +
+			"• In groups, I respond automatically — no need to tag me!\n\n" +
 			"*System*\n" +
 			"`/status [taskId]` - Check system or task status\n" +
 			"`/settings` - Account and system settings\n" +
@@ -6645,6 +6842,52 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 				return
 			}
 
+			// ─── Quick Action Callbacks (from sendActionButtons) ────────────────
+			// action:<type>[:<taskId>] — Run Tests, Show Diff, Approve, Status, Fix, Debug
+			if (cqData.startsWith("action:")) {
+				var actionParts = cqData.slice(7).split(":")
+				var actionType = actionParts[0]
+				var actionTaskId = actionParts[1] || null
+				logTelegramUsage("callback:action:" + actionType, cqChatId, cqUserId, { taskId: actionTaskId })
+				await sendChatAction(botToken, cqChatId, "typing")
+				try {
+					if (actionType === "tests") {
+						var aqTestResult = await tgEndpoints.runTests("")
+						await sendMessage(botToken, cqChatId, telegramEngineer.formatTestResult(aqTestResult))
+					} else if (actionType === "diff") {
+						if (actionTaskId) {
+							await handleDiff(botToken, cqChatId, [actionTaskId], orchestratorBridge)
+						} else {
+							await handleDiff(botToken, cqChatId, [], orchestratorBridge)
+						}
+					} else if (actionType === "approve") {
+						if (actionTaskId) {
+							await handleApprove(botToken, cqChatId, [actionTaskId], orchestratorBridge)
+						} else {
+							await sendMessage(
+								botToken,
+								cqChatId,
+								"No task to approve. Run `/status` to see active tasks.",
+							)
+						}
+					} else if (actionType === "status") {
+						await handleStatus(botToken, cqChatId, [], queue)
+					} else if (actionType === "fix") {
+						var aqCtx = getSmartContext(cqChatId)
+						await handleFix(botToken, cqChatId, aqCtx.lastError ? [aqCtx.lastError] : [], providers || [])
+					} else if (actionType === "debug") {
+						var aqCtx2 = getSmartContext(cqChatId)
+						var aqDebugText = aqCtx2.lastError || "the last error"
+						var aqDebugResult = await tgEndpoints.debugPlan(aqDebugText)
+						await sendMessage(botToken, cqChatId, telegramEngineer.formatDebugPlan(aqDebugResult))
+						await sendActionButtons(botToken, cqChatId, null)
+					}
+				} catch (aqErr) {
+					await sendMessage(botToken, cqChatId, "❌ Action failed: " + aqErr.message)
+				}
+				return
+			}
+
 			// ─── Menu Callbacks ────────────────────────────────────────────────
 			// menu:<action> — Handle menu button clicks (GUI upgrade, no slash commands needed)
 			if (cqData.startsWith("menu:")) {
@@ -6801,7 +7044,13 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 	// understands what "this", "that", "the task above", etc. refers to.
 	var quotedText = msg.reply_to_message && (msg.reply_to_message.text || msg.reply_to_message.caption)
 	if (quotedText) {
-		text = "[Quoted message: " + quotedText.slice(0, 500) + "]\n\nUser reply: " + text
+		// Detect if the quoted message contains a code block → treat as "edit this code"
+		var hasCodeBlock = quotedText.includes("```")
+		if (hasCodeBlock) {
+			text = "[Code to edit:\n" + quotedText.slice(0, 1000) + "]\n\nUser instruction: " + text
+		} else {
+			text = "[Quoted message: " + quotedText.slice(0, 500) + "]\n\nUser reply: " + text
+		}
 	}
 
 	// Check if this is a group chat
@@ -7060,10 +7309,20 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 				}
 
 				await sendMessage(botToken, chatId, debugReply)
+				await sendActionButtons(botToken, chatId, null)
 			} catch (err) {
 				logTelegramError("/debug", chatId, telegramUserId, err, { debugText: debugText })
 				await sendMessage(botToken, chatId, "*Debug Plan Error* ❌\n\n" + err.message)
 			}
+		} else if (command === "/fix") {
+			logTelegramUsage("/fix", chatId, telegramUserId, { args: cmdArgs.join(" ") })
+			await handleFix(botToken, chatId, cmdArgs, providers || [])
+		} else if (command === "/file") {
+			logTelegramUsage("/file", chatId, telegramUserId, { path: cmdArgs.join(" ") })
+			await handleFile(botToken, chatId, cmdArgs)
+		} else if (command === "/focus") {
+			logTelegramUsage("/focus", chatId, telegramUserId, { path: cmdArgs.join(" ") })
+			await handleFocus(botToken, chatId, cmdArgs)
 		} else if (command === "/logs") {
 			logTelegramUsage("/logs", chatId, telegramUserId, { target: cmdArgs[0] || "all", lines: cmdArgs[1] || 30 })
 			await sendChatAction(botToken, chatId, "typing")
@@ -7173,6 +7432,25 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 			// 4. Manages projects, tasks, and workspace
 
 			await sendChatAction(botToken, chatId, "typing")
+
+			// ─── Error Paste Auto-Detection ─────────────────────────────────
+			// If the message looks like a stack trace / error output, store it
+			// and offer an instant "Debug & Fix" button — no /fix needed.
+			if (detectErrorPaste(text)) {
+				updateSmartContext(chatId, { lastError: text.slice(0, 1000) })
+				await sendInlineKeyboard(
+					botToken,
+					chatId,
+					"🚨 *Looks like an error paste!*\n\nI've saved this error. Tap to auto-fix, or just describe what you want me to do.",
+					[
+						[
+							{ text: "🔧 Auto-Fix This Error", callback_data: "action:fix" },
+							{ text: "🔍 Debug Plan", callback_data: "action:debug" },
+						],
+					],
+				)
+				return
+			}
 
 			// Try natural language instruction routing first (coding tasks, agent commands)
 			var handled = await handleNaturalLanguageInstruction(
