@@ -1,5 +1,121 @@
 # lessons-learned.md
 
+### Lesson: Telegram bot offline — PM2 env vars not loaded, token empty
+
+Date: 2026-05-18
+Source: Claude Code task completion
+Model/API used: claude
+Confidence: high
+Related files: cloud/api/telegramBot.js, cloud/api/telegramClassifier.js, cloud/api/telegramPolicy.js, cloud/api/api.js, cloud/dashboard/src/components/views/telegram.tsx
+
+#### Task Summary
+
+Diagnosed and fixed 5 root causes of Telegram bot disconnection. Core issues: (1) PM2 started without loading cloud/.env so TELEGRAM_BOT_TOKEN was empty, (2) NL classifier rejected valid intents with MIN_CONFIDENCE too high, (3) code_task intent had no handler, (4) debug_plan "fix X" tried to route to non-existent Terminal Brain, (5) dashboard was 100% mock data with no real API wiring.
+
+#### Files Changed
+
+- cloud/api/telegramBot.js — removed blanket auth gate, added code_task handler, coding keyword re-routing
+- cloud/api/telegramClassifier.js — MIN_CONFIDENCE 0.3→0.65, added code_task to keyword fallback and allowed kinds
+- cloud/api/telegramPolicy.js — added code_task/feature_query/commit_status/upgrade_self to safeActions
+- cloud/api/api.js — added GET/POST /telegram/alert-rules endpoints, getDefaultAlertRules()
+- cloud/dashboard/src/components/views/telegram.tsx — full wiring to real backend, WebhookConfigForm, AdvancedCommands panel, alert rule toggles, live polling
+
+#### Bug Cause
+
+PM2 does not reload .env files on restart unless explicitly told to. After server reboot or fresh PM2 start, `process.env.TELEGRAM_BOT_TOKEN` is empty string, causing all Telegram API calls to return 401/404. Webhook registration silently fails so bot appears offline.
+
+#### Fix Applied
+
+```bash
+cd /opt/superroo2/cloud && export $(grep -v "^#" .env | xargs) && pm2 restart superroo-api --update-env
+```
+
+This is a runtime fix only. Permanent fix requires ecosystem.config.js to reference env_file or startup script to source .env before pm2 resurrect.
+
+#### Test Result
+
+pass — webhook returned `{"ok":true}`, test message delivered to boss chat
+
+#### Lesson Learned
+
+PM2 `--update-env` is required any time you need env vars from a .env file to take effect. The `pm2 restart` alone does NOT reload env. Always use `export $(grep -v "^#" .env | xargs) && pm2 restart <name> --update-env` when env vars change or after a fresh deploy.
+
+#### Reusable Rule
+
+Before diagnosing any bot/service "offline" issue: check `pm2 env <id>` to verify env vars are actually loaded. If TELEGRAM_BOT_TOKEN (or any token) is empty, the fix is `export $(grep -v "^#" .env | xargs) && pm2 restart <name> --update-env`, NOT a code change.
+
+#### Tags
+
+telegram, pm2, env-vars, bot-offline, deployment, dashboard-wiring
+
+---
+
+### Lesson: Cross-project learning layer — auto-tag project name on lesson storage
+
+Date: 2026-05-18
+Source: DeepSeek task completion
+Model/API used: DeepSeek
+Confidence: high
+Related files: cloud/api/api.js, cloud/orchestrator/stores/BugKnowledgeStore.js, cloud/orchestrator/modules/LearningGateway.js, cloud/orchestrator/modules/HermesClaw.js, scripts/extract-lesson-from-commit.mjs, cloud/sql/migrations/001-add-project-column.sql
+
+#### Task Summary
+
+Enabled cross-project learning layer contribution by adding a `project` column to the `ollama_lessons` table and wiring it through the entire lesson storage pipeline. Previously, all lessons were hardcoded to `'superroo2'` regardless of which project generated them. Now:
+
+1. DB schema has `project TEXT DEFAULT 'superroo2'` column with index
+2. `BugKnowledgeStore.storeLesson()` accepts and stores `lesson.project`
+3. `_handleMcpAction("hermes_learn")` passes `params.project || "superroo2"` to `storeLesson()`
+4. `LearningGateway.store()` passes `input.project || "superroo2"` through to `hermesClaw.storeLesson()`
+5. `extract-lesson-from-commit.mjs` auto-detects project name from git remote URL
+6. `/api/projects` endpoint queries `getLessonCountByProject()` and includes `lessonCount` per project
+
+#### Files Changed
+
+- cloud/api/api.js (line 892, 4657-4702)
+- cloud/orchestrator/stores/BugKnowledgeStore.js (line 574-601)
+- cloud/orchestrator/modules/LearningGateway.js (line 213)
+- cloud/orchestrator/modules/HermesClaw.js (line 654-659)
+- scripts/extract-lesson-from-commit.mjs (line 1-24, 210)
+- cloud/sql/migrations/001-add-project-column.sql (new file)
+
+#### Bug Cause
+
+The `ollama_lessons` table had no `project` column, so all lessons were implicitly tagged as `superroo2`. The `extract-lesson-from-commit.mjs` script hardcoded `'superroo2'` as the project name. The MCP action handler and LearningGateway didn't accept or pass through a `project` parameter. The `/api/projects` endpoint had no way to show lesson counts per project.
+
+#### Fix Applied
+
+1. Added `project TEXT DEFAULT 'superroo2'` column to `ollama_lessons` with btree index
+2. Updated `BugKnowledgeStore.storeLesson()` to store `lesson.project` in the `project` column
+3. Updated `_handleMcpAction("hermes_learn")` to accept `params.project` and pass it to `storeLesson()`
+4. Updated `LearningGateway.store()` to pass `input.project || "superroo2"` through to `hermesClaw.storeLesson()`
+5. Added `detectProjectName()` to `extract-lesson-from-commit.mjs` that extracts project name from git remote URL (supports both SSH and HTTPS formats), falling back to directory basename
+6. Added `getLessonCountByProject()` to `BugKnowledgeStore` that queries `SELECT project, COUNT(*) FROM ollama_lessons GROUP BY project`
+7. Updated `/api/projects` endpoint to query lesson counts and include `lessonCount` in each project entry
+8. Recreated `match_ollama_lessons()` function with `uuid` type for `id` column (was dropped during migration)
+
+#### Test Result
+
+pass — Verified via:
+
+- DB query: `SELECT project, COUNT(*) FROM ollama_lessons GROUP BY project` shows `superroo2: 36`
+- API endpoint: `GET /api/projects` returns `lessonCount` per project
+- Lesson storage: `POST /api/learning/store` with `project: "quotation-automation-system"` stored correctly
+- Function recreation: `\df match_ollama_lessons` returns correct `uuid` type for `id`
+
+#### Lesson Learned
+
+When adding cross-project metadata to a learning layer, the project tag must be threaded through every layer of the pipeline: DB schema → storage adapter → business logic → API handler → client script. Missing any one layer causes the project tag to be silently lost. Always verify end-to-end with a test lesson.
+
+#### Reusable Rule
+
+When adding a new field to a learning/storage pipeline, trace the full data flow: DB column → store method → business logic → API endpoint → client script. Verify each layer independently before integration testing.
+
+#### Tags
+
+learning-layer, cross-project, lesson-storage, project-tracking, database-migration, pgvector
+
+---
+
 ### Lesson: Audit views should preserve rich history fields instead of flattening them away
 
 Date: 2026-05-18
@@ -10543,6 +10659,62 @@ Unknown — extracted from commit 118785fc.
 <!-- TODO: Document the solution -->
 
 See commit 118785fc by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+ui, api
+
+---
+
+### Auto-Extracted Lesson: Feat: forward file attachments to LLM prompts via text enrichment
+
+Date: 2026-05-18
+Source: Git commit f263325d
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/api/api.js, cloud/sql/migrations/001-add-project-column.sql, cloud/sql/ollama-rag-schema.sql, memory/lesson-index.jsonl, memory/lessons-learned.md
+
+#### Task Summary
+
+feat: forward file attachments to LLM prompts via text enrichment
+
+#### Files Changed
+
+- `cloud/api/api.js`
+- `cloud/sql/migrations/001-add-project-column.sql`
+- `cloud/sql/ollama-rag-schema.sql`
+- `memory/lesson-index.jsonl`
+- `memory/lessons-learned.md`
+- `pnpm-lock.yaml`
+- `src/core/webview/webviewMessageHandler.ts`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit f263325d.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit f263325d by JPG Yap.
 
 #### Test Result
 

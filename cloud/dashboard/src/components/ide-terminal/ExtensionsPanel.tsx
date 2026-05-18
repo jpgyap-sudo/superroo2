@@ -1,28 +1,15 @@
 "use client"
 
-import { useState, useCallback, useEffect, useMemo } from "react"
-import { X, Search, Download, Trash2, Check, ExternalLink, Loader2, Puzzle, Star, Settings } from "lucide-react"
-
-// ── Types ──────────────────────────────────────────────────────
-interface ExtensionManifest {
-	id: string
-	name: string
-	version: string
-	description: string
-	publisher: string
-	icon?: string
-	categories?: string[]
-	tags?: string[]
-	installed?: boolean
-	enabled?: boolean
-	rating?: number
-	downloads?: number
-	repository?: string
-	license?: string
-}
+import { useState, useCallback, useMemo } from "react"
+import { X, Search, Download, Trash2, Check, ExternalLink, Loader2, Puzzle, Star } from "lucide-react"
+import type { ExtensionManifest } from "./hooks/useExtensionState"
 
 interface ExtensionsPanelProps {
 	onClose?: () => void
+	extensions: ExtensionManifest[]
+	toggleEnabled: (id: string) => void
+	install: (ext: ExtensionManifest) => void
+	uninstall: (id: string) => void
 }
 
 // ── Built-in extensions ────────────────────────────────────────
@@ -183,42 +170,29 @@ const CATEGORIES = [
 ]
 
 // ── Extensions Panel ───────────────────────────────────────────
-export default function ExtensionsPanel({ onClose }: ExtensionsPanelProps) {
+export default function ExtensionsPanel({
+	onClose,
+	extensions: installedExtensions,
+	toggleEnabled,
+	install,
+	uninstall,
+}: ExtensionsPanelProps) {
 	const [searchQuery, setSearchQuery] = useState("")
 	const [activeCategory, setActiveCategory] = useState("All")
-	const [installedExtensions, setInstalledExtensions] = useState<ExtensionManifest[]>(() => {
-		try {
-			const saved = localStorage.getItem("superroo-extensions")
-			if (saved) return JSON.parse(saved)
-		} catch {}
-		return BUILTIN_EXTENSIONS
-	})
 	const [showMarketplace, setShowMarketplace] = useState(false)
 	const [installingId, setInstallingId] = useState<string | null>(null)
 
-	// ── Save installed extensions ──────────────────────────────
-	useEffect(() => {
-		localStorage.setItem("superroo-extensions", JSON.stringify(installedExtensions))
-	}, [installedExtensions])
-
-	// ── Toggle extension enabled ───────────────────────────────
-	const toggleEnabled = useCallback((id: string) => {
-		setInstalledExtensions((prev) => prev.map((ext) => (ext.id === id ? { ...ext, enabled: !ext.enabled } : ext)))
-	}, [])
-
-	// ── Uninstall extension ────────────────────────────────────
-	const uninstall = useCallback((id: string) => {
-		setInstalledExtensions((prev) => prev.filter((ext) => ext.id !== id))
-	}, [])
-
 	// ── Install from marketplace ───────────────────────────────
-	const install = useCallback(async (ext: ExtensionManifest) => {
-		setInstallingId(ext.id)
-		// Simulate installation delay
-		await new Promise((r) => setTimeout(r, 1000))
-		setInstalledExtensions((prev) => [...prev, { ...ext, installed: true, enabled: true }])
-		setInstallingId(null)
-	}, [])
+	const handleInstall = useCallback(
+		async (ext: ExtensionManifest) => {
+			setInstallingId(ext.id)
+			// Simulate installation delay
+			await new Promise((r) => setTimeout(r, 1000))
+			install(ext)
+			setInstallingId(null)
+		},
+		[install],
+	)
 
 	// ── Filter extensions ──────────────────────────────────────
 	const filteredExtensions = useMemo(() => {
@@ -359,7 +333,7 @@ export default function ExtensionsPanel({ onClose }: ExtensionsPanelProps) {
 										) : (
 											<button
 												className="px-2 py-1 text-[10px] bg-[#1f6feb] text-white rounded hover:bg-[#388bfd] disabled:opacity-50 flex items-center gap-1"
-												onClick={() => install(ext)}
+												onClick={() => handleInstall(ext)}
 												disabled={isInstalling}>
 												{isInstalling ? (
 													<Loader2 size={10} className="animate-spin" />

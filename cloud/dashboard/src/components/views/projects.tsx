@@ -53,6 +53,7 @@ interface ProjectInfo {
 	lastCommit: { message: string; author: string; time: string; sha: string } | null
 	lastDeploy: { status: string; environment: string; time: string; version: string } | null
 	deploySuccessRate: number
+	lessonCount: number
 }
 
 interface ActivityEvent {
@@ -207,7 +208,7 @@ function ProjectCard({ project }: { project: ProjectInfo }) {
 			</div>
 
 			{/* Stats row */}
-			<div className="grid grid-cols-4 gap-2 mb-4">
+			<div className="grid grid-cols-5 gap-2 mb-4">
 				<div className="rounded-lg bg-[#070b14] p-2.5 text-center">
 					<div className="text-[10px] uppercase tracking-wider text-gray-500 mb-0.5">Commits</div>
 					<div className="text-sm font-semibold text-blue-400">{project.totalCommits}</div>
@@ -215,6 +216,10 @@ function ProjectCard({ project }: { project: ProjectInfo }) {
 				<div className="rounded-lg bg-[#070b14] p-2.5 text-center">
 					<div className="text-[10px] uppercase tracking-wider text-gray-500 mb-0.5">Deploys</div>
 					<div className="text-sm font-semibold text-violet-400">{project.totalDeploys}</div>
+				</div>
+				<div className="rounded-lg bg-[#070b14] p-2.5 text-center">
+					<div className="text-[10px] uppercase tracking-wider text-gray-500 mb-0.5">Lessons</div>
+					<div className="text-sm font-semibold text-amber-400">{project.lessonCount}</div>
 				</div>
 				<div className="rounded-lg bg-[#070b14] p-2.5 text-center">
 					<div className="text-[10px] uppercase tracking-wider text-gray-500 mb-0.5">Success</div>
@@ -535,6 +540,15 @@ export function ProjectsView() {
 								</div>
 								<span className="text-xs font-medium text-violet-400">
 									{projects.reduce((sum, p) => sum + p.totalDeploys, 0)}
+								</span>
+							</div>
+							<div className="flex items-center justify-between rounded-lg bg-[#070b14] p-2.5">
+								<div className="flex items-center gap-2">
+									<BookOpen className="h-3.5 w-3.5 text-gray-500" />
+									<span className="text-xs text-gray-400">Total Lessons</span>
+								</div>
+								<span className="text-xs font-medium text-amber-400">
+									{projects.reduce((sum, p) => sum + p.lessonCount, 0)}
 								</span>
 							</div>
 							{currentWorkspace?.repoName && (

@@ -218,6 +218,7 @@ class LearningGateway {
 				topic: input.problem,
 				content: [input.root_cause, input.solution].filter(Boolean).join("\n"),
 				source_task_id: input.raw_ref || null,
+				project: input.project || "superroo2",
 				metadata: input,
 			})
 		}

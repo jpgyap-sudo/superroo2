@@ -1,0 +1,32 @@
+# SuperRoo Auto-Deployer Container
+# ⚠️ WARNING: Needs Docker socket + git SSH keys mounted.
+# For production, consider running Auto-Deployer directly on host/PM2.
+#
+# Build context: repo root
+FROM node:20-alpine
+
+RUN apk add --no-cache curl git docker-cli bash openssh-client
+
+WORKDIR /opt/superroo2
+
+# Install cloud dependencies
+COPY cloud/package.json cloud/package-lock.json* ./cloud/
+RUN cd cloud && npm install --omit=dev --ignore-scripts
+
+# Copy source
+COPY cloud/ ./cloud/
+COPY src/ ./src/
+
+# Required directories
+RUN mkdir -p /opt/superroo2/cloud/logs /root/.ssh
+
+ENV NODE_ENV=production
+ENV REDIS_URL=redis://redis:6379
+ENV GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=accept-new
+
+HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:9999/health || exit 1
+
+EXPOSE 9999
+
+CMD ["node", "cloud/auto-deployer/auto-deployer.js"]

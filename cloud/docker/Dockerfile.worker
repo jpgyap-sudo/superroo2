@@ -1,0 +1,35 @@
+# SuperRoo Worker Container
+# ⚠️ WARNING: This container mounts the host Docker socket (/var/run/docker.sock)
+# to spawn sandbox containers. This grants significant privileges. Use only in
+# trusted environments. For production, consider running Worker directly on host/PM2.
+#
+# Build context: repo root
+FROM node:20-alpine
+
+RUN apk add --no-cache curl git docker-cli
+
+WORKDIR /opt/superroo2
+
+# Install cloud dependencies
+COPY cloud/package.json cloud/package-lock.json* ./cloud/
+RUN cd cloud && npm install --omit=dev --ignore-scripts
+
+# Copy source
+COPY cloud/ ./cloud/
+COPY src/ ./src/
+
+# Required directories
+RUN mkdir -p /opt/superroo2/cloud/logs /srv/superroo/workspaces
+
+ENV NODE_ENV=production
+ENV REDIS_URL=redis://redis:6379
+ENV API_BASE_URL=http://superroo-api:8787
+ENV WORKSPACE_ROOT=/srv/superroo/workspaces
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8788/health || exit 1
+
+# Worker exposes metrics port
+EXPOSE 8788
+
+CMD ["node", "cloud/worker/worker.js"]

@@ -899,6 +899,7 @@ async function _handleMcpAction(action, params, orchestrator) {
 					topic: topic.substring(0, 500),
 					content: content.substring(0, 2000),
 					source_task_id: params.source_task_id || null,
+					project: params.project || "superroo2",
 					metadata: params.metadata || {},
 				})
 				return { success: true, lesson, source: "hermes_claw" }
@@ -4655,7 +4656,18 @@ const server = http.createServer(async (req, res) => {
 					}
 				}
 
-				// 6. Merge everything into a unified project list
+				// 6. Query lesson counts per project from the knowledge store
+				let lessonCountsByProject = {}
+				try {
+					if (orchestrator && orchestrator.hermesClaw && orchestrator.hermesClaw.bugKnowledgeStore) {
+						lessonCountsByProject =
+							await orchestrator.hermesClaw.bugKnowledgeStore.getLessonCountByProject()
+					}
+				} catch {
+					// Knowledge store may not be available
+				}
+
+				// 7. Merge everything into a unified project list
 				const mergedProjects = authProjects.map((p) => {
 					const presences = presenceMap[p.id] || []
 					const latestPresence = presences.sort((a, b) => new Date(b.lastSyncAt) - new Date(a.lastSyncAt))[0]
@@ -4698,6 +4710,8 @@ const server = http.createServer(async (req, res) => {
 						// Deploy success rate
 						deploySuccessRate:
 							stats.deploys > 0 ? Math.round((stats.healthyDeploys / stats.deploys) * 100) : 0,
+						// Lesson count from knowledge store
+						lessonCount: lessonCountsByProject[p.repoName] || 0,
 					}
 				})
 
@@ -4745,6 +4759,7 @@ const server = http.createServer(async (req, res) => {
 							lastDeploy: stats.lastDeploy,
 							deploySuccessRate:
 								stats.deploys > 0 ? Math.round((stats.healthyDeploys / stats.deploys) * 100) : 0,
+							lessonCount: lessonCountsByProject[repoName] || 0,
 						})
 					}
 				}

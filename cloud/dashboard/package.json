@@ -6,7 +6,7 @@
 		"dev": "next dev -p 3001",
 		"build": "node scripts/clean-next.mjs && next build && node scripts/verify-next-css.mjs && node scripts/prepare-standalone.mjs",
 		"start": "node .next/standalone/server.js",
-		"lint": "next lint"
+		"lint": "eslint src"
 	},
 	"dependencies": {
 		"bullmq": "^5.7.0",
@@ -22,6 +22,7 @@
 	},
 	"devDependencies": {
 		"@playwright/test": "^1.60.0",
+		"@superroo/config-eslint": "workspace:^",
 		"@types/node": "^20.12.12",
 		"@types/react": "^18.3.2",
 		"@types/react-dom": "^18.3.0",

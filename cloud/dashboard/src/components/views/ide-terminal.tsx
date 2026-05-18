@@ -122,6 +122,7 @@ import ExtensionsPanel from "@/components/ide-terminal/ExtensionsPanel"
 import KeyboardShortcutsModal from "@/components/ide-terminal/KeyboardShortcutsModal"
 import DiffViewModal from "@/components/ide-terminal/DiffViewModal"
 import { useIdeTerminal } from "@/components/ide-terminal/hooks/useIdeTerminal"
+import { useExtensionState } from "@/components/ide-terminal/hooks/useExtensionState"
 import type { BrainTab } from "@/components/ide-terminal/types"
 
 // ── Pipeline Icon ─────────────────────────────────────────────────────────
@@ -193,6 +194,7 @@ export default function IdeTerminalView() {
 
 	// ── All logic extracted into hook ─────────────────────────────────────
 	const hook = useIdeTerminal()
+	const extensionState = useExtensionState()
 
 	// ── Loading state ────────────────────────────────────────────────────
 	if (loading) {
@@ -446,36 +448,41 @@ export default function IdeTerminalView() {
 							)}
 
 							{/* ── Inline AI Button ────────────────────────── */}
-							{showInlineAiButton && hook.inlineSelectionPos && (
-								<div
-									className="absolute z-50 flex items-center gap-1 bg-[#2d2d2d] border border-[#3c3c3c] rounded-md shadow-lg px-1 py-0.5"
-									style={{ top: hook.inlineSelectionPos.top, left: hook.inlineSelectionPos.left }}>
-									<button
-										onClick={() => hook.handleInlineAiAction("fix")}
-										className="p-1 text-xs text-gray-400 hover:text-yellow-400 hover:bg-[#3c3c3c] rounded"
-										title="Fix">
-										<Bug size={12} />
-									</button>
-									<button
-										onClick={() => hook.handleInlineAiAction("explain")}
-										className="p-1 text-xs text-gray-400 hover:text-blue-400 hover:bg-[#3c3c3c] rounded"
-										title="Explain">
-										<MessageCircle size={12} />
-									</button>
-									<button
-										onClick={() => hook.handleInlineAiAction("optimize")}
-										className="p-1 text-xs text-gray-400 hover:text-green-400 hover:bg-[#3c3c3c] rounded"
-										title="Optimize">
-										<Zap size={12} />
-									</button>
-									<button
-										onClick={() => hook.handleInlineAiAction("review")}
-										className="p-1 text-xs text-gray-400 hover:text-purple-400 hover:bg-[#3c3c3c] rounded"
-										title="Review">
-										<Search size={12} />
-									</button>
-								</div>
-							)}
+							{showInlineAiButton &&
+								hook.inlineSelectionPos &&
+								extensionState.isEnabled("superroo.ai-assistant") && (
+									<div
+										className="absolute z-50 flex items-center gap-1 bg-[#2d2d2d] border border-[#3c3c3c] rounded-md shadow-lg px-1 py-0.5"
+										style={{
+											top: hook.inlineSelectionPos.top,
+											left: hook.inlineSelectionPos.left,
+										}}>
+										<button
+											onClick={() => hook.handleInlineAiAction("fix")}
+											className="p-1 text-xs text-gray-400 hover:text-yellow-400 hover:bg-[#3c3c3c] rounded"
+											title="Fix">
+											<Bug size={12} />
+										</button>
+										<button
+											onClick={() => hook.handleInlineAiAction("explain")}
+											className="p-1 text-xs text-gray-400 hover:text-blue-400 hover:bg-[#3c3c3c] rounded"
+											title="Explain">
+											<MessageCircle size={12} />
+										</button>
+										<button
+											onClick={() => hook.handleInlineAiAction("optimize")}
+											className="p-1 text-xs text-gray-400 hover:text-green-400 hover:bg-[#3c3c3c] rounded"
+											title="Optimize">
+											<Zap size={12} />
+										</button>
+										<button
+											onClick={() => hook.handleInlineAiAction("review")}
+											className="p-1 text-xs text-gray-400 hover:text-purple-400 hover:bg-[#3c3c3c] rounded"
+											title="Review">
+											<Search size={12} />
+										</button>
+									</div>
+								)}
 						</div>
 
 						{/* ── Terminal ───────────────────────────────────── */}
@@ -627,7 +634,7 @@ export default function IdeTerminalView() {
 					</div>
 
 					{/* ── AI Chat Panel ──────────────────────────────────── */}
-					{showAiPanel && (
+					{showAiPanel && extensionState.isEnabled("superroo.ai-assistant") && (
 						<ErrorBoundary>
 							<aside className="w-80 shrink-0 border-l border-[#3c3c3c] bg-[#252526] flex flex-col overflow-hidden">
 								<div className="flex items-center justify-between px-3 py-2 border-b border-[#3c3c3c]">
@@ -885,7 +892,7 @@ export default function IdeTerminalView() {
 				)}
 
 				{/* Git Panel Modal */}
-				{hook.showGitPanel && (
+				{hook.showGitPanel && extensionState.isEnabled("superroo.git") && (
 					<GitPanel
 						onClose={() => hook.setShowGitPanel(false)}
 						onFileClick={(path: string, name: string) => {
@@ -952,7 +959,13 @@ export default function IdeTerminalView() {
 						<div
 							className="bg-[#252526] border border-[#3c3c3c] rounded-lg shadow-xl w-[700px] max-h-[85vh] overflow-hidden"
 							onClick={(e) => e.stopPropagation()}>
-							<ExtensionsPanel onClose={() => hook.setShowExtensionsPanel(false)} />
+							<ExtensionsPanel
+								onClose={() => hook.setShowExtensionsPanel(false)}
+								extensions={extensionState.extensions}
+								toggleEnabled={extensionState.toggleEnabled}
+								install={extensionState.install}
+								uninstall={extensionState.uninstall}
+							/>
 						</div>
 					</div>
 				)}

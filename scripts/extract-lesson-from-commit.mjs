@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
  * Extract Lesson from Commit
- * 
+ *
  * Analyzes a git commit and extracts potential lessons for the
  * SuperRoo intelligence layer.
- * 
+ *
  * Usage: node scripts/extract-lesson-from-commit.mjs <sha> <message> <author> <files>
  * Or:    node scripts/extract-lesson-from-commit.mjs --interactive
  */
@@ -16,6 +16,31 @@ import { execSync } from 'child_process'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '..')
+
+/**
+ * Detect the project name from git remote origin URL.
+ * Falls back to directory basename if no remote is found.
+ * @param {string} [cwd] - Working directory for git commands
+ * @returns {string}
+ */
+function detectProjectName(cwd) {
+  try {
+    const remote = execSync('git remote get-url origin', { cwd: cwd || ROOT, encoding: 'utf-8' }).trim()
+    // Extract repo name from common remote formats:
+    //   git@github.com:owner/repo.git  -> repo
+    //   https://github.com/owner/repo.git -> repo
+    const match = remote.match(/(?:github\.com[:/])([^/]+)\/(.+)\.git$/)
+    if (match) {
+      return match[2] // repo name
+    }
+    // Fallback: extract last path segment
+    const parts = remote.replace(/\.git$/, '').split('/')
+    return parts[parts.length - 1] || 'superroo2'
+  } catch {
+    // No git remote, use directory basename
+    return path.basename(ROOT) || 'superroo2'
+  }
+}
 
 // Configuration
 const LESSON_FILE = path.join(ROOT, 'memory/lessons-learned.md')
@@ -209,6 +234,7 @@ async function appendIndexEntry(analysis) {
     nextId = 1
   }
 
+  const project = detectProjectName()
   const entry = {
     id: `lesson-${String(nextId).padStart(3, '0')}`,
     title,
@@ -217,7 +243,7 @@ async function appendIndexEntry(analysis) {
     source: `Git commit ${analysis.sha.slice(0, 8)}`,
     model: analysis.author || 'unknown',
     confidence: 'medium',
-    project: 'superroo2',
+    project,
     files: analysis.files.slice(0, 5),
     tags,
     relevance_score: 0.75,

@@ -371,6 +371,7 @@ class BugKnowledgeStore {
 	 * @param {string} lesson.topic - Lesson topic
 	 * @param {string} lesson.content - Lesson content
 	 * @param {string} [lesson.source_task_id] - Source task ID
+	 * @param {string} [lesson.project] - Project name for cross-project learning
 	 * @param {object} [lesson.metadata] - Additional metadata
 	 * @returns {Promise<{id: string, success: boolean}>}
 	 */
@@ -387,6 +388,7 @@ class BugKnowledgeStore {
 					lesson.summary ||
 					"",
 				source_task_id: lesson.source_task_id || lesson.task_id || lesson.raw_ref || null,
+				project: lesson.project || "superroo2",
 				metadata: {
 					...(lesson.metadata || {}),
 					agent_type: lesson.agent_type,
@@ -398,14 +400,15 @@ class BugKnowledgeStore {
 
 			const result = await client.query(
 				`INSERT INTO ollama_lessons
-				 (lesson_type, topic, content, source_task_id, embedding, metadata)
-				 VALUES ($1, $2, $3, $4, $5, $6)
-				 RETURNING id`,
+	 		 (lesson_type, topic, content, source_task_id, project, embedding, metadata)
+	 		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+	 		 RETURNING id`,
 				[
 					normalized.lesson_type,
 					normalized.topic,
 					normalized.content,
 					normalized.source_task_id,
+					normalized.project,
 					embedding ? `[${embedding.join(",")}]` : null,
 					JSON.stringify(normalized.metadata),
 				],
@@ -565,6 +568,33 @@ class BugKnowledgeStore {
 				totalLessons: 0,
 				latestEntry: null,
 			}
+		} finally {
+			client.release()
+		}
+	}
+
+	/**
+	 * Get lesson counts grouped by project.
+	 *
+	 * @returns {Promise<Object<string, number>>} Map of project name -> lesson count
+	 */
+	async getLessonCountByProject() {
+		const client = await this._getClient()
+		try {
+			const result = await client.query(
+				`SELECT project, COUNT(*)::int AS count
+				 FROM ollama_lessons
+				 GROUP BY project
+				 ORDER BY count DESC`,
+			)
+			const counts = {}
+			for (const row of result.rows) {
+				counts[row.project] = parseInt(row.count, 10)
+			}
+			return counts
+		} catch (err) {
+			console.error(`[BugKnowledgeStore] Failed to get lesson counts by project: ${err.message}`)
+			return {}
 		} finally {
 			client.release()
 		}

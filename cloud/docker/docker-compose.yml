@@ -1,143 +1,189 @@
-# SuperRoo Docker Compose — Hybrid Approach
+# =============================================================================
+# SuperRoo Hybrid Docker Compose
+# =============================================================================
+# Containerized:  API, Dashboard, Mini-IDE, Redis
+# PM2 on host:   Worker, Auto-Deployer (need Docker socket/git access)
 #
-# Containerized:  API, Dashboard, Mini-IDE
-# Host (PM2):     Worker, Auto-Deployer, Redis
+# To deploy:
+#   cd cloud/docker && docker compose up -d
 #
-# Containers connect to host Redis via host.docker.internal:6379
-# Container-to-container via Docker DNS (superroo-api, superroo-dashboard, superroo-mini-ide)
-# nginx stays on host, proxies to localhost:8787, localhost:3001, localhost:8081
-#
-# Usage:
-#   docker compose -f cloud/docker/docker-compose.yml up -d
-#   docker compose -f cloud/docker/docker-compose.yml down
-#
-# Rollback:
-#   docker compose -f cloud/docker/docker-compose.yml down
-#   cd /opt/superroo2/cloud && pm2 start ecosystem.config.js
+# Optional full mode (Worker + Auto-Deployer in containers):
+#   docker compose --profile full up -d
+# =============================================================================
 
 services:
+  # ---------------------------------------------------------------------------
+  # Redis (caching + pub/sub)
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    mem_limit: 256m
+    networks:
+      - superroo-net
+
+  # ---------------------------------------------------------------------------
+  # SuperRoo API
+  # ---------------------------------------------------------------------------
   superroo-api:
     build:
       context: ../..
       dockerfile: cloud/docker/Dockerfile.api
-    image: superroo-api:latest
-    container_name: superroo-api
+    restart: unless-stopped
     ports:
       - "8787:8787"
     environment:
-      - NODE_ENV=production
-      - API_PORT=8787
-      - REDIS_URL=redis://host.docker.internal:6379
-      - SUPERROO_QUEUE_NAME=superroo-jobs
+      - REDIS_URL=redis://redis:6379
       - ORCHESTRATOR_DB_PATH=/opt/superroo2/cloud/orchestrator/data/orchestrator.db
-      - ORCHESTRATOR_MODE=safe
-      - ORCHESTRATOR_SELF_IMPROVE=false
-      - ORCHESTRATOR_LOOP_INTERVAL=5000
-      - LOGS_DIR=/opt/superroo2/cloud/logs
-      - SETTINGS_DIR=/opt/superroo2/cloud/data/settings
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - SUPERROO_VAULT_KEY=${SUPERROO_VAULT_KEY}
-      - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
-      - SMTP_PORT=${SMTP_PORT:-587}
-      - SMTP_USER=${SMTP_USER}
-      - SMTP_PASS=${SMTP_PASS}
-      - SMTP_FROM=${SMTP_FROM}
     volumes:
       - orchestrator-data:/opt/superroo2/cloud/orchestrator/data
       - hermes-data:/opt/superroo2/cloud/data
       - logs:/opt/superroo2/cloud/logs
     mem_limit: 256m
-    mem_reservation: 128m
-    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8787/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8787/health"]
       interval: 30s
       timeout: 10s
-      start_period: 15s
       retries: 3
+      start_period: 10s
     networks:
       - superroo-net
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
 
+  # ---------------------------------------------------------------------------
+  # SuperRoo Dashboard (Next.js standalone)
+  # ---------------------------------------------------------------------------
   superroo-dashboard:
     build:
       context: ../..
       dockerfile: cloud/docker/Dockerfile.dashboard
-    image: superroo-dashboard:latest
-    container_name: superroo-dashboard
+    restart: unless-stopped
     ports:
       - "3001:3001"
     environment:
       - NODE_ENV=production
       - PORT=3001
-      # Dashboard rewrites /api/* to this URL (see next.config.js)
       - NEXT_PUBLIC_API_URL=http://superroo-api:8787
+      - REDIS_URL=redis://redis:6379
     mem_limit: 256m
-    mem_reservation: 128m
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3001"]
-      interval: 30s
-      timeout: 10s
-      start_period: 10s
-      retries: 3
-    networks:
-      - superroo-net
     depends_on:
       superroo-api:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - superroo-net
 
+  # ---------------------------------------------------------------------------
+  # SuperRoo Mini-IDE
+  # ---------------------------------------------------------------------------
   superroo-mini-ide:
     build:
       context: ../..
       dockerfile: cloud/docker/Dockerfile.mini-ide
-    image: superroo-mini-ide:latest
-    container_name: superroo-mini-ide
+    restart: unless-stopped
     ports:
       - "8081:8081"
     environment:
-      - NODE_ENV=production
       - MINI_IDE_PORT=8081
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - CORS_ORIGIN=https://dev.abcx124.xyz
       - SUPERROO_API_URL=http://superroo-api:8787
-      - SUPERROO_API_KEY=
-      - WORKSPACE_ROOT=/srv/superroo/workspaces
-      - UPLOAD_DIR=/opt/superroo2/cloud/mini-ide/uploads
-      - SESSION_TTL_MINUTES=30
+      - REDIS_URL=redis://redis:6379
     volumes:
       - uploads:/opt/superroo2/cloud/mini-ide/uploads
       - logs:/opt/superroo2/cloud/logs
     mem_limit: 256m
-    mem_reservation: 128m
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081"]
-      interval: 30s
-      timeout: 10s
-      start_period: 10s
-      retries: 3
-    networks:
-      - superroo-net
     depends_on:
       superroo-api:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - superroo-net
 
-volumes:
-  orchestrator-data:
-    name: superroo-orchestrator-data
-  hermes-data:
-    name: superroo-hermes-data
-  uploads:
-    name: superroo-uploads
-  logs:
-    name: superroo-logs
+  # ---------------------------------------------------------------------------
+  # Worker (optional — mounts Docker socket, use with --profile full)
+  # ---------------------------------------------------------------------------
+  superroo-worker:
+    build:
+      context: ../..
+      dockerfile: cloud/docker/Dockerfile.worker
+    restart: unless-stopped
+    profiles:
+      - full
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - API_BASE_URL=http://superroo-api:8787
+      - WORKSPACE_ROOT=/srv/superroo/workspaces
+    volumes:
+      - workspaces:/srv/superroo/workspaces
+      - logs:/opt/superroo2/cloud/logs
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    mem_limit: 512m
+    depends_on:
+      redis:
+        condition: service_healthy
+      superroo-api:
+        condition: service_healthy
+    networks:
+      - superroo-net
+
+  # ---------------------------------------------------------------------------
+  # Auto-Deployer (optional — mounts Docker socket + SSH keys, --profile full)
+  # ---------------------------------------------------------------------------
+  superroo-auto-deployer:
+    build:
+      context: ../..
+      dockerfile: cloud/docker/Dockerfile.auto-deployer
+    restart: unless-stopped
+    profiles:
+      - full
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=accept-new
+    volumes:
+      - logs:/opt/superroo2/cloud/logs
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${HOME}/.ssh:/root/.ssh:ro
+    mem_limit: 128m
+    depends_on:
+      redis:
+        condition: service_healthy
+      superroo-api:
+        condition: service_healthy
+    networks:
+      - superroo-net
 
 networks:
   superroo-net:
-    name: superroo-net
     driver: bridge
     ipam:
       config:
         - subnet: 172.28.0.0/16
+
+volumes:
+  orchestrator-data:
+  hermes-data:
+  uploads:
+  logs:
+  redis-data:
+  workspaces:
