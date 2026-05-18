@@ -1,14 +1,14 @@
 # SuperRoo Mini IDE Container
 # Build context: repo root (needs cloud/ for mini-ide and api routes)
-FROM node:20-alpine AS base
+FROM node:20-alpine
 
 RUN apk add --no-cache curl
 
 WORKDIR /opt/superroo2
 
-# Copy package files first for layer caching
-COPY cloud/package.json cloud/package-lock.json* ./
-RUN if [ -f package-lock.json ]; then npm ci --omit=dev --ignore-scripts; else npm install --omit=dev --ignore-scripts; fi
+# Copy already-installed dependencies from host (avoid npm rebuild issues on Alpine)
+COPY cloud/package.json ./
+COPY cloud/node_modules/ ./cloud/node_modules/
 
 # Copy source code
 COPY cloud/ ./cloud/
@@ -22,4 +22,5 @@ EXPOSE 8081
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8081 || exit 1
 
+ENV NODE_ENV=production
 CMD ["node", "cloud/mini-ide/server.js"]
