@@ -46,7 +46,7 @@ const NAV = [
 	{ id: "bugs", icon: Bug, label: "Bugs" },
 	{ id: "healing", icon: HeartPulse, label: "Healing" },
 	{ id: "monitoring", icon: Activity, label: "Monitoring" },
-	{ id: "workflow-compliance", icon: CheckCircle, label: "Workflow" },
+	{ id: "workflow-compliance", icon: CheckCircle, label: "Compliance" },
 	{ id: "logs", icon: ScrollText, label: "Logs" },
 	{ id: "docker", icon: Container, label: "Docker" },
 	{ id: "github", icon: Github, label: "GitHub" },

@@ -83,6 +83,18 @@ interface SystemStats {
 	logs: {
 		recentErrors24h: number
 	}
+	services: Array<{
+		name: string
+		process: {
+			status: string
+			restarts: number
+			uptimeMs: number | null
+		} | null
+		listening: boolean
+		httpStatus: number | null
+		latencyMs: number
+		healthy: boolean
+	}>
 	timestamp: string
 }
 
@@ -604,6 +616,49 @@ export function MonitoringView() {
 									color={stats.logs.recentErrors24h > 10 ? "text-red-400" : "text-[#e2e8f0]"}
 								/>
 							</div>
+
+							{/* Error Rate Chart */}
+							<Card>
+								<div className="flex items-center justify-between mb-3">
+									<h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+										Service Health
+									</h3>
+									<Server className="h-4 w-4 text-gray-600" />
+								</div>
+								<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+									{stats.services.map((service) => (
+										<div
+											key={service.name}
+											className="rounded border border-[#1e2535] bg-[#0a0e1a] p-3">
+											<div className="flex items-center justify-between gap-3">
+												<div>
+													<div className="text-sm font-medium text-gray-200">
+														{service.name}
+													</div>
+													<div className="mt-1 text-xs text-gray-500">
+														PM2: {service.process?.status || "missing"} · Port:{" "}
+														{service.listening ? "listening" : "closed"}
+													</div>
+												</div>
+												<div
+													className={cn(
+														"rounded px-2 py-1 text-xs",
+														service.healthy
+															? "bg-emerald-500/10 text-emerald-300"
+															: "bg-red-500/10 text-red-300",
+													)}>
+													{service.healthy ? "Healthy" : "Down"}
+												</div>
+											</div>
+											<div className="mt-3 flex items-center gap-4 text-xs text-gray-500">
+												<span>HTTP {service.httpStatus ?? "N/A"}</span>
+												<span>{service.latencyMs}ms</span>
+												<span>{service.process?.restarts || 0} restarts</span>
+											</div>
+										</div>
+									))}
+								</div>
+							</Card>
 
 							{/* Error Rate Chart */}
 							<Card>

@@ -283,6 +283,8 @@ async function handleGetStats(req, res) {
 			activeIncidents = incidents.filter((inc) => !terminalStatuses.includes(inc.status)).length
 		}
 
+		const serviceHealth = await getServiceHealth()
+
 		sendJson(res, 200, {
 			system: {
 				hostname: os.hostname(),
@@ -308,12 +310,73 @@ async function handleGetStats(req, res) {
 			logs: {
 				recentErrors24h: recentErrors,
 			},
+			services: serviceHealth,
 			timestamp: new Date().toISOString(),
 		})
 	} catch (err) {
 		console.error("[monitoring] Error getting stats:", err.message)
 		sendJson(res, 500, { error: "Failed to get system stats" })
 	}
+}
+
+async function getServiceHealth() {
+	const serviceNames = ["superroo-api", "superroo-dashboard"]
+	let pm2Services = {}
+
+	try {
+		const { stdout } = await execAsync("pm2 jlist")
+		const processes = JSON.parse(stdout)
+		pm2Services = Object.fromEntries(
+			processes
+				.filter((proc) => serviceNames.includes(proc.name))
+				.map((proc) => [
+					proc.name,
+					{
+						status: proc.pm2_env?.status || "unknown",
+						restarts: proc.pm2_env?.restart_time || 0,
+						uptimeMs: proc.pm2_env?.pm_uptime ? Date.now() - proc.pm2_env.pm_uptime : null,
+					},
+				]),
+		)
+	} catch (err) {
+		console.error("[monitoring] Failed to read PM2 status:", err.message)
+	}
+
+	const probes = await Promise.all(
+		[
+			["superroo-api", "http://127.0.0.1:8787/api/health"],
+			["superroo-dashboard", "http://127.0.0.1:3001"],
+		].map(async ([name, url]) => {
+			const start = Date.now()
+			try {
+				const response = await fetch(url, { signal: AbortSignal.timeout(3000) })
+				return [
+					name,
+					{
+						listening: response.ok,
+						httpStatus: response.status,
+						latencyMs: Date.now() - start,
+					},
+				]
+			} catch {
+				return [
+					name,
+					{
+						listening: false,
+						httpStatus: null,
+						latencyMs: Date.now() - start,
+					},
+				]
+			}
+		}),
+	)
+
+	return probes.map(([name, probe]) => ({
+		name,
+		process: pm2Services[name] || null,
+		...probe,
+		healthy: pm2Services[name]?.status === "online" && probe.listening,
+	}))
 }
 
 /**

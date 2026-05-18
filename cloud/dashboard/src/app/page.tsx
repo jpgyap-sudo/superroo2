@@ -178,7 +178,7 @@ export default function Dashboard() {
 			deploy: "Deploy",
 			brain: "Central Brain",
 			"intelligence-layer": "Intelligence Layer",
-			"workflow-compliance": "Workflow",
+			"workflow-compliance": "Compliance",
 			"ollama-growth": "Ollama Growth",
 			"memory-explorer": "Memory Explorer",
 		}[page] || page

@@ -1,5 +1,65 @@
 # lessons-learned.md
 
+### Lesson: DeepSeek V4 Coder MCP — enforce agent routing workflow for Claude Code
+
+Date: 2026-05-18
+Source: DeepSeek (current agent) task completion
+Model/API used: deepseek-chat-v4
+Confidence: high
+Related files: scripts/deepseek-coder-mcp.mjs, .mcp.json, CLAUDE.md
+
+#### Task Summary
+
+Investigated why Claude Code doesn't follow the SuperRoo agent routing workflow (Claude plans/reviews → DeepSeek codes → Ollama summarizes). Found 5 root causes:
+
+1. CLAUDE.md is declarative, not programmatic — Claude reads it but has no enforcement mechanism
+2. ~/.claude/settings.json has no model routing — only hooks registered
+3. SuperRoo extension (Roo Code) is a separate tool from Claude Code — no IPC channel
+4. WorkflowEnforcer exists in cloud/server code, not in Claude's runtime
+5. The superroo-brain MCP server only provides memory, not coding capabilities
+
+Created a DeepSeek V4 Coder MCP server (`deepseek-coder-mcp.mjs`) that exposes 5 MCP tools:
+
+- `deepseek_code` — Generate code using DeepSeek V4
+- `deepseek_review` — Review code using DeepSeek V4
+- `deepseek_refactor` — Refactor code using DeepSeek V4
+- `deepseek_explain` — Explain code using DeepSeek V4
+- `deepseek_status` — Check DeepSeek API configuration
+
+Registered the MCP server in `.mcp.json` and updated `CLAUDE.md` with workflow enforcement instructions.
+
+#### Files Changed
+
+- `scripts/deepseek-coder-mcp.mjs` — NEW: DeepSeek V4 Coder MCP server (JSON-RPC over stdio)
+- `.mcp.json` — ADDED: deepseek-coder MCP server entry
+- `CLAUDE.md` — UPDATED: Agent Routing section with MCP tool workflow table and usage instructions
+
+#### Bug Cause
+
+Claude Code had no programmatic way to delegate coding to DeepSeek. CLAUDE.md told Claude "DeepSeek is the primary coder" but Claude had no tools to actually call DeepSeek API. The MCP server (`superroo-brain`) only provided memory access, not coding capabilities.
+
+#### Fix Applied
+
+Created a standalone MCP server (`deepseek-coder-mcp.mjs`) that implements the Model Context Protocol (JSON-RPC 2.0 over stdio). It wraps the DeepSeek V4 chat completions API into 5 MCP tools that Claude can call. Registered it in `.mcp.json` so Claude auto-discovers it on startup. Updated `CLAUDE.md` with a workflow table telling Claude exactly when to use each tool.
+
+#### Test Result
+
+pass — MCP server starts correctly, responds to `initialize` and `tools/list` requests, exposes all 5 tools with correct schemas. Claude will auto-discover the tools on next startup via `.mcp.json`.
+
+#### Lesson Learned
+
+CLAUDE.md alone cannot enforce agent routing — it's advisory text. To make Claude follow a multi-model workflow, you must provide MCP tools that Claude can programmatically call. The MCP protocol (JSON-RPC over stdio) is the correct mechanism for Claude to delegate tasks to other models/APIs. Each MCP tool becomes a first-class capability that Claude can invoke, making the workflow enforceable rather than just documented.
+
+#### Reusable Rule
+
+When designing agent routing workflows for Claude Code, do NOT rely on CLAUDE.md instructions alone. Instead, create MCP servers that expose the delegated capabilities as tools. Claude will auto-discover MCP tools from `.mcp.json` and use them when appropriate. This makes the workflow programmatically enforceable rather than just advisory.
+
+#### Tags
+
+mcp, deepseek, claude-code, agent-routing, workflow-enforcement, deepseek-v4
+
+---
+
 ### Lesson: Global git hook blocked by stale local hooksPath override in superroo-vsix
 
 Date: 2026-05-18
@@ -11389,6 +11449,61 @@ Unknown — extracted from commit cdf18e16.
 <!-- TODO: Document the solution -->
 
 See commit cdf18e16 by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+bugfix
+
+---
+
+### Auto-Extracted Lesson: Dashboard Dockerfile single-stage build to avoid standalone node_modules conf...
+
+Date: 2026-05-18
+Source: Git commit b8cea5de
+Model/API used: unknown
+Confidence: medium
+Related files: .mcp.json, CLAUDE.md, cloud/docker/Dockerfile.dashboard, memory/lesson-index.jsonl, memory/lessons-learned.md
+
+#### Task Summary
+
+fix: dashboard Dockerfile single-stage build to avoid standalone node_modules conflict
+
+#### Files Changed
+
+- `.mcp.json`
+- `CLAUDE.md`
+- `cloud/docker/Dockerfile.dashboard`
+- `memory/lesson-index.jsonl`
+- `memory/lessons-learned.md`
+- `scripts/deepseek-coder-mcp.mjs`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit b8cea5de.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit b8cea5de by JPG Yap.
 
 #### Test Result
 

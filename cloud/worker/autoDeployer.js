@@ -166,6 +166,15 @@ async function runDeploy() {
 
 	// Step 6: Verify
 	await sshCmd("pm2 status", 30, "pm2 list")
+	await sshCmd(
+		"post-deploy health checks",
+		45,
+		[
+			"curl -fsS http://127.0.0.1:8787/api/health >/dev/null",
+			"curl -fsS http://127.0.0.1:8787/workflow-compliance/stats >/dev/null",
+			"curl -fsS http://127.0.0.1:3001/?page=workflow-compliance >/dev/null",
+		].join(" && "),
+	)
 
 	log("=== Auto-Deployer: Deploy completed ===")
 	return true
@@ -509,7 +518,9 @@ server.listen(PORT, () => {
 	if (status.state === "running" || status.state === "failed") {
 		if (isInCooldown()) {
 			const remaining = Math.round((new Date(status.cooldownUntil).getTime() - Date.now()) / 1000)
-			log(`[auto-deployer] Previous deploy was incomplete but in cooldown (${remaining}s remaining) — skipping auto-restart`)
+			log(
+				`[auto-deployer] Previous deploy was incomplete but in cooldown (${remaining}s remaining) — skipping auto-restart`,
+			)
 		} else {
 			log("[auto-deployer] Previous deploy was incomplete — auto-restarting")
 			startDeploy("startup").catch((err) => log(`[ERROR] Startup deploy failed: ${err.message}`))

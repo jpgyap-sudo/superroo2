@@ -25,23 +25,58 @@ import {
 	BarChart3,
 	ShieldCheck,
 	AlertCircle,
+	Link2Off,
+	CalendarDays,
+	Users,
 } from "lucide-react"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface WorkflowStats {
 	totalCommits: number
+	trackedCommits: number
+	untrackedCommits: number
 	withModelUsage: number
 	withDeepSeek: number
 	withoutDeepSeek: number
 	fullyCompliant: number
+	trackedNonCompliant: number
 	deepseekUsage: {
 		totalCalls: number
 		totalTokens: number
 		averageLatencyMs: number
 	}
-	complianceRate: string
+	complianceRate: string | null
+	trackingCoverage: string
 	delegationRate: string
+	linkage: {
+		linkedUsageRecords: number
+		orphanedUsageRecords: number
+	}
+	trends: {
+		byDay: Array<{
+			date: string
+			totalCommits: number
+			trackedCommits: number
+			compliantCommits: number
+			deepseekCommits: number
+		}>
+		byAgent: Array<{
+			agent: string
+			totalCommits: number
+			trackedCommits: number
+			compliantCommits: number
+			deepseekCommits: number
+		}>
+	}
+	sourceHealth: {
+		commitLogAvailable: boolean
+		usageLogAvailable: boolean
+		commitCount: number
+		usageRecordCount: number
+		lastTrackedCommitAt: string | null
+		lastUsageRecordAt: string | null
+	}
 }
 
 interface Commit {
@@ -88,6 +123,7 @@ export default function WorkflowComplianceView() {
 	const [stats, setStats] = useState<WorkflowStats | null>(null)
 	const [commits, setCommits] = useState<Commit[]>([])
 	const [deepseekStats, setDeepseekStats] = useState<DeepSeekStats | null>(null)
+	const [apiOnline, setApiOnline] = useState<boolean | null>(null)
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState<string | null>(null)
 
@@ -100,10 +136,11 @@ export default function WorkflowComplianceView() {
 			setLoading(true)
 
 			// Fetch all data in parallel
-			const [statsRes, commitsRes, deepseekRes] = await Promise.all([
+			const [statsRes, commitsRes, deepseekRes, healthRes] = await Promise.all([
 				fetch("/api/workflow-compliance/stats"),
 				fetch("/api/workflow-compliance/commits?limit=20"),
 				fetch("/api/workflow-compliance/deepseek-stats"),
+				fetch("/api/health"),
 			])
 
 			if (!statsRes.ok || !commitsRes.ok || !deepseekRes.ok) {
@@ -119,8 +156,10 @@ export default function WorkflowComplianceView() {
 			setStats(statsData.data)
 			setCommits(commitsData.data)
 			setDeepseekStats(deepseekData.data)
+			setApiOnline(healthRes.ok)
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Unknown error")
+			setApiOnline(false)
 		} finally {
 			setLoading(false)
 		}
@@ -132,6 +171,8 @@ export default function WorkflowComplianceView() {
 		{ id: "deepseek", label: "DeepSeek", icon: Brain },
 		{ id: "violations", label: "Violations", icon: AlertCircle },
 	]
+	const hasTrackedCommits = (stats?.trackedCommits || 0) > 0
+	const complianceLabel = hasTrackedCommits ? `${stats?.complianceRate}% Compliant` : "No tracking data"
 
 	if (loading) {
 		return (
@@ -161,18 +202,41 @@ export default function WorkflowComplianceView() {
 					</div>
 				</div>
 				<Badge
-					status={parseFloat(stats?.complianceRate || "0") >= 80 ? "healthy" : "warning"}
-					label={`${stats?.complianceRate || 0}% Compliant`}
+					status={hasTrackedCommits && parseFloat(stats?.complianceRate || "0") >= 80 ? "healthy" : "warning"}
+					label={complianceLabel}
 				/>
 			</div>
+
+			{(stats?.untrackedCommits || 0) > 0 && (
+				<div className="flex items-start gap-3 rounded border border-yellow-500/30 bg-yellow-500/10 p-3">
+					<AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-yellow-400" />
+					<div className="text-sm text-yellow-100">
+						<div className="font-medium">Workflow tracking is incomplete</div>
+						<div className="mt-1 text-xs text-yellow-200/80">
+							{stats?.untrackedCommits} of {stats?.totalCommits} commits have no workflow metadata.
+							Compliance is calculated only across tracked commits.
+						</div>
+					</div>
+				</div>
+			)}
 
 			{/* Stats Grid */}
 			<div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
 				<StatCard
 					label="Compliance Rate"
-					value={`${stats?.complianceRate || 0}%`}
-					sub={`${stats?.fullyCompliant || 0} tasks`}
-					color={parseFloat(stats?.complianceRate || "0") >= 80 ? "text-emerald-400" : "text-yellow-400"}
+					value={hasTrackedCommits ? `${stats?.complianceRate}%` : "N/A"}
+					sub={`${stats?.fullyCompliant || 0} of ${stats?.trackedCommits || 0} tracked`}
+					color={
+						hasTrackedCommits && parseFloat(stats?.complianceRate || "0") >= 80
+							? "text-emerald-400"
+							: "text-yellow-400"
+					}
+				/>
+				<StatCard
+					label="Tracking Coverage"
+					value={`${stats?.trackingCoverage || 0}%`}
+					sub={`${stats?.trackedCommits || 0} of ${stats?.totalCommits || 0} commits`}
+					color={(stats?.untrackedCommits || 0) > 0 ? "text-yellow-400" : "text-emerald-400"}
 				/>
 				<StatCard
 					label="DeepSeek Usage"
@@ -185,24 +249,6 @@ export default function WorkflowComplianceView() {
 					value={(deepseekStats?.totalCalls || 0).toString()}
 					sub={`${(deepseekStats?.totalTokens || 0).toLocaleString()} tokens`}
 					color="text-blue-400"
-				/>
-				<StatCard
-					label="Avg Latency"
-					value={`${deepseekStats?.averageLatencyMs || 0}ms`}
-					sub={
-						(deepseekStats?.averageLatencyMs || 0) < 1000
-							? "Good"
-							: (deepseekStats?.averageLatencyMs || 0) < 2000
-								? "Fair"
-								: "Slow"
-					}
-					color={
-						(deepseekStats?.averageLatencyMs || 0) < 1000
-							? "text-emerald-400"
-							: (deepseekStats?.averageLatencyMs || 0) < 2000
-								? "text-yellow-400"
-								: "text-red-400"
-					}
 				/>
 			</div>
 
@@ -234,7 +280,7 @@ export default function WorkflowComplianceView() {
 								<div className="mb-1 flex justify-between text-xs">
 									<span className="text-gray-400">Compliant Tasks</span>
 									<span className="text-emerald-400">
-										{stats?.fullyCompliant || 0} / {stats?.totalCommits || 0}
+										{stats?.fullyCompliant || 0} / {stats?.trackedCommits || 0}
 									</span>
 								</div>
 								<div className="h-2 rounded-full bg-[#1e2535]">
@@ -261,13 +307,63 @@ export default function WorkflowComplianceView() {
 						</div>
 						<div className="mt-4 grid grid-cols-2 gap-4 text-xs">
 							<div className="rounded bg-[#0a0e1a] p-3">
-								<div className="text-gray-500">With Model Tracking</div>
-								<div className="text-lg font-bold text-gray-300">{stats?.withModelUsage || 0}</div>
+								<div className="text-gray-500">Tracked Commits</div>
+								<div className="text-lg font-bold text-gray-300">{stats?.trackedCommits || 0}</div>
 							</div>
 							<div className="rounded bg-[#0a0e1a] p-3">
-								<div className="text-gray-500">Skipped DeepSeek</div>
-								<div className="text-lg font-bold text-yellow-400">{stats?.withoutDeepSeek || 0}</div>
+								<div className="text-gray-500">Untracked Commits</div>
+								<div className="text-lg font-bold text-yellow-400">{stats?.untrackedCommits || 0}</div>
 							</div>
+						</div>
+					</Card>
+
+					<Card>
+						<h3 className="mb-4 text-sm font-semibold text-gray-300">Data Health</h3>
+						<div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+							<DataHealthItem label="API" value={apiOnline ? "Online" : "Unavailable"} />
+							<DataHealthItem
+								label="Commit Log"
+								value={stats?.sourceHealth.commitLogAvailable ? "Ready" : "Missing"}
+							/>
+							<DataHealthItem
+								label="Usage Log"
+								value={stats?.sourceHealth.usageLogAvailable ? "Ready" : "Missing"}
+							/>
+							<DataHealthItem
+								label="Last Tracked Commit"
+								value={formatTimestamp(stats?.sourceHealth.lastTrackedCommitAt)}
+							/>
+						</div>
+						<div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+							<div className="rounded bg-[#0a0e1a] p-3">
+								<div className="text-xs text-gray-500">Last Usage Record</div>
+								<div className="mt-1 text-sm font-medium text-gray-200">
+									{formatTimestamp(stats?.sourceHealth.lastUsageRecordAt)}
+								</div>
+							</div>
+							<div className="rounded bg-[#0a0e1a] p-3">
+								<div className="flex items-center gap-2 text-xs text-gray-500">
+									<Link2Off className="h-3.5 w-3.5" />
+									Orphaned Usage Records
+								</div>
+								<div className="mt-1 text-lg font-bold text-yellow-400">
+									{stats?.linkage.orphanedUsageRecords || 0}
+								</div>
+							</div>
+							<div className="rounded bg-[#0a0e1a] p-3">
+								<div className="text-xs text-gray-500">Linked Usage Records</div>
+								<div className="mt-1 text-lg font-bold text-gray-200">
+									{stats?.linkage.linkedUsageRecords || 0}
+								</div>
+							</div>
+						</div>
+					</Card>
+
+					<Card>
+						<h3 className="mb-4 text-sm font-semibold text-gray-300">Trends</h3>
+						<div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+							<TrendList icon={CalendarDays} title="By Day" items={stats?.trends.byDay || []} />
+							<AgentTrendList items={stats?.trends.byAgent || []} />
 						</div>
 					</Card>
 
@@ -470,6 +566,93 @@ function ViolationItem({ commit }: { commit: Commit }) {
 							<li key={idx}>{violation}</li>
 						))}
 					</ul>
+				)}
+			</div>
+		</div>
+	)
+}
+
+function formatTimestamp(value?: string | null) {
+	return value ? new Date(value).toLocaleString() : "Unavailable"
+}
+
+function DataHealthItem({ label, value }: { label: string; value: string }) {
+	return (
+		<div className="rounded bg-[#0a0e1a] p-3">
+			<div className="text-xs text-gray-500">{label}</div>
+			<div className="mt-1 text-sm font-medium text-gray-200">{value}</div>
+		</div>
+	)
+}
+
+function TrendList({
+	icon: Icon,
+	title,
+	items,
+}: {
+	icon: typeof CalendarDays
+	title: string
+	items: Array<{
+		date: string
+		totalCommits: number
+		trackedCommits: number
+		compliantCommits: number
+		deepseekCommits: number
+	}>
+}) {
+	return (
+		<div className="rounded bg-[#0a0e1a] p-3">
+			<div className="mb-3 flex items-center gap-2 text-xs font-medium text-gray-400">
+				<Icon className="h-3.5 w-3.5" />
+				{title}
+			</div>
+			<div className="space-y-2">
+				{items.length === 0 ? (
+					<div className="text-xs text-gray-600">No trend data yet</div>
+				) : (
+					items.map((item) => (
+						<div key={item.date} className="flex items-center justify-between text-xs">
+							<span className="text-gray-400">{item.date}</span>
+							<span className="text-gray-500">
+								{item.compliantCommits}/{item.trackedCommits} compliant, {item.deepseekCommits} DeepSeek
+							</span>
+						</div>
+					))
+				)}
+			</div>
+		</div>
+	)
+}
+
+function AgentTrendList({
+	items,
+}: {
+	items: Array<{
+		agent: string
+		totalCommits: number
+		trackedCommits: number
+		compliantCommits: number
+		deepseekCommits: number
+	}>
+}) {
+	return (
+		<div className="rounded bg-[#0a0e1a] p-3">
+			<div className="mb-3 flex items-center gap-2 text-xs font-medium text-gray-400">
+				<Users className="h-3.5 w-3.5" />
+				By Agent
+			</div>
+			<div className="space-y-2">
+				{items.length === 0 ? (
+					<div className="text-xs text-gray-600">No agent data yet</div>
+				) : (
+					items.map((item) => (
+						<div key={item.agent} className="flex items-center justify-between gap-3 text-xs">
+							<span className="truncate text-gray-400">{item.agent}</span>
+							<span className="shrink-0 text-gray-500">
+								{item.compliantCommits}/{item.trackedCommits} compliant, {item.deepseekCommits} DeepSeek
+							</span>
+						</div>
+					))
 				)}
 			</div>
 		</div>

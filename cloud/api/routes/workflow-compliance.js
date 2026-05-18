@@ -47,6 +47,8 @@ async function loadJson(filePath) {
 
 function calculateStats(commits, usageLog, taskSummaries) {
 	const totalCommits = commits?.length || 0
+	const trackedCommits = commits?.filter((c) => c.workflowCompliance).length || 0
+	const untrackedCommits = totalCommits - trackedCommits
 	const withModelUsage = commits?.filter((c) => c.modelsUsed?.length > 0).length || 0
 
 	const withDeepSeek =
@@ -55,8 +57,12 @@ function calculateStats(commits, usageLog, taskSummaries) {
 	const withoutDeepSeek = withModelUsage - withDeepSeek
 
 	const fullyCompliant = commits?.filter((c) => c.workflowCompliance?.isCompliant).length || 0
+	const trackedNonCompliant = trackedCommits - fullyCompliant
 
 	const deepseekRecords = usageLog?.records?.filter((r) => r.phase === "coding" && r.provider === "deepseek") || []
+	const taskIds = new Set(commits?.map((c) => c.id).filter(Boolean) || [])
+	const linkedUsageRecords = usageLog?.records?.filter((r) => r.taskId && taskIds.has(r.taskId)).length || 0
+	const orphanedUsageRecords = usageLog?.records?.filter((r) => r.taskId && !taskIds.has(r.taskId)).length || 0
 
 	const totalTokens = deepseekRecords.reduce((sum, r) => sum + (r.promptTokens || 0) + (r.completionTokens || 0), 0)
 
@@ -70,14 +76,96 @@ function calculateStats(commits, usageLog, taskSummaries) {
 		withModelUsage,
 		withDeepSeek,
 		withoutDeepSeek,
+		trackedCommits,
+		untrackedCommits,
 		fullyCompliant,
+		trackedNonCompliant,
 		deepseekUsage: {
 			totalCalls: deepseekRecords.length,
 			totalTokens,
 			averageLatencyMs: Math.round(avgLatency),
 		},
-		complianceRate: totalCommits > 0 ? ((fullyCompliant / totalCommits) * 100).toFixed(1) : 0,
+		complianceRate: trackedCommits > 0 ? ((fullyCompliant / trackedCommits) * 100).toFixed(1) : null,
+		trackingCoverage: totalCommits > 0 ? ((trackedCommits / totalCommits) * 100).toFixed(1) : 0,
 		delegationRate: withModelUsage > 0 ? ((withDeepSeek / withModelUsage) * 100).toFixed(1) : 0,
+		linkage: {
+			linkedUsageRecords,
+			orphanedUsageRecords,
+		},
+	}
+}
+
+function normalizeTimestamp(value) {
+	const date = new Date(value)
+	return Number.isNaN(date.getTime()) ? null : date
+}
+
+function buildTrendSeries(commits) {
+	const byDay = new Map()
+	const byAgent = new Map()
+
+	for (const commit of commits || []) {
+		const date = normalizeTimestamp(commit.timestamp)
+		if (!date) continue
+		const day = date.toISOString().slice(0, 10)
+		const currentDay = byDay.get(day) || {
+			date: day,
+			totalCommits: 0,
+			trackedCommits: 0,
+			compliantCommits: 0,
+			deepseekCommits: 0,
+		}
+		currentDay.totalCommits++
+		if (commit.workflowCompliance) currentDay.trackedCommits++
+		if (commit.workflowCompliance?.isCompliant) currentDay.compliantCommits++
+		if (commit.modelsUsed?.some((m) => m.phase === "coding" && m.provider === "deepseek")) {
+			currentDay.deepseekCommits++
+		}
+		byDay.set(day, currentDay)
+
+		const agent = commit.agent || "Unknown"
+		const currentAgent = byAgent.get(agent) || {
+			agent,
+			totalCommits: 0,
+			trackedCommits: 0,
+			compliantCommits: 0,
+			deepseekCommits: 0,
+		}
+		currentAgent.totalCommits++
+		if (commit.workflowCompliance) currentAgent.trackedCommits++
+		if (commit.workflowCompliance?.isCompliant) currentAgent.compliantCommits++
+		if (commit.modelsUsed?.some((m) => m.phase === "coding" && m.provider === "deepseek")) {
+			currentAgent.deepseekCommits++
+		}
+		byAgent.set(agent, currentAgent)
+	}
+
+	return {
+		byDay: [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date)),
+		byAgent: [...byAgent.values()].sort((a, b) => b.totalCommits - a.totalCommits),
+	}
+}
+
+function buildSourceHealth(commitLog, usageLog) {
+	const commits = commitLog?.commits || []
+	const usageRecords = usageLog?.records || []
+	const latestTrackedCommit = commits
+		.filter((c) => c.workflowCompliance)
+		.map((c) => normalizeTimestamp(c.timestamp))
+		.filter(Boolean)
+		.sort((a, b) => b.getTime() - a.getTime())[0]
+	const latestUsageRecord = usageRecords
+		.map((r) => normalizeTimestamp(r.timestamp))
+		.filter(Boolean)
+		.sort((a, b) => b.getTime() - a.getTime())[0]
+
+	return {
+		commitLogAvailable: Boolean(commitLog),
+		usageLogAvailable: Boolean(usageLog),
+		commitCount: commits.length,
+		usageRecordCount: usageRecords.length,
+		lastTrackedCommitAt: latestTrackedCommit?.toISOString() || null,
+		lastUsageRecordAt: latestUsageRecord?.toISOString() || null,
 	}
 }
 
@@ -96,10 +184,16 @@ async function getStats(req, res) {
 		])
 
 		const stats = calculateStats(commitLog?.commits, usageLog, taskSummaries?.summaries)
+		const trends = buildTrendSeries(commitLog?.commits || [])
+		const sourceHealth = buildSourceHealth(commitLog, usageLog)
 
 		sendJson(res, 200, {
 			success: true,
-			data: stats,
+			data: {
+				...stats,
+				trends,
+				sourceHealth,
+			},
 		})
 	} catch (error) {
 		console.error("[workflow-compliance] Error getting stats:", error)
