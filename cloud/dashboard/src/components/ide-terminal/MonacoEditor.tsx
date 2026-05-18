@@ -123,6 +123,19 @@ export default function MonacoEditor({
 
 	const lang = language || detectLanguage(filePath)
 
+	// ── Hydrate editor font size from SettingsPanel localStorage ──
+	useEffect(() => {
+		try {
+			const saved = localStorage.getItem("superroo-settings")
+			if (saved) {
+				const parsed = JSON.parse(saved)
+				if (parsed["editor.fontSize"] && typeof parsed["editor.fontSize"] === "number") {
+					setFontSize(parsed["editor.fontSize"])
+				}
+			}
+		} catch {}
+	}, [])
+
 	// ── Lazy-load @monaco-editor/react on mount (client-side only) ──
 	useEffect(() => {
 		let cancelled = false

@@ -111,12 +111,12 @@ async function analyzeWithOllama(diffPath, baselinePath, currentPath) {
 		const baselineBase64 = fsSync.readFileSync(baselinePath).toString("base64")
 		const currentBase64 = fsSync.readFileSync(currentPath).toString("base64")
 
-		const prompt = `You are a visual QA engineer. Analyze these three screenshots:
-1. BASELINE (expected): data:image/png;base64,${baselineBase64.slice(0, 100)}... (truncated)
-2. CURRENT (actual): data:image/png;base64,${currentBase64.slice(0, 100)}... (truncated)
-3. DIFF (red highlights): data:image/png;base64,${diffBase64.slice(0, 100)}... (truncated)
+		const prompt = `You are a visual QA engineer. I am showing you three screenshots in this order:
+1. BASELINE (expected result)
+2. CURRENT (actual result)
+3. DIFF (pixel differences highlighted)
 
-The full base64 images are available. Describe what changed, whether it is a bug or acceptable variance, and suggest a fix if it is a bug.
+Analyze them carefully. Describe what changed, whether it is a bug or acceptable variance, and suggest a fix if it is a bug.
 
 Respond in JSON format:
 {
@@ -133,6 +133,7 @@ Respond in JSON format:
 			body: JSON.stringify({
 				model: OLLAMA_VISION_MODEL,
 				prompt,
+				images: [baselineBase64, currentBase64, diffBase64],
 				stream: false,
 				format: "json",
 			}),

@@ -32,6 +32,7 @@ import {
 	GitCommit,
 	CheckCircle,
 	Database,
+	Eye,
 } from "lucide-react"
 
 const NAV = [
@@ -61,6 +62,7 @@ const NAV = [
 	{ id: "brain", icon: BrainCircuit, label: "Central Brain" },
 	{ id: "ollama-growth", icon: BrainCircuit, label: "Ollama Growth" },
 	{ id: "memory-explorer", icon: Database, label: "Memory Explorer" },
+	{ id: "visual-crawler", icon: Eye, label: "Visual Crawler" },
 ]
 
 export function Sidebar({ page, setPage }: { page: string; setPage: (p: string) => void }) {

@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect } from "react"
 import { X, Search, ChevronRight, RotateCcw } from "lucide-react"
+import { useIde } from "@/lib/ide-store"
 
 // ── Types ──────────────────────────────────────────────────────
 interface SettingItem {
@@ -463,17 +464,35 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 	const [activeCategory, setActiveCategory] = useState("Editor")
 	const [savedToast, setSavedToast] = useState(false)
 
+	const { dispatch } = useIde()
+
 	// ── Save to localStorage ───────────────────────────────────
-	const saveSettings = useCallback((newSettings: SettingItem[]) => {
-		setSettings(newSettings)
-		const obj: Record<string, any> = {}
-		for (const s of newSettings) {
-			obj[s.id] = s.value
-		}
-		localStorage.setItem("superroo-settings", JSON.stringify(obj))
-		setSavedToast(true)
-		setTimeout(() => setSavedToast(false), 2000)
-	}, [])
+	const saveSettings = useCallback(
+		(newSettings: SettingItem[]) => {
+			setSettings(newSettings)
+			const obj: Record<string, any> = {}
+			for (const s of newSettings) {
+				obj[s.id] = s.value
+			}
+			localStorage.setItem("superroo-settings", JSON.stringify(obj))
+			setSavedToast(true)
+			setTimeout(() => setSavedToast(false), 2000)
+
+			// Dispatch to global IDE store so changes take effect immediately
+			const terminalFontSize = newSettings.find((s) => s.id === "terminal.fontSize")
+			if (terminalFontSize) {
+				dispatch({ type: "SET_TERMINAL_FONT_SIZE", payload: Number(terminalFontSize.value) || 12 })
+			}
+			const terminalTheme = newSettings.find((s) => s.id === "terminal.theme")
+			if (terminalTheme) {
+				const themeValue = String(terminalTheme.value)
+				if (themeValue === "dark" || themeValue === "light" || themeValue === "high-contrast") {
+					dispatch({ type: "SET_TERMINAL_THEME", payload: themeValue })
+				}
+			}
+		},
+		[dispatch],
+	)
 
 	// ── Update a setting ───────────────────────────────────────
 	const updateSetting = useCallback(
