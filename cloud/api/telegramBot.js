@@ -1988,8 +1988,8 @@ async function handleCode(botToken, chatId, args, queue, orchestratorBridge) {
 
 	// Also record in Cloud Orchestrator if bridge is available
 	if (orchestratorBridge) {
-		orchestratorBridge
-			.createTask({
+		try {
+			orchestratorBridge.createTask({
 				tgTaskId: taskId,
 				chatId: chatId,
 				instruction: instruction,
@@ -1997,9 +1997,9 @@ async function handleCode(botToken, chatId, args, queue, orchestratorBridge) {
 				branchName: branchName,
 				source: "/code",
 			})
-			.catch(function (err) {
-				console.error("[telegram] Failed to record /code task in orchestrator:", err.message)
-			})
+		} catch (err) {
+			console.error("[telegram] Failed to record /code task in orchestrator:", err.message)
+		}
 	}
 
 	// Send rich notification with action buttons
@@ -2460,8 +2460,8 @@ async function handleDeploy(botToken, chatId, args, queue, orchestratorBridge) {
 
 	// Also record in Cloud Orchestrator if bridge is available
 	if (orchestratorBridge) {
-		orchestratorBridge
-			.createTask({
+		try {
+			orchestratorBridge.createTask({
 				tgTaskId: taskId,
 				chatId: chatId,
 				instruction: "Deploy: " + (task.instruction || ""),
@@ -2469,9 +2469,9 @@ async function handleDeploy(botToken, chatId, args, queue, orchestratorBridge) {
 				branchName: task.branchName || "main",
 				source: "/deploy",
 			})
-			.catch(function (err) {
-				console.error("[telegram] Failed to record /deploy task in orchestrator:", err.message)
-			})
+		} catch (err) {
+			console.error("[telegram] Failed to record /deploy task in orchestrator:", err.message)
+		}
 	}
 
 	await sendMessage(
@@ -3551,8 +3551,8 @@ async function handleUpgrade(botToken, chatId, args, queue, orchestratorBridge) 
 
 		// Also record in Cloud Orchestrator if bridge is available
 		if (orchestratorBridge) {
-			orchestratorBridge
-				.createTask({
+			try {
+				orchestratorBridge.createTask({
 					tgTaskId: taskId,
 					chatId: chatId,
 					instruction: upgradeGoal,
@@ -3560,9 +3560,9 @@ async function handleUpgrade(botToken, chatId, args, queue, orchestratorBridge) 
 					branchName: "upgrade/" + taskId.toLowerCase(),
 					source: "upgrade",
 				})
-				.catch(function (err) {
-					console.error("[telegram] Failed to record upgrade task in orchestrator:", err.message)
-				})
+			} catch (err) {
+				console.error("[telegram] Failed to record upgrade task in orchestrator:", err.message)
+			}
 		}
 
 		// Also learn from this upgrade request via Hermes Claw
@@ -5923,8 +5923,8 @@ async function handleNaturalLanguageInstruction(
 
 			// Also record in Cloud Orchestrator if bridge is available
 			if (orchestratorBridge) {
-				orchestratorBridge
-					.createTask({
+				try {
+					orchestratorBridge.createTask({
 						tgTaskId: taskId,
 						chatId: chatId,
 						instruction: text,
@@ -5932,9 +5932,9 @@ async function handleNaturalLanguageInstruction(
 						branchName: branchName,
 						source: "nlp",
 					})
-					.catch(function (err) {
-						console.error("[telegram] Failed to record NLP task in orchestrator:", err.message)
-					})
+				} catch (err) {
+					console.error("[telegram] Failed to record NLP task in orchestrator:", err.message)
+				}
 			}
 
 			var intentLabels = {

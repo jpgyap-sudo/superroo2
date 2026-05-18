@@ -7,6 +7,7 @@ var fs = require("fs")
 var b = fs.readFileSync("./api/telegramBot.js", "utf8")
 var n = fs.readFileSync("./api/telegramNotifier.js", "utf8")
 var e = fs.readFileSync("./api/telegramEngineer.js", "utf8")
+var w = fs.readFileSync("./worker/agentRunners.js", "utf8")
 
 var passed = 0
 var failed = 0
@@ -69,6 +70,12 @@ check("[ace-usage] prefix", b.includes("[ace-usage]"))
 // Syntax fix
 console.log("\n--- Syntax Fix ---")
 check("handleNaturalLanguageInstruction syntax valid", b.includes("async function handleNaturalLanguageInstruction"))
+
+console.log("\n--- Telegram Coder Retry UX ---")
+check("bridge createTask calls are sync-safe", !/createTask\([\s\S]{0,400}?\)\s*\.catch\(function \(err\)/.test(b))
+check("retryable coder failure notification exists", n.includes("sendCoderRetryableFailure"))
+check("retryable failure copy avoids clarification blame", n.includes("temporary system or model issue"))
+check("worker uses retryable failure path", w.includes("sendCoderRetryableFailure"))
 
 console.log("\n=== RESULTS ===")
 console.log("Passed: " + passed)

@@ -466,15 +466,26 @@ Be precise. Output ONLY valid JSON, no markdown fences.`
 		if (telegram && taskId) {
 			try {
 				const notifier = require("../api/telegramNotifier")
-				await notifier.sendCoderClarification(
+				notifier.setPendingCoderJob(taskId, {
+					instruction,
+					workspaceDir,
+					repoName,
+					branch,
+					files,
+					chatId: telegram.chatId,
+					status: "retry_available",
+					lastError: "LLM returned no response after retry",
+					createdAt: new Date().toISOString(),
+				})
+				await notifier.sendCoderRetryableFailure(
 					telegram.botToken,
 					telegram.chatId,
 					taskId,
 					instruction,
-					"The AI model failed to generate a response after multiple attempts. Please try again with more specific instructions.",
+					"The AI model returned no response after multiple attempts.",
 				)
 			} catch (e) {
-				log("coder", jobId, `Failed to send clarification: ${e.message}`)
+				log("coder", jobId, `Failed to send retryable failure: ${e.message}`)
 			}
 		}
 		return {
@@ -492,20 +503,31 @@ Be precise. Output ONLY valid JSON, no markdown fences.`
 		const jsonMatch = llmReply.match(/\{[\s\S]*\}/)
 		plan = JSON.parse(jsonMatch ? jsonMatch[0] : llmReply)
 	} catch {
-		log("coder", jobId, "Failed to parse LLM output as JSON, sending raw response to Telegram")
+		log("coder", jobId, "Failed to parse LLM output as JSON, sending retryable failure to Telegram")
 		if (telegram && taskId) {
 			try {
 				const notifier = require("../api/telegramNotifier")
-				await notifier.sendCoderClarification(
+				notifier.setPendingCoderJob(taskId, {
+					instruction,
+					workspaceDir,
+					repoName,
+					branch,
+					files,
+					chatId: telegram.chatId,
+					status: "retry_available",
+					lastError: "Failed to parse LLM output",
+					lastModelOutput: llmReply.substring(0, 2000),
+					createdAt: new Date().toISOString(),
+				})
+				await notifier.sendCoderRetryableFailure(
 					telegram.botToken,
 					telegram.chatId,
 					taskId,
 					instruction,
-					"The AI model returned an unparseable response. Please review and clarify:\n\n" +
-						llmReply.substring(0, 2000),
+					"The AI model returned an invalid response format.",
 				)
 			} catch (e) {
-				log("coder", jobId, `Failed to send clarification: ${e.message}`)
+				log("coder", jobId, `Failed to send retryable failure: ${e.message}`)
 			}
 		}
 		return {

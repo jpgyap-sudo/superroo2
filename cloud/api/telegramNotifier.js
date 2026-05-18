@@ -773,6 +773,26 @@ async function sendCoderClarification(botToken, chatId, taskId, instruction, que
 }
 
 // ---------------------------------------------------------------------------
+// 18. Coder Retryable Failure - reports system/model failures without blaming user input
+// ---------------------------------------------------------------------------
+async function sendCoderRetryableFailure(botToken, chatId, taskId, instruction, error) {
+	const text =
+		`⚠️ *Coder Retry Needed: ${taskId}*\n\n` +
+		`*Instruction:* ${instruction.slice(0, 200)}${instruction.length > 200 ? "..." : ""}\n\n` +
+		`*Issue:* ${error}\n\n` +
+		`_This looks like a temporary system or model issue. You can retry the same task._`
+
+	const buttons = [
+		[
+			{ text: "🔄 Retry Task", callback_data: `coder:retry:${taskId}` },
+			{ text: "📋 View Logs", callback_data: `notify:logs:${taskId}` },
+		],
+	]
+
+	return await sendInlineKeyboard(botToken, chatId, text, buttons)
+}
+
+// ---------------------------------------------------------------------------
 // Handle Coder Workflow Callback Queries
 // ---------------------------------------------------------------------------
 async function handleCoderCallback(botToken, callbackQuery) {
@@ -1245,6 +1265,7 @@ module.exports = {
 	sendCoderCommitted,
 	sendCoderDeployed,
 	sendCoderClarification,
+	sendCoderRetryableFailure,
 
 	// Callback handlers
 	handleNotificationCallback,
