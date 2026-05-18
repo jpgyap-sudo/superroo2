@@ -1,6 +1,346 @@
 # lessons-learned.md
 
+### Lesson: Job detail views need persisted logs and specific routes before broad list routes
+
+Date: 2026-05-18
+Source: Codex task completion
+Model/API used: gpt-5
+Confidence: high
+Related files: cloud/api/api.js, cloud/dashboard/src/components/views/jobs.tsx
+
+#### Task Summary
+
+Reworked the Jobs tab to use real job summaries, persisted per-job logs, and backend rollups instead of browser-generated detail data.
+
+#### Files Changed
+
+- `cloud/api/api.js`
+- `cloud/dashboard/src/components/views/jobs.tsx`
+
+#### Bug Cause
+
+The UI fabricated job logs in the browser, summary cost was hard-coded to zero, and the broad `/jobs...` list route was declared before specific job detail routes, so `/jobs/:id` requests could be swallowed by the wrong handler.
+
+#### Fix Applied
+
+Added richer jobs summary generation, persisted-log loading through `/api/jobs/:id/logs`, normalized job list data in one backend path, moved the broad list route behind specific routes, and rebuilt the Jobs tab to consume those canonical sources with honest missing-data states.
+
+#### Test Result
+
+pass for `node --check cloud/api/api.js` and isolated `esbuild` parsing of `jobs.tsx`; full dashboard TypeScript validation is currently blocked by unrelated malformed JSX in untracked `cloud/dashboard/src/components/views/deploy.tsx`
+
+#### Lesson Learned
+
+Detail views lose trust quickly when the browser invents evidence. Persisted logs and route ordering are part of the data contract, not polish.
+
+#### Reusable Rule
+
+For REST surfaces with both collection and item routes, declare specific routes before broad matchers, and never synthesize operational logs in the frontend when a durable backend source exists.
+
+#### Tags
+
+dashboard, jobs, logs, routing, backend, live-data
+
+---
+
+### Lesson: Module-scoped classes with side-effect constructors require inline test re-implementation
+
+Date: 2026-05-18
+Source: DeepSeek task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: server/src/memory/McpMemoryServer.ts, src/**tests**/McpMemoryServer.spec.ts
+
+#### Task Summary
+
+Added comprehensive tests for RateLimiter, deduplication (\_findDuplicateLesson), and sync status (\_getSyncStatus) logic from McpMemoryServer.ts. Also permanently deployed webhook trigger patches to the daemon's brain-routes.ts on the VPS.
+
+#### Files Changed
+
+- src/**tests**/McpMemoryServer.spec.ts (new, 21 tests)
+- server/src/memory/McpMemoryServer.ts (no changes needed — tests use inline re-implementations)
+
+#### Bug Cause
+
+The McpMemoryServer.ts module does not export its internal classes (RateLimiter, McpMemoryServer) and calls main() at module scope which starts an HTTP server on port 3419. Importing the module causes EADDRINUSE errors and cannot access internal classes.
+
+#### Fix Applied
+
+Rewrote tests to use inline re-implementations of the exact logic rather than importing the module. RateLimiter was re-implemented as a local class with identical window-based rate limiting logic. Deduplication was tested by creating temp directories with lesson-index.jsonl and lessons-learned.md files. Sync status health determination was extracted as a pure function.
+
+#### Test Result
+
+pass — all 21 tests pass (7 RateLimiter, 10 deduplication, 4 sync status)
+
+#### Lesson Learned
+
+When testing modules that have side-effect constructors (HTTP server start) and don't export internal classes, inline re-implementation of the logic is more reliable than trying to mock or import the module. This avoids EADDRINUSE errors and module-scope side effects.
+
+#### Reusable Rule
+
+Before writing tests for a module, check if it exports its classes and if importing it causes side effects (HTTP server start, file writes, etc.). If so, use inline re-implementations of the pure logic rather than importing the module.
+
+#### Tags
+
+testing, vitest, rate-limiter, deduplication, sync-status, module-scope, side-effects
+
+---
+
 Initialized by SuperRoo workflow check.
+
+---
+
+### Lesson: Queue dashboards should expose live rollups through one backend summary contract
+
+Date: 2026-05-18
+Source: Codex task completion
+Model/API used: gpt-5
+Confidence: high
+Related files: cloud/api/api.js, cloud/dashboard/src/components/views/queue.tsx
+
+#### Task Summary
+
+Replaced the queue dashboard's remaining placeholder jobs, agent activity, pipeline metrics, failure charts, and recommendations with live backend data.
+
+#### Files Changed
+
+- `cloud/api/api.js`
+- `cloud/dashboard/src/components/views/queue.tsx`
+
+#### Bug Cause
+
+The queue page mixed one real counter request with many hard-coded operational values, so the screen looked informative while silently diverging from actual system state.
+
+#### Fix Applied
+
+Added `/api/queue/summary` to aggregate BullMQ jobs, agent registry state, orchestrator events, usage totals, failure reasons, and 24-hour queue insights. Rebuilt the queue view around that canonical payload and explicit empty states.
+
+#### Test Result
+
+pass for `node --check cloud/api/api.js`, `pnpm --dir cloud/dashboard exec tsc --noEmit --pretty false`, and `pnpm --dir cloud/dashboard build`
+
+#### Lesson Learned
+
+Operator dashboards become trustworthy when their rollups are derived once on the backend and every visible metric has a real source or an honest empty state.
+
+#### Reusable Rule
+
+For dashboard tabs that summarize several related signals, create one canonical summary endpoint and remove decorative placeholder values instead of blending mock and live state in the UI.
+
+#### Tags
+
+dashboard, queue, backend, live-data, api-contract
+
+---
+
+### Lesson: A missing pnpm package payload can masquerade as a React runtime bug
+
+Date: 2026-05-18
+Source: Codex task completion
+Model/API used: gpt-5
+Confidence: high
+Related files: cloud/dashboard/package.json
+
+#### Task Summary
+
+Diagnosed and cleared a production dashboard build failure before continuing frontend work.
+
+#### Files Changed
+
+- none; repaired local dependency state with `pnpm install --force`
+
+#### Bug Cause
+
+`cloud/dashboard/node_modules/react` pointed at `react@18.3.1`, but the target package directory in the pnpm store was empty. `react-dom/server.browser` then failed while reading `ReactCurrentDispatcher`, which looked like an app/runtime incompatibility at first glance.
+
+#### Fix Applied
+
+Inspected the symlink target, verified the React package directory was empty, refreshed the workspace install, and reran the dashboard production build successfully.
+
+#### Test Result
+
+pass for `pnpm --dir cloud/dashboard build`
+
+#### Lesson Learned
+
+When a core framework package crashes before application code loads, inspect the installed package payload itself before changing dependency versions.
+
+#### Reusable Rule
+
+For startup-time React/Next failures, verify `require.resolve`, package symlink targets, and actual package contents before assuming a version mismatch.
+
+#### Tags
+
+react, nextjs, pnpm, build, diagnosis
+
+---
+
+### Lesson: Reuse existing null guards when rendering derived editor state
+
+Date: 2026-05-18
+Source: Codex task completion
+Model/API used: gpt-5
+Confidence: high
+Related files: cloud/dashboard/src/components/ide-terminal/MonacoEditor.tsx
+
+#### Task Summary
+
+Fixed the remaining dashboard TypeScript error in Monaco editor diagnostics.
+
+#### Files Changed
+
+- `cloud/dashboard/src/components/ide-terminal/MonacoEditor.tsx`
+
+#### Bug Cause
+
+The toolbar diagnostics count used `d.file.endsWith(filePath)` even though `filePath` can be `null` or `undefined`. A guarded version already existed elsewhere in the same component, but the toolbar copy omitted it.
+
+#### Fix Applied
+
+Wrapped the toolbar diagnostics filter in the same `filePath` guard used by the editor marker logic and returned an empty list when no file is open.
+
+#### Test Result
+
+pass for `pnpm --dir cloud/dashboard exec tsc --noEmit`; production build remains blocked by a separate React/Next runtime issue before app code executes.
+
+#### Lesson Learned
+
+When a component derives the same state in multiple places, reuse the same nullability assumptions in each path. Duplicated logic that drops one guard becomes the bug.
+
+#### Reusable Rule
+
+For repeated derived-state calculations, copy the existing safe branch structure or extract a helper instead of retyping a looser variant.
+
+#### Tags
+
+monaco, typescript, nullability, frontend, bugfix
+
+---
+
+### Lesson: Repair malformed JSX at the first broken boundary before chasing follow-on parser errors
+
+Date: 2026-05-18
+Source: Codex task completion
+Model/API used: gpt-5
+Confidence: high
+Related files: cloud/dashboard/src/components/views/telegram.tsx
+
+#### Task Summary
+
+Fixed malformed JSX in the Telegram dashboard view so the file parses again.
+
+#### Files Changed
+
+- `cloud/dashboard/src/components/views/telegram.tsx`
+
+#### Bug Cause
+
+An in-progress edit mangled a rollback button block and closed an alert-rule button with `</div>`, which caused a cascade of misleading JSX parser errors later in the file.
+
+#### Fix Applied
+
+Restored the rollback button JSX, fixed the interpolated `actionLoading` key, and replaced the incorrect closing tag in the alert-rules list.
+
+#### Test Result
+
+pass for the Telegram JSX syntax path; `pnpm --dir cloud/dashboard exec tsc --noEmit` now advances past `telegram.tsx` and stops on an unrelated existing `MonacoEditor.tsx` type error.
+
+#### Lesson Learned
+
+When JSX syntax breaks, the first malformed boundary usually creates many downstream parser errors. Fix the earliest structurally broken element first, then re-run the compiler before touching later lines.
+
+#### Reusable Rule
+
+For JSX parse cascades, inspect the first reported malformed element and nearby unmatched closing tags before making broad edits elsewhere in the file.
+
+#### Tags
+
+telegram, jsx, frontend, parser-errors, bugfix
+
+---
+
+### Lesson: Dashboard overview data belongs behind one canonical summary contract
+
+Date: 2026-05-18
+Source: Codex task completion
+Model/API used: gpt-5
+Confidence: high
+Related files: cloud/api/api.js, cloud/dashboard/src/components/views/overview.tsx
+
+#### Task Summary
+
+Added a dedicated overview summary backend and switched the dashboard overview page to consume it.
+
+#### Files Changed
+
+- `cloud/api/api.js`
+- `cloud/dashboard/src/components/views/overview.tsx`
+
+#### Bug Cause
+
+The overview page had to assemble operational state from many partial endpoints, which left holes for placeholder data, duplicated business rules in the browser, and even mapped disk usage to an unrelated `processes` field.
+
+#### Fix Applied
+
+Created `/api/overview/summary` to aggregate system resources, queue stats, health, agents, bugs, commit/deploy history, usage, recent activity, and attention items from canonical sources. Added real disk utilization through `statfs`, backend-derived attention/activity rollups, and explicit `costAvailable` semantics when model cost is not recorded.
+
+#### Test Result
+
+pass for `node --check cloud/api/api.js` and targeted TypeScript compilation of `overview.tsx`.
+
+#### Lesson Learned
+
+When an overview surface needs several related operational facts, move the rollup logic into a backend contract instead of reimplementing business rules in the browser.
+
+#### Reusable Rule
+
+For dashboard summary pages, prefer one backend summary endpoint per surface; keep derived alerts, activity ordering, and missing-data semantics server-side so every client reads the same truth.
+
+#### Tags
+
+dashboard, overview, backend, api-contract, live-data
+
+---
+
+### Lesson: Overview dashboards should summarize canonical live sources, not parallel mock state
+
+Date: 2026-05-18
+Source: Codex task completion
+Model/API used: gpt-5
+Confidence: high
+Related files: cloud/dashboard/src/components/views/overview.tsx
+
+#### Task Summary
+
+Reworked the website dashboard overview into a live operator surface with attention items, queue rollups, activity, agent status, infrastructure trends, model usage, deploy health, and contextual navigation.
+
+#### Files Changed
+
+- `cloud/dashboard/src/components/views/overview.tsx`
+
+#### Bug Cause
+
+The overview mixed a few live API values with many hard-coded mock panels, which made the page visually rich but operationally misleading and duplicated information already available elsewhere in the dashboard.
+
+#### Fix Applied
+
+Replaced mock-heavy panels with derived summaries from existing queue, health, agents, bugs, logs, commit/deploy, and model-usage endpoints. Reorganized the layout around exceptions, work in motion, recent activity, and follow-up actions, and made status chips plus actions navigate into canonical detail tabs.
+
+#### Test Result
+
+pass for targeted `overview.tsx` TypeScript compilation; full dashboard build remains blocked by unrelated existing JSX syntax errors in `cloud/dashboard/src/components/views/telegram.tsx`.
+
+#### Lesson Learned
+
+Overview pages earn trust when they compose canonical live sources into decisions and next actions. If an overview duplicates detailed tabs with mock data, users cannot tell which numbers are authoritative.
+
+#### Reusable Rule
+
+For dashboard overview surfaces, derive summaries from existing canonical endpoints, prioritize exceptions and next actions, and avoid hard-coded operational metrics once live sources exist.
+
+#### Tags
+
+dashboard, overview, frontend, observability, live-data
 
 ---
 
@@ -4894,6 +5234,52 @@ deployment, terminal, bugfix
 
 ---
 
+### Lesson: Unified Deploy tab consolidates auto-deployer status, commit/deploy history, health metrics, and config into one dashboard view
+
+Date: 2026-05-18
+Source: DeepSeek task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/dashboard/src/components/views/deploy.tsx, cloud/dashboard/src/components/sidebar.tsx, cloud/dashboard/src/app/page.tsx, cloud/dashboard/src/components/views/overview.tsx, cloud/dashboard/src/components/views/auto-deploy.tsx
+
+#### Task Summary
+
+Consolidated the two separate "Auto Deploy" and "Commit/Deploy" sidebar entries into a single unified "Deploy" tab with four sub-tabs: Pipeline (live auto-deployer status + stage visualization), History (commit + deploy log with rollback buttons), Health (success rate, deploy frequency chart, failure breakdown), and Settings (config editor). Also fixed a public IP leak in auto-deploy.tsx (changed `root@104.248.225.250` to `root@100.64.175.88 (Tailscale)`).
+
+#### Files Changed
+
+- cloud/dashboard/src/components/views/deploy.tsx (NEW - 47KB unified Deploy view)
+- cloud/dashboard/src/components/sidebar.tsx (replaced auto-deploy + commit-deploy entries with single deploy entry)
+- cloud/dashboard/src/app/page.tsx (added DeployView import, route, and page label)
+- cloud/dashboard/src/components/views/overview.tsx (updated quick action targets from commit-deploy to deploy)
+- cloud/dashboard/src/components/views/auto-deploy.tsx (fixed public IP leak on line 262)
+
+#### Bug Cause
+
+Public IP `104.248.225.250` was hardcoded in the auto-deploy info panel instead of the Tailscale mesh IP `100.64.175.88`, exposing the VPS public address in the dashboard UI.
+
+#### Fix Applied
+
+Replaced `root@104.248.225.250` with `root@100.64.175.88 (Tailscale)` in auto-deploy.tsx line 262. Created a unified DeployView that combines auto-deployer status polling, commit/deploy log fetching, health metrics computation, pipeline stage visualization, notification system, environment toggle, config editor, rollback UI, and SHA copy-to-clipboard — all in one component with tab navigation.
+
+#### Test Result
+
+TypeScript compilation passes with zero errors (npx tsc --noEmit exit code 0).
+
+#### Lesson Learned
+
+When consolidating multiple related views into one, use tab navigation to preserve all existing functionality while adding new features. The unified view should poll independently for each data source (auto-deploy status every 5s, health metrics every 30s, commit/deploy log on demand) to keep the UI responsive. Always use Tailscale mesh IPs instead of public IPs in dashboard UI to avoid leaking infrastructure details.
+
+#### Reusable Rule
+
+When building dashboard views that combine live status, historical data, and configuration, use a tabbed layout with independent polling intervals per data source. Never hardcode public IP addresses in UI components — use Tailscale mesh IPs or environment variables.
+
+#### Tags
+
+deploy, dashboard, UI, tailscale, security, consolidation
+
+---
+
 ### Auto-Extracted Lesson: (telegram): lazy-load telegramAgentManager to prevent crash on missing module
 
 Date: 2026-05-14 02:06:22 +0800
@@ -9498,6 +9884,7 @@ Related files: server/src/memory/McpMemoryServer.ts, docs/super-roo/CENTRAL_BRAI
 Implemented 14 improvement suggestions for the Central Brain across the local MCP server and VPS daemon:
 
 **Local MCP Server (server/src/memory/McpMemoryServer.ts):**
+
 1. Fixed `_proxyWithFallback` to check `success: false` responses and trigger fallback chain
 2. Added `~/.superroo/config.json` scanning for `list_projects`
 3. Added pagination (`offset` parameter) to `query_memory`
@@ -9509,12 +9896,9 @@ Implemented 14 improvement suggestions for the Central Brain across the local MC
 9. Added `register_project` tool for project registration in config
 10. Added deduplication check on `hermes_learn` (checks lesson-index.jsonl and lessons-learned.md)
 
-**VPS Daemon (brain-routes.ts):**
-11. Added webhook registry system with 4 REST endpoints: register, list, unregister, trigger
-12. Webhooks persisted as `memory/webhooks.json` with event filtering and failure tracking
+**VPS Daemon (brain-routes.ts):** 11. Added webhook registry system with 4 REST endpoints: register, list, unregister, trigger 12. Webhooks persisted as `memory/webhooks.json` with event filtering and failure tracking
 
-**Documentation:**
-13. Updated CENTRAL_BRAIN.md with new tools table entries and v2.0 features section
+**Documentation:** 13. Updated CENTRAL_BRAIN.md with new tools table entries and v2.0 features section
 
 #### Files Changed
 
@@ -9559,5 +9943,55 @@ When building a multi-layer fallback system (local MCP → daemon → REST API �
 #### Tags
 
 central-brain, mcp-server, rate-limiting, pagination, deduplication, webhook, project-registration, sync-status, health-endpoint, vps-daemon
+
+---
+
+### Auto-Extracted Lesson: Central Brain v2.0 improvements — rate limiting, pagination, dedup, project r...
+
+Date: 2026-05-18
+Source: Git commit 1e76302b
+Model/API used: unknown
+Confidence: medium
+Related files: memory/lessons-learned.md
+
+#### Task Summary
+
+lesson: Central Brain v2.0 improvements — rate limiting, pagination, dedup, project registration, sync status, rich health, webhook registry
+
+#### Files Changed
+
+- `memory/lessons-learned.md`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 1e76302b.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 1e76302b by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+general
 
 ---

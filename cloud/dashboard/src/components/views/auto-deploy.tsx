@@ -135,11 +135,7 @@ export function AutoDeployView() {
 						onClick={handleTrigger}
 						disabled={triggering || status?.isRunning}
 						className="flex items-center gap-1.5 rounded-lg bg-violet-600 px-2.5 py-1.5 text-[11px] font-medium text-white hover:bg-violet-500 disabled:opacity-50 active:scale-95">
-						{triggering ? (
-							<Loader2 className="h-3 w-3 animate-spin" />
-						) : (
-							<Play className="h-3 w-3" />
-						)}
+						{triggering ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
 						{status?.isRunning ? "Running..." : "Trigger Deploy"}
 					</button>
 				</div>
@@ -186,9 +182,7 @@ export function AutoDeployView() {
 						</div>
 						<div className="rounded-lg border border-[#1e2535] bg-[#0f1117]/60 p-3">
 							<div className="text-[10px] uppercase tracking-wider text-gray-500">Triggered</div>
-							<div className="mt-1 text-sm font-bold text-[#e2e8f0]">
-								{status.triggeredBy || "—"}
-							</div>
+							<div className="mt-1 text-sm font-bold text-[#e2e8f0]">{status.triggeredBy || "—"}</div>
 						</div>
 					</div>
 
@@ -225,9 +219,7 @@ export function AutoDeployView() {
 												</span>
 												<span
 													className={`text-[10px] ${
-														a.status === "success"
-															? "text-emerald-400"
-															: "text-red-400"
+														a.status === "success" ? "text-emerald-400" : "text-red-400"
 													}`}>
 													{a.status === "success" ? "Success" : "Failed"}
 												</span>
@@ -237,9 +229,7 @@ export function AutoDeployView() {
 												<span>{formatTime(a.time)}</span>
 											</div>
 											{a.error && (
-												<p className="mt-0.5 text-[10px] text-red-400/80 truncate">
-													{a.error}
-												</p>
+												<p className="mt-0.5 text-[10px] text-red-400/80 truncate">{a.error}</p>
 											)}
 										</div>
 									</div>
@@ -254,12 +244,14 @@ export function AutoDeployView() {
 							<ExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-500" />
 							<div className="text-[10px] leading-relaxed text-gray-500">
 								<p>
-									The Auto-Deployer runs as a PM2 service (<code className="text-violet-400">superroo-auto-deployer</code>)
-									on the VPS. It retries failed deploys with exponential backoff (10s → 20s → 40s → 80s → 160s).
+									The Auto-Deployer runs as a PM2 service (
+									<code className="text-violet-400">superroo-auto-deployer</code>) on the VPS. It
+									retries failed deploys with exponential backoff (10s → 20s → 40s → 80s → 160s).
 									Status updates every 5 seconds.
 								</p>
 								<p className="mt-1">
-									<strong>Target:</strong> root@104.248.225.250 · <strong>Project:</strong> /opt/superroo2
+									<strong>Target:</strong> root@100.64.175.88 (Tailscale) · <strong>Project:</strong>{" "}
+									/opt/superroo2
 								</p>
 							</div>
 						</div>
