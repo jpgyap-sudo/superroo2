@@ -10737,3 +10737,72 @@ To be determined — this commit was auto-flagged as potentially containing a le
 ui, api
 
 ---
+
+### Auto-Extracted Lesson: Feat: ESLint v9 flat config, ExtensionsPanel runtime wiring, Docker hybrid co...
+
+Date: 2026-05-18
+Source: Git commit 241e097e
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/api/api.js, cloud/dashboard/.eslintrc.json, cloud/dashboard/eslint.config.mjs, cloud/dashboard/package.json, cloud/dashboard/src/components/ide-terminal/ExtensionsPanel.tsx
+
+#### Task Summary
+
+feat: ESLint v9 flat config, ExtensionsPanel runtime wiring, Docker hybrid compose
+
+#### Files Changed
+
+- `cloud/api/api.js`
+- `cloud/dashboard/.eslintrc.json`
+- `cloud/dashboard/eslint.config.mjs`
+- `cloud/dashboard/package.json`
+- `cloud/dashboard/src/components/ide-terminal/ExtensionsPanel.tsx`
+- `cloud/dashboard/src/components/ide-terminal/hooks/useExtensionState.ts`
+- `cloud/dashboard/src/components/views/ide-terminal.tsx`
+- `cloud/dashboard/src/components/views/projects.tsx`
+- `cloud/docker/Dockerfile.auto-deployer`
+- `cloud/docker/Dockerfile.worker`
+- `cloud/docker/README.md`
+- `cloud/docker/docker-compose.yml`
+- `cloud/orchestrator/modules/LearningGateway.js`
+- `cloud/orchestrator/stores/BugKnowledgeStore.js`
+- `docker/ollama-entrypoint.sh`
+- `memory/lesson-index.jsonl`
+- `memory/lessons-learned.md`
+- `packages/config-eslint/package.json`
+- `pnpm-lock.yaml`
+- `scripts/extract-lesson-from-commit.mjs`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 241e097e.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 241e097e by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+api, deployment, bugfix
+
+---
