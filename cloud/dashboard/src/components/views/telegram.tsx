@@ -1071,26 +1071,16 @@ export function TelegramView() {
 												)}
 												{task.savepointHash && (
 													<div className="mt-3">
-														
-<button
-															
-onClick={(e) => {
-															
-  e.stopPropagation()
-															
-  void handleRollback(task.savepointHash!)
-														
-}}
-														
-disabled={actionLoading[ollback-${task.savepointHash}]}
-														
-className="w-full rounded-xl border border-violet-500/30 bg-violet-500/10 px-4 py-2.5 text-sm font-semibold text-violet-300 hover:bg-violet-500/20 disabled:opacity-50">
-															
-<Undo2 size={14} className="inline mr-1" />
-															
-Rollback to Savepoint
-														
-</button>
+														<button
+															onClick={(e) => {
+																e.stopPropagation()
+																void handleRollback(task.savepointHash!)
+															}}
+															disabled={actionLoading[`rollback-${task.savepointHash}`]}
+															className="w-full rounded-xl border border-violet-500/30 bg-violet-500/10 px-4 py-2.5 text-sm font-semibold text-violet-300 hover:bg-violet-500/20 disabled:opacity-50">
+															<Undo2 size={14} className="mr-1 inline" />
+															Rollback to Savepoint
+														</button>
 													</div>
 												)}
 											</div>
@@ -1151,17 +1141,20 @@ Rollback to Savepoint
 							icon={Flag}
 							title="Savepoints"
 							subtitle="Git-based rollback points created before autonomous coding."
-							right={<Pill type="connected">{MOCK_SAVEPOINTS.length} saved</Pill>}
+							right={<Pill type="connected">{savepoints.length} saved</Pill>}
 						/>
 						<div className="space-y-3 p-5">
-							{MOCK_SAVEPOINTS.map((sp) => (
+							{savepoints.map((sp) => (
 								<div key={sp.id} className="rounded-2xl border border-[#1e2535] bg-[#0f1117]/60 p-4">
 									<div className="flex items-center justify-between">
 										<div>
 											<p className="text-sm font-medium text-slate-100">{sp.taskId}</p>
 											<p className="mt-0.5 text-xs text-slate-500">{sp.description}</p>
 										</div>
-										<button className="rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-1.5 text-[10px] font-medium text-violet-300 hover:bg-violet-500/20">
+										<button
+											onClick={() => void handleRollback(sp.id)}
+											disabled={actionLoading[`rollback-${sp.id}`]}
+											className="rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-1.5 text-[10px] font-medium text-violet-300 hover:bg-violet-500/20 disabled:opacity-50">
 											<Undo2 size={12} className="inline mr-1" />
 											Rollback
 										</button>
@@ -1252,7 +1245,7 @@ Rollback to Savepoint
 					<Card className="border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a]">
 						<CardHeader icon={Bell} title="Alert Rules" subtitle="Events pushed to your Telegram group." />
 						<div className="space-y-3 p-5">
-							{ALERT_RULES.map((rule) => {
+							{alertRules.map((rule) => {
 								const iconMap: Record<string, React.ElementType> = {
 									alert: AlertTriangle,
 									rocket: Rocket,
@@ -1265,14 +1258,15 @@ Rollback to Savepoint
 								}
 								const Icon = iconMap[rule.icon] || Bell
 								return (
-									<div
+									<button
 										key={rule.label}
-										className="flex items-center justify-between rounded-xl border border-[#1e2535] bg-[#0f1117]/60 p-3">
+										onClick={() => void handleAlertToggle(rule.label, !rule.enabled)}
+										className="flex w-full items-center justify-between rounded-xl border border-[#1e2535] bg-[#0f1117]/60 p-3 text-left">
 										<div className="flex items-center gap-2 text-sm text-slate-300">
 											<Icon size={16} /> {rule.label}
 										</div>
 										<Toggle enabled={rule.enabled} />
-									</div>
+									</button>
 								)
 							})}
 						</div>

@@ -28,6 +28,7 @@ interface CodeEditorProps {
 	onLspHover?: (lang: string, uri: string, line: number, column: number) => Promise<any>
 	onLspDefinition?: (lang: string, uri: string, line: number, column: number) => Promise<any>
 	onLspReferences?: (lang: string, uri: string, line: number, column: number) => Promise<any>
+	onLspCodeActions?: (lang: string, uri: string, line: number, column: number, diagnostics: any[]) => Promise<any>
 	onLspOpenDocument?: (lang: string, uri: string, text: string, version: number) => Promise<any>
 	onLspChangeDocument?: (lang: string, uri: string, text: string, version: number) => Promise<any>
 	lspDiagnostics?: any[]

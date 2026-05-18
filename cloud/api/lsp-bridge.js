@@ -381,6 +381,17 @@ class LspBridge {
 					})
 					break
 				}
+				case "codeAction": {
+					result = await server.sendRequest("textDocument/codeAction", {
+						textDocument: { uri: lspUri },
+						range: {
+							start: { line: line || 0, character: column || 0 },
+							end: { line: line || 0, character: (column || 0) + 1 },
+						},
+						context: { diagnostics: msg.diagnostics || [] },
+					})
+					break
+				}
 				default: {
 					result = { error: `Unknown LSP request type: ${type}` }
 				}

@@ -1,5 +1,91 @@
 # lessons-learned.md
 
+### Lesson: Audit views should preserve rich history fields instead of flattening them away
+
+Date: 2026-05-18
+Source: Codex task completion
+Model/API used: gpt-5
+Confidence: high
+Related files: cloud/api/api.js, cloud/dashboard/src/components/views/commit-deploy.tsx
+
+#### Task Summary
+
+Expanded the Commit & Deploy Log page so it shows real deployment health, duration, environment, and failure detail from the canonical deploy history.
+
+#### Files Changed
+
+- `cloud/api/api.js`
+- `cloud/dashboard/src/components/views/commit-deploy.tsx`
+
+#### Bug Cause
+
+The audit endpoint collapsed deploy records down to version, status, and one lossy timestamp field, discarding `startedAt`, `completedAt`, health latency, environment, and recorded failure reasons that already existed in `commit-deploy-log.json`.
+
+#### Fix Applied
+
+Extended `/api/orchestrator/commit-deploy-status` to preserve rich deploy fields and attach a backend deploy summary, then updated the dashboard view with success rate, average duration, failure-reason chips, environment, per-deploy duration, health latency, and failure details.
+
+#### Test Result
+
+pass for `node --check cloud/api/api.js` and isolated `esbuild` parsing of `commit-deploy.tsx`; full dashboard build still blocked because local `next@14.2.3` package contents are missing from the pnpm store
+
+#### Lesson Learned
+
+Audit surfaces lose operational value when adapters strip away the fields that explain what happened, even if the source log already knows the answer.
+
+#### Reusable Rule
+
+When presenting canonical history records, normalize naming differences but preserve semantically important fields like start/end time, duration, environment, and failure cause instead of flattening them into decorative summaries.
+
+#### Tags
+
+dashboard, commit-deploy, audit, telemetry, backend, live-data
+
+---
+
+### Lesson: Deploy dashboards should summarize recorded facts, not infer missing telemetry
+
+Date: 2026-05-18
+Source: Codex task completion
+Model/API used: gpt-5
+Confidence: high
+Related files: cloud/api/api.js, cloud/dashboard/src/components/views/deploy.tsx
+
+#### Task Summary
+
+Reworked the deploy dashboard to consume canonical backend deployment metrics and replaced a fake editable config surface with read-only live target metadata.
+
+#### Files Changed
+
+- `cloud/api/api.js`
+- `cloud/dashboard/src/components/views/deploy.tsx`
+
+#### Bug Cause
+
+The deploy view fabricated failure categories and a fixed average duration from partial history, and its config editor only mutated local React state while implying persisted operational changes.
+
+#### Fix Applied
+
+Added `/api/deploy/summary` backed by `commit-deploy-log.json`, derived success rate, real failure reasons, deploy frequency, and average duration from recorded timestamps, then updated the UI to use those metrics and display only backend-exposed deploy target data.
+
+#### Test Result
+
+pass for `node --check cloud/api/api.js` and isolated `esbuild` parsing of `deploy.tsx`; full dashboard build blocked because local `cloud/dashboard/node_modules/next/dist/bin/next` is missing
+
+#### Lesson Learned
+
+Operational dashboards stay credible when they expose missing telemetry honestly instead of inventing plausible-looking rollups.
+
+#### Reusable Rule
+
+For dashboard health summaries, compute metrics from persisted backend facts and render `unavailable` states for absent telemetry; never pair a local-only form with copy that implies infrastructure changes were saved.
+
+#### Tags
+
+dashboard, deploy, backend, telemetry, live-data, trust
+
+---
+
 ### Lesson: Job detail views need persisted logs and specific routes before broad list routes
 
 Date: 2026-05-18

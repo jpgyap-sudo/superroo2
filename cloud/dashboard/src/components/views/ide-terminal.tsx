@@ -429,6 +429,7 @@ export default function IdeTerminalView() {
 										onLspHover={hook.onLspHover}
 										onLspDefinition={hook.onLspDefinition}
 										onLspReferences={hook.onLspReferences}
+										onLspCodeActions={hook.onLspCodeActions}
 										onLspOpenDocument={hook.onLspOpenDocument}
 										onLspChangeDocument={hook.onLspChangeDocument}
 										lspDiagnostics={hook.editorProblems}
@@ -535,9 +536,7 @@ export default function IdeTerminalView() {
 											}
 											onTerminalCommand={() => hook.handleTerminalCommand(terminalInput)}
 											onTerminalKeyDown={(e: React.KeyboardEvent) => {
-												if (e.key === "Enter") {
-													hook.handleTerminalCommand(terminalInput)
-												}
+												hook.handleTerminalKeyDown(e, terminalInput)
 											}}
 											onCopyTerminal={(index: number, content: string) => {
 												navigator.clipboard.writeText(content)
@@ -702,6 +701,7 @@ export default function IdeTerminalView() {
 										aiMessagesEndRef={hook.aiMessagesEndRef}
 										textareaRef={hook.textareaRef}
 										slashCommandFilter={hook.slashCommandFilter}
+										onClearChat={() => dispatch({ type: "SET_AI_MESSAGES", payload: [] })}
 									/>
 								</div>
 							</aside>

@@ -1,25 +1,25 @@
 # Latest Agent Context
 
-Generated: 2026-05-18T02:22:46.116Z
-Task: verify live memory explorer tab end to end and improve backend frontend wiring
+Generated: 2026-05-18T07:08:37.504Z
+Task: repair dashboard next install and continue dashboard improvements
 
 ## Relevant Lessons
 
-1. **Protected dashboard views must use authenticated fetches and canonical data sources**
-    - Rule: For protected dashboard endpoints, reuse the authenticated request pattern already used elsewhere in the app, and point new views at the canonical backend data source rather than a one-off legacy file.
-    - Why: A dashboard route can exist and still fail if the frontend omits the expected auth contract or reads from an obsolete source. Verify the integration boundary, not just file presence.
-2. **Production deploys must keep source and dependency manifests in sync**
-    - Rule: When production source files change together with dependencies, deploy the matching `package.json` and verify generated runtime artifacts exist before declaring recovery complete.
-    - Why: Hotfixes can restore one failing layer while leaving another stale layer broken. For production recovery, validate the runtime artifact set as well as the source change, especially when a deploy spans both app code and dependency manifests.
-3. **TOML Duplicate Table Key in Codex Config**
-    - Rule: Before adding a new `[table]` section to any `.toml` config file, grep for existing instances of that table name and merge keys into the existing section rather than creating a duplicate.
-    - Why: When adding new configuration keys to TOML files, always check if the table already exists. Appending a duplicate `[table]` header will break parsing.
-4. **Comprehensive Gap Analysis and Full-Stack Improvement Execution**
+1. **Comprehensive Gap Analysis and Full-Stack Improvement Execution**
     - Rule: Before implementing any improvement from a gap analysis document, verify the actual source code to confirm the gap still exists. For Vitest ESM mocking of default imports, always include "default: { ... }" alongside named exports in the mock factory.
     - Why: When doing a comprehensive codebase gap analysis, always verify which gaps have already been filled by checking the actual source code rather than relying on the gap analysis document. Many items from NEXT_IMPROVEMENTS.md had already been implemented in a previous pass. For ESM module mocking in Vitest, default imports (import fs from "fs/promises") require the "default:" key in the mock factory, not just named exports. The createPopulatedRetriever() pattern using type assertion to bypass load() is more reliable than mocking filesystem operations for filtering/sorting/formatting tests.
-5. **Claude Task Tracking System — MCP Memory Server Integration**
-    - Rule: When adding a new agent type to the MCP Memory Server, always add all 8 integration points in order: constant → interfaces → tool definitions → handlers → resource → search → helpers → agent config file. Missing any one breaks the full workflow.
-    - Why: When adding a new agent task tracking system to the MCP Memory Server, follow the exact pattern of existing agent implementations (Codex → Kimi → Claude). Each agent needs: (1) a JSON log file, (2) a path constant, (3) TypeScript interfaces, (4) 4 MCP tool definitions in \_registerTools(), (5) handler cases in \_handleToolCall(), (6) a resource endpoint in \_registerResources(), (7) the JSON file added to \_searchLocalMemory(), and (8) 6 helper methods (read, write, upsert, list, get, getActive). The CLAUDE.md file follows the same pattern as .codex/config.toml for Codex.
+2. **Repair malformed JSX at the first broken boundary before chasing follow-on parser errors**
+    - Rule: For JSX parse cascades, inspect the first reported malformed element and nearby unmatched closing tags before making broad edits elsewhere in the file.
+    - Why: A malformed rollback button and mismatched closing tag caused a JSX parser cascade; fixing the earliest broken boundary restored the file and exposed the next real compiler issue.
+3. **A missing pnpm package payload can masquerade as a React runtime bug**
+    - Rule: For startup-time React/Next failures, verify require.resolve, package symlink targets, and actual package contents before assuming a version mismatch.
+    - Why: The dashboard build failed before app code because the local pnpm store had an empty react@18.3.1 payload; inspecting package contents revealed install corruption rather than a framework incompatibility.
+4. **Next.js dev WebSocket proxying, Redis NoopQueue fallback, LSP Bridge Backend**
+    - Rule: Next.js rewrites do not proxy WebSocket upgrades. In dev, connect WS directly to the API server. Make Redis optional in dev with a NoopQueue fallback. LSP stdio requires Content-Length JSON-RPC framing with buffered reads.
+    - Why: Implemented full LSP Bridge Backend for Cloud IDE, fixed Next.js dev WebSocket proxy issue by connecting directly to API port, and eliminated Redis reconnect loops in dev via NoopQueue fallback.
+5. **Overview dashboards should summarize canonical live sources, not parallel mock state**
+    - Rule: For dashboard overview surfaces, derive summaries from existing canonical endpoints, prioritize exceptions and next actions, and avoid hard-coded operational metrics once live sources exist.
+    - Why: Overview pages earn trust when they compose canonical live sources into decisions and next actions instead of mixing a few live values with hard-coded operational panels.
 
 ## Active Codex Tasks
 
@@ -27,22 +27,15 @@ Task: verify live memory explorer tab end to end and improve backend frontend wi
 
 ## Architecture Reminder
 
-The SuperRoo system is organized into **18 core modules** spanning orchestration, agent execution, safety, persistence, self-healing, machine learning, product memory, commit/deploy tracking, parallel execution, and infrastructure. Each module has a status, owner, connections to other modules, and specific product features it enables.
-│ ├── Repair Plan Builder (structured fix generation)
-│ └── Infinite Improvement Loop (continuous learning)
+         │     ├── Repair Plan Builder (structured fix generation)
 
 - **Features**: Priority queuing, Job retry & backoff, Concurrency control
-- **Features**: Feature lifecycle tracking (planned → building → testing → working → deprecated), Health monitoring (unknown → healthy → degraded → failing), Bug-to-feature mapping
-    - **Repair Plan Builder** ([`src/super-roo/healing/RepairPlanBuilder.ts`](../src/super-roo/healing/RepairPlanBuilder.ts)) - Structured fix generation
-
-### 10. Machine Learning Engine
-
-- **Features**: Neural network training, Code pattern learning, Debug pattern learning, Test pattern learning, Infinite improvement loop - **Learners** ([`src/super-roo/ml/learning/`](../src/super-roo/ml/learning/)) - CodeLearner, DebugLearner, TestLearner - **API Keys View** ([`cloud/dashboard/src/components/views/api-keys.tsx`](../cloud/dashboard/src/components/views/api-keys.tsx)) - Provider key management UI with save/test/delete
+- **Features**: Feature lifecycle tracking (planned → building → testing → working → deprecated), Health monitoring (unknown → healthy → degraded → failing), Bug-to-feature mapping - **Repair Plan Builder** ([`src/super-roo/healing/RepairPlanBuilder.ts`](../src/super-roo/healing/RepairPlanBuilder.ts)) - Structured fix generation - **API Keys View** ([`cloud/dashboard/src/components/views/api-keys.tsx`](../cloud/dashboard/src/components/views/api-keys.tsx)) - Provider key management UI with save/test/delete
   Incident Detection → Healing Bus → Root Cause Classifier → Repair Plan Builder → Self-Healing Loop → Fix → Verify
 
 ## Task Signals
 
-Inferred tags: ui, learning
+Inferred tags: ui
 
 ## Feature Knowledge
 

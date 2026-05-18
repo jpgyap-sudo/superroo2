@@ -24,6 +24,19 @@ interface DeployEntry {
 	agent: string
 	status: string
 	timestamp: number
+	startedAt: number | null
+	completedAt: number | null
+	durationMs: number | null
+	environment: string | null
+	healthCheckPassed: boolean | null
+	healthCheckLatencyMs: number | null
+	failureReason: string | null
+}
+
+interface DeploySummary {
+	successRate: number | null
+	avgDuration: string | null
+	failuresByReason: { reason: string; count: number }[]
 }
 
 interface CommitDeployData {
@@ -32,6 +45,7 @@ interface CommitDeployData {
 	deploys: DeployEntry[]
 	totalCommits: number
 	totalDeploys: number
+	deploySummary?: DeploySummary
 	note?: string
 }
 
@@ -62,6 +76,13 @@ function formatTime(ts: number) {
 
 function shortSha(sha: string) {
 	return sha ? sha.slice(0, 7) : "???"
+}
+
+function formatDuration(ms: number | null) {
+	if (ms === null) return "—"
+	const seconds = Math.round(ms / 1000)
+	if (seconds < 60) return `${seconds}s`
+	return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -139,7 +160,7 @@ export function CommitDeployView() {
 			{data && (
 				<>
 					{/* Stats */}
-					<div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+					<div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
 						<StatCard label="Total Commits" value={data.totalCommits} color="text-[#60a5fa]" />
 						<StatCard label="Total Deploys" value={data.totalDeploys} color="text-[#34d399]" />
 						<StatCard
@@ -154,6 +175,22 @@ export function CommitDeployView() {
 							sub="in current view"
 							color="text-[#f472b6]"
 						/>
+						<StatCard
+							label="Deploy Success"
+							value={
+								data.deploySummary?.successRate === null
+									? "—"
+									: `${data.deploySummary?.successRate ?? "—"}%`
+							}
+							sub="all recorded deploys"
+							color="text-[#34d399]"
+						/>
+						<StatCard
+							label="Avg Duration"
+							value={data.deploySummary?.avgDuration || "—"}
+							sub="completed deploys"
+							color="text-[#f59e0b]"
+						/>
 					</div>
 
 					{data.note && (
@@ -161,6 +198,24 @@ export function CommitDeployView() {
 							<div className="flex items-center gap-2 text-yellow-400">
 								<AlertTriangle className="h-4 w-4" />
 								<span className="text-sm">{data.note}</span>
+							</div>
+						</Card>
+					)}
+
+					{data.deploySummary?.failuresByReason && data.deploySummary.failuresByReason.length > 0 && (
+						<Card>
+							<div className="mb-3 flex items-center gap-2">
+								<AlertTriangle className="h-4 w-4 text-red-400" />
+								<h2 className="text-sm font-semibold text-[#e2e8f0]">Recorded Deploy Failures</h2>
+							</div>
+							<div className="flex flex-wrap gap-2">
+								{data.deploySummary.failuresByReason.map((item) => (
+									<span
+										key={item.reason}
+										className="rounded border border-red-500/20 bg-red-500/10 px-2 py-1 text-xs text-red-200">
+										{item.reason} ({item.count})
+									</span>
+								))}
 							</div>
 						</Card>
 					)}
@@ -246,11 +301,19 @@ export function CommitDeployView() {
 												<User className="h-3 w-3" />
 												{d.agent}
 											</span>
+											{d.environment && <span>{d.environment}</span>}
+											<span>{formatDuration(d.durationMs)}</span>
+											{d.healthCheckLatencyMs !== null && (
+												<span>{d.healthCheckLatencyMs}ms health</span>
+											)}
 											<span className="flex items-center gap-1 ml-auto">
 												<Clock className="h-3 w-3" />
 												{formatTime(d.timestamp)}
 											</span>
 										</div>
+										{d.failureReason && (
+											<p className="text-[11px] text-red-300">{d.failureReason}</p>
+										)}
 									</div>
 								))}
 							</div>

@@ -22,7 +22,6 @@ import {
 	GitBranch,
 	Activity,
 	Shield,
-	Check,
 } from "lucide-react"
 import { Card, StatCard } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -92,9 +91,9 @@ interface PipelineStage {
 }
 
 interface DeployHealthMetrics {
-	successRate: number
+	successRate: number | null
 	totalDeploys: number
-	avgDuration: string
+	avgDuration: string | null
 	failuresByReason: { reason: string; count: number }[]
 	deploysByDay: { date: string; count: number }[]
 	lastHealthCheck: { ok: boolean; latencyMs: number; timestamp: string } | null
@@ -108,17 +107,11 @@ interface DeployNotification {
 	read: boolean
 }
 
-interface DeployConfig {
-	githubToken: string
-	repoOwner: string
-	repoName: string
-	vpsHost: string
-	vpsUser: string
-	vpsKeyPath: string
-	vpsDeployPath: string
-	healthUrl: string
-	maxRollbackVersions: number
-	rootKeyPath: string
+interface DeployTarget {
+	host: string
+	user: string
+	path: string
+	healthUrl: string | null
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -323,13 +316,14 @@ export function DeployView() {
 
 	// Health metrics
 	const [healthMetrics, setHealthMetrics] = useState<DeployHealthMetrics>({
-		successRate: 0,
+		successRate: null,
 		totalDeploys: 0,
-		avgDuration: "—",
+		avgDuration: null,
 		failuresByReason: [],
 		deploysByDay: [],
 		lastHealthCheck: null,
 	})
+	const [deployTarget, setDeployTarget] = useState<DeployTarget | null>(null)
 
 	// Notifications
 	const [notifications, setNotifications] = useState<DeployNotification[]>([])
@@ -338,22 +332,6 @@ export function DeployView() {
 
 	// Environment toggle
 	const [environment, setEnvironment] = useState<"staging" | "production">("production")
-
-	// Config editor
-	const [showConfigEditor, setShowConfigEditor] = useState(false)
-	const [config, setConfig] = useState<DeployConfig>({
-		githubToken: "********",
-		repoOwner: "jpgyap",
-		repoName: "superroo2",
-		vpsHost: "100.64.175.88",
-		vpsUser: "root",
-		vpsKeyPath: "/root/.ssh/id_superroo_vps",
-		vpsDeployPath: "/opt/superroo2",
-		healthUrl: "https://dev.abcx124.xyz/api/health",
-		maxRollbackVersions: 5,
-		rootKeyPath: "/root/.ssh/id_superroo_vps",
-	})
-	const [configSaved, setConfigSaved] = useState(false)
 
 	// Copy state
 	const [copiedSha, setCopiedSha] = useState<string | null>(null)
@@ -452,44 +430,18 @@ export function DeployView() {
 		}
 
 		try {
-			const res = await fetch("/api/orchestrator/commit-deploy-status?limit=100")
+			const res = await fetch("/api/deploy/summary")
 			if (res.ok) {
 				const data = await res.json()
-				if (data.deploys?.length > 0) {
-					const total = data.deploys.length
-					const healthy = data.deploys.filter(
-						(d: DeployEntry) => d.status === "healthy" || d.status === "completed",
-					).length
-					const failed = data.deploys.filter(
-						(d: DeployEntry) => d.status === "failed" || d.status === "unhealthy",
-					).length
-					const rolledBack = data.deploys.filter((d: DeployEntry) => d.status === "rolled_back").length
-
-					const failuresByReason = [
-						{ reason: "Health check failed", count: failed },
-						{ reason: "Build error", count: Math.max(0, failed - 1) },
-						{ reason: "Rolled back", count: rolledBack },
-					].filter((f) => f.count > 0)
-
-					const dayMap: Record<string, number> = {}
-					data.deploys.forEach((d: DeployEntry) => {
-						const day = new Date(d.timestamp).toLocaleDateString()
-						dayMap[day] = (dayMap[day] || 0) + 1
-					})
-					const deploysByDay = Object.entries(dayMap)
-						.map(([date, count]) => ({ date, count }))
-						.sort((a, b) => a.date.localeCompare(b.date))
-						.slice(-14)
-
-					setHealthMetrics((prev) => ({
-						...prev,
-						successRate: total > 0 ? Math.round((healthy / total) * 100) : 0,
-						totalDeploys: total,
-						avgDuration: "~3m",
-						failuresByReason,
-						deploysByDay,
-					}))
-				}
+				setDeployTarget(data.target || null)
+				setHealthMetrics((prev) => ({
+					...prev,
+					successRate: data.summary?.successRate ?? null,
+					totalDeploys: data.summary?.totalDeploys ?? 0,
+					avgDuration: data.summary?.avgDuration ?? null,
+					failuresByReason: data.summary?.failuresByReason ?? [],
+					deploysByDay: data.summary?.deploysByDay ?? [],
+				}))
 			}
 		} catch {
 			// ignore
@@ -566,12 +518,6 @@ export function DeployView() {
 	}
 
 	// ── Save config ────────────────────────────────────────────────────────
-
-	const handleSaveConfig = () => {
-		setConfigSaved(true)
-		setTimeout(() => setConfigSaved(false), 2000)
-		addNotification("info", "Deploy configuration saved")
-	}
 
 	// ── Render ─────────────────────────────────────────────────────────────
 
@@ -671,9 +617,8 @@ export function DeployView() {
 						)}
 					</div>
 
-					{/* Config button */}
 					<button
-						onClick={() => setShowConfigEditor(!showConfigEditor)}
+						onClick={() => setActiveTab("config")}
 						className="flex items-center gap-1.5 rounded-lg border border-[#1e2535] bg-[#0f1117] px-2.5 py-1.5 text-[11px] text-gray-400 hover:text-[#e2e8f0]">
 						<Settings2 className="h-3 w-3" />
 						Config
@@ -705,39 +650,6 @@ export function DeployView() {
 				<div className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2">
 					<AlertTriangle className="h-4 w-4 shrink-0 text-red-400" />
 					<span className="text-[11px] text-red-300">{error}</span>
-				</div>
-			)}
-
-			{/* Config editor panel */}
-			{showConfigEditor && (
-				<div className="rounded-lg border border-[#1e2535] bg-[#0f1117]/60 p-4">
-					<h3 className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 mb-3">
-						Deploy Configuration
-					</h3>
-					<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-						{Object.entries(config).map(([key, value]) => (
-							<div key={key}>
-								<label className="text-[9px] uppercase tracking-wider text-gray-500 block mb-1">
-									{key.replace(/([A-Z])/g, " $1").trim()}
-								</label>
-								<input
-									type="text"
-									value={value}
-									onChange={(e) => setConfig((prev) => ({ ...prev, [key]: e.target.value }))}
-									className="w-full rounded border border-[#1e2535] bg-[#0a0e1a] px-2 py-1 text-[11px] text-gray-300"
-								/>
-							</div>
-						))}
-					</div>
-					<div className="mt-3 flex items-center gap-2">
-						<button
-							onClick={handleSaveConfig}
-							className="flex items-center gap-1.5 rounded-lg bg-violet-600 px-2.5 py-1.5 text-[11px] font-medium text-white hover:bg-violet-500">
-							<Check className="h-3 w-3" />
-							{configSaved ? "Saved!" : "Save Config"}
-						</button>
-						<span className="text-[9px] text-gray-600">Changes apply on next deploy</span>
-					</div>
 				</div>
 			)}
 
@@ -1093,14 +1005,16 @@ export function DeployView() {
 						<div className="rounded-lg border border-[#1e2535] bg-[#0f1117]/60 p-3">
 							<div className="text-[10px] uppercase tracking-wider text-gray-500">Success Rate</div>
 							<div className="mt-1 flex items-center gap-2">
-								<span className="text-sm font-bold text-[#e2e8f0]">{healthMetrics.successRate}%</span>
-								{healthMetrics.successRate >= 80 ? (
+								<span className="text-sm font-bold text-[#e2e8f0]">
+									{healthMetrics.successRate === null ? "—" : `${healthMetrics.successRate}%`}
+								</span>
+								{healthMetrics.successRate !== null && healthMetrics.successRate >= 80 ? (
 									<CheckCircle2 className="h-3 w-3 text-emerald-400" />
-								) : healthMetrics.successRate >= 50 ? (
+								) : healthMetrics.successRate !== null && healthMetrics.successRate >= 50 ? (
 									<AlertTriangle className="h-3 w-3 text-amber-400" />
-								) : (
+								) : healthMetrics.successRate !== null ? (
 									<XCircle className="h-3 w-3 text-red-400" />
-								)}
+								) : null}
 							</div>
 						</div>
 						<div className="rounded-lg border border-[#1e2535] bg-[#0f1117]/60 p-3">
@@ -1109,7 +1023,9 @@ export function DeployView() {
 						</div>
 						<div className="rounded-lg border border-[#1e2535] bg-[#0f1117]/60 p-3">
 							<div className="text-[10px] uppercase tracking-wider text-gray-500">Avg Duration</div>
-							<div className="mt-1 text-sm font-bold text-[#e2e8f0]">{healthMetrics.avgDuration}</div>
+							<div className="mt-1 text-sm font-bold text-[#e2e8f0]">
+								{healthMetrics.avgDuration || "—"}
+							</div>
 						</div>
 						<div className="rounded-lg border border-[#1e2535] bg-[#0f1117]/60 p-3">
 							<div className="text-[10px] uppercase tracking-wider text-gray-500">Last Health Check</div>
@@ -1205,32 +1121,25 @@ export function DeployView() {
 			{activeTab === "config" && (
 				<div className="rounded-lg border border-[#1e2535] bg-[#0f1117]/60 p-4">
 					<h3 className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 mb-3">
-						Deploy Configuration
+						Deploy Target
 					</h3>
-					<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-						{Object.entries(config).map(([key, value]) => (
-							<div key={key}>
-								<label className="text-[9px] uppercase tracking-wider text-gray-500 block mb-1">
-									{key.replace(/([A-Z])/g, " $1").trim()}
-								</label>
-								<input
-									type="text"
-									value={value}
-									onChange={(e) => setConfig((prev) => ({ ...prev, [key]: e.target.value }))}
-									className="w-full rounded border border-[#1e2535] bg-[#0a0e1a] px-2 py-1 text-[11px] text-gray-300"
-								/>
+					<div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+						{[
+							["Host", deployTarget?.host || "—"],
+							["User", deployTarget?.user || "—"],
+							["Path", deployTarget?.path || "—"],
+							["Health URL", deployTarget?.healthUrl || "Not configured"],
+						].map(([label, value]) => (
+							<div key={label} className="rounded-lg border border-[#1e2535] bg-[#0a0e1a] p-3">
+								<div className="text-[9px] uppercase tracking-wider text-gray-500">{label}</div>
+								<div className="mt-1 break-all text-[11px] text-[#e2e8f0]">{value}</div>
 							</div>
 						))}
 					</div>
-					<div className="mt-3 flex items-center gap-2">
-						<button
-							onClick={handleSaveConfig}
-							className="flex items-center gap-1.5 rounded-lg bg-violet-600 px-2.5 py-1.5 text-[11px] font-medium text-white hover:bg-violet-500">
-							<Check className="h-3 w-3" />
-							{configSaved ? "Saved!" : "Save Config"}
-						</button>
-						<span className="text-[9px] text-gray-600">Changes apply on next deploy</span>
-					</div>
+					<p className="mt-3 text-[10px] leading-relaxed text-gray-500">
+						This panel reflects the active deploy target exposed by the backend. Secret-bearing deploy
+						configuration is intentionally not editable from the dashboard.
+					</p>
 				</div>
 			)}
 		</div>

@@ -336,6 +336,71 @@ export default function MonacoEditor({
 				})
 			}
 
+			// #2: LSP code action provider (Quick Fixes / Lightbulb)
+			if (onLspCodeActions && lspConnected) {
+				monaco.languages.registerCodeActionProvider(lang, {
+					provideCodeActions: async (model: any, range: any, context: any) => {
+						try {
+							const uri = model.uri.toString()
+							const diagnostics =
+								context.markers?.map((m: any) => ({
+									message: m.message,
+									severity:
+										m.severity === monaco.MarkerSeverity.Error
+											? 1
+											: m.severity === monaco.MarkerSeverity.Warning
+												? 2
+												: 3,
+									range: {
+										start: { line: range.startLineNumber - 1, character: range.startColumn - 1 },
+										end: { line: range.endLineNumber - 1, character: range.endColumn - 1 },
+									},
+								})) || []
+							const result = await onLspCodeActions(
+								lang,
+								uri,
+								range.startLineNumber - 1,
+								range.startColumn - 1,
+								diagnostics,
+							)
+							if (!result || !Array.isArray(result)) return { actions: [], dispose: () => {} }
+							const actions = result
+								.filter((item: any) => item && item.title)
+								.map((item: any) => ({
+									title: item.title,
+									edit: item.edit
+										? {
+												edits: (item.edit.changes || []).map((change: any) => ({
+													resource: model.uri,
+													edit: {
+														range: new monaco.Range(
+															change.range.start.line + 1,
+															change.range.start.character + 1,
+															change.range.end.line + 1,
+															change.range.end.character + 1,
+														),
+														text: change.newText || "",
+													},
+												})),
+											}
+										: undefined,
+									command: item.command
+										? {
+												id: item.command.command,
+												title: item.command.title || item.title,
+											}
+										: undefined,
+									isPreferred: item.isPreferred || false,
+									kind: item.kind || "quickfix",
+								}))
+							return { actions, dispose: () => {} }
+						} catch {
+							return { actions: [], dispose: () => {} }
+						}
+					},
+				})
+			}
+
 			// Focus the editor
 			editorInstance.focus()
 		},
@@ -520,28 +585,30 @@ export default function MonacoEditor({
 					<span className="text-[#519aba] font-medium">{lang}</span>
 					{filePath && <span className="truncate max-w-[200px]">{filePath}</span>}
 					{isDirty && <span className="text-[#d29922]">● unsaved</span>}
-						{/* Diagnostic counts for current file */}
-						{(() => {
-							const fileDiags = lspDiagnostics.filter((d) => d.file === filePath || d.file.endsWith(filePath))
-							const errors = fileDiags.filter((d) => d.severity === "error").length
-							const warnings = fileDiags.filter((d) => d.severity === "warning").length
-							return (
-								<>
-									{errors > 0 && (
-										<span className="flex items-center gap-0.5 text-red-500">
-											<span className="w-1.5 h-1.5 rounded-full bg-red-500" />
-											{errors}
-										</span>
-									)}
-									{warnings > 0 && (
-										<span className="flex items-center gap-0.5 text-yellow-500">
-											<span className="w-1.5 h-1.5 rounded-full bg-yellow-500" />
-											{warnings}
-										</span>
-									)}
-								</>
-							)
-						})()}
+					{/* Diagnostic counts for current file */}
+					{(() => {
+						const fileDiags = filePath
+							? lspDiagnostics.filter((d) => d.file === filePath || d.file.endsWith(filePath))
+							: []
+						const errors = fileDiags.filter((d) => d.severity === "error").length
+						const warnings = fileDiags.filter((d) => d.severity === "warning").length
+						return (
+							<>
+								{errors > 0 && (
+									<span className="flex items-center gap-0.5 text-red-500">
+										<span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+										{errors}
+									</span>
+								)}
+								{warnings > 0 && (
+									<span className="flex items-center gap-0.5 text-yellow-500">
+										<span className="w-1.5 h-1.5 rounded-full bg-yellow-500" />
+										{warnings}
+									</span>
+								)}
+							</>
+						)
+					})()}
 				</div>
 				<div className="flex items-center gap-1">
 					{/* Font size controls */}

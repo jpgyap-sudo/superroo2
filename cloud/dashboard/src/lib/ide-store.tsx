@@ -2,6 +2,28 @@
 
 import { createContext, useContext, useReducer, useEffect, useCallback, type ReactNode, type Dispatch } from "react"
 
+// ── Helpers ──────────────────────────────────────────────────────────────
+
+function getScrollbackLimit(): number {
+	try {
+		const saved = localStorage.getItem("superroo-settings")
+		if (saved) {
+			const parsed = JSON.parse(saved)
+			const limit = parseInt(parsed["terminal.scrollback"], 10)
+			return isNaN(limit) ? 5000 : Math.max(100, Math.min(50000, limit))
+		}
+	} catch {}
+	return 5000
+}
+
+function trimOutputBlocks(blocks: OutputBlock[]): OutputBlock[] {
+	const limit = getScrollbackLimit()
+	if (blocks.length > limit) {
+		return blocks.slice(blocks.length - limit)
+	}
+	return blocks
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────
 
 export interface WorkspaceFile {
@@ -542,7 +564,10 @@ function ideReducer(state: IdeState, action: IdeAction): IdeState {
 		case "APPEND_TERMINAL_OUTPUT":
 			return {
 				...state,
-				outputBlocks: [...state.outputBlocks, ...toOutputBlocks(action.payload, state.outputBlocks.length)],
+				outputBlocks: trimOutputBlocks([
+					...state.outputBlocks,
+					...toOutputBlocks(action.payload, state.outputBlocks.length),
+				]),
 			}
 		case "SET_OUTPUT_BLOCKS":
 			return { ...state, outputBlocks: action.payload }

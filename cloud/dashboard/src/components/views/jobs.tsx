@@ -1,22 +1,11 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { Fragment, useEffect, useMemo, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 
-// ── Types ──────────────────────────────────────────────────────────────────────
-
-type JobStatus =
-	| "queued"
-	| "running"
-	| "completed"
-	| "failed"
-	| "retrying"
-	| "cancelled"
-	| "waiting"
-	| "active"
-	| "delayed"
+type JobStatus = "completed" | "failed" | "waiting" | "active" | "delayed" | "cancelled"
 
 interface Job {
 	id: string
@@ -27,25 +16,28 @@ interface Job {
 		model?: string
 		priority?: string
 		environment?: string
-		commands?: string[]
-		network?: string
-		inputs?: Record<string, string>
+		cpuPercent?: number
+		ramMb?: number
+		tokensUsed?: number
+		costUsd?: number
 		[key: string]: unknown
 	}
 	status: JobStatus
 	progress?: number
 	timestamp: number
-	processedOn?: number
-	finishedOn?: number
+	processedOn?: number | null
+	finishedOn?: number | null
 	failedReason?: string
 	returnvalue?: unknown
+	attemptsMade?: number
+	maxAttempts?: number
 }
 
 interface JobLog {
 	id: string
 	jobId: string
-	ts: number
-	level: "debug" | "info" | "warn" | "error" | "success"
+	ts: number | null
+	level: "info" | "warn" | "error" | "success"
 	source: string
 	message: string
 }
@@ -56,22 +48,22 @@ interface JobsSummary {
 	completed: number
 	failed: number
 	queued: number
-	successRate: number
-	aiCostToday: number
+	successRate: number | null
+	avgDurationMs: number | null
+	aiCostToday: number | null
+	costAvailable: boolean
+	totalTokensToday: number
 	systemHealth: string
+	activeAgents: Array<{ name: string; count: number }>
+	modelPerformance: Array<{ name: string; total: number; failed: number; successRate: number | null }>
 }
-
-// ── Style maps ─────────────────────────────────────────────────────────────────
 
 const statusClass: Record<string, string> = {
 	completed: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
 	failed: "border-red-500/30 bg-red-500/10 text-red-300",
-	running: "border-blue-500/30 bg-blue-500/10 text-blue-300",
 	active: "border-blue-500/30 bg-blue-500/10 text-blue-300",
-	queued: "border-slate-500/30 bg-slate-500/10 text-slate-300",
 	waiting: "border-slate-500/30 bg-slate-500/10 text-slate-300",
 	delayed: "border-amber-500/30 bg-amber-500/10 text-amber-300",
-	retrying: "border-yellow-500/30 bg-yellow-500/10 text-yellow-300",
 	cancelled: "border-slate-500/30 bg-slate-500/10 text-slate-300",
 }
 
@@ -89,38 +81,35 @@ const envClass: Record<string, string> = {
 	local: "border-slate-500/40 bg-slate-500/10 text-slate-300",
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
-
-function formatDuration(ms?: number) {
-	if (!ms) return "—"
-	const totalSec = Math.floor(ms / 1000)
-	const m = Math.floor(totalSec / 60)
-	const s = totalSec % 60
-	return `${m}m ${s}s`
+function getHeaders() {
+	const token = localStorage.getItem("superroo_auth_token")
+	return token ? { Authorization: `Bearer ${token}` } : undefined
 }
 
-function formatTime(ts?: number) {
-	if (!ts) return "—"
-	const d = new Date(ts)
-	const now = new Date()
-	const diff = now.getTime() - d.getTime()
+function formatDuration(ms?: number | null) {
+	if (!ms) return "-"
+	const totalSec = Math.floor(ms / 1000)
+	return `${Math.floor(totalSec / 60)}m ${totalSec % 60}s`
+}
+
+function formatRelativeTime(ts?: number | null) {
+	if (!ts) return "-"
+	const diff = Date.now() - ts
 	if (diff < 60000) return "just now"
 	if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`
 	if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`
-	return d.toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+	return new Date(ts).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
 }
 
 function modelIcon(model?: string) {
 	if (!model) return "AI"
-	const m = model.toLowerCase()
-	if (m.includes("claude") || m.includes("sonnet")) return "CL"
-	if (m.includes("gpt") || m.includes("4o")) return "GPT"
-	if (m.includes("deepseek")) return "DS"
-	if (m.includes("kimi")) return "K"
+	const value = model.toLowerCase()
+	if (value.includes("claude") || value.includes("sonnet")) return "CL"
+	if (value.includes("gpt") || value.includes("4o")) return "GPT"
+	if (value.includes("deepseek")) return "DS"
+	if (value.includes("kimi")) return "K"
 	return "AI"
 }
-
-// ── Sub-components ─────────────────────────────────────────────────────────────
 
 function MetricCard({
 	title,
@@ -135,9 +124,9 @@ function MetricCard({
 }) {
 	return (
 		<div className={cn("rounded-xl border bg-[#0f1117] p-4", danger ? "border-red-500/30" : "border-[#1e2535]")}>
-			<div className="text-[11px] text-gray-500 uppercase tracking-widest">{title}</div>
+			<div className="text-[11px] uppercase tracking-widest text-gray-500">{title}</div>
 			<div className={cn("mt-1 text-2xl font-bold", danger ? "text-red-300" : "text-[#e2e8f0]")}>{value}</div>
-			{delta && <div className="mt-0.5 text-[11px] text-gray-600">{delta}</div>}
+			{delta ? <div className="mt-0.5 text-[11px] text-gray-600">{delta}</div> : null}
 		</div>
 	)
 }
@@ -145,227 +134,178 @@ function MetricCard({
 function BadgePill({ label, className }: { label: string; className?: string }) {
 	return (
 		<span
-			className={cn("inline-flex items-center rounded px-2 py-0.5 text-[11px] font-semibold border", className)}>
+			className={cn("inline-flex items-center rounded border px-2 py-0.5 text-[11px] font-semibold", className)}>
 			{label}
 		</span>
 	)
 }
-
-// ── Main Component ─────────────────────────────────────────────────────────────
 
 export function JobsView() {
 	const [jobs, setJobs] = useState<Job[]>([])
 	const [summary, setSummary] = useState<JobsSummary | null>(null)
 	const [selected, setSelected] = useState("")
 	const [logs, setLogs] = useState<JobLog[]>([])
+	const [logsLoading, setLogsLoading] = useState(false)
 	const [search, setSearch] = useState("")
 	const [filter, setFilter] = useState("All")
 	const [loading, setLoading] = useState(true)
+	const [error, setError] = useState("")
 
-	const selectedJob = useMemo(() => jobs.find((j) => j.id === selected), [jobs, selected])
+	const selectedJob = useMemo(() => jobs.find((job) => job.id === selected), [jobs, selected])
 
 	const filteredJobs = useMemo(() => {
 		let list = jobs
 		if (filter !== "All") {
-			const f = filter.toLowerCase()
-			if (f === "running") list = list.filter((j) => j.status === "running" || j.status === "active")
-			else if (f === "completed") list = list.filter((j) => j.status === "completed")
-			else if (f === "failed") list = list.filter((j) => j.status === "failed")
-			else if (f === "autonomous") list = list.filter((j) => j.data?.agentId?.toLowerCase().includes("auto"))
-			else if (f === "deployments") list = list.filter((j) => j.data?.task?.toLowerCase().includes("deploy"))
-			else if (f === "critical") list = list.filter((j) => j.data?.priority === "critical")
+			const value = filter.toLowerCase()
+			if (value === "running") list = list.filter((job) => job.status === "active")
+			else if (value === "completed") list = list.filter((job) => job.status === "completed")
+			else if (value === "failed") list = list.filter((job) => job.status === "failed")
+			else if (value === "queued") list = list.filter((job) => ["waiting", "delayed"].includes(job.status))
+			else if (value === "deployments")
+				list = list.filter((job) => job.data?.task?.toLowerCase().includes("deploy"))
+			else if (value === "critical") list = list.filter((job) => job.data?.priority === "critical")
 		}
 		if (search.trim()) {
-			const q = search.toLowerCase()
+			const query = search.toLowerCase()
 			list = list.filter(
-				(j) =>
-					j.id.toLowerCase().includes(q) ||
-					(j.name || "").toLowerCase().includes(q) ||
-					(j.data?.task || "").toLowerCase().includes(q) ||
-					(j.data?.agentId || "").toLowerCase().includes(q),
+				(job) =>
+					job.id.toLowerCase().includes(query) ||
+					(job.name || "").toLowerCase().includes(query) ||
+					(job.data?.task || "").toLowerCase().includes(query) ||
+					(job.data?.agentId || "").toLowerCase().includes(query),
 			)
 		}
 		return list
 	}, [jobs, filter, search])
 
-	// Fetch jobs
-	useEffect(() => {
-		const fetchJobs = async () => {
-			try {
-				const [jobsRes, summaryRes] = await Promise.all([
-					fetch("/api/jobs?limit=100"),
-					fetch("/api/jobs/summary"),
-				])
-				if (jobsRes.ok) {
-					const data = await jobsRes.json()
-					setJobs(data.jobs || [])
-				}
-				if (summaryRes.ok) {
-					const data = await summaryRes.json()
-					setSummary(data)
-				}
-			} catch (err) {
-				console.error("Error fetching jobs:", err)
-			} finally {
-				setLoading(false)
-			}
+	const refresh = async () => {
+		try {
+			const headers = getHeaders()
+			const [jobsRes, summaryRes] = await Promise.all([
+				fetch("/api/jobs?limit=100", { headers }),
+				fetch("/api/jobs/summary", { headers }),
+			])
+			if (!jobsRes.ok || !summaryRes.ok) throw new Error("Unable to load jobs data")
+			const [jobsData, summaryData] = await Promise.all([jobsRes.json(), summaryRes.json()])
+			setJobs(jobsData.jobs || [])
+			setSummary(summaryData)
+			setError("")
+		} catch (err) {
+			setError(err instanceof Error ? err.message : "Unable to load jobs")
+		} finally {
+			setLoading(false)
 		}
-		fetchJobs()
-		const iv = setInterval(fetchJobs, 5000)
-		return () => clearInterval(iv)
+	}
+
+	useEffect(() => {
+		refresh()
+		const interval = setInterval(refresh, 5000)
+		return () => clearInterval(interval)
 	}, [])
 
-	// Fetch logs when a job is selected
 	useEffect(() => {
 		if (!selected) {
 			setLogs([])
 			return
 		}
-		// For now, generate mock logs based on job data
-		const job = jobs.find((j) => j.id === selected)
-		if (!job) return
-		const mockLogs: JobLog[] = [
-			{
-				id: `${job.id}-l1`,
-				jobId: job.id,
-				ts: job.timestamp,
-				level: "info",
-				source: "system",
-				message: `Job ${job.name || job.data?.task || "untitled"} created`,
-			},
-			{
-				id: `${job.id}-l2`,
-				jobId: job.id,
-				ts: job.processedOn || job.timestamp + 1000,
-				level: "info",
-				source: "system",
-				message: "Job picked up by worker",
-			},
-		]
-		if (job.processedOn) {
-			mockLogs.push({
-				id: `${job.id}-l3`,
-				jobId: job.id,
-				ts: job.processedOn,
-				level: "info",
-				source: "agent",
-				message: `Agent ${job.data?.agentId || "unknown"} started processing`,
-			})
+		let mounted = true
+		const fetchLogs = async () => {
+			setLogsLoading(true)
+			try {
+				const response = await fetch(`/api/jobs/${selected}/logs`, { headers: getHeaders() })
+				if (!response.ok) throw new Error("Unable to load job logs")
+				const data = await response.json()
+				if (mounted) setLogs(data.logs || [])
+			} catch {
+				if (mounted) setLogs([])
+			} finally {
+				if (mounted) setLogsLoading(false)
+			}
 		}
-		if (job.status === "completed" && job.finishedOn) {
-			mockLogs.push({
-				id: `${job.id}-l4`,
-				jobId: job.id,
-				ts: job.finishedOn,
-				level: "success",
-				source: "system",
-				message: "Job completed successfully",
-			})
+		fetchLogs()
+		return () => {
+			mounted = false
 		}
-		if (job.status === "failed" && job.failedReason) {
-			mockLogs.push({
-				id: `${job.id}-l4`,
-				jobId: job.id,
-				ts: job.finishedOn || Date.now(),
-				level: "error",
-				source: "system",
-				message: job.failedReason,
-			})
-		}
-		setLogs(mockLogs)
-	}, [selected, jobs])
+	}, [selected])
 
 	const handleCancel = async (jobId: string) => {
-		try {
-			const res = await fetch(`/api/jobs/${jobId}/cancel`, { method: "POST" })
-			if (res.ok) {
-				setJobs((prev) => prev.filter((j) => j.id !== jobId))
-			}
-		} catch (err) {
-			console.error("Error cancelling job:", err)
-		}
+		await fetch(`/api/jobs/${jobId}/cancel`, { method: "POST", headers: getHeaders() })
+		await refresh()
 	}
 
 	const handleRetry = async (jobId: string) => {
-		try {
-			const res = await fetch(`/api/jobs/${jobId}/retry`, { method: "POST" })
-			if (res.ok) {
-				const listRes = await fetch("/api/jobs?limit=100")
-				if (listRes.ok) {
-					const data = await listRes.json()
-					setJobs(data.jobs || [])
-				}
-			}
-		} catch (err) {
-			console.error("Error retrying job:", err)
-		}
+		await fetch(`/api/jobs/${jobId}/retry`, { method: "POST", headers: getHeaders() })
+		await refresh()
 	}
 
-	// ── Loading state ──
 	if (loading) {
 		return (
 			<Card className="overflow-hidden">
-				<div className="py-12 text-center text-gray-500 text-sm">Loading jobs...</div>
+				<div className="py-12 text-center text-sm text-gray-500">Loading jobs...</div>
 			</Card>
 		)
 	}
 
-	// ── Compute summary from real data ──
-	const running = jobs.filter((j) => j.status === "running" || j.status === "active").length
-	const completed = jobs.filter((j) => j.status === "completed").length
-	const failed = jobs.filter((j) => j.status === "failed").length
-	const queued = jobs.filter((j) => j.status === "queued" || j.status === "waiting" || j.status === "delayed").length
-	const successRate = jobs.length > 0 ? Math.round((completed / (completed + failed || 1)) * 100) : 100
-
 	return (
 		<div className="space-y-4">
-			{/* ── Metric Cards ── */}
+			{error ? <Card className="border-red-500/20 bg-red-500/10 text-sm text-red-200">{error}</Card> : null}
+
 			<div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-				<MetricCard title="Total Jobs" value={String(jobs.length)} />
-				<MetricCard title="Running" value={String(running)} delta={`${queued} queued`} />
-				<MetricCard title="Completed" value={String(completed)} delta={`${successRate}% success`} />
-				<MetricCard title="Failed" value={String(failed)} danger={failed > 0} />
-				<MetricCard title="AI Cost Today" value={summary ? `$${summary.aiCostToday.toFixed(2)}` : "$0.00"} />
-				<MetricCard title="System Health" value={summary?.systemHealth || "Healthy"} />
+				<MetricCard title="Total Jobs" value={String(summary?.totalJobs ?? jobs.length)} />
+				<MetricCard
+					title="Running"
+					value={String(summary?.running ?? 0)}
+					delta={`${summary?.queued ?? 0} queued`}
+				/>
+				<MetricCard
+					title="Completed"
+					value={String(summary?.completed ?? 0)}
+					delta={summary?.successRate === null ? "No finished jobs" : `${summary?.successRate ?? 0}% success`}
+				/>
+				<MetricCard title="Failed" value={String(summary?.failed ?? 0)} danger={(summary?.failed ?? 0) > 0} />
+				<MetricCard
+					title="AI Cost Today"
+					value={summary?.costAvailable ? `$${(summary.aiCostToday ?? 0).toFixed(2)}` : "Unavailable"}
+					delta={`${summary?.totalTokensToday ?? 0} tokens`}
+				/>
+				<MetricCard
+					title="Avg Duration"
+					value={formatDuration(summary?.avgDurationMs)}
+					delta={summary?.systemHealth}
+				/>
 			</div>
 
-			{/* ── Main Content ── */}
-			<div className="grid gap-4 xl:grid-cols-[1fr_280px]">
-				{/* ── Jobs Table ── */}
-				<section className="rounded-xl border border-[#1e2535] bg-[#0f1117] overflow-hidden">
-					{/* Filters + Search */}
+			<div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
+				<section className="overflow-hidden rounded-xl border border-[#1e2535] bg-[#0f1117]">
 					<div className="flex flex-wrap items-center gap-2 border-b border-[#1e2535] px-4 py-3">
 						<div className="flex flex-wrap gap-1">
-							{["All", "Running", "Completed", "Failed", "Autonomous", "Deployments", "Critical"].map(
-								(f) => (
+							{["All", "Running", "Queued", "Completed", "Failed", "Deployments", "Critical"].map(
+								(value) => (
 									<button
-										key={f}
-										onClick={() => setFilter(f)}
+										key={value}
+										onClick={() => setFilter(value)}
 										className={cn(
-											"rounded px-2.5 py-1 text-[11px] font-medium transition-colors",
-											filter === f
-												? "bg-violet-600/20 text-violet-300 border border-violet-500/30"
-												: "text-gray-500 hover:text-gray-300 border border-transparent",
+											"rounded border px-2.5 py-1 text-[11px] font-medium transition-colors",
+											filter === value
+												? "border-violet-500/30 bg-violet-600/20 text-violet-300"
+												: "border-transparent text-gray-500 hover:text-gray-300",
 										)}>
-										{f}
+										{value}
 									</button>
 								),
 							)}
 						</div>
-						<div className="ml-auto">
-							<input
-								type="text"
-								placeholder="Search jobs..."
-								value={search}
-								onChange={(e) => setSearch(e.target.value)}
-								className="w-44 rounded border border-[#1e2535] bg-[#0a0e1a] px-2.5 py-1.5 text-xs text-[#e2e8f0] placeholder-gray-600 outline-none focus:border-violet-500/40"
-							/>
-						</div>
+						<input
+							type="text"
+							placeholder="Search jobs..."
+							value={search}
+							onChange={(event) => setSearch(event.target.value)}
+							className="ml-auto w-44 rounded border border-[#1e2535] bg-[#0a0e1a] px-2.5 py-1.5 text-xs text-[#e2e8f0] placeholder-gray-600 outline-none focus:border-violet-500/40"
+						/>
 					</div>
 
-					{/* Table */}
 					{filteredJobs.length === 0 ? (
-						<div className="py-12 text-center text-gray-500 text-sm">No jobs found</div>
+						<div className="py-12 text-center text-sm text-gray-500">No jobs found</div>
 					) : (
 						<div className="overflow-x-auto jobs-scrollbar">
 							<table className="w-full min-w-[1050px] text-left text-sm">
@@ -377,23 +317,18 @@ export function JobsView() {
 										<th className="px-3 py-2.5 font-medium">Model</th>
 										<th className="px-3 py-2.5 font-medium">Priority</th>
 										<th className="px-3 py-2.5 font-medium">Status</th>
-										<th className="px-3 py-2.5 font-medium">Environment</th>
-										<th className="px-3 py-2.5 font-medium">CPU</th>
-										<th className="px-3 py-2.5 font-medium">RAM</th>
-										<th className="px-3 py-2.5 font-medium">Tokens</th>
-										<th className="px-3 py-2.5 font-medium">Cost</th>
+										<th className="px-3 py-2.5 font-medium">Retries</th>
 										<th className="px-3 py-2.5 font-medium">Created</th>
 										<th className="px-3 py-2.5 font-medium">Actions</th>
 									</tr>
 								</thead>
 								<tbody>
 									{filteredJobs.map((job) => (
-										<>
+										<Fragment key={job.id}>
 											<tr
-												key={job.id}
 												onClick={() => setSelected(selected === job.id ? "" : job.id)}
 												className={cn(
-													"cursor-pointer border-b border-[#1e2535]/50 hover:bg-[#0a0e1a]/60 transition-colors",
+													"cursor-pointer border-b border-[#1e2535]/50 transition-colors hover:bg-[#0a0e1a]/60",
 													selected === job.id
 														? "bg-[#0a0e1a]/70 outline outline-1 outline-violet-500/40"
 														: "",
@@ -401,11 +336,11 @@ export function JobsView() {
 												<td className="px-3 py-2.5 font-mono text-xs text-blue-400">
 													{job.id.slice(0, 8)}
 												</td>
-												<td className="px-3 py-2.5 text-gray-300 max-w-[160px] truncate">
+												<td className="max-w-[180px] truncate px-3 py-2.5 text-gray-300">
 													{job.data?.task || job.name || "Untitled"}
 												</td>
 												<td className="px-3 py-2.5 text-violet-300">
-													{job.data?.agentId || "—"}
+													{job.data?.agentId || "-"}
 												</td>
 												<td className="px-3 py-2.5">
 													<span className="inline-flex h-6 w-6 items-center justify-center rounded bg-violet-600/20 text-[10px] font-bold text-violet-400">
@@ -424,120 +359,76 @@ export function JobsView() {
 												<td className="px-3 py-2.5">
 													<BadgePill
 														label={job.status}
-														className={statusClass[job.status] || statusClass.queued}
+														className={statusClass[job.status] || statusClass.waiting}
 													/>
 												</td>
-												<td className="px-3 py-2.5">
-													<BadgePill
-														label={job.data?.environment || "local"}
-														className={
-															envClass[job.data?.environment || ""] ||
-															"border-slate-500/40 bg-slate-500/10 text-slate-300"
-														}
-													/>
+												<td className="px-3 py-2.5 text-gray-400">
+													{job.attemptsMade ?? 0}/{job.maxAttempts || "-"}
 												</td>
-												<td className="px-3 py-2.5 text-gray-500 text-xs">
-													{String(job.data?.cpuPercent ?? "—")}
-												</td>
-												<td className="px-3 py-2.5 text-gray-500 text-xs">
-													{job.data?.ramMb ? `${String(job.data.ramMb)}MB` : "—"}
-												</td>
-												<td className="px-3 py-2.5 text-gray-500 text-xs">
-													{String(job.data?.tokensUsed ?? "—")}
-												</td>
-												<td className="px-3 py-2.5 text-gray-500 text-xs">
-													{job.data?.costUsd ? `$${String(job.data.costUsd)}` : "—"}
-												</td>
-												<td className="px-3 py-2.5 text-gray-500 text-xs">
-													{formatTime(job.timestamp)}
+												<td className="px-3 py-2.5 text-xs text-gray-500">
+													{formatRelativeTime(job.timestamp)}
 												</td>
 												<td className="px-3 py-2.5">
 													<div className="flex gap-1">
-														{job.status !== "completed" &&
-															job.status !== "failed" &&
-															job.status !== "cancelled" && (
-																<button
-																	onClick={(e) => {
-																		e.stopPropagation()
-																		handleCancel(job.id)
-																	}}
-																	className="rounded border border-[#1e2535] bg-[#0a0e1a] px-2 py-1 text-[10px] text-red-400 hover:bg-[#1e2535]">
-																	Cancel
-																</button>
-															)}
-														{job.status === "failed" && (
+														{!["completed", "failed", "cancelled"].includes(job.status) ? (
 															<button
-																onClick={(e) => {
-																	e.stopPropagation()
+																onClick={(event) => {
+																	event.stopPropagation()
+																	handleCancel(job.id)
+																}}
+																className="rounded border border-[#1e2535] bg-[#0a0e1a] px-2 py-1 text-[10px] text-red-400 hover:bg-[#1e2535]">
+																Cancel
+															</button>
+														) : null}
+														{job.status === "failed" ? (
+															<button
+																onClick={(event) => {
+																	event.stopPropagation()
 																	handleRetry(job.id)
 																}}
 																className="rounded border border-[#1e2535] bg-[#0a0e1a] px-2 py-1 text-[10px] text-amber-400 hover:bg-[#1e2535]">
 																Retry
 															</button>
-														)}
+														) : null}
 													</div>
 												</td>
 											</tr>
-											{/* Expanded detail row */}
-											{selected === job.id && (
-												<tr key={`${job.id}-detail`}>
+											{selected === job.id ? (
+												<tr>
 													<td
-														colSpan={13}
+														colSpan={9}
 														className="border-b border-violet-500/30 bg-[#0a0e1a] p-4">
 														<div className="grid gap-4 lg:grid-cols-3">
-															{/* Job Info Card */}
-															<div className="rounded-lg border border-[#1e2535] bg-[#0f1117] p-3 space-y-2">
-																<h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+															<div className="space-y-2 rounded-lg border border-[#1e2535] bg-[#0f1117] p-3">
+																<h4 className="text-xs font-semibold uppercase tracking-wider text-gray-400">
 																	Job Info
 																</h4>
 																<div className="space-y-1.5 text-xs">
-																	<div className="flex justify-between">
+																	<div className="flex justify-between gap-3">
 																		<span className="text-gray-500">ID</span>
-																		<span className="text-blue-400 font-mono">
+																		<span className="font-mono text-blue-400">
 																			{job.id}
 																		</span>
 																	</div>
-																	<div className="flex justify-between">
+																	<div className="flex justify-between gap-3">
 																		<span className="text-gray-500">Agent</span>
 																		<span className="text-violet-300">
-																			{job.data?.agentId || "—"}
+																			{job.data?.agentId || "-"}
 																		</span>
 																	</div>
-																	<div className="flex justify-between">
-																		<span className="text-gray-500">Model</span>
-																		<span>{job.data?.model || "—"}</span>
-																	</div>
-																	<div className="flex justify-between">
+																	<div className="flex justify-between gap-3">
 																		<span className="text-gray-500">
 																			Environment
 																		</span>
-																		<span>
-																			<BadgePill
-																				label={job.data?.environment || "local"}
-																				className={
-																					envClass[
-																						job.data?.environment || ""
-																					] ||
-																					"border-slate-500/40 bg-slate-500/10 text-slate-300"
-																				}
-																			/>
-																		</span>
+																		<BadgePill
+																			label={job.data?.environment || "local"}
+																			className={
+																				envClass[job.data?.environment || ""] ||
+																				envClass.local
+																			}
+																		/>
 																	</div>
-																	<div className="flex justify-between">
-																		<span className="text-gray-500">Priority</span>
-																		<span>
-																			<BadgePill
-																				label={job.data?.priority || "normal"}
-																				className={
-																					priorityClass[
-																						job.data?.priority || ""
-																					] ||
-																					"border-slate-500/40 bg-slate-500/10 text-slate-300"
-																				}
-																			/>
-																		</span>
-																	</div>
-																	<div className="flex justify-between">
+																	<div className="flex justify-between gap-3">
 																		<span className="text-gray-500">Duration</span>
 																		<span>
 																			{job.processedOn && job.finishedOn
@@ -547,59 +438,63 @@ export function JobsView() {
 																					)
 																				: job.processedOn
 																					? "running..."
-																					: "—"}
+																					: "-"}
 																		</span>
 																	</div>
-																	<div className="flex justify-between">
+																	<div className="flex justify-between gap-3">
 																		<span className="text-gray-500">Tokens</span>
 																		<span>
-																			{String(job.data?.tokensUsed ?? "—")}
+																			{String(job.data?.tokensUsed ?? "-")}
 																		</span>
 																	</div>
-																	<div className="flex justify-between">
+																	<div className="flex justify-between gap-3">
 																		<span className="text-gray-500">Cost</span>
 																		<span>
 																			{job.data?.costUsd
-																				? `$${String(job.data.costUsd)}`
-																				: "—"}
+																				? `$${job.data.costUsd}`
+																				: "-"}
 																		</span>
 																	</div>
 																</div>
 															</div>
 
-															{/* Logs Panel */}
-															<div className="rounded-lg border border-[#1e2535] bg-[#0f1117] p-3 space-y-2">
-																<h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+															<div className="space-y-2 rounded-lg border border-[#1e2535] bg-[#0f1117] p-3">
+																<h4 className="text-xs font-semibold uppercase tracking-wider text-gray-400">
 																	Logs
 																</h4>
-																<div className="max-h-48 overflow-y-auto space-y-1">
-																	{logs.length === 0 ? (
-																		<div className="text-xs text-gray-600 py-4 text-center">
-																			No logs available
+																<div className="max-h-48 space-y-1 overflow-y-auto">
+																	{logsLoading ? (
+																		<div className="py-4 text-center text-xs text-gray-600">
+																			Loading logs...
+																		</div>
+																	) : logs.length === 0 ? (
+																		<div className="py-4 text-center text-xs text-gray-600">
+																			No persisted logs available
 																		</div>
 																	) : (
-																		logs.map((l) => (
+																		logs.map((log) => (
 																			<div
-																				key={l.id}
-																				className="flex gap-2 text-[11px] font-mono">
+																				key={log.id}
+																				className="flex gap-2 font-mono text-[11px]">
 																				<span
 																					className={cn(
-																						"shrink-0 w-12",
-																						l.level === "error"
+																						"w-12 shrink-0",
+																						log.level === "error"
 																							? "text-red-400"
-																							: l.level === "warn"
+																							: log.level === "warn"
 																								? "text-amber-400"
-																								: l.level === "success"
+																								: log.level ===
+																									  "success"
 																									? "text-emerald-400"
 																									: "text-gray-500",
 																					)}>
-																					{l.level}
+																					{log.level}
 																				</span>
-																				<span className="text-gray-600 shrink-0">
-																					{formatTime(l.ts)}
+																				<span className="shrink-0 text-gray-600">
+																					{formatRelativeTime(log.ts)}
 																				</span>
 																				<span className="text-gray-400">
-																					{l.message}
+																					{log.message}
 																				</span>
 																			</div>
 																		))
@@ -607,56 +502,37 @@ export function JobsView() {
 																</div>
 															</div>
 
-															{/* AI Analysis */}
-															<div className="rounded-lg border border-[#1e2535] bg-[#0f1117] p-3 space-y-2">
-																<h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-																	AI Analysis
+															<div className="space-y-2 rounded-lg border border-[#1e2535] bg-[#0f1117] p-3">
+																<h4 className="text-xs font-semibold uppercase tracking-wider text-gray-400">
+																	Outcome
 																</h4>
 																{job.status === "failed" ? (
-																	<div className="space-y-2">
-																		<div>
-																			<div className="text-[11px] text-gray-500 mb-0.5">
-																				Root Cause
-																			</div>
-																			<div className="text-xs text-red-300">
-																				{job.failedReason?.slice(0, 120) ||
-																					"Unknown error"}
-																			</div>
-																		</div>
-																		<div>
-																			<div className="text-[11px] text-gray-500 mb-0.5">
-																				Suggested Fix
-																			</div>
-																			<div className="text-xs text-amber-300">
-																				Review error logs and retry the job
-																			</div>
-																		</div>
-																		<div className="flex gap-2 pt-1">
-																			<button
-																				onClick={() => handleRetry(job.id)}
-																				className="rounded border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-300 hover:bg-amber-500/20 transition-colors">
-																				Retry Job
-																			</button>
-																			<button className="rounded border border-[#1e2535] px-3 py-1.5 text-xs text-gray-400 hover:bg-[#1e2535] transition-colors">
-																				View Details
-																			</button>
-																		</div>
+																	<div className="space-y-2 text-xs">
+																		<p className="text-red-300">
+																			{job.failedReason ||
+																				"No failure reason recorded."}
+																		</p>
+																		<button
+																			onClick={() => handleRetry(job.id)}
+																			className="rounded border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-amber-300">
+																			Retry Job
+																		</button>
 																	</div>
 																) : job.status === "completed" ? (
-																	<div className="text-xs text-emerald-400 py-4 text-center">
+																	<p className="py-4 text-center text-xs text-emerald-400">
 																		Job completed successfully
-																	</div>
+																	</p>
 																) : (
-																	<div className="text-xs text-gray-500 py-4 text-center">
-																		Analysis available after completion
-																	</div>
+																	<p className="py-4 text-center text-xs text-gray-500">
+																		Outcome available after completion
+																	</p>
 																)}
 															</div>
 														</div>
 													</td>
 												</tr>
-											)}
-										</>
+											) : null}
+										</Fragment>
 									))}
 								</tbody>
 							</table>
@@ -664,181 +540,127 @@ export function JobsView() {
 					)}
 				</section>
 
-				{/* ── Right Sidebar ── */}
 				<aside className="space-y-4">
-					{/* AI Insights Today */}
 					<div className="rounded-xl border border-[#1e2535] bg-[#0f1117] p-4">
-						<h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-							AI Insights Today
-						</h3>
-						<div className="space-y-2">
-							<div className="flex justify-between text-xs">
-								<span className="text-gray-500">Success Rate</span>
-								<span
-									className={cn(
-										"font-medium",
-										successRate >= 80
-											? "text-emerald-400"
-											: successRate >= 50
-												? "text-amber-400"
-												: "text-red-400",
-									)}>
-									{successRate}%
+						<h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-400">Snapshot</h3>
+						<div className="space-y-2 text-xs">
+							<div className="flex justify-between">
+								<span className="text-gray-500">Success rate</span>
+								<span className="text-[#e2e8f0]">
+									{summary?.successRate === null ? "-" : `${summary?.successRate ?? 0}%`}
 								</span>
 							</div>
-							<div className="flex justify-between text-xs">
-								<span className="text-gray-500">Jobs Run</span>
-								<span className="text-[#e2e8f0]">{jobs.length}</span>
+							<div className="flex justify-between">
+								<span className="text-gray-500">Jobs run</span>
+								<span className="text-[#e2e8f0]">{summary?.totalJobs ?? 0}</span>
 							</div>
-							<div className="flex justify-between text-xs">
+							<div className="flex justify-between">
 								<span className="text-gray-500">Failures</span>
-								<span className={failed > 0 ? "text-red-400" : "text-emerald-400"}>{failed}</span>
+								<span className={(summary?.failed ?? 0) > 0 ? "text-red-400" : "text-emerald-400"}>
+									{summary?.failed ?? 0}
+								</span>
 							</div>
 						</div>
 					</div>
 
-					{/* Most Active Agents */}
 					<div className="rounded-xl border border-[#1e2535] bg-[#0f1117] p-4">
-						<h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
+						<h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-400">
 							Most Active Agents
 						</h3>
 						<div className="space-y-3">
-							{(() => {
-								const agentCounts: Record<string, number> = {}
-								jobs.forEach((j) => {
-									const a = j.data?.agentId || "unknown"
-									agentCounts[a] = (agentCounts[a] || 0) + 1
-								})
-								const sorted = Object.entries(agentCounts)
-									.sort((a, b) => b[1] - a[1])
-									.slice(0, 5)
-								const maxCount = sorted.length > 0 ? sorted[0][1] : 1
-								return sorted.length === 0 ? (
-									<div className="text-xs text-gray-600 text-center py-2">No agents active</div>
-								) : (
-									sorted.map(([agent, count]) => (
-										<div key={agent} className="space-y-1">
-											<div className="flex justify-between text-xs">
-												<span className="text-gray-300 truncate">{agent}</span>
-												<span className="text-gray-500">{count} jobs</span>
-											</div>
-											<div className="h-1.5 rounded-full bg-[#1e2535] overflow-hidden">
-												<div
-													className="h-full rounded-full bg-violet-600/60 transition-all"
-													style={{ width: `${(count / maxCount) * 100}%` }}
-												/>
-											</div>
+							{summary?.activeAgents.length ? (
+								summary.activeAgents.map((agent) => (
+									<div key={agent.name} className="space-y-1">
+										<div className="flex justify-between text-xs">
+											<span className="truncate text-gray-300">{agent.name}</span>
+											<span className="text-gray-500">{agent.count} jobs</span>
 										</div>
-									))
-								)
-							})()}
+										<div className="h-1.5 overflow-hidden rounded-full bg-[#1e2535]">
+											<div
+												className="h-full rounded-full bg-violet-600/60"
+												style={{
+													width: `${(agent.count / summary.activeAgents[0].count) * 100}%`,
+												}}
+											/>
+										</div>
+									</div>
+								))
+							) : (
+								<div className="py-2 text-center text-xs text-gray-600">No agent data</div>
+							)}
 						</div>
 					</div>
 
-					{/* AI Model Performance */}
 					<div className="rounded-xl border border-[#1e2535] bg-[#0f1117] p-4">
-						<h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-							AI Model Performance
+						<h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-400">
+							Model Performance
 						</h3>
 						<div className="space-y-3">
-							{(() => {
-								const modelCounts: Record<string, { total: number; failed: number }> = {}
-								jobs.forEach((j) => {
-									const m = j.data?.model || "default"
-									if (!modelCounts[m]) modelCounts[m] = { total: 0, failed: 0 }
-									modelCounts[m].total++
-									if (j.status === "failed") modelCounts[m].failed++
-								})
-								const sorted = Object.entries(modelCounts)
-									.sort((a, b) => b[1].total - a[1].total)
-									.slice(0, 5)
-								return sorted.length === 0 ? (
-									<div className="text-xs text-gray-600 text-center py-2">No model data</div>
-								) : (
-									sorted.map(([model, stats]) => {
-										const rate =
-											stats.total > 0
-												? Math.round(((stats.total - stats.failed) / stats.total) * 100)
-												: 100
-										return (
-											<div key={model} className="space-y-1">
-												<div className="flex justify-between text-xs">
-													<span className="text-gray-300 truncate">{model}</span>
-													<span
-														className={
-															rate >= 80
-																? "text-emerald-400"
-																: rate >= 50
-																	? "text-amber-400"
-																	: "text-red-400"
-														}>
-														{rate}%
-													</span>
-												</div>
-												<div className="h-1.5 rounded-full bg-[#1e2535] overflow-hidden">
-													<div
-														className={cn(
-															"h-full rounded-full transition-all",
-															rate >= 80
-																? "bg-emerald-600/60"
-																: rate >= 50
-																	? "bg-amber-600/60"
-																	: "bg-red-600/60",
-														)}
-														style={{ width: `${rate}%` }}
-													/>
-												</div>
-											</div>
-										)
-									})
-								)
-							})()}
+							{summary?.modelPerformance.length ? (
+								summary.modelPerformance.map((model) => (
+									<div key={model.name} className="space-y-1">
+										<div className="flex justify-between text-xs">
+											<span className="truncate text-gray-300">{model.name}</span>
+											<span
+												className={
+													model.successRate === null
+														? "text-gray-500"
+														: model.successRate >= 80
+															? "text-emerald-400"
+															: model.successRate >= 50
+																? "text-amber-400"
+																: "text-red-400"
+												}>
+												{model.successRate === null ? "-" : `${model.successRate}%`}
+											</span>
+										</div>
+										<div className="h-1.5 overflow-hidden rounded-full bg-[#1e2535]">
+											<div
+												className={cn(
+													"h-full rounded-full",
+													model.successRate === null
+														? "bg-slate-600/60"
+														: model.successRate >= 80
+															? "bg-emerald-600/60"
+															: model.successRate >= 50
+																? "bg-amber-600/60"
+																: "bg-red-600/60",
+												)}
+												style={{ width: `${model.successRate ?? 0}%` }}
+											/>
+										</div>
+									</div>
+								))
+							) : (
+								<div className="py-2 text-center text-xs text-gray-600">No model data</div>
+							)}
 						</div>
 					</div>
 
-					{/* Recent Notifications */}
 					<div className="rounded-xl border border-[#1e2535] bg-[#0f1117] p-4">
-						<h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-							Recent Notifications
+						<h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-400">
+							Selected Job
 						</h3>
-						<div className="space-y-2">
-							{failed > 0 ? (
-								<div className="flex items-start gap-2 text-xs">
-									<div className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-red-500" />
-									<div>
-										<div className="text-red-300">
-											{failed} job{failed > 1 ? "s" : ""} failed
-										</div>
-										<div className="text-gray-600">{formatTime(Date.now())}</div>
-									</div>
+						{selectedJob ? (
+							<div className="space-y-2 text-xs">
+								<div className="flex justify-between gap-3">
+									<span className="text-gray-500">Task</span>
+									<span className="truncate text-gray-300">
+										{selectedJob.data?.task || selectedJob.name}
+									</span>
 								</div>
-							) : null}
-							{completed > 0 ? (
-								<div className="flex items-start gap-2 text-xs">
-									<div className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
-									<div>
-										<div className="text-emerald-300">
-											{completed} job{completed > 1 ? "s" : ""} completed
-										</div>
-										<div className="text-gray-600">{formatTime(Date.now())}</div>
-									</div>
+								<div className="flex justify-between gap-3">
+									<span className="text-gray-500">Status</span>
+									<Badge status={selectedJob.status} />
 								</div>
-							) : null}
-							{running > 0 ? (
-								<div className="flex items-start gap-2 text-xs">
-									<div className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-blue-500" />
-									<div>
-										<div className="text-blue-300">
-											{running} job{running > 1 ? "s" : ""} running
-										</div>
-										<div className="text-gray-600">{formatTime(Date.now())}</div>
-									</div>
+								<div className="flex justify-between gap-3">
+									<span className="text-gray-500">Created</span>
+									<span className="text-gray-300">{formatRelativeTime(selectedJob.timestamp)}</span>
 								</div>
-							) : null}
-							{failed === 0 && completed === 0 && running === 0 ? (
-								<div className="text-xs text-gray-600 text-center py-2">No notifications</div>
-							) : null}
-						</div>
+							</div>
+						) : (
+							<div className="py-2 text-center text-xs text-gray-600">Select a job to inspect it</div>
+						)}
 					</div>
 				</aside>
 			</div>

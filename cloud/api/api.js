@@ -452,6 +452,9 @@ class NoopQueue {
 	async getFailed() {
 		return []
 	}
+	async getDelayed() {
+		return []
+	}
 	async getJob() {
 		return null
 	}
@@ -2132,6 +2135,499 @@ async function getJobCounts() {
 	}
 }
 
+async function getDiskUsagePercent(targetPath = process.cwd()) {
+	try {
+		if (typeof fs.statfs !== "function") return null
+		const stats = await fs.statfs(targetPath)
+		const total = Number(stats.blocks || 0) * Number(stats.bsize || 0)
+		const free = Number(stats.bavail || stats.bfree || 0) * Number(stats.bsize || 0)
+		if (!total) return null
+		return Math.round(((total - free) / total) * 100)
+	} catch {
+		return null
+	}
+}
+
+function normalizeCommitEntry(c) {
+	return {
+		sha: c.sha || c.commitSha || "",
+		agent: c.agentName || c.agent || "unknown",
+		type: c.type || "unknown",
+		title: c.title || c.message || "",
+		timestamp: c.timestamp || c.createdAt || 0,
+	}
+}
+
+function normalizeDeployEntry(d) {
+	return {
+		version: d.version || "",
+		sha: d.sha || d.commitSha || "",
+		agent: d.agentName || d.agent || "unknown",
+		status: d.status || "unknown",
+		timestamp: d.timestamp || d.startedAt || d.deployedAt || d.createdAt || 0,
+	}
+}
+
+function parseTimestamp(value) {
+	if (!value) return null
+	const timestamp = typeof value === "number" ? value : Date.parse(value)
+	return Number.isFinite(timestamp) ? timestamp : null
+}
+
+function formatAverageDuration(totalMs, count) {
+	if (!count) return null
+	const seconds = Math.round(totalMs / count / 1000)
+	if (seconds < 60) return `${seconds}s`
+	return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
+}
+
+function buildDeploySummary(deploys) {
+	const normalized = deploys.map((deploy) => {
+		const startedAt = parseTimestamp(deploy.startedAt || deploy.timestamp || deploy.deployedAt)
+		const completedAt = parseTimestamp(deploy.completedAt)
+		const durationMs =
+			startedAt !== null && completedAt !== null && completedAt >= startedAt ? completedAt - startedAt : null
+		return {
+			id: deploy.id || null,
+			version: deploy.version || "",
+			sha: deploy.commitSha || deploy.sha || "",
+			agent: deploy.agentName || deploy.agent || "unknown",
+			status: deploy.status || deploy.result || "unknown",
+			environment: deploy.environment || null,
+			startedAt,
+			completedAt,
+			durationMs,
+			healthCheckPassed: typeof deploy.healthCheckPassed === "boolean" ? deploy.healthCheckPassed : null,
+			healthCheckLatencyMs: typeof deploy.healthCheckLatencyMs === "number" ? deploy.healthCheckLatencyMs : null,
+			failureReason: deploy.failureReason || deploy.error || null,
+		}
+	})
+
+	const successfulStatuses = new Set(["healthy", "completed"])
+	const failedStatuses = new Set(["failed", "unhealthy"])
+	const successfulDeploys = normalized.filter((deploy) => successfulStatuses.has(deploy.status)).length
+	const durations = normalized.filter((deploy) => deploy.durationMs !== null)
+	const failureCounts = new Map()
+	for (const deploy of normalized) {
+		if (!failedStatuses.has(deploy.status) && deploy.status !== "rolled_back") continue
+		const reason = deploy.failureReason || (deploy.status === "rolled_back" ? "Rolled back" : "Reason not recorded")
+		failureCounts.set(reason, (failureCounts.get(reason) || 0) + 1)
+	}
+
+	const deploysByDay = new Map()
+	for (const deploy of normalized) {
+		if (deploy.startedAt === null) continue
+		const day = new Date(deploy.startedAt).toISOString().slice(0, 10)
+		deploysByDay.set(day, (deploysByDay.get(day) || 0) + 1)
+	}
+
+	return {
+		totalDeploys: normalized.length,
+		successRate: normalized.length ? Math.round((successfulDeploys / normalized.length) * 100) : null,
+		avgDuration: formatAverageDuration(
+			durations.reduce((total, deploy) => total + deploy.durationMs, 0),
+			durations.length,
+		),
+		failuresByReason: Array.from(failureCounts.entries())
+			.map(([reason, count]) => ({ reason, count }))
+			.sort((a, b) => b.count - a.count || a.reason.localeCompare(b.reason)),
+		deploysByDay: Array.from(deploysByDay.entries())
+			.map(([date, count]) => ({ date, count }))
+			.sort((a, b) => a.date.localeCompare(b.date))
+			.slice(-14),
+		recentDeploys: normalized.slice().reverse().slice(0, 50),
+	}
+}
+
+async function loadOverviewCommitDeploy(limit = 8) {
+	try {
+		const raw = await fs.readFile(path.join(__dirname, "..", "memory", "commit-deploy-log.json"), "utf8")
+		const data = JSON.parse(raw)
+		return {
+			commits: (data.commits || []).slice(-limit).reverse().map(normalizeCommitEntry),
+			deploys: (data.deploys || []).slice(-limit).reverse().map(normalizeDeployEntry),
+		}
+	} catch {
+		return { commits: [], deploys: [] }
+	}
+}
+
+async function loadOverviewUsage(limit = 200) {
+	try {
+		const raw = await fs.readFile(
+			path.join(__dirname, "..", "..", "server", "src", "memory", "model-usage-log.json"),
+			"utf8",
+		)
+		const data = JSON.parse(raw)
+		return (data.records || []).slice(-limit).reverse()
+	} catch {
+		return []
+	}
+}
+
+function buildOverviewUsageSummary(records) {
+	const today = new Date().toISOString().slice(0, 10)
+	const todayRecords = records.filter((record) => String(record.timestamp || "").startsWith(today))
+	const providerCounts = {}
+	let totalTokens = 0
+	let totalCostUsd = 0
+	let pricedRecords = 0
+
+	for (const record of todayRecords) {
+		const provider = record.provider || record.model || "unknown"
+		providerCounts[provider] = (providerCounts[provider] || 0) + 1
+		totalTokens += (record.promptTokens || 0) + (record.completionTokens || 0)
+		if (typeof record.costUsd === "number") {
+			totalCostUsd += record.costUsd
+			pricedRecords++
+		} else if (typeof record.estimatedCostUsd === "number") {
+			totalCostUsd += record.estimatedCostUsd
+			pricedRecords++
+		}
+	}
+
+	return {
+		totalTokens,
+		totalCostUsd: pricedRecords > 0 ? totalCostUsd : null,
+		requests: todayRecords.length,
+		costAvailable: pricedRecords > 0,
+		providers: Object.entries(providerCounts)
+			.sort((a, b) => b[1] - a[1])
+			.map(([name, value]) => ({ name, value })),
+	}
+}
+
+function buildOverviewActivity({ commits, events, logs }) {
+	const commitItems = commits.slice(0, 4).map((commit) => ({
+		id: `commit-${commit.sha}`,
+		time: commit.timestamp,
+		title: commit.title || "Untitled commit",
+		detail: `${commit.agent} committed ${commit.type}`,
+		tone: "success",
+		target: "commit-deploy",
+	}))
+
+	const eventItems = events.slice(0, 4).map((event) => ({
+		id: `event-${event.id || event.timestamp || event.type}`,
+		time: event.timestamp || Date.now(),
+		title: event.type || "orchestrator event",
+		detail: event.source || "Orchestrator",
+		tone: event.severity === "error" ? "warning" : "info",
+		target: event.severity === "error" ? "logs" : "jobs",
+	}))
+
+	const logItems = logs.slice(0, 4).map((line, index) => ({
+		id: `log-${index}`,
+		time: Date.now() - index,
+		title: line.length > 96 ? `${line.slice(0, 96)}...` : line,
+		detail: /error|failed/i.test(line) ? "System log" : "Recent log",
+		tone: /error|failed/i.test(line) ? "warning" : "info",
+		target: "logs",
+	}))
+
+	return [...commitItems, ...eventItems, ...logItems]
+		.sort((a, b) => Number(b.time || 0) - Number(a.time || 0))
+		.slice(0, 8)
+}
+
+function normalizeQueueJob(job) {
+	return {
+		id: String(job.id || ""),
+		title: job.data?.task || job.name || "Untitled job",
+		agent: job.data?.agentId || "unassigned",
+		project: job.data?.project || job.data?.repository || "superroo2",
+		status: job.status,
+		priority: String(job.data?.priority || "normal").toLowerCase(),
+		progress: Number(job.progress || 0),
+		attemptsMade: Number(job.attemptsMade || 0),
+		maxAttempts: Number(job.opts?.attempts || 0),
+		timestamp: job.timestamp || 0,
+		processedOn: job.processedOn || null,
+		finishedOn: job.finishedOn || null,
+		failedReason: job.failedReason || "",
+		model: job.data?.model || "",
+	}
+}
+
+function buildQueueFailureReasons(jobs) {
+	const failedJobs = jobs.filter((job) => job.status === "failed")
+	const total = failedJobs.length
+	if (total === 0) return []
+
+	const counts = {}
+	for (const job of failedJobs) {
+		const reason = String(job.failedReason || "Unknown failure").trim() || "Unknown failure"
+		const label = reason.length > 72 ? `${reason.slice(0, 72)}...` : reason
+		counts[label] = (counts[label] || 0) + 1
+	}
+
+	return Object.entries(counts)
+		.sort((a, b) => b[1] - a[1])
+		.slice(0, 5)
+		.map(([name, count]) => ({
+			name,
+			count,
+			percent: Math.round((count / total) * 100),
+		}))
+}
+
+function buildQueueInsights(jobs, usageSummary) {
+	const now = Date.now()
+	const cutoff = now - 24 * 60 * 60 * 1000
+	const recentCompleted = jobs.filter((job) => job.status === "completed" && Number(job.finishedOn || 0) >= cutoff)
+	const durations = recentCompleted
+		.map((job) => Number(job.finishedOn || 0) - Number(job.processedOn || 0))
+		.filter((duration) => duration > 0)
+	const avgDurationMs =
+		durations.length > 0
+			? Math.round(durations.reduce((sum, duration) => sum + duration, 0) / durations.length)
+			: null
+
+	return {
+		windowHours: 24,
+		avgCompletionMs: avgDurationMs,
+		throughputPerHour: Number((recentCompleted.length / 24).toFixed(2)),
+		completedLast24h: recentCompleted.length,
+		totalTokensToday: usageSummary.totalTokens,
+		totalCostUsdToday: usageSummary.totalCostUsd,
+		costAvailable: usageSummary.costAvailable,
+	}
+}
+
+function buildQueuePipeline(agents, jobs) {
+	const activeCounts = jobs
+		.filter((job) => job.status === "active")
+		.reduce((counts, job) => {
+			counts[job.agent] = (counts[job.agent] || 0) + 1
+			return counts
+		}, {})
+
+	return agents.map((agent) => ({
+		id: agent.id,
+		name: agent.name,
+		enabled: Boolean(agent.enabled),
+		activeJobs: activeCounts[agent.id] || 0,
+		maxConcurrency: agent.maxConcurrency || 0,
+	}))
+}
+
+function buildQueueActivity({ jobs, events }) {
+	const jobItems = jobs.slice(0, 6).map((job) => ({
+		id: `job-${job.id}`,
+		time: job.finishedOn || job.processedOn || job.timestamp || 0,
+		agent: job.agent,
+		message:
+			job.status === "failed"
+				? `${job.title} failed`
+				: job.status === "completed"
+					? `${job.title} completed`
+					: job.status === "active"
+						? `${job.title} running`
+						: `${job.title} waiting`,
+		type: job.status,
+	}))
+	const eventItems = events.slice(0, 6).map((event) => ({
+		id: `event-${event.id || event.timestamp || event.type}`,
+		time: event.timestamp || 0,
+		agent: event.source || "orchestrator",
+		message: event.type || "orchestrator event",
+		type: event.severity === "error" ? "failed" : "event",
+	}))
+
+	return [...jobItems, ...eventItems].sort((a, b) => Number(b.time || 0) - Number(a.time || 0)).slice(0, 8)
+}
+
+function normalizeDashboardJob(job, status) {
+	return {
+		id: String(job.id || ""),
+		name: job.name || "",
+		data: job.data || {},
+		status,
+		progress: job.progress || 0,
+		timestamp: job.timestamp || 0,
+		processedOn: job.processedOn || null,
+		finishedOn: job.finishedOn || null,
+		failedReason: job.failedReason || "",
+		returnvalue: job.returnvalue,
+		attemptsMade: Number(job.attemptsMade || 0),
+		maxAttempts: Number(job.opts?.attempts || 0),
+	}
+}
+
+async function loadDashboardJobs(limit = 100) {
+	const [waiting, active, completed, failed, delayed] = await Promise.all([
+		queue.getWaiting(0, limit),
+		queue.getActive(0, limit),
+		queue.getCompleted(0, limit),
+		queue.getFailed(0, limit),
+		queue.getDelayed(0, limit),
+	])
+	return [
+		...waiting.map((job) => normalizeDashboardJob(job, "waiting")),
+		...active.map((job) => normalizeDashboardJob(job, "active")),
+		...completed.map((job) => normalizeDashboardJob(job, "completed")),
+		...failed.map((job) => normalizeDashboardJob(job, "failed")),
+		...delayed.map((job) => normalizeDashboardJob(job, "delayed")),
+	]
+		.sort(
+			(a, b) =>
+				Number(b.finishedOn || b.processedOn || b.timestamp || 0) -
+				Number(a.finishedOn || a.processedOn || a.timestamp || 0),
+		)
+		.slice(0, limit)
+}
+
+function buildJobsSummary(jobs, usageSummary) {
+	const completed = jobs.filter((job) => job.status === "completed")
+	const failed = jobs.filter((job) => job.status === "failed")
+	const running = jobs.filter((job) => job.status === "active")
+	const queued = jobs.filter((job) => ["waiting", "delayed"].includes(job.status))
+	const durations = completed
+		.map((job) => Number(job.finishedOn || 0) - Number(job.processedOn || 0))
+		.filter((duration) => duration > 0)
+	const avgDurationMs =
+		durations.length > 0
+			? Math.round(durations.reduce((sum, duration) => sum + duration, 0) / durations.length)
+			: null
+
+	const agentCounts = {}
+	const modelCounts = {}
+	for (const job of jobs) {
+		const agent = job.data?.agentId || "unassigned"
+		const model = job.data?.model || "unassigned"
+		agentCounts[agent] = (agentCounts[agent] || 0) + 1
+		if (!modelCounts[model]) modelCounts[model] = { total: 0, failed: 0 }
+		modelCounts[model].total++
+		if (job.status === "failed") modelCounts[model].failed++
+	}
+
+	return {
+		totalJobs: jobs.length,
+		running: running.length,
+		completed: completed.length,
+		failed: failed.length,
+		queued: queued.length,
+		successRate:
+			completed.length + failed.length > 0
+				? Math.round((completed.length / (completed.length + failed.length)) * 100)
+				: null,
+		avgDurationMs,
+		aiCostToday: usageSummary.totalCostUsd,
+		costAvailable: usageSummary.costAvailable,
+		totalTokensToday: usageSummary.totalTokens,
+		systemHealth: failed.length > 10 ? "Degraded" : failed.length > 0 ? "Attention" : "Healthy",
+		activeAgents: Object.entries(agentCounts)
+			.sort((a, b) => b[1] - a[1])
+			.slice(0, 5)
+			.map(([name, count]) => ({ name, count })),
+		modelPerformance: Object.entries(modelCounts)
+			.sort((a, b) => b[1].total - a[1].total)
+			.slice(0, 5)
+			.map(([name, stats]) => ({
+				name,
+				total: stats.total,
+				failed: stats.failed,
+				successRate: stats.total > 0 ? Math.round(((stats.total - stats.failed) / stats.total) * 100) : null,
+			})),
+	}
+}
+
+function parseJobLogLine(jobId, line, index) {
+	const timestampMatch = line.match(/^\[([^\]]+)\]\s*(.*)$/)
+	const message = timestampMatch ? timestampMatch[2] : line
+	const ts = timestampMatch ? Date.parse(timestampMatch[1]) : NaN
+	const level = /\[error\]|\[stderr\]|failed/i.test(message)
+		? "error"
+		: /\[retry\]|\[timeout\]/i.test(message)
+			? "warn"
+			: /success:\s*true|completed|finished/i.test(message)
+				? "success"
+				: "info"
+	return {
+		id: `${jobId}-log-${index}`,
+		jobId,
+		ts: Number.isFinite(ts) ? ts : null,
+		level,
+		source: message.match(/^\[([^\]]+)\]/)?.[1] || "job",
+		message,
+	}
+}
+
+async function loadJobLogs(job) {
+	const logPath =
+		(typeof job.returnvalue?.logPath === "string" && job.returnvalue.logPath) ||
+		path.join(process.env.SUPERROO_ROOT || "/opt/superroo2", "cloud", "logs", "jobs", `${job.id}.log`)
+	try {
+		const raw = await fs.readFile(logPath, "utf8")
+		return raw
+			.split("\n")
+			.filter((line) => line.trim())
+			.slice(-100)
+			.map((line, index) => parseJobLogLine(String(job.id), line, index))
+	} catch {
+		return []
+	}
+}
+
+function buildOverviewAttention({ health, queueStats, bugs, latestDeploy }) {
+	const items = []
+	const openBugs = bugs.filter((bug) => !["resolved", "wont_fix"].includes(String(bug.status || "").toLowerCase()))
+	const severeBugs = openBugs.filter((bug) => ["critical", "high"].includes(String(bug.severity || "").toLowerCase()))
+
+	if (health.status !== "online") {
+		items.push({
+			id: "api-health",
+			title: "API offline",
+			detail: "Health endpoint is not reporting online.",
+			level: "critical",
+			action: "Open monitoring",
+			target: "monitoring",
+		})
+	}
+	if (!health.worker) {
+		items.push({
+			id: "worker-health",
+			title: "Worker unavailable",
+			detail: "Background work may not be processing.",
+			level: "critical",
+			action: "Open logs",
+			target: "logs",
+		})
+	}
+	if (queueStats.failed > 0) {
+		items.push({
+			id: "failed-jobs",
+			title: `${queueStats.failed} failed job${queueStats.failed === 1 ? "" : "s"}`,
+			detail: "Retry or inspect failures before queue pressure grows.",
+			level: "warning",
+			action: "Open queue",
+			target: "queue",
+		})
+	}
+	if (severeBugs.length > 0) {
+		items.push({
+			id: "severe-bugs",
+			title: `${severeBugs.length} high-severity bug${severeBugs.length === 1 ? "" : "s"}`,
+			detail: severeBugs[0]?.title || severeBugs[0]?.summary || "Open bugs need attention.",
+			level: "warning",
+			action: "Open bugs",
+			target: "bugs",
+		})
+	}
+	if (latestDeploy && !["healthy", "completed"].includes(String(latestDeploy.status).toLowerCase())) {
+		items.push({
+			id: "deploy-health",
+			title: `Latest deploy ${latestDeploy.status}`,
+			detail: `v${latestDeploy.version} by ${latestDeploy.agent}`,
+			level: "critical",
+			action: "Open deploy log",
+			target: "commit-deploy",
+		})
+	}
+
+	return items
+}
+
 // Format a timestamp (number or ISO string) into a relative time string like "2h ago"
 function formatRelativeTime(ts) {
 	if (!ts) return "N/A"
@@ -3268,26 +3764,57 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// Queue summary
+		if (method === "GET" && (url === "/queue/summary" || normalizedUrl === "/queue/summary")) {
+			try {
+				const [counts, waiting, active, completed, failed, delayed, usageRecords] = await Promise.all([
+					getJobCounts(),
+					queue.getWaiting(0, 24),
+					queue.getActive(0, 24),
+					queue.getCompleted(0, 24),
+					queue.getFailed(0, 24),
+					queue.getDelayed(0, 24),
+					loadOverviewUsage(400),
+				])
+				const jobs = [
+					...waiting.map((job) => ({ ...job, status: "waiting" })),
+					...active.map((job) => ({ ...job, status: "active" })),
+					...completed.map((job) => ({ ...job, status: "completed" })),
+					...failed.map((job) => ({ ...job, status: "failed" })),
+					...delayed.map((job) => ({ ...job, status: "delayed" })),
+				]
+					.map(normalizeQueueJob)
+					.sort(
+						(a, b) =>
+							Number(b.finishedOn || b.processedOn || b.timestamp || 0) -
+							Number(a.finishedOn || a.processedOn || a.timestamp || 0),
+					)
+				const usage = buildOverviewUsageSummary(usageRecords)
+				const agents = orchestrator?.agentRegistry ? orchestrator.agentRegistry.list() : []
+				const events = orchestrator?.eventLog ? orchestrator.eventLog.list({ limit: 8 }) : []
+
+				sendJson(res, 200, {
+					success: true,
+					counts,
+					jobs: jobs.slice(0, 12),
+					pipeline: buildQueuePipeline(agents, jobs),
+					activity: buildQueueActivity({ jobs, events }),
+					failureReasons: buildQueueFailureReasons(jobs),
+					insights: buildQueueInsights(jobs, usage),
+					usage,
+				})
+			} catch (err) {
+				writeApiLog("error", "queue-summary", "Failed to build queue summary", { error: err.message })
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
 		// Jobs summary
 		if (method === "GET" && (url === "/jobs/summary" || normalizedUrl === "/jobs/summary")) {
 			try {
-				const counts = await getJobCounts()
-				const totalJobs = counts.total
-				const running = counts.active
-				const completed = counts.completed
-				const failed = counts.failed
-				const queued = counts.waiting + counts.delayed
-				const successRate = completed + failed > 0 ? Math.round((completed / (completed + failed)) * 100) : 100
-				sendJson(res, 200, {
-					totalJobs,
-					running,
-					completed,
-					failed,
-					queued,
-					successRate,
-					aiCostToday: 0,
-					systemHealth: failed > 10 ? "Degraded" : "Healthy",
-				})
+				const [jobs, usageRecords] = await Promise.all([loadDashboardJobs(200), loadOverviewUsage(400)])
+				sendJson(res, 200, buildJobsSummary(jobs, buildOverviewUsageSummary(usageRecords)))
 			} catch (err) {
 				console.error("[api] Error getting jobs summary:", err.message)
 				sendJson(res, 200, {
@@ -3296,52 +3823,16 @@ const server = http.createServer(async (req, res) => {
 					completed: 0,
 					failed: 0,
 					queued: 0,
-					successRate: 100,
-					aiCostToday: 0,
+					successRate: null,
+					avgDurationMs: null,
+					aiCostToday: null,
+					costAvailable: false,
+					totalTokensToday: 0,
 					systemHealth: "Unknown",
+					activeAgents: [],
+					modelPerformance: [],
 				})
 			}
-			return
-		}
-
-		// List jobs
-		if (method === "GET" && (url.startsWith("/jobs") || normalizedUrl.startsWith("/jobs"))) {
-			const urlObj = new URL(url, `http://localhost:${PORT}`)
-			const status = urlObj.searchParams.get("status") || "all"
-			const limit = parseInt(urlObj.searchParams.get("limit") || "50")
-
-			let jobs = []
-			if (status === "all" || status === "waiting") {
-				const waiting = await queue.getWaiting(0, limit)
-				jobs.push(...waiting.map((j) => ({ ...j, status: "waiting" })))
-			}
-			if (status === "all" || status === "active") {
-				const active = await queue.getActive(0, limit)
-				jobs.push(...active.map((j) => ({ ...j, status: "active" })))
-			}
-			if (status === "all" || status === "completed") {
-				const completed = await queue.getCompleted(0, limit)
-				jobs.push(...completed.map((j) => ({ ...j, status: "completed" })))
-			}
-			if (status === "all" || status === "failed") {
-				const failed = await queue.getFailed(0, limit)
-				jobs.push(...failed.map((j) => ({ ...j, status: "failed" })))
-			}
-
-			// Format jobs for dashboard
-			const formatted = jobs.slice(0, limit).map((j) => ({
-				id: j.id,
-				name: j.name,
-				data: j.data,
-				status: j.status,
-				progress: j.progress || 0,
-				timestamp: j.timestamp,
-				processedOn: j.processedOn,
-				finishedOn: j.finishedOn,
-				failedReason: j.failedReason,
-			}))
-
-			sendJson(res, 200, { success: true, jobs: formatted, count: formatted.length })
 			return
 		}
 
@@ -3370,6 +3861,37 @@ const server = http.createServer(async (req, res) => {
 					returnvalue: job.returnvalue,
 				},
 			})
+			return
+		}
+
+		// Get job logs
+		if (method === "GET" && url.match(/^\/jobs\/[^/]+\/logs$/)) {
+			const jobId = url.split("/")[2]
+			const job = await queue.getJob(jobId)
+			if (!job) {
+				sendJson(res, 404, { success: false, error: "Job not found" })
+				return
+			}
+			const logs = await loadJobLogs(job)
+			sendJson(res, 200, { success: true, logs, count: logs.length })
+			return
+		}
+
+		// List jobs
+		if (
+			method === "GET" &&
+			(url === "/jobs" ||
+				normalizedUrl === "/jobs" ||
+				url.startsWith("/jobs?") ||
+				normalizedUrl.startsWith("/jobs?"))
+		) {
+			const targetUrl = url.startsWith("/jobs") ? url : normalizedUrl
+			const urlObj = new URL(targetUrl, `http://localhost:${PORT}`)
+			const status = urlObj.searchParams.get("status") || "all"
+			const limit = parseInt(urlObj.searchParams.get("limit") || "50")
+			const jobs = await loadDashboardJobs(limit)
+			const filtered = status === "all" ? jobs : jobs.filter((job) => job.status === status)
+			sendJson(res, 200, { success: true, jobs: filtered, count: filtered.length })
 			return
 		}
 
@@ -6324,10 +6846,74 @@ const server = http.createServer(async (req, res) => {
 				sendJson(res, 200, {
 					cpu: cpuPercent,
 					memory: memoryPercent,
-					processes: 0,
+					disk: await getDiskUsagePercent(),
 				})
 			} catch (err) {
-				sendJson(res, 500, { cpu: 0, memory: 0, processes: 0, error: err.message })
+				sendJson(res, 500, { cpu: 0, memory: 0, disk: null, error: err.message })
+			}
+			return
+		}
+
+		// GET /overview/summary — canonical overview dashboard payload
+		if (method === "GET" && (url === "/overview/summary" || normalizedUrl === "/overview/summary")) {
+			try {
+				const cpus = os.cpus()
+				const totalMem = os.totalmem()
+				const freeMem = os.freemem()
+				const loadAvg = os.loadavg()
+				const cpu = cpus.length > 0 ? Math.min(100, Math.round((loadAvg[0] / cpus.length) * 100)) : 0
+				const ram = totalMem > 0 ? Math.round(((totalMem - freeMem) / totalMem) * 100) : 0
+
+				const [queueStats, disk, commitDeploy, usageRecords, logs] = await Promise.all([
+					getJobCounts(),
+					getDiskUsagePercent(),
+					loadOverviewCommitDeploy(8),
+					loadOverviewUsage(200),
+					getLogs(12),
+				])
+
+				const redisHealthy = connection?.status === "ready"
+				const health = {
+					status: redisHealthy ? "online" : "offline",
+					redis: redisHealthy,
+					worker: !(queue instanceof NoopQueue),
+				}
+				const agents = orchestrator?.agentRegistry ? orchestrator.agentRegistry.list() : []
+				const bugs = orchestrator?.bugRegistry ? orchestrator.bugRegistry.list({ limit: 50 }) : []
+				const events = orchestrator?.eventLog ? orchestrator.eventLog.list({ limit: 8 }) : []
+				const latestDeploy = commitDeploy.deploys[0] || null
+
+				sendJson(res, 200, {
+					success: true,
+					generatedAt: new Date().toISOString(),
+					system: { cpu, ram, disk },
+					health,
+					queue: queueStats,
+					agents: {
+						items: agents,
+						total: agents.length,
+						active: agents.filter((agent) => agent.enabled).length,
+					},
+					bugs: {
+						items: bugs,
+						open: bugs.filter(
+							(bug) => !["resolved", "wont_fix"].includes(String(bug.status || "").toLowerCase()),
+						).length,
+						severe: bugs.filter(
+							(bug) =>
+								!["resolved", "wont_fix"].includes(String(bug.status || "").toLowerCase()) &&
+								["critical", "high"].includes(String(bug.severity || "").toLowerCase()),
+						).length,
+					},
+					commits: commitDeploy.commits,
+					deploys: commitDeploy.deploys,
+					usage: buildOverviewUsageSummary(usageRecords),
+					activity: buildOverviewActivity({ commits: commitDeploy.commits, events, logs }),
+					attention: buildOverviewAttention({ health, queueStats, bugs, latestDeploy }),
+				})
+			} catch (err) {
+				writeApiLog("error", "overview-summary", "Failed to build overview summary", { error: err.message })
+				sendJson(res, 500, { success: false, error: err.message })
 			}
 			return
 		}
@@ -7594,23 +8180,72 @@ const server = http.createServer(async (req, res) => {
 					.slice(-limit)
 					.reverse()
 					.map(function (d) {
+						const startedAt = parseTimestamp(d.startedAt || d.timestamp || d.deployedAt)
+						const completedAt = parseTimestamp(d.completedAt)
 						return {
 							version: d.version || "",
 							sha: d.commitSha || d.sha || "",
 							agent: d.agentName || d.agent || "unknown",
 							status: d.status || d.result || "unknown",
-							timestamp: d.timestamp || d.deployedAt || 0,
+							timestamp: startedAt || 0,
+							startedAt,
+							completedAt,
+							durationMs:
+								startedAt !== null && completedAt !== null && completedAt >= startedAt
+									? completedAt - startedAt
+									: null,
+							environment: d.environment || null,
+							healthCheckPassed: typeof d.healthCheckPassed === "boolean" ? d.healthCheckPassed : null,
+							healthCheckLatencyMs:
+								typeof d.healthCheckLatencyMs === "number" ? d.healthCheckLatencyMs : null,
+							failureReason: d.failureReason || d.error || null,
 						}
 					})
+				const deploySummary = buildDeploySummary(data.deploys || [])
 				sendJson(res, 200, {
 					success: true,
 					commits,
 					deploys,
 					totalCommits: (data.commits || []).length,
 					totalDeploys: (data.deploys || []).length,
+					deploySummary,
 				})
 			} catch (err) {
 				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /deploy/summary — canonical deployment metrics from CommitDeployLog
+		if (method === "GET" && (url === "/deploy/summary" || normalizedUrl === "/deploy/summary")) {
+			try {
+				const raw = await fs.readFile(path.join(__dirname, "..", "memory", "commit-deploy-log.json"), "utf8")
+				const data = JSON.parse(raw)
+				sendJson(res, 200, {
+					success: true,
+					summary: buildDeploySummary(data.deploys || []),
+					target: {
+						host: process.env.DEPLOY_VPS_HOST || "100.64.175.88",
+						user: process.env.DEPLOY_VPS_USER || "root",
+						path: process.env.DEPLOY_PATH || "/opt/superroo2",
+						healthUrl: process.env.DEPLOY_HEALTH_URL || null,
+					},
+				})
+			} catch (err) {
+				if (err && err.code === "ENOENT") {
+					sendJson(res, 200, {
+						success: true,
+						summary: buildDeploySummary([]),
+						target: {
+							host: process.env.DEPLOY_VPS_HOST || "100.64.175.88",
+							user: process.env.DEPLOY_VPS_USER || "root",
+							path: process.env.DEPLOY_PATH || "/opt/superroo2",
+							healthUrl: process.env.DEPLOY_HEALTH_URL || null,
+						},
+					})
+				} else {
+					sendJson(res, 500, { success: false, error: err.message })
+				}
 			}
 			return
 		}

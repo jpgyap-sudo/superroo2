@@ -267,6 +267,9 @@ export function useIdeTerminal() {
 	const [editorProblems, setEditorProblems] = useState<any[]>([])
 	const [jumpToPosition, setJumpToPosition] = useState<{ line: number; column: number } | null>(null)
 	const [lspConnected, setLspConnected] = useState(false)
+	// Terminal command history navigation
+	const [commandHistoryIndex, setCommandHistoryIndex] = useState<number>(-1)
+	const [commandHistoryDraft, setCommandHistoryDraft] = useState<string>("")
 	// Terminal search local state
 	const [terminalSearchLocalQuery, setTerminalSearchLocalQuery] = useState("")
 	// Snippet input
@@ -580,6 +583,13 @@ export function useIdeTerminal() {
 	const onLspReferences = useCallback((lang: string, uri: string, line: number, column: number) => {
 		return sendLspRequest("references", lang, uri, line, column)
 	}, [])
+
+	const onLspCodeActions = useCallback(
+		(lang: string, uri: string, line: number, column: number, diagnostics: any[]) => {
+			return sendLspRequest("codeAction", lang, uri, line, column, { diagnostics })
+		},
+		[],
+	)
 
 	const onLspOpenDocument = useCallback((lang: string, uri: string, text: string, version: number) => {
 		return sendLspRequest("open", lang, uri, 0, 0, { text, version })
@@ -1252,6 +1262,13 @@ export function useIdeTerminal() {
 		async (cmd: string) => {
 			if (!cmd.trim()) return
 			dispatch({ type: "SET_TERMINAL_INPUT", payload: "" })
+			setCommandHistoryIndex(-1)
+			setCommandHistoryDraft("")
+
+			// Add to command history (deduped, max 100)
+			const trimmed = cmd.trim()
+			const newHistory = [...recentCommands.filter((c) => c !== trimmed), trimmed].slice(-100)
+			dispatch({ type: "SET_RECENT_COMMANDS", payload: newHistory })
 
 			if (terminalMode === "shell" && ptyConnected && ptySessionId) {
 				// Send via PTY for real shell interaction
@@ -1273,7 +1290,44 @@ export function useIdeTerminal() {
 				dispatch({ type: "APPEND_TERMINAL_OUTPUT", payload: [`Error: ${err.message}`] })
 			}
 		},
-		[dispatch, ptyConnected, ptySessionId, handlePtyInput, terminalMode],
+		[dispatch, ptyConnected, ptySessionId, handlePtyInput, terminalMode, recentCommands],
+	)
+
+	// ── Terminal key handler (Up/Down for command history) ────────────────
+
+	const handleTerminalKeyDown = useCallback(
+		(e: React.KeyboardEvent, currentInput: string) => {
+			if (e.key === "ArrowUp") {
+				e.preventDefault()
+				if (commandHistoryIndex === -1) {
+					setCommandHistoryDraft(currentInput)
+				}
+				const nextIndex = commandHistoryIndex + 1
+				if (nextIndex < recentCommands.length) {
+					setCommandHistoryIndex(nextIndex)
+					dispatch({
+						type: "SET_TERMINAL_INPUT",
+						payload: recentCommands[recentCommands.length - 1 - nextIndex],
+					})
+				}
+			} else if (e.key === "ArrowDown") {
+				e.preventDefault()
+				const nextIndex = commandHistoryIndex - 1
+				if (nextIndex >= 0) {
+					setCommandHistoryIndex(nextIndex)
+					dispatch({
+						type: "SET_TERMINAL_INPUT",
+						payload: recentCommands[recentCommands.length - 1 - nextIndex],
+					})
+				} else if (nextIndex === -1) {
+					setCommandHistoryIndex(-1)
+					dispatch({ type: "SET_TERMINAL_INPUT", payload: commandHistoryDraft })
+				}
+			} else if (e.key === "Enter") {
+				handleTerminalCommand(currentInput)
+			}
+		},
+		[recentCommands, commandHistoryIndex, commandHistoryDraft, dispatch, handleTerminalCommand],
 	)
 
 	// ── Import / Open workspace ───────────────────────────────────────────
@@ -1541,6 +1595,7 @@ export function useIdeTerminal() {
 		handleFileSelect,
 		handleFileSave,
 		handleTerminalCommand,
+		handleTerminalKeyDown,
 		handleImportGithub,
 		handleOpenWorkspace,
 		handleViewDiff,
@@ -1556,6 +1611,7 @@ export function useIdeTerminal() {
 		onLspHover,
 		onLspDefinition,
 		onLspReferences,
+		onLspCodeActions,
 		onLspOpenDocument,
 		onLspChangeDocument,
 		onLspCloseDocument,

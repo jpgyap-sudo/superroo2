@@ -62,6 +62,7 @@ interface AiChatPanelProps {
 	aiMessagesEndRef: React.RefObject<HTMLDivElement | null>
 	textareaRef: React.RefObject<HTMLTextAreaElement | null>
 	slashCommandFilter: string
+	onClearChat?: () => void
 }
 
 function renderMessageContent(content: string): React.ReactNode[] {
@@ -166,6 +167,7 @@ export default function AiChatPanel({
 	aiMessagesEndRef,
 	textareaRef,
 	slashCommandFilter,
+	onClearChat,
 }: AiChatPanelProps) {
 	const [showTaskPicker, setShowTaskPicker] = useState(false)
 
@@ -355,6 +357,16 @@ export default function AiChatPanel({
 						{tab.label}
 					</button>
 				))}
+				<div className="flex-1" />
+				{onClearChat && (
+					<button
+						className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] text-[#8b949e] hover:text-[#f85149] hover:bg-[#f8514911] transition-colors"
+						onClick={onClearChat}
+						title="Clear chat history">
+						<X className="w-3.5 h-3.5" />
+						Clear
+					</button>
+				)}
 			</div>
 
 			{/* Brain tab content */}
