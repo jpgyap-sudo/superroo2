@@ -8133,10 +8133,7 @@ const server = http.createServer(async (req, res) => {
 		// POST /api/lessons/sync — batch-sync lessons from local lesson-index to Central Brain DB
 		// Accepts array of lesson objects (lesson-index.jsonl format)
 		// Called by sync-lessons-to-central-brain.mjs running on dev machine
-		if (
-			method === "POST" &&
-			(url === "/lessons/sync" || normalizedUrl === "/lessons/sync")
-		) {
+		if (method === "POST" && (url === "/lessons/sync" || normalizedUrl === "/lessons/sync")) {
 			try {
 				const data = await parseBody(req)
 				const lessons = Array.isArray(data) ? data : data.lessons || []
@@ -8144,8 +8141,12 @@ const server = http.createServer(async (req, res) => {
 					sendJson(res, 400, { success: false, error: "No lessons provided" })
 					return
 				}
-				const { BugKnowledgeStore } = require("../orchestrator/stores/BugKnowledgeStore")
-				const store = new BugKnowledgeStore()
+				// Use the already-initialized hermesClaw store (avoids pg module path issues)
+				const store = orchestrator?.hermesClaw?.bugKnowledgeStore
+				if (!store) {
+					sendJson(res, 503, { success: false, error: "BugKnowledgeStore not ready" })
+					return
+				}
 				const results = []
 				for (const lesson of lessons) {
 					try {
