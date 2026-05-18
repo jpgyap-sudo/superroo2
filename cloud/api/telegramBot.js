@@ -949,30 +949,6 @@ async function saveConversationHistory() {
 /** Debounce timeout for state persistence */
 let _statePersistTimeout = null
 
-// ─── Rate Limiter ────────────────────────────────────────────────────────────
-/** Simple per-chat rate limiter: max 10 commands per minute */
-var _rateLimitMap = new Map()
-var RATE_LIMIT_MAX = 10
-var RATE_LIMIT_WINDOW_MS = 60 * 1000
-
-function checkRateLimit(chatId) {
-	var now = Date.now()
-	var entry = _rateLimitMap.get(chatId)
-	if (!entry) {
-		_rateLimitMap.set(chatId, { count: 1, windowStart: now })
-		return { allowed: true }
-	}
-	if (now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
-		_rateLimitMap.set(chatId, { count: 1, windowStart: now })
-		return { allowed: true }
-	}
-	if (entry.count >= RATE_LIMIT_MAX) {
-		var retryAfter = Math.ceil((RATE_LIMIT_WINDOW_MS - (now - entry.windowStart)) / 1000)
-		return { allowed: false, retryAfter: retryAfter }
-	}
-	entry.count++
-	return { allowed: true }
-}
 
 
 /**
