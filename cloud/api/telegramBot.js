@@ -393,16 +393,16 @@ function splitLongMessage(text, maxLen) {
 }
 
 /**
-	* Shared Ollama chat client — calls Ollama's /api/chat endpoint via http.request.
-	* Uses canonical env vars OLLAMA_BASE_URL and OLLAMA_MODEL with legacy fallbacks.
-	* Returns the response content string, or null if Ollama is unavailable/times out.
-	* @param {Array} messages - Array of {role, content} message objects
-	* @param {object} [options] - Optional overrides
-	* @param {number} [options.num_predict=4096] - Max tokens to generate
-	* @param {number} [options.temperature=0.7] - Temperature
-	* @param {number} [options.timeout=120_000] - Request timeout in ms
-	* @returns {Promise<string|null>}
-	*/
+ * Shared Ollama chat client — calls Ollama's /api/chat endpoint via http.request.
+ * Uses canonical env vars OLLAMA_BASE_URL and OLLAMA_MODEL with legacy fallbacks.
+ * Returns the response content string, or null if Ollama is unavailable/times out.
+ * @param {Array} messages - Array of {role, content} message objects
+ * @param {object} [options] - Optional overrides
+ * @param {number} [options.num_predict=4096] - Max tokens to generate
+ * @param {number} [options.temperature=0.7] - Temperature
+ * @param {number} [options.timeout=120_000] - Request timeout in ms
+ * @returns {Promise<string|null>}
+ */
 async function _callOllamaChat(messages, options) {
 	options = options || {}
 	var ollamaBaseUrl = process.env.OLLAMA_BASE_URL || process.env.OLLAMA_HOST || "http://127.0.0.1:11434"
@@ -460,7 +460,7 @@ async function _callOllamaChat(messages, options) {
 }
 
 /**
-	* Sends a message to a Telegram chat, automatically splitting long messages
+ * Sends a message to a Telegram chat, automatically splitting long messages
  * into multiple API calls to respect Telegram's 4096-character limit.
  * Each chunk is sent as a separate message in sequence.
  */
@@ -948,8 +948,6 @@ async function saveConversationHistory() {
 
 /** Debounce timeout for state persistence */
 let _statePersistTimeout = null
-
-
 
 /**
  * Persists activeSessions, pendingOtpSecrets, pendingEmailOtps, and userTasks to disk.
@@ -2483,16 +2481,14 @@ async function handleDeploy(botToken, chatId, args, queue, orchestratorBridge) {
  */
 async function handleLogs(botToken, chatId, args) {
 	var limit = parseInt(args[0]) || 10
-	await sendMessage(botToken, chatId, '📋 *Fetching logs...*')
+	await sendMessage(botToken, chatId, "📋 *Fetching logs...*")
 	try {
-		var result = await tgEndpoints.readLogs('all', limit)
+		var result = await tgEndpoints.readLogs("all", limit)
 		var logs = result.logs.slice(-limit)
-		var text = '📋 *Recent Logs*
-
-' + ''
+		var text = "📋 *Recent Logs*\n\n"
 		await sendMessage(botToken, chatId, text)
 	} catch (e) {
-		await sendMessage(botToken, chatId, '❌ Failed to fetch logs: ' + e.message)
+		await sendMessage(botToken, chatId, "❌ Failed to fetch logs: " + e.message)
 	}
 }
 
@@ -3571,7 +3567,7 @@ async function handleUpgrade(botToken, chatId, args, queue, orchestratorBridge) 
 					console.log("[telegram] Upgrade lesson recording non-fatal:", err.message)
 				})
 		} catch (learnErr) {
-			// Non-fatal
+			console.log("[telegram] Upgrade lesson recording skipped (non-fatal):", learnErr.message)
 		}
 
 		await sendMessage(
@@ -4908,8 +4904,7 @@ async function handleProjectSelect(botToken, chatId, messageId, projectId, teleg
 			)
 
 			// Send a follow-up message with Mini IDE WebApp button
-			const miniIdeUrl =
-				`${DASHBOARD_URL}/tg?workspace=` + encodeURIComponent(projectId) + "&chat_id=" + chatId
+			const miniIdeUrl = `${DASHBOARD_URL}/tg?workspace=` + encodeURIComponent(projectId) + "&chat_id=" + chatId
 			await sendInlineKeyboard(
 				botToken,
 				chatId,
@@ -5199,11 +5194,7 @@ async function handleNaturalLanguageInstruction(
 
 				var chatProjectCtx = ""
 				if (needsProjectContext) {
-					var chatCandidates = [
-						"/root/" + chatBoundWs,
-						"/opt/" + chatBoundWs,
-						"/home/" + chatBoundWs,
-					]
+					var chatCandidates = ["/root/" + chatBoundWs, "/opt/" + chatBoundWs, "/home/" + chatBoundWs]
 					var fsSync2 = require("fs")
 					for (var ccp of chatCandidates) {
 						try {
@@ -5218,7 +5209,9 @@ async function handleNaturalLanguageInstruction(
 								}
 								if (!chatProjectCtx) {
 									try {
-										var pkg2 = JSON.parse(fsSync2.readFileSync(path.join(ccp, "package.json"), "utf8"))
+										var pkg2 = JSON.parse(
+											fsSync2.readFileSync(path.join(ccp, "package.json"), "utf8"),
+										)
 										chatProjectCtx =
 											"\n\nProject: " +
 											(pkg2.name || chatBoundWs) +
@@ -6176,15 +6169,19 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 		return
 	}
 
-		// ─── Rate limit check ───
-		var chatId = update.message ? update.message.chat.id : (update.callback_query ? update.callback_query.message.chat.id : null)
-		if (chatId) {
-			var rateCheck = checkRateLimit(chatId)
-			if (!rateCheck.allowed) {
-				console.log("[telegram] Rate limited chat " + chatId + ", retry after " + rateCheck.retryAfter + "s")
-				return
-			}
+	// ─── Rate limit check ───
+	var chatId = update.message
+		? update.message.chat.id
+		: update.callback_query
+			? update.callback_query.message.chat.id
+			: null
+	if (chatId) {
+		var rateCheck = checkRateLimit(chatId)
+		if (!rateCheck.allowed) {
+			console.log("[telegram] Rate limited chat " + chatId + ", retry after " + rateCheck.retryAfter + "s")
+			return
 		}
+	}
 
 	// Handle callback queries (inline keyboard button presses)
 	if (update && update.callback_query) {

@@ -32,7 +32,7 @@
 const CLASSIFIER_TIMEOUT_MS = 120_000
 
 /** Minimum confidence to accept LLM classification */
-const MIN_CONFIDENCE = 0.3
+const MIN_CONFIDENCE = 0.65
 
 // ─── Keyword Fallback ───────────────────────────────────────────────────────
 
@@ -69,10 +69,15 @@ function keywordFallback(text) {
 		return "chat"
 	}
 
-	// Feature query — questions about SuperRoo's product features, capabilities, architecture
-	// Also catches informational API/service questions that aren't shell commands.
+	// Feature query — questions about the app/project's features, APIs, architecture, or how it works.
+	// Catches both SuperRoo-specific questions AND questions about a bound workspace project.
 	if (
 		lower.includes("what feature") ||
+		lower.includes("what features") ||
+		lower.includes("feature list") ||
+		lower.includes("product feature") ||
+		lower.includes("capabilities") ||
+		// SuperRoo internals
 		lower.includes("what does superroo") ||
 		lower.includes("how does superroo") ||
 		lower.includes("superroo feature") ||
@@ -87,10 +92,9 @@ function keywordFallback(text) {
 		lower.includes("deepseek route") ||
 		lower.includes("hermes") ||
 		lower.includes("memory system") ||
-		lower.includes("product feature") ||
-		lower.includes("feature list") ||
-		lower.includes("what features") ||
-		lower.includes("capabilities") ||
+		(lower.includes("how") && lower.includes("work") && lower.includes("superroo")) ||
+		(lower.includes("what") && lower.includes("superroo") && lower.includes("do")) ||
+		// API / service / route questions (project-agnostic)
 		lower.includes("api exposed") ||
 		lower.includes("what api") ||
 		lower.includes("what apis") ||
@@ -101,8 +105,28 @@ function keywordFallback(text) {
 		lower.includes("what ports") ||
 		(lower.includes("is there") && lower.includes("api")) ||
 		(lower.includes("are there") && lower.includes("api")) ||
-		(lower.includes("how") && lower.includes("work") && lower.includes("superroo")) ||
-		(lower.includes("what") && lower.includes("superroo") && lower.includes("do"))
+		// "how does X work" / "what is X" questions about the *app* (not general knowledge)
+		(lower.includes("how does") &&
+			(lower.includes("app") || lower.includes("project") || lower.includes("this"))) ||
+		(lower.includes("how does the") &&
+			(lower.includes("auth") ||
+				lower.includes("payment") ||
+				lower.includes("flow") ||
+				lower.includes("login") ||
+				lower.includes("upload") ||
+				lower.includes("queue") ||
+				lower.includes("worker"))) ||
+		(lower.includes("what is the") &&
+			(lower.includes("flow") ||
+				lower.includes("architecture") ||
+				lower.includes("structure") ||
+				lower.includes("stack") ||
+				lower.includes("tech stack"))) ||
+		(lower.includes("how is") &&
+			(lower.includes("built") ||
+				lower.includes("structured") ||
+				lower.includes("deployed") ||
+				lower.includes("hosted")))
 	) {
 		return "feature_query"
 	}

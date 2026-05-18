@@ -129,6 +129,14 @@ class CloudOrchestrator extends EventEmitter {
 
 		this.emit("started", { mode: this.mode, startedAt: this._startedAt })
 		console.log(`[CloudOrchestrator] Started in mode: ${this.mode}`)
+
+		// Log which optional modules are unregistered so gaps are visible in PM2 logs
+		const status = this.getStatus()
+		const coreModules = new Set(["memory", "eventLog", "taskQueue"])
+		const unregistered = status.unloadedModules.filter((m) => !coreModules.has(m))
+		if (unregistered.length > 0) {
+			console.log(`[CloudOrchestrator] Optional modules not registered: ${unregistered.join(", ")}`)
+		}
 	}
 
 	/**

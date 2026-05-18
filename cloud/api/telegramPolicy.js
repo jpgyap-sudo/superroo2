@@ -26,7 +26,7 @@ var requireCodingApproval = process.env.REQUIRE_CODING_APPROVAL === "true"
 /**
  * Dashboard URL for redirecting users to approve blocked actions.
  */
-var dashboardUrl = process.env.DASHBOARD_URL || "https://dev.abcx124.xyz"
+var dashboardUrl = process.env.DASHBOARD_URL || "https://superroo.app"
 
 /**
  * Set of action kinds that are safe to run without approval.
@@ -67,8 +67,9 @@ var safeShellPatterns = [
 	/\b(docker\s+ps|docker\s+images|docker\s+logs|docker\s+inspect|docker\s+version)\b/,
 	// ollama read-only
 	/\b(ollama\s+list|ollama\s+ps|ollama\s+--version|ollama\s+version)\b/,
-	// network read-only
-	/\b(ping|curl\s+.*\s+(GET|HEAD|--head)|ip\s+addr|ifconfig|netstat|ss\s+-tuln)\b/,
+	// network read-only (GET/HEAD only — POST/PUT/PATCH are blocked in dangerousShellPatterns)
+	/\b(ping|ip\s+addr|ifconfig|netstat|ss\s+-tuln)\b/,
+	/\bcurl\s+(-s\s+)?https?:\/\/\S+\s*$/, // bare curl URL with no flags (read-only GET)
 	// package manager read-only
 	/\b(apt\s+list|dpkg\s+-l|npm\s+list|pnpm\s+list|pip\s+list)\b/,
 ]
@@ -85,7 +86,10 @@ var dangerousShellPatterns = [
 	/\b(systemctl\s+(start|stop|restart|enable|disable)|service\s+\w+\s+(start|stop|restart))\b/,
 	/\b(docker\s+(rm|stop|kill|exec|run|pull|push|build|compose\s+down))\b/,
 	/\b(ollama\s+(run|pull|push|delete|rm|stop|create))\b/,
-	/\b(>|>>|\|\s*tee\s+|curl\s+.*(-o|--output)|wget\s+.*(-O|--output-document))\b/,
+	/\b(>|>>|\|\s*tee\s+|wget\s+.*(-O|--output-document))\b/,
+	// curl write / execute patterns
+	/\bcurl\s+.*((-o|--output|-X\s*(POST|PUT|PATCH|DELETE)|--data|--data-raw|-d\s+|-F\s+))/i,
+	/\bcurl\s+.*\|\s*(bash|sh|python|node|perl|ruby)/i, // curl | bash style
 	/\b(apt\s+(install|remove|purge|upgrade|dist-upgrade)|dpkg\s+-i|npm\s+install|pnpm\s+install)\b/,
 	/\b(git\s+(push|force|reset|revert|checkout\s+-f|clean\s+-f))\b/,
 	/\b(ssh\s+|scp\s+|rsync\s+|sftp\s+)\b/,
