@@ -14,7 +14,34 @@ This project uses a model-routing workflow:
 - **DeepSeek** = primary low-cost coder / refactor worker
 - **Ollama** = local memory, lessons, summaries, feature knowledge, retrieval helper
 - **Central Brain** = persistent memory database / pgvector / lesson store
-- **Claude** = fallback reviewer, API provider via Bedrock/Anthropic
+- **Claude** = planner, reviewer, orchestrator — delegates coding to DeepSeek via MCP
+
+### Workflow Enforcement (MCP Tools)
+
+Claude Code MUST use the `deepseek-coder` MCP server (registered in `.mcp.json`) to delegate coding tasks to DeepSeek V4. This is how the agent routing workflow is enforced:
+
+| Phase         | Tool                          | Provider    | When to Use                                                    |
+| ------------- | ----------------------------- | ----------- | -------------------------------------------------------------- |
+| **Plan**      | Claude's own model            | Claude      | Analyze requirements, design architecture, plan implementation |
+| **Code**      | `deepseek_code`               | DeepSeek V4 | Write new code, implement features, create files               |
+| **Review**    | `deepseek_review`             | DeepSeek V4 | Review code for bugs, security, performance                    |
+| **Refactor**  | `deepseek_refactor`           | DeepSeek V4 | Improve existing code structure and quality                    |
+| **Explain**   | `deepseek_explain`            | DeepSeek V4 | Understand complex code, generate docs                         |
+| **Summarize** | `ollama-summarize-lesson.mjs` | Ollama      | Summarize lessons after task completion                        |
+
+**Workflow rule:** Claude MUST call `deepseek_code` for any substantial coding task instead of writing code directly. Claude handles planning, review, and orchestration. DeepSeek handles implementation.
+
+**Available MCP tools:**
+
+1. **`deepseek_code(prompt, system?, model?, temperature?, max_tokens?)** — Generate code using DeepSeek V4. Pass the coding task as `prompt`. Optionally set `system` prompt for context.
+
+2. **`deepseek_review(code, context?, model?)** — Review code using DeepSeek V4. Returns structured review with severity levels.
+
+3. **`deepseek_refactor(code, instructions?, model?)** — Refactor code using DeepSeek V4. Pass refactoring goals as `instructions`.
+
+4. **`deepseek_explain(code, context?, model?)** — Explain code using DeepSeek V4. Returns detailed explanation with design patterns and data flow.
+
+5. \*\*`deepseek_status()` — Check if DeepSeek API is configured and reachable.
 
 ## Learning Layer — Mandatory Sync
 
@@ -34,6 +61,7 @@ node -e "const {getLessonRetriever} = require('./src/super-roo/lessons'); const 
 ```
 
 Also search:
+
 - `memory/lessons-learned.md` for keywords related to the task
 - `memory/bugs-fixed.md` for similar bugs
 - `memory/feature-knowledge.md` for related features
@@ -52,34 +80,43 @@ Confidence: [high/medium/low]
 Related files: [comma-separated list]
 
 #### Task Summary
+
 [What was accomplished?]
 
 #### Files Changed
+
 - [file1]
 - [file2]
 
 #### Bug Cause
+
 [Root cause if applicable]
 
 #### Fix Applied
+
 [What fixed it?]
 
 #### Test Result
+
 [pass/fail/unknown]
 
 #### Lesson Learned
+
 [Reusable engineering insight]
 
 #### Reusable Rule
+
 [Specific actionable rule for future agents]
 
 #### Tags
+
 [tag1, tag2, tag3]
 
 ---
 ```
 
 Then run:
+
 ```bash
 node scripts/extract-lesson-from-commit.mjs --interactive
 node scripts/ollama-summarize-lesson.mjs    # when Ollama is running
@@ -95,6 +132,7 @@ The **Working Tree** ([`docs/resources/working-tree.md`](docs/resources/working-
 The **Commit & Deploy Log** ([`src/super-roo/product-memory/CommitDeployLog.ts`](src/super-roo/product-memory/CommitDeployLog.ts)) is the single source of truth for all commits and deployments.
 
 **ALL agents MUST:**
+
 1. Record every commit via `CommitDeployLog.recordCommit()`
 2. Record every deploy via `CommitDeployLog.recordDeploy()`
 3. Check history first with `CommitDeployLog.getCommits()` / `getDeploys()`
@@ -135,6 +173,7 @@ bash cloud/remote-deploy-dashboard.sh
 Claude Code has persistent task memory at [`server/src/memory/claudetask.json`](server/src/memory/claudetask.json), following the same schema as Codex and Kimi task memory.
 
 **Rules:**
+
 1. Before starting work, read `server/src/memory/claudetask.json` to recover recent context.
 2. When a task starts, upsert a task with `status: "active"`, a clear title, summary, and affected features.
 3. When the task changes materially, update the same task ID instead of creating duplicates.

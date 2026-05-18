@@ -11358,3 +11358,56 @@ To be determined — this commit was auto-flagged as potentially containing a le
 bugfix
 
 ---
+
+### Auto-Extracted Lesson: Copy node_modules from builder to runtime in dashboard Dockerfile
+
+Date: 2026-05-18
+Source: Git commit cdf18e16
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/docker/Dockerfile.dashboard, memory/lesson-index.jsonl, memory/lessons-learned.md, scripts/deepseek-coder-mcp.mjs
+
+#### Task Summary
+
+fix: copy node_modules from builder to runtime in dashboard Dockerfile
+
+#### Files Changed
+
+- `cloud/docker/Dockerfile.dashboard`
+- `memory/lesson-index.jsonl`
+- `memory/lessons-learned.md`
+- `scripts/deepseek-coder-mcp.mjs`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit cdf18e16.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit cdf18e16 by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+bugfix
+
+---

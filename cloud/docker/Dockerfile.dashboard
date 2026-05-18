@@ -1,6 +1,7 @@
 # SuperRoo Dashboard Container
 # Build context: repo root (monorepo with pnpm workspaces)
-FROM node:20-slim AS builder
+# Single-stage build: builder image is also the runtime
+FROM node:20-slim
 
 RUN apt-get update && apt-get install -y curl \
     && rm -rf /var/lib/apt/lists/*
@@ -25,15 +26,8 @@ COPY packages/config-typescript/ ./packages/config-typescript/
 # Build
 RUN cd cloud/dashboard && pnpm run build
 
-FROM node:20-slim AS runtime
-RUN apt-get update && apt-get install -y curl \
-    && rm -rf /var/lib/apt/lists/*
-WORKDIR /app
-
-COPY --from=builder /app/cloud/dashboard/.next/standalone/ ./
-COPY --from=builder /app/cloud/dashboard/.next/static/ ./.next/static/
-COPY --from=builder /app/cloud/dashboard/public/ ./public/
-COPY --from=builder /app/cloud/dashboard/node_modules/ ./node_modules/
+# Runtime working directory is the standalone output
+WORKDIR /app/cloud/dashboard/.next/standalone
 
 EXPOSE 3001
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \

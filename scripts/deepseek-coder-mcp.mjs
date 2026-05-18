@@ -45,7 +45,7 @@ const __dirname = path.dirname(__filename)
 // ── Configuration ─────────────────────────────────────────────────────────────
 
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || ""
-const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat"
+const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat-v4"
 const DEEPSEEK_API_URL =
 	process.env.DEEPSEEK_API_URL || "https://api.deepseek.com/v1/chat/completions"
 const MCP_SERVER_NAME = "deepseek-coder"
@@ -88,7 +88,7 @@ const TOOLS = [
 	{
 		name: "deepseek_code",
 		description:
-			"Generate code using DeepSeek API. Use this for writing new code, implementing features, or creating files. DeepSeek is the primary coder in the SuperRoo workflow.",
+			"Generate code using DeepSeek V4 API. Use this for writing new code, implementing features, or creating files. DeepSeek is the primary coder in the SuperRoo workflow (Claude plans/reviews → DeepSeek codes → Ollama summarizes).",
 		inputSchema: {
 			type: "object",
 			properties: {
@@ -103,7 +103,7 @@ const TOOLS = [
 				},
 				model: {
 					type: "string",
-					description: "DeepSeek model to use (default: deepseek-chat)",
+					description: "DeepSeek model to use (default: deepseek-chat-v4)",
 				},
 				temperature: {
 					type: "number",
@@ -120,7 +120,7 @@ const TOOLS = [
 	{
 		name: "deepseek_review",
 		description:
-			"Review code using DeepSeek API. Use this for code review, finding bugs, or suggesting improvements.",
+			"Review code using DeepSeek V4 API. Use this for code review, finding bugs, or suggesting improvements.",
 		inputSchema: {
 			type: "object",
 			properties: {
@@ -134,7 +134,7 @@ const TOOLS = [
 				},
 				model: {
 					type: "string",
-					description: "DeepSeek model to use (default: deepseek-chat)",
+					description: "DeepSeek model to use (default: deepseek-chat-v4)",
 				},
 			},
 			required: ["code"],
@@ -143,7 +143,7 @@ const TOOLS = [
 	{
 		name: "deepseek_refactor",
 		description:
-			"Refactor code using DeepSeek API. Use this for improving existing code structure, performance, or readability.",
+			"Refactor code using DeepSeek V4 API. Use this for improving existing code structure, performance, or readability.",
 		inputSchema: {
 			type: "object",
 			properties: {
@@ -157,7 +157,7 @@ const TOOLS = [
 				},
 				model: {
 					type: "string",
-					description: "DeepSeek model to use (default: deepseek-chat)",
+					description: "DeepSeek model to use (default: deepseek-chat-v4)",
 				},
 			},
 			required: ["code"],
@@ -166,7 +166,7 @@ const TOOLS = [
 	{
 		name: "deepseek_explain",
 		description:
-			"Explain code using DeepSeek API. Use this for understanding complex code, generating documentation, or learning.",
+			"Explain code using DeepSeek V4 API. Use this for understanding complex code, generating documentation, or learning.",
 		inputSchema: {
 			type: "object",
 			properties: {
@@ -180,7 +180,7 @@ const TOOLS = [
 				},
 				model: {
 					type: "string",
-					description: "DeepSeek model to use (default: deepseek-chat)",
+					description: "DeepSeek model to use (default: deepseek-chat-v4)",
 				},
 			},
 			required: ["code"],

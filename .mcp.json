@@ -3,6 +3,11 @@
 		"superroo-brain": {
 			"url": "http://127.0.0.1:3419/mcp",
 			"description": "SuperRoo Central Brain MCP — project memory, bugs, features, Codex tasks, Kimi tasks, commit/deploy log"
+		},
+		"deepseek-coder": {
+			"command": "node",
+			"args": ["scripts/deepseek-coder-mcp.mjs"],
+			"description": "DeepSeek V4 Coder MCP — delegate coding, review, refactor, and explain tasks to DeepSeek V4. Follows SuperRoo workflow: Claude plans/reviews → DeepSeek codes → Ollama summarizes"
 		}
 	}
 }
