@@ -76,6 +76,7 @@ function StatusDot({ online }: { online: boolean }) {
 
 export default function Dashboard() {
 	const [page, setPage] = useState("overview")
+	const [pageInitialized, setPageInitialized] = useState(false)
 	const [health, setHealth] = useState<any>(null)
 	const [time, setTime] = useState("")
 	const [authenticated, setAuthenticated] = useState<boolean | null>(null)
@@ -96,6 +97,26 @@ export default function Dashboard() {
 			setAuthenticated(false)
 		}
 	}, [])
+
+	// Sync page state with URL query param for direct linking and E2E tests
+	useEffect(() => {
+		if (typeof window === "undefined") return
+		const params = new URLSearchParams(window.location.search)
+		const pageParam = params.get("page")
+		if (pageParam && PAGES[pageParam]) {
+			setPage(pageParam)
+		}
+		setPageInitialized(true)
+	}, [])
+
+	useEffect(() => {
+		if (typeof window === "undefined" || !pageInitialized) return
+		const params = new URLSearchParams(window.location.search)
+		if (params.get("page") !== page) {
+			params.set("page", page)
+			window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`)
+		}
+	}, [page, pageInitialized])
 
 	// Register service worker for PWA
 	useEffect(() => {

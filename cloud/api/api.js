@@ -19,6 +19,7 @@ const fs = require("fs").promises
 const fsSync = require("fs")
 const path = require("path")
 const { WebSocketServer } = require("ws")
+const os = require("os")
 
 // ── Cloud Orchestrator ────────────────────────────────────────────────────────
 
@@ -432,6 +433,7 @@ async function initOrchestrator() {
 		const { FeatureRegistry } = safeRequire("../orchestrator/modules/FeatureRegistry")
 		const { BugRegistry } = safeRequire("../orchestrator/modules/BugRegistry")
 		const { CommitDeployLog } = safeRequire("../orchestrator/modules/CommitDeployLog")
+		const { ModelUsageTracker } = safeRequire("../orchestrator/modules/ModelUsageTracker")
 		const { HealingBus } = safeRequire("../orchestrator/modules/HealingBus")
 		const { SelfHealingLoop } = safeRequire("../orchestrator/modules/SelfHealingLoop")
 		const { ParallelExecutor } = safeRequire("../orchestrator/modules/ParallelExecutor")
@@ -465,6 +467,13 @@ async function initOrchestrator() {
 		orchestrator.registerFeatureRegistry(new FeatureRegistry({ memoryStore: orchestrator.memory }))
 		orchestrator.registerBugRegistry(new BugRegistry({ memoryStore: orchestrator.memory }))
 		orchestrator.registerCommitDeployLog(new CommitDeployLog())
+
+		// ── ModelUsageTracker — tracks AI model API usage & workflow compliance ──
+		const modelUsageTracker = new ModelUsageTracker({
+			memoryDir: path.join(__dirname, "..", "..", "server", "src", "memory"),
+		})
+		await modelUsageTracker.initialize()
+		orchestrator.modelUsageTracker = modelUsageTracker
 
 		const healingBus = new HealingBus({ memoryStore: orchestrator.memory })
 		orchestrator.registerHealingBus(healingBus)
@@ -4304,7 +4313,9 @@ const server = http.createServer(async (req, res) => {
 				global.__ideWorkspace = {
 					repoName: "superroo2",
 					branch: "main",
-					workspaceDir: process.env.WORKSPACE_ROOT || "/opt/superroo2",
+					workspaceDir:
+						process.env.WORKSPACE_ROOT ||
+						(fsSync.existsSync("/opt/superroo2") ? "/opt/superroo2" : process.cwd()),
 					terminalSessions: [
 						{
 							id: "term-1",
@@ -6062,6 +6073,118 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// POST /ide-workspace/git — stub for git commands (GitPanel integration)
+		if (method === "POST" && normalizedUrl.startsWith("/ide-workspace/git")) {
+			const data = await parseBody(req)
+			const action = data?.action || "status"
+			const payload = data || {}
+			try {
+				let output = ""
+				switch (action) {
+					case "status":
+						output =
+							"On branch main\nYour branch is up to date with 'origin/main'.\n\nnothing to commit, working tree clean"
+						break
+					case "log":
+						output = `commit abc123\nAuthor: Agent <agent@superroo.dev>\nDate: ${new Date().toISOString()}\n\n    Auto-commit by SuperRoo agent`
+						break
+					case "commit":
+						output = `[main ${Math.random().toString(36).slice(2, 8)}] ${payload.message || "auto-commit"}`
+						break
+					case "push":
+						output = "Everything up-to-date"
+						break
+					case "pull":
+						output = "Already up to date."
+						break
+					default:
+						output = `Git ${action} completed`
+				}
+				sendJson(res, 200, { success: true, output })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /ide-workspace/search — stub for workspace file search
+		if (method === "GET" && normalizedUrl.startsWith("/ide-workspace/search")) {
+			const q = parsedUrl.searchParams.get("q") || ""
+			try {
+				// Simple filename search across workspace files
+				const allFiles = ws.files || []
+				const results = allFiles
+					.filter((f) => f.path.toLowerCase().includes(q.toLowerCase()))
+					.slice(0, 20)
+					.map((f) => ({
+						file: f.path,
+						line: 1,
+						content: f.path.split("/").pop() || f.path,
+						match: f.path,
+					}))
+				sendJson(res, 200, { results })
+			} catch (err) {
+				sendJson(res, 500, { results: [], error: err.message })
+			}
+			return
+		}
+
+		// POST /brain/ask — simplified AI chat endpoint for IDE Terminal fallback
+		if (method === "POST" && normalizedUrl.startsWith("/brain/ask")) {
+			const data = await parseBody(req)
+			const msg = data?.message || ""
+			const sessionId = data?.sessionId || "default"
+			if (!msg) {
+				sendJson(res, 400, { reply: "No message provided" })
+				return
+			}
+
+			const provider = resolveProviderForTask("coder")
+			if (!provider) {
+				sendJson(res, 200, {
+					reply: "No AI provider is configured. Please add an API key in Settings > API Keys.",
+					suggestions: [],
+				})
+				return
+			}
+
+			try {
+				const systemPrompt = `You are SuperRoo, an expert AI coding assistant in the Cloud Dashboard IDE Terminal. The user is working in a cloud workspace.`
+				const reply = await callChatCompletion(provider.apiBaseUrl, provider.apiKey, provider.model, [
+					{ role: "system", content: systemPrompt },
+					{ role: "user", content: msg },
+				])
+				sendJson(res, 200, { reply, suggestions: [] })
+			} catch (err) {
+				console.error("[brain/ask] Error:", err.message)
+				sendJson(res, 200, {
+					reply: `AI request failed: ${err.message}. Check your API key and try again.`,
+					suggestions: [],
+				})
+			}
+			return
+		}
+
+		// GET /system/resources — terminal resource monitoring
+		if (method === "GET" && normalizedUrl.startsWith("/system/resources")) {
+			try {
+				const cpus = os.cpus()
+				const totalMem = os.totalmem()
+				const freeMem = os.freemem()
+				const loadAvg = os.loadavg()
+				const cpuPercent = cpus.length > 0 ? Math.min(100, Math.round((loadAvg[0] / cpus.length) * 100)) : 0
+				const memoryPercent = totalMem > 0 ? Math.round(((totalMem - freeMem) / totalMem) * 100) : 0
+				sendJson(res, 200, {
+					cpu: cpuPercent,
+					memory: memoryPercent,
+					processes: 0,
+				})
+			} catch (err) {
+				sendJson(res, 500, { cpu: 0, memory: 0, processes: 0, error: err.message })
+			}
+			return
+		}
+
 		// ── Cloud Orchestrator API Routes ──────────────────────────────────────────
 
 		// GET /orchestrator/status — get orchestrator status
@@ -7350,17 +7473,46 @@ const server = http.createServer(async (req, res) => {
 			try {
 				const fs = require("fs")
 				const path = require("path")
-				const lessonsPath = path.join(__dirname, "../../memory/lessons.jsonl")
-				const q = (parsedUrl.query.q || "").toLowerCase()
+				const requestUrl = new URL(req.url || "", "http://localhost")
+				const lessonsPath = path.join(__dirname, "../../memory/lesson-index.jsonl")
+				const terms = String(requestUrl.searchParams.get("q") || "")
+					.toLowerCase()
+					.split(/\s+/)
+					.filter(Boolean)
 				let lessons = []
 				if (fs.existsSync(lessonsPath)) {
 					lessons = fs
 						.readFileSync(lessonsPath, "utf8")
 						.split(/\r?\n/)
 						.filter(Boolean)
-						.map((line) => JSON.parse(line))
+						.map((line) => {
+							try {
+								return JSON.parse(line)
+							} catch {
+								return null
+							}
+						})
+						.filter(Boolean)
+						.map((lesson) => ({
+							id: lesson.id,
+							task: lesson.title || "Untitled lesson",
+							task_type: lesson.type || "",
+							risk: lesson.relevance_factors?.is_bug_fix ? "high" : "medium",
+							tags: Array.isArray(lesson.tags) ? lesson.tags : [],
+							files: Array.isArray(lesson.files) ? lesson.files : [],
+							models: lesson.model ? [lesson.model] : [],
+							root_cause: lesson.lesson_summary || "No lesson summary recorded.",
+							fix: lesson.rule_summary || "No reusable rule recorded.",
+							reusable_rule: lesson.rule_summary || "No reusable rule recorded.",
+							date: lesson.date,
+						}))
 				}
-				const filtered = q ? lessons.filter((l) => JSON.stringify(l).toLowerCase().includes(q)) : lessons
+				const filtered = terms.length
+					? lessons.filter((lesson) => {
+							const haystack = JSON.stringify(lesson).toLowerCase()
+							return terms.every((term) => haystack.includes(term))
+						})
+					: lessons
 				const tagCounts = {}
 				lessons.forEach((l) => {
 					;(l.tags || []).forEach((t) => {

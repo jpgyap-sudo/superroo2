@@ -4,6 +4,7 @@ import { useState, useRef, useCallback, useEffect } from "react"
 import type { ChatMessage } from "@/lib/ide-store"
 import type { Dispatch } from "react"
 import type { IdeAction } from "@/lib/ide-store"
+import { getWebSocketUrl } from "../api"
 
 const SESSION_KEY = "superroo-chat-session"
 const WS_TIMEOUT_MS = 120_000 // 120 seconds
@@ -150,8 +151,7 @@ export function useWebSocket({
 
 	const connect = useCallback(() => {
 		const sessionId = getSessionId()
-		const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
-		const wsUrl = `${protocol}//${window.location.host}/api/ws/chat?session=${sessionId}`
+		const wsUrl = getWebSocketUrl(`/api/ws/chat?session=${sessionId}`)
 
 		try {
 			const ws = new WebSocket(wsUrl)

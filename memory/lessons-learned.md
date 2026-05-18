@@ -7949,12 +7949,14 @@ Date: 2026-05-17
 Source: Git commit a1475162
 Model/API used: unknown
 Confidence: medium
-Related files: cloud/api/api.js, docs/super-roo/ONBOARDING_GUIDE.md, memory/lessons-learned.md, src/super-roo/crawler/__tests__/CrawlerAgent.test.ts, src/super-roo/deploy/__tests__/DeployOrchestrator.test.ts
+Related files: cloud/api/api.js, docs/super-roo/ONBOARDING_GUIDE.md, memory/lessons-learned.md, src/super-roo/crawler/**tests**/CrawlerAgent.test.ts, src/super-roo/deploy/**tests**/DeployOrchestrator.test.ts
 
 #### Task Summary
+
 feat(gap-analysis): comprehensive full-stack improvements across 7 phases
 
 #### Files Changed
+
 - `cloud/api/api.js`
 - `docs/super-roo/ONBOARDING_GUIDE.md`
 - `memory/lessons-learned.md`
@@ -7971,25 +7973,35 @@ feat(gap-analysis): comprehensive full-stack improvements across 7 phases
 - `webview-ui/src/components/super-roo/tabs/__tests__/DashboardTab.spec.tsx`
 
 #### Bug Cause
+
 <!-- TODO: Document what caused the issue -->
+
 Unknown — extracted from commit a1475162.
 
 #### Fix Applied
+
 <!-- TODO: Document the solution -->
+
 See commit a1475162 by JPG Yap.
 
 #### Test Result
+
 Tests were included in this commit.
 
 #### Lesson Learned
+
 <!-- TODO: Extract reusable lesson -->
+
 To be determined — this commit was auto-flagged as potentially containing a lesson.
 
 #### Reusable Rule
+
 <!-- TODO: Define a specific rule for future agents -->
+
 **TODO: Add a specific, actionable rule based on this commit.**
 
 #### Tags
+
 testing, ml-engine, ui, api, deployment
 
 ---
@@ -8000,12 +8012,14 @@ Date: 2026-05-17
 Source: Git commit faa919c9
 Model/API used: unknown
 Confidence: medium
-Related files: cloud/api/api.js, docs/super-roo/ONBOARDING_GUIDE.md, memory/lessons-learned.md, src/super-roo/crawler/__tests__/CrawlerAgent.test.ts, src/super-roo/deploy/__tests__/DeployOrchestrator.test.ts
+Related files: cloud/api/api.js, docs/super-roo/ONBOARDING_GUIDE.md, memory/lessons-learned.md, src/super-roo/crawler/**tests**/CrawlerAgent.test.ts, src/super-roo/deploy/**tests**/DeployOrchestrator.test.ts
 
 #### Task Summary
+
 feat(gap-analysis): comprehensive full-stack improvements across 7 phases
 
 #### Files Changed
+
 - `cloud/api/api.js`
 - `docs/super-roo/ONBOARDING_GUIDE.md`
 - `memory/lessons-learned.md`
@@ -8022,25 +8036,35 @@ feat(gap-analysis): comprehensive full-stack improvements across 7 phases
 - `webview-ui/src/components/super-roo/tabs/__tests__/DashboardTab.spec.tsx`
 
 #### Bug Cause
+
 <!-- TODO: Document what caused the issue -->
+
 Unknown — extracted from commit faa919c9.
 
 #### Fix Applied
+
 <!-- TODO: Document the solution -->
+
 See commit faa919c9 by JPG Yap.
 
 #### Test Result
+
 Tests were included in this commit.
 
 #### Lesson Learned
+
 <!-- TODO: Extract reusable lesson -->
+
 To be determined — this commit was auto-flagged as potentially containing a lesson.
 
 #### Reusable Rule
+
 <!-- TODO: Define a specific rule for future agents -->
+
 **TODO: Add a specific, actionable rule based on this commit.**
 
 #### Tags
+
 testing, ml-engine, ui, api, deployment
 
 ---
@@ -8054,9 +8078,11 @@ Confidence: medium
 Related files: cloud/api/api.js, cloud/dashboard/src/components/views/intelligence-layer.tsx, cloud/orchestrator/CloudOrchestrator.js, cloud/orchestrator/modules/LearningGateway.js, cloud/orchestrator/modules/LearningPolicy.js
 
 #### Task Summary
+
 feat: add learning layer curation workflow
 
 #### Files Changed
+
 - `cloud/api/api.js`
 - `cloud/dashboard/src/components/views/intelligence-layer.tsx`
 - `cloud/orchestrator/CloudOrchestrator.js`
@@ -8077,25 +8103,35 @@ feat: add learning layer curation workflow
 - `src/tests/cloud/learning-gateway.test.js`
 
 #### Bug Cause
+
 <!-- TODO: Document what caused the issue -->
+
 Unknown — extracted from commit 61043e28.
 
 #### Fix Applied
+
 <!-- TODO: Document the solution -->
+
 See commit 61043e28 by JPG Yap.
 
 #### Test Result
+
 Tests were included in this commit.
 
 #### Lesson Learned
+
 <!-- TODO: Extract reusable lesson -->
+
 To be determined — this commit was auto-flagged as potentially containing a lesson.
 
 #### Reusable Rule
+
 <!-- TODO: Define a specific rule for future agents -->
+
 **TODO: Add a specific, actionable rule based on this commit.**
 
 #### Tags
+
 testing, ml-engine, api
 
 ---
@@ -8109,31 +8145,43 @@ Confidence: medium
 Related files: cloud/dashboard/next.config.js
 
 #### Task Summary
+
 fix(dashboard): skip ESLint during build, fix memory-limited VPS builds
 
 #### Files Changed
+
 - `cloud/dashboard/next.config.js`
 
 #### Bug Cause
+
 <!-- TODO: Document what caused the issue -->
+
 Unknown — extracted from commit 49285962.
 
 #### Fix Applied
+
 <!-- TODO: Document the solution -->
+
 See commit 49285962 by JPG Yap.
 
 #### Test Result
+
 Unknown — no test files detected.
 
 #### Lesson Learned
+
 <!-- TODO: Extract reusable lesson -->
+
 To be determined — this commit was auto-flagged as potentially containing a lesson.
 
 #### Reusable Rule
+
 <!-- TODO: Define a specific rule for future agents -->
+
 **TODO: Add a specific, actionable rule based on this commit.**
 
 #### Tags
+
 bugfix
 
 ---
@@ -8147,9 +8195,11 @@ Confidence: medium
 Related files: .codex/config.toml, .roo/skills/deepseek-api/SKILL.md, .roo/skills/lesson-sync/SKILL.md, AGENTS.md, cloud/.env.example
 
 #### Task Summary
+
 feat: complete Codex's learning layer release + security hardening + telegram improvements
 
 #### Files Changed
+
 - `.codex/config.toml`
 - `.roo/skills/deepseek-api/SKILL.md`
 - `.roo/skills/lesson-sync/SKILL.md`
@@ -8182,25 +8232,35 @@ feat: complete Codex's learning layer release + security hardening + telegram im
 - `{try{const`
 
 #### Bug Cause
+
 <!-- TODO: Document what caused the issue -->
+
 Unknown — extracted from commit 43376e24.
 
 #### Fix Applied
+
 <!-- TODO: Document the solution -->
+
 See commit 43376e24 by JPG Yap.
 
 #### Test Result
+
 Unknown — no test files detected.
 
 #### Lesson Learned
+
 <!-- TODO: Extract reusable lesson -->
+
 To be determined — this commit was auto-flagged as potentially containing a lesson.
 
 #### Reusable Rule
+
 <!-- TODO: Define a specific rule for future agents -->
+
 **TODO: Add a specific, actionable rule based on this commit.**
 
 #### Tags
+
 testing, ui, api, deployment
 
 ---
@@ -8214,33 +8274,45 @@ Confidence: medium
 Related files: cloud/api/api.js, cloud/dashboard/src/components/views/intelligence-layer.tsx, cloud/orchestrator/modules/LearningGateway.js
 
 #### Task Summary
+
 fix(intelligence-layer): normalize model names, fix lessonsByDay grouping, add brain offline flag
 
 #### Files Changed
+
 - `cloud/api/api.js`
 - `cloud/dashboard/src/components/views/intelligence-layer.tsx`
 - `cloud/orchestrator/modules/LearningGateway.js`
 
 #### Bug Cause
+
 <!-- TODO: Document what caused the issue -->
+
 Unknown — extracted from commit 2fac5c57.
 
 #### Fix Applied
+
 <!-- TODO: Document the solution -->
+
 See commit 2fac5c57 by JPG Yap.
 
 #### Test Result
+
 Unknown — no test files detected.
 
 #### Lesson Learned
+
 <!-- TODO: Extract reusable lesson -->
+
 To be determined — this commit was auto-flagged as potentially containing a lesson.
 
 #### Reusable Rule
+
 <!-- TODO: Define a specific rule for future agents -->
+
 **TODO: Add a specific, actionable rule based on this commit.**
 
 #### Tags
+
 api, bugfix
 
 ---
@@ -8254,10 +8326,12 @@ Confidence: high
 Related files: cloud/api/telegramBot.js, cloud/ecosystem.config.js, cloud/orchestrator/TelegramOrchestratorBridge.js, cloud/orchestrator/modules/FeatureAnswerer.js, src/core/prompts/responses.ts, webview-ui/src/components/chat/ChatRow.tsx, src/telegram/bot.ts, .roo/skills/deepseek-api/SKILL.md, AGENTS.md, .codex/config.toml, server/src/memory/codextask.json
 
 #### Task Summary
+
 Completed Codex's unfinished "learning layer release" task: committed and deployed 19 uncommitted files including security hardening (secrets moved to env vars), telegram improvements (per-chat rate limiting, Ollama chat client, env-var-ized URLs, fixed agent routing), file attachment display in ChatRow, DeepSeek V4 model configs, and learning layer workflow updates.
 
 #### Files Changed
-- cloud/api/telegramBot.js - Fixed DASHBOARD_URL literal string bug (3 occurrences), added per-chat rate limiting, _callOllamaChat, env-var-ized URLs, fixed agent routing
+
+- cloud/api/telegramBot.js - Fixed DASHBOARD_URL literal string bug (3 occurrences), added per-chat rate limiting, \_callOllamaChat, env-var-ized URLs, fixed agent routing
 - cloud/ecosystem.config.js - Moved secrets from hardcoded to process.env
 - cloud/orchestrator/TelegramOrchestratorBridge.js - Added tgTaskId, agentId, source metadata
 - cloud/orchestrator/modules/FeatureAnswerer.js - Fixed Ollama env var priority
@@ -8270,21 +8344,27 @@ Completed Codex's unfinished "learning layer release" task: committed and deploy
 - server/src/memory/codextask.json - Marked task as completed
 
 #### Bug Cause
+
 Codex's env-var-ized DASHBOARD_URL was used as a literal string in template/message strings instead of being interpolated via template literals, causing broken URLs in Telegram bot messages.
 
 #### Fix Applied
+
 Replaced all 3 occurrences of literal "DASHBOARD_URL" with `${DASHBOARD_URL}` template literal interpolation.
 
 #### Test Result
+
 pass - All 7 PM2 services online after deployment
 
 #### Lesson Learned
+
 When env-var-izing hardcoded URLs, always search for ALL usages of the old value — including string concatenation and template literals. A variable declaration change without updating all consumers creates silent bugs that manifest as broken links in production.
 
 #### Reusable Rule
+
 When converting a hardcoded string to a runtime variable in JavaScript, always use a regex search for the exact old string value across the entire file to catch all string literal usages that need template literal interpolation.
 
 #### Tags
+
 codex, learning-layer, telegram, security, env-vars, bugfix
 
 ---
@@ -8298,29 +8378,37 @@ Confidence: medium
 Related files: CLAUDE.md, server/src/memory/McpMemoryServer.ts, server/src/memory/claudetask.json
 
 #### Task Summary
+
 feat: add Claude task tracking system (claudetask.json + MCP actions + CLAUDE.md)
 
 #### Files Changed
+
 - `CLAUDE.md`
 - `server/src/memory/McpMemoryServer.ts`
 - `server/src/memory/claudetask.json`
 
 #### Bug Cause
+
 Not recorded.
 
 #### Fix Applied
+
 See the linked commit.
 
 #### Test Result
+
 Not recorded.
 
 #### Lesson Learned
+
 Document the durable insight from this change.
 
 #### Reusable Rule
+
 **Add a specific reusable rule before relying on this lesson.**
 
 #### Tags
+
 learning-layer
 
 ---
@@ -8331,12 +8419,14 @@ Date: 2026-05-17
 Source: Git commit 572fc12e
 Model/API used: unknown
 Confidence: medium
-Related files: cloud/api/__tests__/test-telegram-bot.test.js, cloud/api/telegramBot.js, cloud/api/telegramNotifier.js, memory/lesson-index.jsonl, memory/lessons-learned.md
+Related files: cloud/api/**tests**/test-telegram-bot.test.js, cloud/api/telegramBot.js, cloud/api/telegramNotifier.js, memory/lesson-index.jsonl, memory/lessons-learned.md
 
 #### Task Summary
+
 fix(telegram): rate limiting, secure OTP, webhook validation, stub handlers, enriched lessons
 
 #### Files Changed
+
 - `cloud/api/__tests__/test-telegram-bot.test.js`
 - `cloud/api/telegramBot.js`
 - `cloud/api/telegramNotifier.js`
@@ -8344,25 +8434,35 @@ fix(telegram): rate limiting, secure OTP, webhook validation, stub handlers, enr
 - `memory/lessons-learned.md`
 
 #### Bug Cause
+
 <!-- TODO: Document what caused the issue -->
+
 Unknown — extracted from commit 572fc12e.
 
 #### Fix Applied
+
 <!-- TODO: Document the solution -->
+
 See commit 572fc12e by JPG Yap.
 
 #### Test Result
+
 Tests were included in this commit.
 
 #### Lesson Learned
+
 <!-- TODO: Extract reusable lesson -->
+
 To be determined — this commit was auto-flagged as potentially containing a lesson.
 
 #### Reusable Rule
+
 <!-- TODO: Define a specific rule for future agents -->
+
 **TODO: Add a specific, actionable rule based on this commit.**
 
 #### Tags
+
 testing, api, bugfix
 
 ---
@@ -8376,29 +8476,426 @@ Confidence: high
 Related files: server/src/memory/McpMemoryServer.ts, server/src/memory/claudetask.json, CLAUDE.md
 
 #### Task Summary
+
 Created a Claude task tracking system mirroring the existing Codex and Kimi task memory patterns. Added `claude_task_*` MCP actions (upsert, list, get, get_active) to the MCP Memory Server, created `claudetask.json` with empty tasks array, and updated `CLAUDE.md` with task tracking instructions.
 
 #### Files Changed
-- server/src/memory/McpMemoryServer.ts — Added CLAUDE_TASK_LOG_PATH constant, ClaudeTaskRecord/ClaudeTaskLogFile interfaces, 4 claude_task_* MCP tool definitions, handler cases, memory://claude/tasks resource, claudetask.json to search index, and 6 _claudeTask* helper methods
+
+- server/src/memory/McpMemoryServer.ts — Added CLAUDE*TASK_LOG_PATH constant, ClaudeTaskRecord/ClaudeTaskLogFile interfaces, 4 claude_task*_ MCP tool definitions, handler cases, memory://claude/tasks resource, claudetask.json to search index, and 6 \_claudeTask_ helper methods
 - server/src/memory/claudetask.json — Created with empty tasks array (same schema as codextask.json and kimi.json)
 - CLAUDE.md — Added Claude Task Memory section with rules and MCP tool documentation
 
 #### Bug Cause
+
 N/A — new feature, no bug
 
 #### Fix Applied
+
 N/A
 
 #### Test Result
+
 All 6 PM2 services online after deployment (api, dashboard, worker, mini-ide, auto-deployer, mcp-memory)
 
 #### Lesson Learned
-When adding a new agent task tracking system to the MCP Memory Server, follow the exact pattern of existing agent implementations (Codex → Kimi → Claude). Each agent needs: (1) a JSON log file, (2) a path constant, (3) TypeScript interfaces, (4) 4 MCP tool definitions in _registerTools(), (5) handler cases in _handleToolCall(), (6) a resource endpoint in _registerResources(), (7) the JSON file added to _searchLocalMemory(), and (8) 6 helper methods (read, write, upsert, list, get, getActive). The CLAUDE.md file follows the same pattern as .codex/config.toml for Codex.
+
+When adding a new agent task tracking system to the MCP Memory Server, follow the exact pattern of existing agent implementations (Codex → Kimi → Claude). Each agent needs: (1) a JSON log file, (2) a path constant, (3) TypeScript interfaces, (4) 4 MCP tool definitions in \_registerTools(), (5) handler cases in \_handleToolCall(), (6) a resource endpoint in \_registerResources(), (7) the JSON file added to \_searchLocalMemory(), and (8) 6 helper methods (read, write, upsert, list, get, getActive). The CLAUDE.md file follows the same pattern as .codex/config.toml for Codex.
 
 #### Reusable Rule
+
 When adding a new agent type to the MCP Memory Server, always add all 8 integration points in order: constant → interfaces → tool definitions → handlers → resource → search → helpers → agent config file. Missing any one breaks the full workflow.
 
 #### Tags
+
 mcp, memory, claude, task-tracking, agent-config, deployment
+
+---
+
+### Auto-Extracted Lesson: Docs: add critical rule that every project must use superroo-learn for lesson...
+
+Date: 2026-05-18
+Source: Git commit d7f777cb
+Model/API used: unknown
+Confidence: medium
+Related files: AGENTS.md
+
+#### Task Summary
+
+docs: add critical rule that every project must use superroo-learn for lesson capture
+
+#### Files Changed
+
+- `AGENTS.md`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit d7f777cb.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit d7f777cb by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+general
+
+---
+
+### Lesson: Workflow tab shows no data — missing data source files and unpopulated commit fields
+
+Date: 2026-05-18
+Source: DeepSeek (code mode) investigation
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/dashboard/src/components/views/workflow-compliance.tsx, cloud/api/routes/workflow-compliance.js, cloud/api/api.js, server/src/memory/commit-deploy-log.json, cloud/orchestrator/modules/CommitDeployLog.js
+
+#### Task Summary
+
+Investigated why the Workflow tab on the SuperRoo Cloud Dashboard shows no data. Traced the full data flow from frontend → Next.js rewrite → API server → data files.
+
+#### Files Changed
+
+No code changes — investigation only.
+
+#### Bug Cause
+
+Three root causes identified:
+
+1. **Missing data source files**: `server/src/memory/model-usage-log.json` and `server/src/memory/task-usage-summaries.json` do not exist on the VPS (or locally). The backend API (`cloud/api/routes/workflow-compliance.js`) reads from these files for DeepSeek stats and usage data. When they don't exist, `loadJson()` returns `null`, causing all DeepSeek stats (totalCalls, totalTokens, successRate, etc.) to show as 0.
+
+2. **Missing `workflowCompliance` and `modelsUsed` fields in commits**: The `commit-deploy-log.json` has 12 commits on VPS (19 locally), but **none** have `workflowCompliance` or `modelsUsed` fields. The `WorkflowEnforcer.ts` and `ModelUsageTracker.ts` exist in the codebase but are not being invoked when commits are recorded via the cloud orchestrator's `CommitDeployLog.js`. The cloud orchestrator's `recordCommit()` method only stores basic fields (commitSha, agent, type, title, filesChanged, featuresAffected, timestamp) — it does not accept or populate `modelsUsed` or `workflowCompliance`.
+
+3. **Dual commit-deploy-log.json paths**: The workflow-compliance route reads from `server/src/memory/commit-deploy-log.json`, while the cloud orchestrator's `CommitDeployLog.js` writes to `cloud/orchestrator/data/commit-deploy-log.json`. These are different files. The orchestrator's data directory doesn't even exist yet.
+
+#### Fix Applied
+
+No fix applied — this is an investigation report. The fixes needed are:
+
+1. Create `model-usage-log.json` and `task-usage-summaries.json` with initial empty structures, or update the backend to gracefully handle missing files with sensible defaults.
+2. Update the cloud orchestrator's `CommitDeployLog.js` `recordCommit()` to accept and persist `modelsUsed` and `workflowCompliance` fields.
+3. Wire the `WorkflowEnforcer` and `ModelUsageTracker` into the commit recording pipeline so these fields get populated automatically.
+4. Align the file paths so the workflow-compliance API reads from the same file the orchestrator writes to.
+
+#### Test Result
+
+unknown
+
+#### Lesson Learned
+
+When building dashboard views that display data from multiple source files, always verify:
+
+1. The data source files actually exist on the production server
+2. The data fields the frontend expects are actually being populated by the backend pipeline
+3. The file paths in the API route match where the data is actually written
+4. The commit/deploy recording pipeline includes all fields the dashboard needs to display
+
+#### Reusable Rule
+
+Before wiring a dashboard view to backend data sources, verify on the production server that: (a) all data source files exist, (b) the data fields the frontend expects are populated by the recording pipeline, and (c) file paths in the API route match the actual write locations.
+
+#### Tags
+
+workflow-compliance, dashboard, frontend-backend-wiring, data-pipeline, investigation
+
+---
+
+### Auto-Extracted Lesson: Feat(telegram): 6 zero-friction coding improvements
+
+Date: 2026-05-18
+Source: Git commit 9531a94d
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/api/telegramBot.js, cloud/dashboard/src/components/ide-terminal/api.ts, cloud/dashboard/src/components/views/ide-terminal.tsx
+
+#### Task Summary
+
+feat(telegram): 6 zero-friction coding improvements
+
+#### Files Changed
+
+- `cloud/api/telegramBot.js`
+- `cloud/dashboard/src/components/ide-terminal/api.ts`
+- `cloud/dashboard/src/components/views/ide-terminal.tsx`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 9531a94d.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 9531a94d by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+api, bugfix
+
+---
+
+### Lesson: Protected dashboard views must use authenticated fetches and canonical data sources
+
+Date: 2026-05-18
+Source: Codex task completion
+Model/API used: GPT-5
+Confidence: high
+Related files: cloud/dashboard/src/components/views/memory-explorer.tsx, cloud/api/api.js, memory/lesson-index.jsonl
+
+#### Task Summary
+
+Investigated repeated Memory Explorer failures, confirmed the frontend and backend both existed, fixed the missing Bearer-token header in the view, and aligned the backend route with the canonical lesson index instead of the stale legacy lessons file.
+
+#### Files Changed
+
+- `cloud/dashboard/src/components/views/memory-explorer.tsx`
+- `cloud/api/api.js`
+- `memory/lessons-learned.md`
+- `memory/lesson-index.jsonl`
+
+#### Bug Cause
+
+Memory Explorer called a protected `/api/memory-explorer` route with plain `fetch`, so authenticated dashboard users still received `401 Unauthorized`. The route also read `memory/lessons.jsonl`, a legacy file with only 10 curated rows, while the rest of the learning layer uses `memory/lesson-index.jsonl` as the current source of truth. Once switched to the modern file, two hidden backend gaps surfaced: the handler referenced undefined `parsedUrl`, and it assumed `tags`/`files` were always arrays.
+
+#### Fix Applied
+
+Added the dashboard auth token to the Memory Explorer request, switched the route to `lesson-index.jsonl`, parsed the request URL locally, safely skipped malformed JSONL rows, normalized non-array `tags`/`files`, mapped modern lesson records into the UI shape, and made multi-term search behave as an all-terms match.
+
+#### Test Result
+
+partial pass
+
+#### Lesson Learned
+
+When a dashboard surface appears to exist but still fails, verify the integration boundary rather than just the presence of files. A backend route can be real yet still be effectively broken if the frontend omits the expected auth contract or reads from an obsolete source.
+
+#### Reusable Rule
+
+For protected dashboard endpoints, reuse the authenticated request pattern already used elsewhere in the app, and point new views at the canonical backend data source rather than a one-off legacy file.
+
+#### Tags
+
+dashboard, memory-explorer, auth, backend-wiring, data-source, bugfix
+
+---
+
+### Lesson: Separate service ownership and repair package-manager shims at the source
+
+Date: 2026-05-18
+Source: Codex task completion
+Model/API used: GPT-5
+Confidence: high
+Related files: memory/lessons-learned.md, memory/lesson-index.jsonl
+
+#### Task Summary
+
+Optimized the SuperRoo VPS after a live audit by removing a runaway Corepack process, repairing the corrupted Corepack/pnpm installation, disabling a duplicate systemd MCP memory unit while keeping the PM2-managed instance online, adding log retention, compressing stale logs, and capping journal growth.
+
+#### Files Changed
+
+- `memory/lessons-learned.md`
+- `memory/lesson-index.jsonl`
+
+#### Bug Cause
+
+The VPS had two independent maintenance faults: the Corepack entrypoint had been overwritten with a shell shim, which created recursive `pnpm` execution and runaway CPU usage, and the MCP memory server was owned by both systemd and PM2, causing repeated restarts and noisy logs. Log directories also lacked a working retention policy, allowing inactive logs and journals to consume unnecessary disk space.
+
+#### Fix Applied
+
+Reinstalled Corepack, restored the correct `pnpm` shim, disabled the duplicate `superroo-mcp-memory.service` systemd unit while preserving the PM2 service, configured logrotate with explicit service-user ownership, compressed old inactive logs, and limited systemd journal storage to 200 MB.
+
+#### Test Result
+
+pass
+
+#### Lesson Learned
+
+On small VPS hosts, optimization work should first remove pathological behavior before tuning resources. Duplicate service managers and broken command shims can cost far more CPU and disk than normal application load, so ownership and executable integrity need to be verified before deeper capacity work.
+
+#### Reusable Rule
+
+When a VPS shows unusual CPU, restart churn, or unexplained disk growth, verify one owner per service, validate command shims with the real binary versions, and make log retention explicit before attempting more invasive optimization.
+
+#### Tags
+
+vps, corepack, pm2, systemd, logrotate, operations
+
+---
+
+### Lesson: Wire VS Code extension model usage tracking into WorkflowEnforcer
+
+Date: 2026-05-18
+Source: DeepSeek task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: src/extension.ts, src/api/providers/base-provider.ts, src/api/providers/anthropic.ts, src/api/providers/openai.ts, src/super-roo/product-memory/NoopEventLog.ts
+
+#### Task Summary
+
+Wired the VS Code extension's model usage tracking into the WorkflowEnforcer/ModelUsageTracker system so that API calls made by the local extension (Anthropic, OpenAI, DeepSeek) are logged to the same model-usage-log.json that the cloud dashboard reads.
+
+#### Files Changed
+
+- src/super-roo/product-memory/NoopEventLog.ts (created)
+- src/extension.ts (modified)
+- src/api/providers/base-provider.ts (modified)
+- src/api/providers/anthropic.ts (modified)
+- src/api/providers/openai.ts (modified)
+
+#### Bug Cause
+
+ModelUsageTracker and WorkflowEnforcer were defined but never initialized at extension startup. BaseProvider had no tracking hook. Provider handlers (AnthropicHandler, OpenAiHandler) made API calls without logging them.
+
+#### Fix Applied
+
+1. Created NoopEventLog — a lightweight EventLog stub that doesn't require SQLite/MemoryStore, avoiding the heavy better-sqlite3 dependency in the extension context.
+2. Initialized ModelUsageTracker and WorkflowEnforcer in extension.ts activate() after provider creation, using NoopEventLog and the extension's own memory directory.
+3. Added logApiCall() protected method to BaseProvider that dynamically requires WorkflowEnforcer and logs API calls best-effort.
+4. Added tracking calls in AnthropicHandler.createMessage() and OpenAiHandler.createMessage() after successful API responses.
+
+#### Test Result
+
+pass — npx tsc --noEmit shows zero errors in modified files (pre-existing errors only in super-roo/index.ts)
+
+#### Lesson Learned
+
+When adding tracking to provider handlers, place the tracking code inside the createMessage method (where metadata is in scope), not in helper methods like handleStreamResponse. Use existing local variables (modelId) instead of redeclaring this.getModel() to avoid TS scoping issues. Use dynamic require() for cross-module dependencies to avoid circular imports.
+
+#### Reusable Rule
+
+For VS Code extension model usage tracking: initialize ModelUsageTracker + WorkflowEnforcer at extension startup with a lightweight EventLog stub (NoopEventLog), add a logApiCall() method to BaseProvider, and call it from each provider handler's createMessage() after the API response is yielded.
+
+#### Tags
+
+model-usage-tracking, workflow-compliance, vs-code-extension, provider-handlers, eventlog, typescript
+
+---
+
+### Auto-Extracted Lesson: (telegram): unblock NL coding — 5 root causes fixed
+
+Date: 2026-05-18
+Source: Git commit 85f16143
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/api/telegramBot.js, cloud/api/telegramClassifier.js, cloud/api/telegramPolicy.js
+
+#### Task Summary
+
+fix(telegram): unblock NL coding — 5 root causes fixed
+
+#### Files Changed
+
+- `cloud/api/telegramBot.js`
+- `cloud/api/telegramClassifier.js`
+- `cloud/api/telegramPolicy.js`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 85f16143.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 85f16143 by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+api, bugfix
+
+### Lesson: Add model usage tracking to OpenAiCodexHandler
+
+Date: 2026-05-18
+Source: Code agent task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: src/api/providers/openai-codex.ts, src/api/providers/base-provider.ts
+
+#### Task Summary
+
+Added model usage tracking call to `OpenAiCodexHandler.createMessage()` to log OpenAI Codex API calls to the WorkflowEnforcer/ModelUsageTracker. The `OpenAiCodexHandler` extends `BaseProvider` directly (not `OpenAiHandler`) and has its own `createMessage()` that delegates to `handleResponsesApiMessage()`. It was missed in the initial implementation that only covered `AnthropicHandler` and `OpenAiHandler`.
+
+#### Files Changed
+
+- `src/api/providers/openai-codex.ts` — added `logApiCall()` call after `yield* this.handleResponsesApiMessage()`
+
+#### Bug Cause
+
+The initial implementation of VS Code extension model usage tracking covered `AnthropicHandler` and `OpenAiHandler` (which also covers `DeepSeekHandler` via inheritance), but `OpenAiCodexHandler` was overlooked because it has its own `createMessage()` method that doesn't delegate to the parent class's implementation.
+
+#### Fix Applied
+
+Added a `logApiCall()` call at the end of `OpenAiCodexHandler.createMessage()`, after the `yield* this.handleResponsesApiMessage()` completes. Uses `model.id` from `this.getModel()` and `metadata?.mode` to determine the phase (planning vs coding).
+
+#### Test Result
+
+pass — TypeScript compilation shows zero errors in modified files (only pre-existing errors in `super-roo/index.ts`)
+
+#### Lesson Learned
+
+When adding tracking hooks to provider handlers, check ALL handlers that extend `BaseProvider` — not just the obvious ones. `OpenAiCodexHandler` has its own `createMessage()` that doesn't call `super.createMessage()`, so it needs its own tracking call. Always grep for `extends BaseProvider` to find all handlers.
+
+#### Reusable Rule
+
+When adding cross-cutting concerns (tracking, logging, metrics) to provider handlers, enumerate all classes extending `BaseProvider` by searching for `extends BaseProvider` in `src/api/providers/`. Each handler with its own `createMessage()` override needs individual instrumentation.
+
+#### Tags
+
+model-usage-tracking, workflow-compliance, openai-codex, provider-handlers, typescript
 
 ---

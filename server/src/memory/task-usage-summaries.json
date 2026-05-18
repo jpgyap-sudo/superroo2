@@ -1,0 +1,581 @@
+{
+	"summaries": [
+		{
+			"taskId": "commit_dd7022e3-033b-413c-81eb-e97e4378519b",
+			"startTime": "2026-05-17T08:43:14.206Z",
+			"endTime": "2026-05-17T08:43:14.206Z",
+			"phases": {
+				"planning": {
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 1582,
+					"completionTokens": 250,
+					"latencyMs": 3208,
+					"success": true
+				},
+				"coding": {
+					"phase": "coding",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 5047,
+					"completionTokens": 1251,
+					"latencyMs": 3424,
+					"success": true
+				},
+				"review": {
+					"phase": "review",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 1693,
+					"completionTokens": 614,
+					"latencyMs": 2384,
+					"success": true
+				}
+			},
+			"totalTokens": 10437,
+			"totalLatencyMs": 9016,
+			"workflowCompliant": false,
+			"deepseekDelegated": false
+		},
+		{
+			"taskId": "commit_9dc7f586-872b-4113-9ff9-7f704c689b9b",
+			"startTime": "2026-05-17T08:41:15.681Z",
+			"endTime": "2026-05-17T08:41:15.681Z",
+			"phases": {
+				"planning": {
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 1831,
+					"completionTokens": 615,
+					"latencyMs": 2127,
+					"success": true
+				},
+				"coding": {
+					"phase": "coding",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 3452,
+					"completionTokens": 2490,
+					"latencyMs": 5495,
+					"success": true
+				},
+				"review": {
+					"phase": "review",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 576,
+					"completionTokens": 312,
+					"latencyMs": 1780,
+					"success": true
+				}
+			},
+			"totalTokens": 9276,
+			"totalLatencyMs": 9402,
+			"workflowCompliant": false,
+			"deepseekDelegated": false
+		},
+		{
+			"taskId": "commit_ml_bidirectional_sync_001",
+			"startTime": "2026-05-11T19:56:00.000Z",
+			"endTime": "2026-05-11T19:56:00.000Z",
+			"phases": {
+				"planning": {
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 592,
+					"completionTokens": 1155,
+					"latencyMs": 3887,
+					"success": true
+				},
+				"coding": {
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 1564,
+					"completionTokens": 2202,
+					"latencyMs": 2390,
+					"success": true
+				}
+			},
+			"totalTokens": 5513,
+			"totalLatencyMs": 6277,
+			"workflowCompliant": false,
+			"deepseekDelegated": true
+		},
+		{
+			"taskId": "commit_quotation_workspace_001",
+			"startTime": "2026-05-10T15:06:24.631Z",
+			"endTime": "2026-05-10T15:06:24.631Z",
+			"phases": {
+				"planning": {
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 1220,
+					"completionTokens": 1121,
+					"latencyMs": 1020,
+					"success": true
+				},
+				"coding": {
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 1584,
+					"completionTokens": 1577,
+					"latencyMs": 5447,
+					"success": true
+				}
+			},
+			"totalTokens": 5502,
+			"totalLatencyMs": 6467,
+			"workflowCompliant": false,
+			"deepseekDelegated": true
+		},
+		{
+			"taskId": "commit_telegram_group_fix_001",
+			"startTime": "2026-05-09T15:36:25.000Z",
+			"endTime": "2026-05-09T15:36:25.000Z",
+			"phases": {
+				"planning": {
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 644,
+					"completionTokens": 1195,
+					"latencyMs": 1842,
+					"success": true
+				},
+				"coding": {
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 2105,
+					"completionTokens": 517,
+					"latencyMs": 4642,
+					"success": true
+				}
+			},
+			"totalTokens": 4461,
+			"totalLatencyMs": 6484,
+			"workflowCompliant": false,
+			"deepseekDelegated": true
+		},
+		{
+			"taskId": "commit_b927d78c1",
+			"startTime": "2026-05-08T05:26:40.000Z",
+			"endTime": "2026-05-08T05:26:40.000Z",
+			"phases": {
+				"planning": {
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 1303,
+					"completionTokens": 404,
+					"latencyMs": 3019,
+					"success": true
+				},
+				"coding": {
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 1099,
+					"completionTokens": 2596,
+					"latencyMs": 4830,
+					"success": true
+				}
+			},
+			"totalTokens": 5402,
+			"totalLatencyMs": 7849,
+			"workflowCompliant": false,
+			"deepseekDelegated": true
+		},
+		{
+			"taskId": "commit_telegram_group_auth_fix_002",
+			"startTime": "2026-05-11T01:23:00.865Z",
+			"endTime": "2026-05-11T01:23:00.865Z",
+			"phases": {
+				"planning": {
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 1371,
+					"completionTokens": 295,
+					"latencyMs": 3235,
+					"success": true
+				},
+				"coding": {
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 2969,
+					"completionTokens": 2568,
+					"latencyMs": 4681,
+					"success": true
+				}
+			},
+			"totalTokens": 7203,
+			"totalLatencyMs": 7916,
+			"workflowCompliant": false,
+			"deepseekDelegated": true
+		},
+		{
+			"taskId": "commit_telegram_e2e_fix_003",
+			"startTime": "2026-05-11T06:25:00.000Z",
+			"endTime": "2026-05-11T06:25:00.000Z",
+			"phases": {
+				"planning": {
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 1600,
+					"completionTokens": 324,
+					"latencyMs": 1951,
+					"success": true
+				},
+				"coding": {
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 3230,
+					"completionTokens": 1944,
+					"latencyMs": 6339,
+					"success": true
+				}
+			},
+			"totalTokens": 7098,
+			"totalLatencyMs": 8290,
+			"workflowCompliant": false,
+			"deepseekDelegated": true
+		},
+		{
+			"taskId": "commit_code_everywhere_fix_004",
+			"startTime": "2026-05-11T08:05:00.000Z",
+			"endTime": "2026-05-11T08:05:00.000Z",
+			"phases": {
+				"planning": {
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 2302,
+					"completionTokens": 664,
+					"latencyMs": 3666,
+					"success": true
+				},
+				"coding": {
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 3420,
+					"completionTokens": 1327,
+					"latencyMs": 3821,
+					"success": true
+				}
+			},
+			"totalTokens": 7713,
+			"totalLatencyMs": 7487,
+			"workflowCompliant": false,
+			"deepseekDelegated": true
+		},
+		{
+			"taskId": "commit_eef58594f",
+			"startTime": "2026-05-11T17:35:27.000Z",
+			"endTime": "2026-05-11T17:35:27.000Z",
+			"phases": {
+				"planning": {
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 1071,
+					"completionTokens": 1037,
+					"latencyMs": 3507,
+					"success": true
+				},
+				"coding": {
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 3393,
+					"completionTokens": 1732,
+					"latencyMs": 6309,
+					"success": true
+				}
+			},
+			"totalTokens": 7233,
+			"totalLatencyMs": 9816,
+			"workflowCompliant": false,
+			"deepseekDelegated": true
+		},
+		{
+			"taskId": "commit_03fcd5ff3",
+			"startTime": "2026-05-11T17:39:11.000Z",
+			"endTime": "2026-05-11T17:39:11.000Z",
+			"phases": {
+				"planning": {
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 2364,
+					"completionTokens": 407,
+					"latencyMs": 2267,
+					"success": true
+				},
+				"coding": {
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 4662,
+					"completionTokens": 625,
+					"latencyMs": 2388,
+					"success": true
+				}
+			},
+			"totalTokens": 8058,
+			"totalLatencyMs": 4655,
+			"workflowCompliant": false,
+			"deepseekDelegated": true
+		},
+		{
+			"taskId": "commit_cloud_orchestrator_001",
+			"startTime": "2026-05-11T18:47:18.000Z",
+			"endTime": "2026-05-11T18:47:18.000Z",
+			"phases": {
+				"planning": {
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 2305,
+					"completionTokens": 800,
+					"latencyMs": 2721,
+					"success": true
+				},
+				"coding": {
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 1489,
+					"completionTokens": 1171,
+					"latencyMs": 5220,
+					"success": true
+				}
+			},
+			"totalTokens": 5765,
+			"totalLatencyMs": 7941,
+			"workflowCompliant": false,
+			"deepseekDelegated": true
+		},
+		{
+			"taskId": "commit_826803570",
+			"startTime": "2026-05-11T19:37:00.000Z",
+			"endTime": "2026-05-11T19:37:00.000Z",
+			"phases": {
+				"planning": {
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 951,
+					"completionTokens": 436,
+					"latencyMs": 1310,
+					"success": true
+				},
+				"coding": {
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 5915,
+					"completionTokens": 2382,
+					"latencyMs": 2691,
+					"success": true
+				}
+			},
+			"totalTokens": 9684,
+			"totalLatencyMs": 4001,
+			"workflowCompliant": false,
+			"deepseekDelegated": true
+		},
+		{
+			"taskId": "commit_844c8b11c",
+			"startTime": "2026-05-17T13:10:00.000Z",
+			"endTime": "2026-05-17T13:10:00.000Z",
+			"phases": {
+				"planning": {
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 2043,
+					"completionTokens": 559,
+					"latencyMs": 2561,
+					"success": true
+				},
+				"coding": {
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 3307,
+					"completionTokens": 2774,
+					"latencyMs": 5310,
+					"success": true
+				}
+			},
+			"totalTokens": 8683,
+			"totalLatencyMs": 7871,
+			"workflowCompliant": false,
+			"deepseekDelegated": true
+		},
+		{
+			"taskId": "commit_kimi_ollama_growth_1779025255188",
+			"startTime": "2026-05-17T13:40:55.188Z",
+			"endTime": "2026-05-17T13:40:55.188Z",
+			"phases": {
+				"planning": {
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 2041,
+					"completionTokens": 1058,
+					"latencyMs": 2001,
+					"success": true
+				},
+				"coding": {
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 2379,
+					"completionTokens": 3319,
+					"latencyMs": 3750,
+					"success": true
+				}
+			},
+			"totalTokens": 8797,
+			"totalLatencyMs": 5751,
+			"workflowCompliant": false,
+			"deepseekDelegated": true
+		},
+		{
+			"taskId": "commit_ollama_install_2026_05_17",
+			"startTime": "2026-05-17T14:00:00.000Z",
+			"endTime": "2026-05-17T14:00:00.000Z",
+			"phases": {
+				"planning": {
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 2427,
+					"completionTokens": 410,
+					"latencyMs": 1876,
+					"success": true
+				},
+				"coding": {
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 1481,
+					"completionTokens": 2441,
+					"latencyMs": 6000,
+					"success": true
+				}
+			},
+			"totalTokens": 6759,
+			"totalLatencyMs": 7876,
+			"workflowCompliant": false,
+			"deepseekDelegated": true
+		},
+		{
+			"taskId": "commit_kimi_ollama_growth_fix_1779028374450",
+			"startTime": "2026-05-17T14:32:54.450Z",
+			"endTime": "2026-05-17T14:32:54.450Z",
+			"phases": {
+				"planning": {
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 683,
+					"completionTokens": 636,
+					"latencyMs": 3552,
+					"success": true
+				},
+				"coding": {
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 3419,
+					"completionTokens": 1226,
+					"latencyMs": 2187,
+					"success": true
+				}
+			},
+			"totalTokens": 5964,
+			"totalLatencyMs": 5739,
+			"workflowCompliant": false,
+			"deepseekDelegated": true
+		},
+		{
+			"startTime": 1779033720461,
+			"endTime": 1779033720461,
+			"phases": {
+				"planning": {
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 2006,
+					"completionTokens": 889,
+					"latencyMs": 2959,
+					"success": true
+				},
+				"coding": {
+					"phase": "coding",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 3592,
+					"completionTokens": 2662,
+					"latencyMs": 5495,
+					"success": true
+				},
+				"review": {
+					"phase": "review",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 1316,
+					"completionTokens": 577,
+					"latencyMs": 2473,
+					"success": true
+				}
+			},
+			"totalTokens": 11042,
+			"totalLatencyMs": 10927,
+			"workflowCompliant": false,
+			"deepseekDelegated": false
+		},
+		{
+			"taskId": "commit_kimi_telegram_audit_1779037511055",
+			"startTime": "2026-05-17T17:05:11.055Z",
+			"endTime": "2026-05-17T17:05:11.055Z",
+			"phases": {
+				"planning": {
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 759,
+					"completionTokens": 588,
+					"latencyMs": 3789,
+					"success": true
+				},
+				"coding": {
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 1887,
+					"completionTokens": 1720,
+					"latencyMs": 2510,
+					"success": true
+				}
+			},
+			"totalTokens": 4954,
+			"totalLatencyMs": 6299,
+			"workflowCompliant": false,
+			"deepseekDelegated": true
+		}
+	]
+}

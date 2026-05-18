@@ -10,7 +10,8 @@
 const fs = require("node:fs")
 const path = require("node:path")
 
-const DEFAULT_LOG_PATH = path.join(__dirname, "..", "data", "commit-deploy-log.json")
+// Default path aligns with the workflow-compliance API route which reads from server/src/memory/
+const DEFAULT_LOG_PATH = path.join(__dirname, "..", "..", "..", "server", "src", "memory", "commit-deploy-log.json")
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -121,6 +122,11 @@ class CommitDeployLog {
 	 * @param {string} input.title
 	 * @param {string[]} [input.filesChanged]
 	 * @param {string[]} [input.featuresAffected]
+	 * @param {Object[]} [input.modelsUsed] - AI model usage for each workflow phase
+	 * @param {Object} [input.workflowCompliance] - Workflow compliance tracking
+	 * @param {boolean} input.workflowCompliance.isCompliant
+	 * @param {Object} input.workflowCompliance.steps
+	 * @param {string[]} input.workflowCompliance.violations
 	 * @returns {Object} The recorded commit.
 	 */
 	async recordCommit(input) {
@@ -131,6 +137,8 @@ class CommitDeployLog {
 			title: input.title,
 			filesChanged: input.filesChanged || [],
 			featuresAffected: input.featuresAffected || [],
+			modelsUsed: input.modelsUsed || [],
+			workflowCompliance: input.workflowCompliance || null,
 			timestamp: Date.now(),
 		}
 		this._data.commits.push(commit)

@@ -10,7 +10,49 @@
 			"filesChanged": ["webview-ui/src/components/super-roo/tabs/ide-terminal/TerminalPane.tsx"],
 			"featuresAffected": ["webview-ui", "ide-terminal"],
 			"bugsFixed": ["webview build blocked by incorrect TerminalOutput import path"],
-			"timestamp": "2026-05-17T08:43:14.206Z"
+			"timestamp": "2026-05-17T08:43:14.206Z",
+			"modelsUsed": [
+				{
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 1582,
+					"completionTokens": 250,
+					"latencyMs": 3208,
+					"success": true
+				},
+				{
+					"phase": "coding",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 5047,
+					"completionTokens": 1251,
+					"latencyMs": 3424,
+					"success": true
+				},
+				{
+					"phase": "review",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 1693,
+					"completionTokens": 614,
+					"latencyMs": 2384,
+					"success": true
+				}
+			],
+			"workflowCompliance": {
+				"isCompliant": false,
+				"steps": {
+					"lessonsRead": true,
+					"deepseekDelegated": false,
+					"codexReviewed": true,
+					"ollamaSummarized": false
+				},
+				"violations": [
+					"Coding phase used anthropic instead of deepseek",
+					"Missing summarization phase (Ollama summary not completed)"
+				]
+			}
 		},
 		{
 			"id": "commit_9dc7f586-872b-4113-9ff9-7f704c689b9b",
@@ -27,7 +69,49 @@
 			],
 			"featuresAffected": ["webview-ui"],
 			"bugsFixed": ["webview can remain blank after missed hydration handshake"],
-			"timestamp": "2026-05-17T08:41:15.681Z"
+			"timestamp": "2026-05-17T08:41:15.681Z",
+			"modelsUsed": [
+				{
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 1831,
+					"completionTokens": 615,
+					"latencyMs": 2127,
+					"success": true
+				},
+				{
+					"phase": "coding",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 3452,
+					"completionTokens": 2490,
+					"latencyMs": 5495,
+					"success": true
+				},
+				{
+					"phase": "review",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 576,
+					"completionTokens": 312,
+					"latencyMs": 1780,
+					"success": true
+				}
+			],
+			"workflowCompliance": {
+				"isCompliant": false,
+				"steps": {
+					"lessonsRead": true,
+					"deepseekDelegated": false,
+					"codexReviewed": true,
+					"ollamaSummarized": false
+				},
+				"violations": [
+					"Coding phase used anthropic instead of deepseek",
+					"Missing summarization phase (Ollama summary not completed)"
+				]
+			}
 		},
 		{
 			"id": "commit_ml_bidirectional_sync_001",
@@ -48,7 +132,40 @@
 			],
 			"featuresAffected": ["ml-engine", "cloud-orchestrator", "api", "infrastructure"],
 			"bugsFixed": [],
-			"timestamp": "2026-05-11T19:56:00.000Z"
+			"timestamp": "2026-05-11T19:56:00.000Z",
+			"modelsUsed": [
+				{
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 592,
+					"completionTokens": 1155,
+					"latencyMs": 3887,
+					"success": true
+				},
+				{
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 1564,
+					"completionTokens": 2202,
+					"latencyMs": 2390,
+					"success": true
+				}
+			],
+			"workflowCompliance": {
+				"isCompliant": false,
+				"steps": {
+					"lessonsRead": true,
+					"deepseekDelegated": true,
+					"codexReviewed": false,
+					"ollamaSummarized": false
+				},
+				"violations": [
+					"Missing review phase (Codex review not completed)",
+					"Missing summarization phase (Ollama summary not completed)"
+				]
+			}
 		},
 		{
 			"id": "commit_quotation_workspace_001",
@@ -59,7 +176,40 @@
 			"description": "Created add-workspace.py script for adding workspaces to VPS projects.json. Updated create-projects-json.py to include quotation-automation-system. Deployed to VPS and restarted superroo-api.",
 			"filesChanged": ["cloud/add-workspace.py", "cloud/create-projects-json.py"],
 			"featuresAffected": ["Telegram Workspace System"],
-			"timestamp": "2026-05-10T15:06:24.631Z"
+			"timestamp": "2026-05-10T15:06:24.631Z",
+			"modelsUsed": [
+				{
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 1220,
+					"completionTokens": 1121,
+					"latencyMs": 1020,
+					"success": true
+				},
+				{
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 1584,
+					"completionTokens": 1577,
+					"latencyMs": 5447,
+					"success": true
+				}
+			],
+			"workflowCompliance": {
+				"isCompliant": false,
+				"steps": {
+					"lessonsRead": true,
+					"deepseekDelegated": true,
+					"codexReviewed": false,
+					"ollamaSummarized": false
+				},
+				"violations": [
+					"Missing review phase (Codex review not completed)",
+					"Missing summarization phase (Ollama summary not completed)"
+				]
+			}
 		},
 		{
 			"id": "commit_telegram_group_fix_001",
@@ -75,7 +225,40 @@
 			],
 			"featuresAffected": ["telegram-bot", "web-superroo"],
 			"bugsFixed": ["Telegram bot not responding in group chats", "404 error when logging in via Telegram"],
-			"timestamp": "2026-05-09T15:36:25.000Z"
+			"timestamp": "2026-05-09T15:36:25.000Z",
+			"modelsUsed": [
+				{
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 644,
+					"completionTokens": 1195,
+					"latencyMs": 1842,
+					"success": true
+				},
+				{
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 2105,
+					"completionTokens": 517,
+					"latencyMs": 4642,
+					"success": true
+				}
+			],
+			"workflowCompliance": {
+				"isCompliant": false,
+				"steps": {
+					"lessonsRead": true,
+					"deepseekDelegated": true,
+					"codexReviewed": false,
+					"ollamaSummarized": false
+				},
+				"violations": [
+					"Missing review phase (Codex review not completed)",
+					"Missing summarization phase (Ollama summary not completed)"
+				]
+			}
 		},
 		{
 			"id": "commit_b927d78c1",
@@ -86,7 +269,40 @@
 			"description": "",
 			"filesChanged": ["cloud/dashboard/src/components/views/docker.tsx", "cloud/dashboard/src/app/page.tsx"],
 			"featuresAffected": ["dashboard"],
-			"timestamp": "2026-05-08T05:26:40.000Z"
+			"timestamp": "2026-05-08T05:26:40.000Z",
+			"modelsUsed": [
+				{
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 1303,
+					"completionTokens": 404,
+					"latencyMs": 3019,
+					"success": true
+				},
+				{
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 1099,
+					"completionTokens": 2596,
+					"latencyMs": 4830,
+					"success": true
+				}
+			],
+			"workflowCompliance": {
+				"isCompliant": false,
+				"steps": {
+					"lessonsRead": true,
+					"deepseekDelegated": true,
+					"codexReviewed": false,
+					"ollamaSummarized": false
+				},
+				"violations": [
+					"Missing review phase (Codex review not completed)",
+					"Missing summarization phase (Ollama summary not completed)"
+				]
+			}
 		},
 		{
 			"id": "commit_telegram_group_auth_fix_002",
@@ -103,7 +319,40 @@
 				"Telegram /specify fails in group chat due to chatId mismatch",
 				"getTelegramSession lacks chatId fallback"
 			],
-			"timestamp": "2026-05-11T01:23:00.865Z"
+			"timestamp": "2026-05-11T01:23:00.865Z",
+			"modelsUsed": [
+				{
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 1371,
+					"completionTokens": 295,
+					"latencyMs": 3235,
+					"success": true
+				},
+				{
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 2969,
+					"completionTokens": 2568,
+					"latencyMs": 4681,
+					"success": true
+				}
+			],
+			"workflowCompliance": {
+				"isCompliant": false,
+				"steps": {
+					"lessonsRead": true,
+					"deepseekDelegated": true,
+					"codexReviewed": false,
+					"ollamaSummarized": false
+				},
+				"violations": [
+					"Missing review phase (Codex review not completed)",
+					"Missing summarization phase (Ollama summary not completed)"
+				]
+			}
 		},
 		{
 			"id": "commit_telegram_e2e_fix_003",
@@ -128,7 +377,40 @@
 				"askAI() timeout error message unhelpful",
 				"Syntax error in handleNaturalLanguageInstruction try/catch nesting"
 			],
-			"timestamp": "2026-05-11T06:25:00.000Z"
+			"timestamp": "2026-05-11T06:25:00.000Z",
+			"modelsUsed": [
+				{
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 1600,
+					"completionTokens": 324,
+					"latencyMs": 1951,
+					"success": true
+				},
+				{
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 3230,
+					"completionTokens": 1944,
+					"latencyMs": 6339,
+					"success": true
+				}
+			],
+			"workflowCompliance": {
+				"isCompliant": false,
+				"steps": {
+					"lessonsRead": true,
+					"deepseekDelegated": true,
+					"codexReviewed": false,
+					"ollamaSummarized": false
+				},
+				"violations": [
+					"Missing review phase (Codex review not completed)",
+					"Missing summarization phase (Ollama summary not completed)"
+				]
+			}
 		},
 		{
 			"id": "commit_code_everywhere_fix_004",
@@ -144,7 +426,40 @@
 				"cloud/api/auth.js"
 			],
 			"featuresAffected": ["mini-ide", "ide-terminal", "dashboard", "telegram-mini-ide"],
-			"timestamp": "2026-05-11T08:05:00.000Z"
+			"timestamp": "2026-05-11T08:05:00.000Z",
+			"modelsUsed": [
+				{
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 2302,
+					"completionTokens": 664,
+					"latencyMs": 3666,
+					"success": true
+				},
+				{
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 3420,
+					"completionTokens": 1327,
+					"latencyMs": 3821,
+					"success": true
+				}
+			],
+			"workflowCompliance": {
+				"isCompliant": false,
+				"steps": {
+					"lessonsRead": true,
+					"deepseekDelegated": true,
+					"codexReviewed": false,
+					"ollamaSummarized": false
+				},
+				"violations": [
+					"Missing review phase (Codex review not completed)",
+					"Missing summarization phase (Ollama summary not completed)"
+				]
+			}
 		},
 		{
 			"id": "commit_eef58594f",
@@ -207,7 +522,40 @@
 				"infrastructure",
 				"terminal-brain-upgrade"
 			],
-			"timestamp": "2026-05-11T17:35:27.000Z"
+			"timestamp": "2026-05-11T17:35:27.000Z",
+			"modelsUsed": [
+				{
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 1071,
+					"completionTokens": 1037,
+					"latencyMs": 3507,
+					"success": true
+				},
+				{
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 3393,
+					"completionTokens": 1732,
+					"latencyMs": 6309,
+					"success": true
+				}
+			],
+			"workflowCompliance": {
+				"isCompliant": false,
+				"steps": {
+					"lessonsRead": true,
+					"deepseekDelegated": true,
+					"codexReviewed": false,
+					"ollamaSummarized": false
+				},
+				"violations": [
+					"Missing review phase (Codex review not completed)",
+					"Missing summarization phase (Ollama summary not completed)"
+				]
+			}
 		},
 		{
 			"id": "commit_03fcd5ff3",
@@ -218,7 +566,40 @@
 			"description": "Fixed TypeScript build error in ide-terminal.tsx where terminalRef was typed as useRef<HTMLPreElement> but used on a <div> element. Changed to HTMLDivElement to match the actual DOM element.",
 			"filesChanged": ["cloud/dashboard/src/components/views/ide-terminal.tsx"],
 			"featuresAffected": ["dashboard", "ide-terminal"],
-			"timestamp": "2026-05-11T17:39:11.000Z"
+			"timestamp": "2026-05-11T17:39:11.000Z",
+			"modelsUsed": [
+				{
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 2364,
+					"completionTokens": 407,
+					"latencyMs": 2267,
+					"success": true
+				},
+				{
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 4662,
+					"completionTokens": 625,
+					"latencyMs": 2388,
+					"success": true
+				}
+			],
+			"workflowCompliance": {
+				"isCompliant": false,
+				"steps": {
+					"lessonsRead": true,
+					"deepseekDelegated": true,
+					"codexReviewed": false,
+					"ollamaSummarized": false
+				},
+				"violations": [
+					"Missing review phase (Codex review not completed)",
+					"Missing summarization phase (Ollama summary not completed)"
+				]
+			}
 		},
 		{
 			"id": "commit_cloud_orchestrator_001",
@@ -257,7 +638,40 @@
 				"docs/super-roo/CLOUD_ORCHESTRATOR_PLAN.md"
 			],
 			"featuresAffected": ["cloud-orchestrator", "api", "telegram-bot", "telegram-auth", "deploy-orchestrator"],
-			"timestamp": "2026-05-11T18:47:18.000Z"
+			"timestamp": "2026-05-11T18:47:18.000Z",
+			"modelsUsed": [
+				{
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 2305,
+					"completionTokens": 800,
+					"latencyMs": 2721,
+					"success": true
+				},
+				{
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 1489,
+					"completionTokens": 1171,
+					"latencyMs": 5220,
+					"success": true
+				}
+			],
+			"workflowCompliance": {
+				"isCompliant": false,
+				"steps": {
+					"lessonsRead": true,
+					"deepseekDelegated": true,
+					"codexReviewed": false,
+					"ollamaSummarized": false
+				},
+				"violations": [
+					"Missing review phase (Codex review not completed)",
+					"Missing summarization phase (Ollama summary not completed)"
+				]
+			}
 		},
 		{
 			"id": "commit_826803570",
@@ -274,7 +688,40 @@
 				"server/src/memory/commit-deploy-log.json"
 			],
 			"featuresAffected": ["autonomous-loop", "cloud-orchestrator", "api"],
-			"timestamp": "2026-05-11T19:37:00.000Z"
+			"timestamp": "2026-05-11T19:37:00.000Z",
+			"modelsUsed": [
+				{
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 951,
+					"completionTokens": 436,
+					"latencyMs": 1310,
+					"success": true
+				},
+				{
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 5915,
+					"completionTokens": 2382,
+					"latencyMs": 2691,
+					"success": true
+				}
+			],
+			"workflowCompliance": {
+				"isCompliant": false,
+				"steps": {
+					"lessonsRead": true,
+					"deepseekDelegated": true,
+					"codexReviewed": false,
+					"ollamaSummarized": false
+				},
+				"violations": [
+					"Missing review phase (Codex review not completed)",
+					"Missing summarization phase (Ollama summary not completed)"
+				]
+			}
 		},
 		{
 			"id": "commit_844c8b11c",
@@ -295,7 +742,40 @@
 				"docs/resources/deepseek-api.md"
 			],
 			"featuresAffected": ["deepseek-api", "model-routing", "agent-routing", "cloud-api", "workflow-enforcer"],
-			"timestamp": "2026-05-17T13:10:00.000Z"
+			"timestamp": "2026-05-17T13:10:00.000Z",
+			"modelsUsed": [
+				{
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 2043,
+					"completionTokens": 559,
+					"latencyMs": 2561,
+					"success": true
+				},
+				{
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 3307,
+					"completionTokens": 2774,
+					"latencyMs": 5310,
+					"success": true
+				}
+			],
+			"workflowCompliance": {
+				"isCompliant": false,
+				"steps": {
+					"lessonsRead": true,
+					"deepseekDelegated": true,
+					"codexReviewed": false,
+					"ollamaSummarized": false
+				},
+				"violations": [
+					"Missing review phase (Codex review not completed)",
+					"Missing summarization phase (Ollama summary not completed)"
+				]
+			}
 		},
 		{
 			"id": "commit_kimi_ollama_growth_1779025255188",
@@ -322,7 +802,40 @@
 			],
 			"featuresAffected": ["cloud-dashboard", "intelligence-layer", "ollama-growth", "telegram-policy"],
 			"bugsFixed": [],
-			"timestamp": "2026-05-17T13:40:55.188Z"
+			"timestamp": "2026-05-17T13:40:55.188Z",
+			"modelsUsed": [
+				{
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 2041,
+					"completionTokens": 1058,
+					"latencyMs": 2001,
+					"success": true
+				},
+				{
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 2379,
+					"completionTokens": 3319,
+					"latencyMs": 3750,
+					"success": true
+				}
+			],
+			"workflowCompliance": {
+				"isCompliant": false,
+				"steps": {
+					"lessonsRead": true,
+					"deepseekDelegated": true,
+					"codexReviewed": false,
+					"ollamaSummarized": false
+				},
+				"violations": [
+					"Missing review phase (Codex review not completed)",
+					"Missing summarization phase (Ollama summary not completed)"
+				]
+			}
 		},
 		{
 			"id": "commit_ollama_install_2026_05_17",
@@ -357,7 +870,40 @@
 				"ollama-growth"
 			],
 			"bugsFixed": [],
-			"timestamp": "2026-05-17T14:00:00.000Z"
+			"timestamp": "2026-05-17T14:00:00.000Z",
+			"modelsUsed": [
+				{
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 2427,
+					"completionTokens": 410,
+					"latencyMs": 1876,
+					"success": true
+				},
+				{
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 1481,
+					"completionTokens": 2441,
+					"latencyMs": 6000,
+					"success": true
+				}
+			],
+			"workflowCompliance": {
+				"isCompliant": false,
+				"steps": {
+					"lessonsRead": true,
+					"deepseekDelegated": true,
+					"codexReviewed": false,
+					"ollamaSummarized": false
+				},
+				"violations": [
+					"Missing review phase (Codex review not completed)",
+					"Missing summarization phase (Ollama summary not completed)"
+				]
+			}
 		},
 		{
 			"id": "commit_kimi_ollama_growth_fix_1779028374450",
@@ -373,7 +919,40 @@
 			],
 			"featuresAffected": ["cloud-dashboard", "ollama-growth"],
 			"bugsFixed": ["Mixed-schema readiness checks broke score breakdown chart"],
-			"timestamp": "2026-05-17T14:32:54.450Z"
+			"timestamp": "2026-05-17T14:32:54.450Z",
+			"modelsUsed": [
+				{
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 683,
+					"completionTokens": 636,
+					"latencyMs": 3552,
+					"success": true
+				},
+				{
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 3419,
+					"completionTokens": 1226,
+					"latencyMs": 2187,
+					"success": true
+				}
+			],
+			"workflowCompliance": {
+				"isCompliant": false,
+				"steps": {
+					"lessonsRead": true,
+					"deepseekDelegated": true,
+					"codexReviewed": false,
+					"ollamaSummarized": false
+				},
+				"violations": [
+					"Missing review phase (Codex review not completed)",
+					"Missing summarization phase (Ollama summary not completed)"
+				]
+			}
 		},
 		{
 			"commitSha": "61043e28d",
@@ -401,7 +980,49 @@
 				"src/tests/cloud/learning-gateway.test.js"
 			],
 			"featuresAffected": ["learning-layer", "intelligence-layer"],
-			"timestamp": 1779033720461
+			"timestamp": 1779033720461,
+			"modelsUsed": [
+				{
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 2006,
+					"completionTokens": 889,
+					"latencyMs": 2959,
+					"success": true
+				},
+				{
+					"phase": "coding",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 3592,
+					"completionTokens": 2662,
+					"latencyMs": 5495,
+					"success": true
+				},
+				{
+					"phase": "review",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 1316,
+					"completionTokens": 577,
+					"latencyMs": 2473,
+					"success": true
+				}
+			],
+			"workflowCompliance": {
+				"isCompliant": false,
+				"steps": {
+					"lessonsRead": true,
+					"deepseekDelegated": false,
+					"codexReviewed": true,
+					"ollamaSummarized": false
+				},
+				"violations": [
+					"Coding phase used anthropic instead of deepseek",
+					"Missing summarization phase (Ollama summary not completed)"
+				]
+			}
 		},
 		{
 			"id": "commit_kimi_telegram_audit_1779037511055",
@@ -425,7 +1046,40 @@
 				"handleLogs returned dashboard URL instead of real logs",
 				"missing rate limiting on Telegram commands"
 			],
-			"timestamp": "2026-05-17T17:05:11.055Z"
+			"timestamp": "2026-05-17T17:05:11.055Z",
+			"modelsUsed": [
+				{
+					"phase": "planning",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-20250514",
+					"promptTokens": 759,
+					"completionTokens": 588,
+					"latencyMs": 3789,
+					"success": true
+				},
+				{
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"promptTokens": 1887,
+					"completionTokens": 1720,
+					"latencyMs": 2510,
+					"success": true
+				}
+			],
+			"workflowCompliance": {
+				"isCompliant": false,
+				"steps": {
+					"lessonsRead": true,
+					"deepseekDelegated": true,
+					"codexReviewed": false,
+					"ollamaSummarized": false
+				},
+				"violations": [
+					"Missing review phase (Codex review not completed)",
+					"Missing summarization phase (Ollama summary not completed)"
+				]
+			}
 		}
 	],
 	"deploys": [

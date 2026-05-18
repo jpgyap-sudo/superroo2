@@ -20,6 +20,61 @@ export abstract class BaseProvider implements ApiHandler {
 	abstract getModel(): { id: string; info: ModelInfo }
 
 	/**
+	 * Log an AI API call to the ModelUsageTracker via WorkflowEnforcer.
+	 *
+	 * This is called by createMessage() implementations to track which models
+	 * and providers are being used. The data flows into model-usage-log.json
+	 * and task-usage-summaries.json, which the SuperRoo Cloud Dashboard reads
+	 * to display workflow compliance and model usage statistics.
+	 *
+	 * This is best-effort — if the tracker hasn't been initialized (e.g. in tests),
+	 * the error is silently caught.
+	 *
+	 * @param phase The workflow phase (planning, coding, review, summarization)
+	 * @param provider The AI provider name (anthropic, deepseek, openai, etc.)
+	 * @param model The model ID
+	 * @param success Whether the API call was successful
+	 * @param metadata Optional metadata (taskId, tokens, latency, etc.)
+	 */
+	protected async logApiCall(
+		phase: string,
+		provider: string,
+		model: string,
+		success: boolean,
+		metadata?: {
+			taskId?: string
+			promptTokens?: number
+			completionTokens?: number
+			latencyMs?: number
+			fallbackUsed?: boolean
+			error?: string
+		},
+	): Promise<void> {
+		try {
+			const {
+				isWorkflowEnforcerInitialized,
+				getWorkflowEnforcer,
+			} = require("../../super-roo/product-memory/WorkflowEnforcer")
+			if (isWorkflowEnforcerInitialized()) {
+				await getWorkflowEnforcer().logApiCall({
+					phase: phase as "planning" | "coding" | "review" | "summarization" | "memory_storage",
+					provider,
+					model,
+					success,
+					promptTokens: metadata?.promptTokens,
+					completionTokens: metadata?.completionTokens,
+					latencyMs: metadata?.latencyMs,
+					fallbackUsed: metadata?.fallbackUsed,
+					error: metadata?.error,
+					timestamp: new Date().toISOString(),
+				})
+			}
+		} catch {
+			// Tracker not initialized — silently skip
+		}
+	}
+
+	/**
 	 * Converts an array of tools to be compatible with OpenAI's strict mode.
 	 * Filters for function tools, applies schema conversion to their parameters,
 	 * and ensures all tools have consistent strict: true values.

@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next"
 import type { ReactNode } from "react"
 import "./globals.css"
+import "@/components/ide-terminal/terminal-themes.css"
+import { IdeProvider } from "@/lib/ide-store"
 
 export const metadata: Metadata = {
 	title: "SuperRoo Cloud Dashboard",
@@ -38,7 +40,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 				<meta name="mobile-web-app-capable" content="yes" />
 				<meta name="application-name" content="SuperRoo" />
 			</head>
-			<body className="antialiased">{children}</body>
+			<body className="antialiased">
+				<IdeProvider>{children}</IdeProvider>
+			</body>
 		</html>
 	)
 }

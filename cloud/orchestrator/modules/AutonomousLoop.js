@@ -94,6 +94,9 @@ class AutonomousLoop {
 		this._status = "idle"
 		this._error = null
 		this._progress = 0
+
+		// Model usage tracking
+		this._modelUsageTracker = null
 	}
 
 	// ─── Public API ─────────────────────────────────────────────────────
@@ -118,6 +121,12 @@ class AutonomousLoop {
 		this._status = "running"
 		this._error = null
 		this._progress = 0
+
+		// Initialize model usage tracker
+		if (this.orchestrator && this.orchestrator.modelUsageTracker) {
+			this._modelUsageTracker = this.orchestrator.modelUsageTracker
+			this._modelUsageTracker.startTask(this._jobId)
+		}
 
 		// Log start event
 		if (this.orchestrator && this.orchestrator.eventLog) {
@@ -912,6 +921,40 @@ class AutonomousLoop {
 			// Create commit message
 			const commitMsg = `auto: autonomous improvement cycle — ${filesChanged} file(s) changed [skip ci]`
 
+			// ── Run Ollama summarization before commit ──────────────────────
+			let summarizationSuccess = false
+			if (this._modelUsageTracker) {
+				try {
+					const ollamaBaseUrl = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434"
+					const ollamaModel = process.env.OLLAMA_MODEL || "llama3.2:3b"
+					const summaryPrompt = `Summarize the following git diff for a commit message:\n\n${gitStatus.stdout.slice(0, 4000)}`
+					const startTime = Date.now()
+					const summaryRes = await fetch(`${ollamaBaseUrl}/api/generate`, {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({
+							model: ollamaModel,
+							prompt: summaryPrompt,
+							stream: false,
+						}),
+					})
+					const latencyMs = Date.now() - startTime
+					summarizationSuccess = summaryRes.ok
+					await this._modelUsageTracker.logOllamaSummarization(
+						ollamaModel,
+						latencyMs,
+						summarizationSuccess,
+						summarizationSuccess ? undefined : `HTTP ${summaryRes.status}`,
+					)
+					console.log(
+						`[AutonomousLoop] Ollama summarization ${summarizationSuccess ? "succeeded" : "failed"} (${latencyMs}ms)`,
+					)
+				} catch (ollamaErr) {
+					console.warn(`[AutonomousLoop] Ollama summarization error: ${ollamaErr.message}`)
+					// Non-fatal — continue with commit even if summarization fails
+				}
+			}
+
 			// Commit
 			await execAsync(`git commit -m "${commitMsg}"`, { cwd: this.workspaceRoot, timeout: 30000 })
 
@@ -919,7 +962,44 @@ class AutonomousLoop {
 			const shaResult = await execAsync("git rev-parse HEAD", { cwd: this.workspaceRoot, timeout: 10000 })
 			const commitSha = shaResult.stdout.trim()
 
-			// Record in CommitDeployLog
+			// ── End model usage tracking and get compliance data ────────────
+			let modelsUsed = []
+			let workflowCompliance = null
+			if (this._modelUsageTracker) {
+				const summary = await this._modelUsageTracker.endTask()
+				if (summary) {
+					modelsUsed = Object.values(summary.phases).map((p) => ({
+						phase: p.phase,
+						provider: p.provider,
+						model: p.model,
+						promptTokens: p.promptTokens || 0,
+						completionTokens: p.completionTokens || 0,
+						latencyMs: p.latencyMs || 0,
+						success: p.success !== false,
+					}))
+					workflowCompliance = {
+						isCompliant: summary.workflowCompliant,
+						steps: {
+							lessonsRead: true,
+							deepseekDelegated: summary.deepseekDelegated,
+							codexReviewed: !!summary.phases.review,
+							ollamaSummarized: summarizationSuccess,
+						},
+						violations: [],
+					}
+					if (!summary.deepseekDelegated) {
+						workflowCompliance.violations.push("Coding phase did not use DeepSeek")
+					}
+					if (!summary.phases.review) {
+						workflowCompliance.violations.push("Missing review phase")
+					}
+					if (!summarizationSuccess) {
+						workflowCompliance.violations.push("Missing Ollama summarization")
+					}
+				}
+			}
+
+			// Record in CommitDeployLog with compliance data
 			if (this.orchestrator && this.orchestrator.commitDeployLog) {
 				await this.orchestrator.commitDeployLog.recordCommit({
 					commitSha,
@@ -928,6 +1008,8 @@ class AutonomousLoop {
 					title: commitMsg,
 					filesChanged: [`${filesChanged} files`],
 					featuresAffected: ["autonomous"],
+					modelsUsed,
+					workflowCompliance,
 				})
 			}
 

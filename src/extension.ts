@@ -195,6 +195,28 @@ export async function activate(context: vscode.ExtensionContext) {
 	// Initialize the provider *before* the SuperRoo Cloud service.
 	const provider = new ClineProvider(context, outputChannel, "sidebar", contextProxy, mdmService)
 
+	// ── Initialize ModelUsageTracker & WorkflowEnforcer for model usage tracking ──
+	// This wires the VS Code extension's AI API calls into the workflow compliance
+	// monitoring system, so the SuperRoo Cloud Dashboard can show model usage data
+	// from local extension sessions alongside cloud orchestrator sessions.
+	try {
+		const { initializeModelUsageTracker } = require("./super-roo/product-memory/ModelUsageTracker")
+		const { initializeWorkflowEnforcer } = require("./super-roo/product-memory/WorkflowEnforcer")
+		const { NoopEventLog } = require("./super-roo/product-memory/NoopEventLog")
+
+		const modelEventLog = new NoopEventLog()
+		const memoryDir = path.join(context.extensionPath, "server", "src", "memory")
+
+		initializeModelUsageTracker(modelEventLog, memoryDir)
+		initializeWorkflowEnforcer(modelEventLog)
+
+		outputChannel.appendLine(`[ModelUsageTracker] Initialized at ${memoryDir}`)
+	} catch (error) {
+		outputChannel.appendLine(
+			`[ModelUsageTracker] Failed to initialize: ${error instanceof Error ? error.message : String(error)}`,
+		)
+	}
+
 	// Initialize SuperRoo Cloud service.
 	const postStateListener = () => ClineProvider.getVisibleInstance()?.postStateToWebviewWithoutClineMessages()
 

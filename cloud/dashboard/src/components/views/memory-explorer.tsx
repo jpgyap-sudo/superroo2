@@ -35,6 +35,9 @@ const TYPE_STYLE: Record<string, string> = {
 	frontend: "bg-purple-900/40 text-purple-300",
 	devops: "bg-orange-900/40 text-orange-300",
 	ml: "bg-cyan-900/40 text-cyan-300",
+	lesson: "bg-slate-800 text-slate-300",
+	bugfix: "bg-rose-900/40 text-rose-300",
+	decision: "bg-emerald-900/40 text-emerald-300",
 }
 
 export function MemoryExplorerView() {
@@ -49,7 +52,10 @@ export function MemoryExplorerView() {
 		setLoading(true)
 		setError(null)
 		try {
-			const res = await fetch(`/api/memory-explorer?q=${encodeURIComponent(q)}`)
+			const token = localStorage.getItem("superroo_auth_token")
+			const res = await fetch(`/api/memory-explorer?q=${encodeURIComponent(q)}`, {
+				headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+			})
 			if (!res.ok) throw new Error(`HTTP ${res.status}`)
 			setData(await res.json())
 		} catch (err: any) {

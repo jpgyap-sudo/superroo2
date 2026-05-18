@@ -373,6 +373,11 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 			}
 
 			yield* this.handleStreamResponse(stream)
+
+			// Log this API call to the model usage tracker (best-effort, non-blocking)
+			void this.logApiCall(metadata?.mode === "planning" ? "planning" : "coding", "openai", modelId, true, {
+				taskId: metadata?.taskId,
+			})
 		} else {
 			const requestOptions: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming = {
 				model: modelId,
@@ -425,6 +430,11 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 				text: message?.content || "",
 			}
 			yield this.processUsageMetrics(response.usage)
+
+			// Log this API call to the model usage tracker (best-effort, non-blocking)
+			void this.logApiCall(metadata?.mode === "planning" ? "planning" : "coding", "openai", modelId, true, {
+				taskId: metadata?.taskId,
+			})
 		}
 	}
 

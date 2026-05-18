@@ -4,6 +4,21 @@ import type { DiffData, DiffChange } from "./types"
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "/api"
 
+/**
+ * Build a WebSocket URL that works in both dev and production.
+ * In dev (dashboard on :3001, API on :8787), connect directly to the API
+ * server because Next.js dev rewrites do NOT proxy WebSocket upgrades.
+ * In production (nginx handles WS proxying), use the same host.
+ */
+export function getWebSocketUrl(path: string): string {
+	const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
+	// Dev bypass: when dashboard runs on 3001, API is on 8787
+	if (typeof window !== "undefined" && window.location.hostname === "localhost" && window.location.port === "3001") {
+		return `${protocol}://localhost:8787${path}`
+	}
+	return `${protocol}://${window.location.host}${path}`
+}
+
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 	const token = typeof window !== "undefined" ? localStorage.getItem("superroo_auth_token") : null
 	const headers: Record<string, string> = {
@@ -24,7 +39,9 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
 /* ── Workspace ─────────────────────────────────────────── */
 
 export async function fetchWorkspace() {
-	return apiFetch<{ files: any[]; openFiles: any[]; tasks: any[]; recentWorkspaces: any[] }>("/workspace")
+	return apiFetch<{ files: any[]; openFiles: any[]; tasks: any[]; recentWorkspaces: any[] }>(
+		"/ide-workspace/workspace",
+	)
 }
 
 export async function fetchFileContent(filePath: string) {
@@ -41,17 +58,31 @@ export async function saveFileContent(filePath: string, content: string) {
 }
 
 export async function createFile(filePath: string, content: string) {
-	return apiFetch<{ success: boolean }>("/ide-workspace/file/create", {
+	return apiFetch<{ success: boolean }>("/ide-workspace/file/save", {
 		method: "POST",
 		body: JSON.stringify({ path: filePath, content }),
 	})
 }
 
 export async function fetchDiff(filePath: string, content: string) {
-	return apiFetch<DiffData>("/ide-workspace/file/diff", {
+	const { content: original } = await fetchFileContent(filePath)
+	const diffRes = await apiFetch<{
+		changes: Array<{ line: number; original: string; modified: string; type: string }>
+	}>("/ide-workspace/diff", {
 		method: "POST",
-		body: JSON.stringify({ path: filePath, content }),
+		body: JSON.stringify({ original, modified: content }),
 	})
+	const changes: DiffChange[] = diffRes.changes.map((c) => ({
+		lineNumber: c.line,
+		content: c.modified || c.original,
+		type: c.type === "added" ? "added" : c.type === "removed" ? "removed" : "unchanged",
+	}))
+	return {
+		filePath,
+		original,
+		modified: content,
+		changes,
+	} as DiffData
 }
 
 /* ── Terminal ──────────────────────────────────────────── */
@@ -92,16 +123,16 @@ export async function openWorkspace(path?: string) {
 
 export async function fetchOrchestratorStatus() {
 	return apiFetch<{ running: boolean; mode: string; modules: Record<string, any>; tasks: any[] }>(
-		"/orchestrator/status",
+		"/ide-workspace/orchestrator/status",
 	)
 }
 
 export async function fetchHermesStats() {
-	return apiFetch<{ stats: any[] }>("/hermes/stats")
+	return apiFetch<{ stats: any[] }>("/ide-workspace/hermes/stats")
 }
 
 export async function fetchDeployments() {
-	return apiFetch<{ deployments: any[] }>("/deployments")
+	return apiFetch<{ deployments: any[] }>("/telegram/deployments")
 }
 
 /* ── Brain / AI Chat ───────────────────────────────────── */

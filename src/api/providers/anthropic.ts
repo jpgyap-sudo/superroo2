@@ -330,6 +330,14 @@ export class AnthropicHandler extends BaseProvider implements SingleCompletionHa
 				totalCost,
 			}
 		}
+
+		// Log this API call to the model usage tracker (best-effort, non-blocking)
+		const modelInfo = this.getModel()
+		void this.logApiCall(metadata?.mode === "planning" ? "planning" : "coding", "anthropic", modelInfo.id, true, {
+			taskId: metadata?.taskId,
+			promptTokens: inputTokens,
+			completionTokens: outputTokens,
+		})
 	}
 
 	getModel() {

@@ -25,6 +25,7 @@ import {
 	fetchOrchestratorStatus,
 	fetchHermesStats,
 	fetchDeployments,
+	getWebSocketUrl,
 } from "@/components/ide-terminal/api"
 import { useWebSocket } from "@/components/ide-terminal/hooks/useWebSocket"
 import type { BrainTab, DiffData } from "@/components/ide-terminal/types"
@@ -401,8 +402,7 @@ export function useIdeTerminal() {
 	let lspRequestId = 0
 
 	useEffect(() => {
-		const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
-		const wsUrl = `${protocol}//${window.location.host}/api/ws/lsp`
+		const wsUrl = getWebSocketUrl("/api/ws/lsp")
 
 		let reconnectTimer: ReturnType<typeof setTimeout>
 
@@ -589,8 +589,8 @@ export function useIdeTerminal() {
 					recentWorkspaces: any[]
 					workspaceTasks: WorkspaceTask[]
 					status: any
-				}>("/workspace")
-				if (hydratedRef.current) return
+				}>("/ide-workspace/workspace")
+				// Always load files from server (server is source of truth for workspace files)
 				if (data.files) dispatch({ type: "SET_FILES", payload: data.files })
 				if (data.repoName) dispatch({ type: "SET_REPO_NAME", payload: data.repoName })
 				if (data.branch) dispatch({ type: "SET_BRANCH", payload: data.branch })

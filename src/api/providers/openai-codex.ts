@@ -146,6 +146,11 @@ export class OpenAiCodexHandler extends BaseProvider implements SingleCompletion
 	): ApiStream {
 		const model = this.getModel()
 		yield* this.handleResponsesApiMessage(model, systemPrompt, messages, metadata)
+
+		// Log this API call to the model usage tracker (best-effort, non-blocking)
+		void this.logApiCall(metadata?.mode === "planning" ? "planning" : "coding", "openai-codex", model.id, true, {
+			taskId: metadata?.taskId,
+		})
 	}
 
 	private async *handleResponsesApiMessage(

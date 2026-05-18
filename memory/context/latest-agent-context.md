@@ -1,45 +1,57 @@
 # Latest Agent Context
 
-Generated: 2026-05-17T15:47:10.132Z
-Task: replace prompt-based lesson curation with inline editor
+Generated: 2026-05-18T02:22:46.116Z
+Task: verify live memory explorer tab end to end and improve backend frontend wiring
 
 ## Relevant Lessons
-1. **Safe JSON Parsing in Database Registries**
-   - Rule: All registry modules MUST use safeJsonParse() instead of raw JSON.parse() when reading from database.
-   - Why: Always use safe JSON parsing with fallback values when reading from persistent storage. Database corruption can happen at any time; code should be resilient.
-2. **Intent-to-Agent Routing Fix**
-   - Rule: Always verify intent-to-agent routing with real user queries. Add classifier feedback loops to detect and correct routing errors.
-   - Why: Intent classification must be continuously validated against actual outcomes. Routing mismatches cause user frustration and wasted compute cycles.
-3. **Webview Hydration Recovery**
-   - Rule: Implement timeout-based hydration recovery in all webview contexts. Never assume initial state sync succeeds.
-   - Why: Webview/extension communication is unreliable. Always implement recovery mechanisms for missed handshakes and state synchronization.
-4. **Docker Build Context Dependencies**
-   - Rule: For monorepo Docker builds: include all workspace package.json files, use --shamefully-hoist, and ensure platform-specific binaries are available.
-   - Why: Docker builds with monorepos require careful handling of workspace dependencies. pnpm's strict resolution needs explicit configuration in containerized environments.
-5. **Tailscale SSH Deployment Standard**
-   - Rule: ALL deployments MUST use Tailscale SSH (100.64.175.88). Never use public IP (104.248.225.250) for SSH.
-   - Why: Security practices must be enforced at the tooling level, not just documented. Automated systems will fall back to insecure defaults without explicit constraints.
+
+1. **Protected dashboard views must use authenticated fetches and canonical data sources**
+    - Rule: For protected dashboard endpoints, reuse the authenticated request pattern already used elsewhere in the app, and point new views at the canonical backend data source rather than a one-off legacy file.
+    - Why: A dashboard route can exist and still fail if the frontend omits the expected auth contract or reads from an obsolete source. Verify the integration boundary, not just file presence.
+2. **Production deploys must keep source and dependency manifests in sync**
+    - Rule: When production source files change together with dependencies, deploy the matching `package.json` and verify generated runtime artifacts exist before declaring recovery complete.
+    - Why: Hotfixes can restore one failing layer while leaving another stale layer broken. For production recovery, validate the runtime artifact set as well as the source change, especially when a deploy spans both app code and dependency manifests.
+3. **TOML Duplicate Table Key in Codex Config**
+    - Rule: Before adding a new `[table]` section to any `.toml` config file, grep for existing instances of that table name and merge keys into the existing section rather than creating a duplicate.
+    - Why: When adding new configuration keys to TOML files, always check if the table already exists. Appending a duplicate `[table]` header will break parsing.
+4. **Comprehensive Gap Analysis and Full-Stack Improvement Execution**
+    - Rule: Before implementing any improvement from a gap analysis document, verify the actual source code to confirm the gap still exists. For Vitest ESM mocking of default imports, always include "default: { ... }" alongside named exports in the mock factory.
+    - Why: When doing a comprehensive codebase gap analysis, always verify which gaps have already been filled by checking the actual source code rather than relying on the gap analysis document. Many items from NEXT_IMPROVEMENTS.md had already been implemented in a previous pass. For ESM module mocking in Vitest, default imports (import fs from "fs/promises") require the "default:" key in the mock factory, not just named exports. The createPopulatedRetriever() pattern using type assertion to bypass load() is more reliable than mocking filesystem operations for filtering/sorting/formatting tests.
+5. **Claude Task Tracking System — MCP Memory Server Integration**
+    - Rule: When adding a new agent type to the MCP Memory Server, always add all 8 integration points in order: constant → interfaces → tool definitions → handlers → resource → search → helpers → agent config file. Missing any one breaks the full workflow.
+    - Why: When adding a new agent task tracking system to the MCP Memory Server, follow the exact pattern of existing agent implementations (Codex → Kimi → Claude). Each agent needs: (1) a JSON log file, (2) a path constant, (3) TypeScript interfaces, (4) 4 MCP tool definitions in \_registerTools(), (5) handler cases in \_handleToolCall(), (6) a resource endpoint in \_registerResources(), (7) the JSON file added to \_searchLocalMemory(), and (8) 6 helper methods (read, write, upsert, list, get, getActive). The CLAUDE.md file follows the same pattern as .codex/config.toml for Codex.
 
 ## Active Codex Tasks
-No active Codex tasks.
+
+- Release learning layer workflow (codex_task_learning_layer_release_20260517)
 
 ## Architecture Reminder
+
 The SuperRoo system is organized into **18 core modules** spanning orchestration, agent execution, safety, persistence, self-healing, machine learning, product memory, commit/deploy tracking, parallel execution, and infrastructure. Each module has a status, owner, connections to other modules, and specific product features it enables.
-         │     └── Infinite Improvement Loop (continuous learning)
+│ ├── Repair Plan Builder (structured fix generation)
+│ └── Infinite Improvement Loop (continuous learning)
+
+- **Features**: Priority queuing, Job retry & backoff, Concurrency control
+- **Features**: Feature lifecycle tracking (planned → building → testing → working → deprecated), Health monitoring (unknown → healthy → degraded → failing), Bug-to-feature mapping
+    - **Repair Plan Builder** ([`src/super-roo/healing/RepairPlanBuilder.ts`](../src/super-roo/healing/RepairPlanBuilder.ts)) - Structured fix generation
+
 ### 10. Machine Learning Engine
-- **Features**: Neural network training, Code pattern learning, Debug pattern learning, Test pattern learning, Infinite improvement loop
-    - **Learners** ([`src/super-roo/ml/learning/`](../src/super-roo/ml/learning/)) - CodeLearner, DebugLearner, TestLearner
+
+- **Features**: Neural network training, Code pattern learning, Debug pattern learning, Test pattern learning, Infinite improvement loop - **Learners** ([`src/super-roo/ml/learning/`](../src/super-roo/ml/learning/)) - CodeLearner, DebugLearner, TestLearner - **API Keys View** ([`cloud/dashboard/src/components/views/api-keys.tsx`](../cloud/dashboard/src/components/views/api-keys.tsx)) - Provider key management UI with save/test/delete
+  Incident Detection → Healing Bus → Root Cause Classifier → Repair Plan Builder → Self-Healing Loop → Fix → Verify
 
 ## Task Signals
-Inferred tags: learning
+
+Inferred tags: ui, learning
 
 ## Feature Knowledge
+
 # feature-knowledge.md
 
 Initialized by SuperRoo workflow check.
 
-
 ## Recent Bug Memory
+
 # bugs-fixed.md
 
 Initialized by SuperRoo workflow check.
@@ -82,6 +94,7 @@ Implemented `safeJsonParse<T>(json, fallback)` helper function that:
 - HealingBus already used this pattern; extended to other registries
 
 ## Model Decisions
+
 # model-decisions.md
 
 Initialized by SuperRoo workflow check.

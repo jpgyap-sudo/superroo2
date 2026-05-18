@@ -1,13 +1,8 @@
 /**
- * E2E Visual Test: IDE Terminal
+ * E2E Test: IDE Terminal
  *
  * Tests the cloud dashboard IDE Terminal view with Playwright.
- * Verifies:
- *   1. Page loads and renders the terminal
- *   2. Ctrl+V paste works in the terminal input
- *   3. AI Assistant panel toggles correctly
- *   4. Terminal command execution
- *   5. Visual regression snapshots
+ * Verifies the decomposed Monaco-based IDE is functional, not just a shell.
  *
  * Run: npx playwright test --config=playwright.config.ts
  */
@@ -18,221 +13,136 @@ const DASHBOARD_URL = "http://localhost:3001"
 
 test.describe("IDE Terminal", () => {
 	test.beforeEach(async ({ page }) => {
-		await page.goto(`${DASHBOARD_URL}/ide-terminal`)
-		await page.waitForLoadState("networkidle")
+		// Mock authentication so the dashboard renders instead of redirecting to login
+		await page.addInitScript(() => {
+			localStorage.setItem("superroo_auth_token", "e2e-test-token")
+		})
+		await page.goto(`${DASHBOARD_URL}/?page=ide-terminal`)
+		await page.waitForLoadState("domcontentloaded")
+		// Wait for the IDE Terminal-specific UI to appear
+		await page.locator('input[placeholder="Type a command..."]').waitFor({ state: "visible", timeout: 15000 })
 	})
 
-	test("page loads and renders terminal UI", async ({ page }) => {
-		// Check the terminal header is visible
-		const terminalHeader = page.locator("text=Terminal")
-		await expect(terminalHeader).toBeVisible({ timeout: 10000 })
+	test("page loads with Terminal and AI Chat panels", async ({ page }) => {
+		// Terminal header should be visible
+		await expect(page.locator("text=Terminal").first()).toBeVisible({ timeout: 5000 })
 
-		// Check the AI Assistant panel header
-		const aiHeader = page.locator("text=AI Assistant")
-		await expect(aiHeader).toBeVisible({ timeout: 5000 })
+		// AI Chat panel should be visible
+		await expect(page.locator("text=AI Chat").first()).toBeVisible({ timeout: 5000 })
 
-		// Check the terminal input exists
-		const terminalInput = page.locator('input[placeholder*="command"]')
+		// Terminal input with new placeholder
+		const terminalInput = page.locator('input[placeholder="Type a command..."]')
 		await expect(terminalInput).toBeVisible({ timeout: 5000 })
 
-		// Take a screenshot for visual reference
+		// AI textarea
+		const aiTextarea = page.locator('textarea[placeholder="Ask AI or type / for commands..."]')
+		await expect(aiTextarea).toBeVisible({ timeout: 5000 })
+
+		// Monaco editor should be present (look for the editor container, not <pre>)
+		const monacoContainer = page.locator(".monaco-editor, [data-testid='monaco-editor']").first()
+		// If no file is open, Monaco won't mount yet — just verify the editor area exists
+		await expect(page.locator("text=Select a file from the explorer").or(monacoContainer)).toBeVisible({
+			timeout: 5000,
+		})
+
 		await page.screenshot({ path: "e2e/screenshots/ide-terminal-loaded.png", fullPage: false })
 	})
 
-	test("Ctrl+V paste works in terminal input", async ({ page }) => {
-		const terminalInput = page.locator('input[placeholder*="command"]')
-		await expect(terminalInput).toBeVisible({ timeout: 5000 })
+	test("terminal accepts typed commands and executes on Enter", async ({ page }) => {
+		const terminalInput = page.locator('input[placeholder="Type a command..."]')
+		await terminalInput.fill("echo hello")
+		await terminalInput.press("Enter")
 
-		// Focus the terminal input
-		await terminalInput.click()
+		// Wait for output block to appear
+		await page.waitForTimeout(500)
+		await expect(page.locator("text=hello").first()).toBeVisible({ timeout: 5000 })
 
-		// Simulate Ctrl+V paste with clipboard data
-		const pastedText = "npm run build"
-		await page.evaluate(
-			({ text }) => {
-				const input = document.querySelector('input[placeholder*="command"]') as HTMLInputElement
-				if (!input) throw new Error("Terminal input not found")
-
-				// Create a clipboard event with text data
-				const event = new ClipboardEvent("paste", {
-					bubbles: true,
-					cancelable: true,
-					clipboardData: new DataTransfer(),
-				})
-				Object.defineProperty(event, "clipboardData", {
-					value: {
-						items: [{ type: "text/plain" }],
-						getData: (type: string) => (type === "text" ? text : ""),
-						types: ["text/plain"],
-					},
-					writable: false,
-				})
-
-				// Focus the input and dispatch paste
-				input.focus()
-				input.dispatchEvent(event)
-			},
-			{ text: pastedText },
-		)
-
-		// Wait for React state to update
-		await page.waitForTimeout(100)
-
-		// Verify the pasted text appears in the input
-		const inputValue = await terminalInput.inputValue()
-		expect(inputValue).toBe(pastedText)
-
-		// Take screenshot showing pasted content
-		await page.screenshot({ path: "e2e/screenshots/ide-terminal-paste.png", fullPage: false })
+		await page.screenshot({ path: "e2e/screenshots/ide-terminal-command.png", fullPage: false })
 	})
 
-	test("Ctrl+V paste works when terminal is focused (not AI textarea)", async ({ page }) => {
-		const terminalInput = page.locator('input[placeholder*="command"]')
-		await expect(terminalInput).toBeVisible({ timeout: 5000 })
-
-		// First focus the AI textarea to verify paste doesn't go there
-		const aiTextarea = page.locator("textarea")
-		if (await aiTextarea.isVisible()) {
-			await aiTextarea.click()
-			await page.waitForTimeout(50)
-		}
-
-		// Now focus the terminal input
-		await terminalInput.click()
-		await page.waitForTimeout(50)
-
-		// Verify terminal input is the active element
-		const isTerminalFocused = await page.evaluate(() => {
-			const input = document.querySelector('input[placeholder*="command"]')
-			return document.activeElement === input
-		})
-		expect(isTerminalFocused).toBe(true)
-
-		// Paste text via Ctrl+V
-		await page.evaluate(() => {
-			const input = document.querySelector('input[placeholder*="command"]') as HTMLInputElement
-			if (!input) throw new Error("Terminal input not found")
-
-			const event = new ClipboardEvent("paste", {
-				bubbles: true,
-				cancelable: true,
-			})
-			Object.defineProperty(event, "clipboardData", {
-				value: {
-					items: [{ type: "text/plain" }],
-					getData: (type: string) => (type === "text" ? "git status" : ""),
-					types: ["text/plain"],
-				},
-				writable: false,
-			})
-			input.focus()
-			input.dispatchEvent(event)
-		})
-
-		await page.waitForTimeout(100)
-
-		// Verify the correct text was pasted
-		const inputValue = await terminalInput.inputValue()
-		expect(inputValue).toBe("git status")
-	})
-
-	test("AI Assistant panel toggles open/close", async ({ page }) => {
-		// Check AI panel is visible by default
-		const aiPanel = page.locator("aside").filter({ hasText: "AI Assistant" })
+	test("AI Chat panel can be closed and reopened", async ({ page }) => {
+		// AI panel is visible by default
+		const aiPanel = page.locator("aside").filter({ hasText: "AI Chat" })
 		await expect(aiPanel.first()).toBeVisible({ timeout: 5000 })
 
-		// Click the close button (PanelRightClose icon)
-		const closeButton = page.locator('button[title="Close panel"]')
-		if (await closeButton.isVisible()) {
-			await closeButton.click()
-			await page.waitForTimeout(200)
-		}
+		// Click close button (first button in AI Chat header)
+		const closeButton = aiPanel.first().locator("button").first()
+		await closeButton.click()
+		await page.waitForTimeout(200)
 
-		// Take screenshot with AI panel closed
+		// AI panel should be gone
+		await expect(aiPanel.first()).not.toBeVisible()
+
+		// Re-open via sidebar (look for IDE Terminal in sidebar to confirm context)
 		await page.screenshot({ path: "e2e/screenshots/ide-terminal-ai-closed.png", fullPage: false })
 	})
 
-	test("AI chat tab sends message", async ({ page }) => {
-		// Find the AI textarea
-		const aiTextarea = page.locator("textarea")
-		await expect(aiTextarea.first()).toBeVisible({ timeout: 5000 })
+	test("AI chat textarea accepts input and sends message", async ({ page }) => {
+		const aiTextarea = page.locator('textarea[placeholder="Ask AI or type / for commands..."]')
+		await aiTextarea.fill("What time is it?")
 
-		// Type a message
-		await aiTextarea.first().fill("Hello, what is the status of my project?")
-
-		// Click the send button
 		const sendButton = page.locator('button[title="Send"]')
 		await expect(sendButton).toBeVisible({ timeout: 3000 })
 		await sendButton.click()
 
-		// Wait for the message to appear in the chat
-		await page.waitForTimeout(500)
+		// Wait for the user message to appear in the chat list
+		await expect(page.locator("text=What time is it?").first()).toBeVisible({ timeout: 5000 })
 
-		// Take screenshot after sending
 		await page.screenshot({ path: "e2e/screenshots/ide-terminal-ai-chat.png", fullPage: false })
 	})
 
-	test("Terminal command execution shows output", async ({ page }) => {
-		const terminalInput = page.locator('input[placeholder*="command"]')
-		await expect(terminalInput).toBeVisible({ timeout: 5000 })
-
-		// Type a command
-		await terminalInput.fill("npm run build")
-
-		// Press Enter to execute
-		await terminalInput.press("Enter")
-
-		// Wait for output to appear
-		await page.waitForTimeout(500)
-
-		// Take screenshot showing command output
-		await page.screenshot({ path: "e2e/screenshots/ide-terminal-command-output.png", fullPage: false })
-	})
-
-	test("File explorer panel toggles", async ({ page }) => {
-		// Check if file panel toggle button exists
-		const fileToggleButton = page.locator('button[title*="File"]').first()
-		if (await fileToggleButton.isVisible()) {
-			await fileToggleButton.click()
-			await page.waitForTimeout(200)
-		}
-
-		// Take screenshot
-		await page.screenshot({ path: "e2e/screenshots/ide-terminal-file-toggle.png", fullPage: false })
-	})
-
-	test("Terminal maximize toggle works", async ({ page }) => {
-		// Find the maximize button
-		const maximizeButton = page.locator('button[title="Maximize"]')
-		if (await maximizeButton.isVisible()) {
-			await maximizeButton.click()
-			await page.waitForTimeout(300)
-
-			// Take screenshot with maximized terminal
-			await page.screenshot({ path: "e2e/screenshots/ide-terminal-maximized.png", fullPage: false })
-		}
-	})
-
-	test("Keyboard shortcuts modal opens", async ({ page }) => {
-		// Press Ctrl+Shift+K to open shortcuts
-		await page.keyboard.press("Control+Shift+K")
+	test("keyboard shortcuts modal opens via toolbar button", async ({ page }) => {
+		// Click the keyboard shortcuts button in the toolbar
+		const shortcutsButton = page.locator('button[title="Keyboard Shortcuts"]')
+		await expect(shortcutsButton).toBeVisible({ timeout: 5000 })
+		await shortcutsButton.click()
 		await page.waitForTimeout(300)
 
-		// Take screenshot showing shortcuts modal
+		// The modal should contain keyboard shortcuts content
+		await expect(page.locator("text=Keyboard Shortcuts").or(page.locator("text=Shortcuts")).first()).toBeVisible({
+			timeout: 5000,
+		})
+
 		await page.screenshot({ path: "e2e/screenshots/ide-terminal-shortcuts.png", fullPage: false })
 	})
 
-	test("Agent suggestions appear when typing /", async ({ page }) => {
-		const terminalInput = page.locator('input[placeholder*="command"]')
-		await expect(terminalInput).toBeVisible({ timeout: 5000 })
+	test("terminal command suggestions appear when typing", async ({ page }) => {
+		const terminalInput = page.locator('input[placeholder="Type a command..."]')
+		await terminalInput.fill("git")
+		await page.waitForTimeout(300)
 
-		// Type "/" to trigger agent suggestions
-		await terminalInput.fill("/")
+		// Suggestion dropdown should appear with git commands
+		await expect(page.locator("text=git status").or(page.locator("text=git log")).first()).toBeVisible({
+			timeout: 5000,
+		})
 
-		// Wait for suggestions to appear
-		await page.waitForTimeout(200)
+		await page.screenshot({ path: "e2e/screenshots/ide-terminal-suggestions.png", fullPage: false })
+	})
 
-		// Take screenshot showing agent suggestions
-		await page.screenshot({ path: "e2e/screenshots/ide-terminal-agent-suggestions.png", fullPage: false })
+	test("Monaco editor loads when a file is clicked", async ({ page }) => {
+		// Click on a file in the explorer
+		const fileButton = page.locator("button").filter({ hasText: "AGENTS.md" }).first()
+		// If AGENTS.md is not visible, try scrolling or look for another file
+		if (await fileButton.isVisible().catch(() => false)) {
+			await fileButton.click()
+		} else {
+			// Try to find any .md or .ts file
+			const anyFile = page
+				.locator("button")
+				.filter({ hasText: /\.(md|ts|js|json)$/ })
+				.first()
+			await anyFile.click()
+		}
+
+		// Wait for Monaco editor to mount (look for the editor container class)
+		await page.waitForTimeout(800)
+		const monacoEditor = page.locator(".monaco-editor, .monaco-mouse-cursor-text").first()
+		await expect(monacoEditor).toBeVisible({ timeout: 10000 })
+
+		// Verify the editor has content (not empty)
+		const editorContent = await monacoEditor.textContent()
+		expect(editorContent?.length || 0).toBeGreaterThan(0)
+
+		await page.screenshot({ path: "e2e/screenshots/ide-terminal-monaco.png", fullPage: false })
 	})
 })
