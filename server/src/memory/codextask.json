@@ -3,16 +3,28 @@
 		{
 			"id": "codex_task_workflow_compliance_dashboard_20260518",
 			"title": "Improve workflow compliance dashboard",
-			"summary": "Adding truthful tracking coverage, linkage diagnostics, service health visibility, and deploy guardrails for the Compliance dashboard flow.",
-			"status": "active",
+			"summary": "Added compliance tracking diagnostics, service health visibility, and deploy verification improvements; restored the missing VPS API/dashboard processes and verified live recovery.",
+			"status": "completed",
 			"project": "superroo2",
 			"agent": "Codex",
-			"filesChanged": [],
+			"filesChanged": [
+				"cloud/api/routes/workflow-compliance.js",
+				"cloud/dashboard/src/components/views/workflow-compliance.tsx",
+				"cloud/api/routes/monitoring.js",
+				"cloud/dashboard/src/components/views/monitoring.tsx",
+				"cloud/worker/autoDeployer.js",
+				"scripts/test-dashboard-workflow.mjs",
+				"memory/lessons-learned.md",
+				"memory/lesson-index.jsonl"
+			],
 			"featuresAffected": ["workflow-compliance", "monitoring", "deploy"],
-			"notes": [],
+			"notes": [
+				"Production dashboard/API were restarted on the VPS and public dashboard returned HTTP 200 afterward.",
+				"Full dashboard tsc remains blocked locally by the existing missing next package resolution issue."
+			],
 			"startedAt": "2026-05-18T13:23:09.475Z",
-			"updatedAt": "2026-05-18T13:23:09.475Z",
-			"completedAt": null
+			"updatedAt": "2026-05-18T13:26:55.717Z",
+			"completedAt": "2026-05-18T13:26:55.717Z"
 		},
 		{
 			"id": "codex_task_learning_layer_release_20260517",
