@@ -15,7 +15,7 @@ COPY packages/config-typescript/package.json ./packages/config-typescript/
 COPY cloud/dashboard/package.json ./cloud/dashboard/
 
 # Install dependencies (filtered to dashboard + workspace deps)
-RUN pnpm install --frozen-lockfile --filter superroo-dashboard
+RUN pnpm install --frozen-lockfile --ignore-scripts --filter superroo-dashboard
 
 # Copy source code
 COPY cloud/dashboard/ ./cloud/dashboard/
