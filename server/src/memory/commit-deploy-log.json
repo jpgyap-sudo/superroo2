@@ -657,6 +657,20 @@
 			"healthCheckLatencyMs": 200,
 			"startedAt": "2026-05-18T00:49:00.000Z",
 			"completedAt": "2026-05-18T00:52:00.000Z"
+		},
+		{
+			"id": "deploy-agents-md-cross-project-rule-v2.2.1",
+			"version": "2.2.1",
+			"commitSha": "d7f777cb5",
+			"agent": "DeepSeek (code mode)",
+			"status": "healthy",
+			"environment": "production",
+			"commitsIncluded": ["d7f777cb5"],
+			"featuresDeployed": ["cross-project-learning-layer", "agent-rules"],
+			"healthCheckPassed": true,
+			"healthCheckLatencyMs": 200,
+			"startedAt": "2026-05-18T00:54:00.000Z",
+			"completedAt": "2026-05-18T00:55:00.000Z"
 		}
 	]
 }
