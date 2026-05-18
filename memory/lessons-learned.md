@@ -9086,3 +9086,102 @@ pass — all 7 Playwright E2E tests pass (15.8s)
 cloud-ide, lsp, websocket, redis, nextjs, dev-experience, bullmq
 
 ---
+
+### Auto-Extracted Lesson: Docs(learning): record lesson for LSP Bridge, WebSocket proxy, Redis fallback
+
+Date: 2026-05-18
+Source: Git commit 9afcccab
+Model/API used: unknown
+Confidence: medium
+Related files: memory/lesson-index.jsonl, memory/lessons-learned.md, server/src/memory/commit-deploy-log.json
+
+#### Task Summary
+
+docs(learning): record lesson for LSP Bridge, WebSocket proxy, Redis fallback
+
+#### Files Changed
+
+- `memory/lesson-index.jsonl`
+- `memory/lessons-learned.md`
+- `server/src/memory/commit-deploy-log.json`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 9afcccab.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 9afcccab by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+deployment
+
+---
+
+### Lesson: Fix Memory Explorer HTTP 401 and add cross-project lesson tracking
+
+Date: 2026-05-18
+Source: DeepSeek task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/api/auth.js, cloud/api/api.js, cloud/dashboard/src/components/views/memory-explorer.tsx, memory/lesson-index.jsonl
+
+#### Task Summary
+
+Fixed the Memory Explorer tab on the SuperRoo Cloud Dashboard which was returning HTTP 401 errors, and added cross-project lesson tracking from Central Brain MCP.
+
+#### Files Changed
+
+- `cloud/api/auth.js` — Added `/memory-explorer` to auth bypass whitelist
+- `cloud/api/api.js` — Enhanced `/memory-explorer` endpoint to query Central Brain MCP for cross-project lessons, merge with local lessons, apply project filter, and return `projects` array
+- `cloud/dashboard/src/components/views/memory-explorer.tsx` — Added project filter dropdown, project badge on cross-project lessons, `project` field to Lesson interface
+
+#### Bug Cause
+
+The `/memory-explorer` API endpoint was not in the auth bypass whitelist in `handleAuthRoute()`. When the frontend sent an `Authorization: Bearer <token>` header, the auth module intercepted the route and called `requireAuth()`. If the token was expired or invalid, it returned a 401. Additionally, the endpoint only read local `memory/lesson-index.jsonl` which contained only `superroo2` project lessons — no cross-project data was available.
+
+#### Fix Applied
+
+1. Added `/memory-explorer` to the auth bypass whitelist in `auth.js` so the endpoint is publicly accessible without authentication
+2. Enhanced the `/memory-explorer` API endpoint to query Central Brain MCP (`http://127.0.0.1:3419/mcp`) via the `query_memory` tool for cross-project lessons, filtering out `superroo2` duplicates
+3. Added `?project=` query parameter filter to the API endpoint
+4. Updated the frontend `memory-explorer.tsx` with a project filter dropdown, project badge on lesson cards, and `project` field in the Lesson interface
+
+#### Test Result
+
+pass — API returns 156 lessons with `projects: ['superroo2', 'cross-project']`, project filter works correctly, no 401 errors.
+
+#### Lesson Learned
+
+When adding new API endpoints to the SuperRoo Cloud Dashboard, always check the auth bypass whitelist in `auth.js` (`handleAuthRoute()`) to ensure public endpoints are not blocked by authentication. For cross-project data, query Central Brain MCP via the `query_memory` tool with a 5-second timeout as a best-effort fallback. The frontend should display project badges to distinguish cross-project lessons from local ones.
+
+#### Reusable Rule
+
+When adding a new API endpoint to `cloud/api/api.js` that should be publicly accessible, add it to the auth bypass whitelist in `cloud/api/auth.js` `handleAuthRoute()` function. For cross-project data queries, use `fetch()` to Central Brain MCP at `http://127.0.0.1:3419/mcp` with `AbortSignal.timeout(5000)` as a non-blocking best-effort call. Always filter out duplicate project entries when merging local and remote data.
+
+#### Tags
+
+memory-explorer, auth, 401, central-brain, mcp, cross-project, lessons, dashboard
+
+---

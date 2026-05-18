@@ -37,6 +37,7 @@ const healingMetrics = require("./routes/healing-metrics")
 const monitoring = require("./routes/monitoring")
 const workflowCompliance = require("./routes/workflow-compliance")
 const { LspBridge } = require("./lsp-bridge")
+const visualCrawler = require("./visual-crawler")
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || ""
 
 // ── LSP Bridge (lazy init — uses the current workspace dir) ────────────────────
@@ -95,6 +96,19 @@ const execAsync = promisify(exec)
 // Alias for Mini App API endpoints — uses var so it's hoisted; formatRelativeTime is defined later
 var timeAgo = function (ts) {
 	return formatRelativeTime(ts)
+}
+
+function getDefaultAlertRules() {
+	return [
+		{ label: "Bug detected", enabled: true, icon: "alert" },
+		{ label: "Deploy finished", enabled: true, icon: "rocket" },
+		{ label: "Agent loop failed", enabled: true, icon: "x" },
+		{ label: "Task completed", enabled: true, icon: "check" },
+		{ label: "Idle session expired", enabled: true, icon: "clock" },
+		{ label: "New approval request", enabled: true, icon: "shield" },
+		{ label: "Savepoint created", enabled: true, icon: "flag" },
+		{ label: "Rollback executed", enabled: true, icon: "undo" },
+	]
 }
 
 // ── AI Chat helper ─────────────────────────────────────────────────────────────
@@ -7663,24 +7677,67 @@ const server = http.createServer(async (req, res) => {
 						const mcpData = await mcpRes.json()
 						if (!mcpData.error) {
 							const raw = mcpData.result
+							// Central Brain returns items in {source, item} format where item has {id, title, description, ...}
+							// Also support flat lesson objects for backward compatibility
 							const results = Array.isArray(raw) ? raw : raw?.results || raw?.lessons || []
 							crossProjectLessons = results
 								.filter((r) => r && r.project !== "superroo2")
-								.map((lesson) => ({
-									id: lesson.id || `cb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-									task: lesson.title || lesson.topic || "Untitled lesson",
-									task_type: lesson.type || "",
-									risk: lesson.relevance_factors?.is_bug_fix ? "high" : "medium",
-									tags: Array.isArray(lesson.tags) ? lesson.tags : [],
-									files: Array.isArray(lesson.files) ? lesson.files : [],
-									models: lesson.model ? [lesson.model] : [],
-									root_cause:
-										lesson.lesson_summary || lesson.content || "No lesson summary recorded.",
-									fix: lesson.rule_summary || "No reusable rule recorded.",
-									reusable_rule: lesson.rule_summary || "No reusable rule recorded.",
-									date: lesson.date,
-									project: lesson.project || "cross-project",
-								}))
+								.map((entry) => {
+									// Handle {source, item} format from Central Brain query_memory
+									const lesson = entry.item || entry
+									const source = entry.source || "cross-project"
+									return {
+										id:
+											lesson.id ||
+											entry.id ||
+											`cb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+										task:
+											lesson.title ||
+											lesson.topic ||
+											entry.title ||
+											entry.topic ||
+											"Untitled lesson",
+										task_type: lesson.type || entry.type || "",
+										risk:
+											lesson.severity === "high" || lesson.relevance_factors?.is_bug_fix
+												? "high"
+												: "medium",
+										tags: Array.isArray(lesson.tags)
+											? lesson.tags
+											: Array.isArray(entry.tags)
+												? entry.tags
+												: [],
+										files: Array.isArray(lesson.filesLikelyInvolved)
+											? lesson.filesLikelyInvolved
+											: Array.isArray(lesson.files)
+												? lesson.files
+												: Array.isArray(entry.files)
+													? entry.files
+													: [],
+										models: lesson.model ? [lesson.model] : entry.model ? [entry.model] : [],
+										root_cause:
+											lesson.lesson_summary ||
+											lesson.description ||
+											lesson.content ||
+											entry.lesson_summary ||
+											entry.description ||
+											"No lesson summary recorded.",
+										fix:
+											lesson.rule_summary ||
+											lesson.symptoms?.join("; ") ||
+											entry.rule_summary ||
+											"No reusable rule recorded.",
+										reusable_rule:
+											lesson.rule_summary || entry.rule_summary || "No reusable rule recorded.",
+										date:
+											lesson.date ||
+											entry.date ||
+											(lesson.createdAt
+												? new Date(lesson.createdAt).toISOString().split("T")[0]
+												: ""),
+										project: lesson.project || entry.project || source,
+									}
+								})
 						}
 					}
 				} catch {
@@ -9063,6 +9120,22 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// GET /telegram/alert-rules — get current alert rule preferences
+		if (method === "GET" && (url === "/telegram/alert-rules" || normalizedUrl === "/telegram/alert-rules")) {
+			sendJson(res, 200, { success: true, rules: telegramBot.alertRules || getDefaultAlertRules() })
+			return
+		}
+
+		// POST /telegram/alert-rules — update an alert rule
+		if (method === "POST" && (url === "/telegram/alert-rules" || normalizedUrl === "/telegram/alert-rules")) {
+			const data = await parseBody(req)
+			if (!telegramBot.alertRules) telegramBot.alertRules = getDefaultAlertRules()
+			const rule = telegramBot.alertRules.find((r) => r.label === data.label)
+			if (rule) rule.enabled = !!data.enabled
+			sendJson(res, 200, { success: true, rules: telegramBot.alertRules })
+			return
+		}
+
 		// ── Telegram Bot Routes ────────────────────────────────────────────────
 
 		// POST /telegram/webhook — receive updates from Telegram
@@ -9534,6 +9607,77 @@ const server = http.createServer(async (req, res) => {
 				}
 				const result = await commissioningLoop.stop()
 				sendJson(res, 200, result)
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// ── Visual Crawler Endpoints ───────────────────────────────────────────
+
+		// POST /visual-crawl/run — Run a visual crawl
+		if (method === "POST" && (url === "/visual-crawl/run" || normalizedUrl === "/visual-crawl/run")) {
+			try {
+				const body = await parseBody(req)
+				const report = await visualCrawler.runCrawl({
+					url: body.url || `http://localhost:3001/?page=ide-terminal`,
+					viewports: body.viewports,
+					authToken: body.authToken || "e2e-test-token",
+					updateBaselines: body.updateBaselines,
+					thresholdPercent: body.thresholdPercent,
+				})
+				sendJson(res, 200, { success: true, report })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /visual-crawl/reports — List crawl reports
+		if (method === "GET" && (url === "/visual-crawl/reports" || normalizedUrl === "/visual-crawl/reports")) {
+			try {
+				const reports = await visualCrawler.listReports()
+				sendJson(res, 200, { success: true, reports })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /visual-crawl/reports/:id — Get a single report
+		if (
+			method === "GET" &&
+			(url.startsWith("/visual-crawl/reports/") || normalizedUrl.startsWith("/visual-crawl/reports/"))
+		) {
+			try {
+				const crawlId = url.split("/").pop()
+				const report = await visualCrawler.getReport(crawlId)
+				if (!report) {
+					sendJson(res, 404, { success: false, error: "Report not found" })
+					return
+				}
+				sendJson(res, 200, { success: true, report })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /visual-crawl/verify/:id — Re-run crawl after fix
+		if (
+			method === "POST" &&
+			(url.startsWith("/visual-crawl/verify/") || normalizedUrl.startsWith("/visual-crawl/verify/"))
+		) {
+			try {
+				const originalCrawlId = url.split("/").pop()
+				const body = await parseBody(req)
+				const result = await visualCrawler.rerunAfterFix(originalCrawlId, {
+					url: body.url,
+					viewports: body.viewports,
+					authToken: body.authToken || "e2e-test-token",
+					thresholdPercent: body.thresholdPercent,
+				})
+				sendJson(res, 200, { success: true, result })
 			} catch (err) {
 				sendJson(res, 500, { success: false, error: err.message })
 			}

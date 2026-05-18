@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { cn } from "@/lib/utils"
 import { StatCard, Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -458,10 +458,172 @@ function WorkflowPipeline({ status }: { status: CodingTaskStatus }) {
 
 // ─── Main View ───────────────────────────────────────────────────────────────
 
+const API = "/api"
+
+async function tgFetch<T>(path: string, init?: RequestInit): Promise<T> {
+	const token = typeof window !== "undefined" ? localStorage.getItem("superroo_auth_token") : null
+	const res = await fetch(`${API}${path}`, {
+		...init,
+		headers: {
+			"Content-Type": "application/json",
+			...(token ? { Authorization: `Bearer ${token}` } : {}),
+			...(init?.headers as Record<string, string>),
+		},
+	})
+	const json = await res.json()
+	return json
+}
+
+function mapApiTask(t: any): CodingTask {
+	const status = (LEGACY_STATUS_MAP[t.status] ?? t.status ?? "draft") as CodingTaskStatus
+	return {
+		id: t.id,
+		instruction: t.instruction || t.title || "",
+		status,
+		branchName: t.branchName || `tg/${t.id?.toLowerCase()}`,
+		changedFiles: t.changedFiles || 0,
+		linesAdded: t.linesAdded || 0,
+		linesRemoved: t.linesRemoved || 0,
+		changedFileList: t.changedFileList || [],
+		agentType: t.agent || t.agentId || "coder",
+		projectPath: t.projectPath || "/opt/superroo2",
+		createdAt: t.createdAgo || t.createdAt || "recently",
+		savepointHash: t.savepointHash,
+		environment: t.environment,
+	}
+}
+
+function mapApiSavepoint(s: any): Savepoint {
+	return {
+		id: s.id,
+		taskId: s.taskId || s.id,
+		hash: s.hash || s.id,
+		branch: s.branch || "",
+		createdAt: s.time || s.createdAt || "recently",
+		description: s.description || "",
+	}
+}
+
+function mapApiLog(l: any, idx: number): ActivityItem {
+	const msg: string = l.message || l.title || ""
+	const iconMap: Record<string, string> = {
+		deploy: "rocket",
+		test: "play",
+		approve: "check",
+		reject: "x",
+		rollback: "undo",
+		save: "flag",
+		error: "x",
+		info: "code",
+	}
+	const icon = Object.entries(iconMap).find(([k]) => msg.toLowerCase().includes(k))?.[1] || "code"
+	return {
+		icon,
+		title: l.title || msg.slice(0, 50),
+		detail: l.message || l.detail || "",
+		time: l.timestamp || l.time || "",
+	}
+}
+
 export function TelegramView() {
 	const [message, setMessage] = useState("/code fix the Telegram auth session timeout bug")
 	const [selectedTask, setSelectedTask] = useState<CodingTask | null>(null)
 	const [time, setTime] = useState("")
+	const [tasks, setTasks] = useState<CodingTask[]>(MOCK_TASKS)
+	const [savepoints, setSavepoints] = useState<Savepoint[]>(MOCK_SAVEPOINTS)
+	const [activity, setActivity] = useState<ActivityItem[]>(ACTIVITY)
+	const [alertRules, setAlertRules] = useState<AlertRule[]>(ALERT_RULES)
+	const [webhookStatus, setWebhookStatus] = useState<"checking" | "active" | "inactive">("checking")
+	const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({})
+
+	const fetchData = useCallback(async () => {
+		try {
+			const [tasksRes, savepointsRes, logsRes, webhookRes, rulesRes] = await Promise.allSettled([
+				tgFetch<{ success: boolean; tasks: any[] }>("/telegram/tasks"),
+				tgFetch<{ success: boolean; savepoints: any[] }>("/telegram/savepoints"),
+				tgFetch<{ success: boolean; logs: any[] }>("/telegram/logs"),
+				tgFetch<{ success: boolean; info?: { url?: string } }>("/telegram/webhook-info"),
+				tgFetch<{ success: boolean; rules: AlertRule[] }>("/telegram/alert-rules"),
+			])
+
+			if (tasksRes.status === "fulfilled" && tasksRes.value.success && tasksRes.value.tasks?.length) {
+				setTasks(tasksRes.value.tasks.map(mapApiTask))
+			}
+			if (
+				savepointsRes.status === "fulfilled" &&
+				savepointsRes.value.success &&
+				savepointsRes.value.savepoints?.length
+			) {
+				setSavepoints(savepointsRes.value.savepoints.map(mapApiSavepoint))
+			}
+			if (logsRes.status === "fulfilled" && logsRes.value.success && logsRes.value.logs?.length) {
+				setActivity(logsRes.value.logs.map(mapApiLog))
+			}
+			if (webhookRes.status === "fulfilled" && webhookRes.value.success) {
+				setWebhookStatus(webhookRes.value.info?.url ? "active" : "inactive")
+			} else {
+				setWebhookStatus("inactive")
+			}
+			if (rulesRes.status === "fulfilled" && rulesRes.value.success && rulesRes.value.rules?.length) {
+				setAlertRules(rulesRes.value.rules)
+			}
+		} catch {
+			// keep current state on network error
+		}
+	}, [])
+
+	useEffect(() => {
+		void fetchData()
+		const iv = setInterval(fetchData, 15_000)
+		return () => clearInterval(iv)
+	}, [fetchData])
+
+	const handleApprove = async (taskId: string) => {
+		setActionLoading((p) => ({ ...p, [`approve-${taskId}`]: true }))
+		try {
+			await tgFetch(`/telegram/tasks/${taskId}/approve`, { method: "POST" })
+			setTasks((prev) =>
+				prev.map((t) => (t.id === taskId ? { ...t, status: "review_approved" as CodingTaskStatus } : t)),
+			)
+		} finally {
+			setActionLoading((p) => ({ ...p, [`approve-${taskId}`]: false }))
+		}
+	}
+
+	const handleReject = async (taskId: string) => {
+		setActionLoading((p) => ({ ...p, [`reject-${taskId}`]: true }))
+		try {
+			await tgFetch(`/telegram/tasks/${taskId}/reject`, { method: "POST" })
+			setTasks((prev) =>
+				prev.map((t) => (t.id === taskId ? { ...t, status: "rejected" as CodingTaskStatus } : t)),
+			)
+		} finally {
+			setActionLoading((p) => ({ ...p, [`reject-${taskId}`]: false }))
+		}
+	}
+
+	const handleRollback = async (savepointId: string) => {
+		setActionLoading((p) => ({ ...p, [`rollback-${savepointId}`]: true }))
+		try {
+			await tgFetch("/telegram/rollback", { method: "POST", body: JSON.stringify({ savepointId }) })
+		} finally {
+			setActionLoading((p) => ({ ...p, [`rollback-${savepointId}`]: false }))
+			void fetchData()
+		}
+	}
+
+	const handleRunTests = async () => {
+		await tgFetch("/telegram/tasks/run-tests", { method: "POST" })
+	}
+
+	const handleSendTest = async () => {
+		await tgFetch("/telegram/test", { method: "POST", body: JSON.stringify({ message }) })
+	}
+
+	const handleAlertToggle = async (label: string, enabled: boolean) => {
+		setAlertRules((prev) => prev.map((r) => (r.label === label ? { ...r, enabled } : r)))
+		await tgFetch("/telegram/alert-rules", { method: "POST", body: JSON.stringify({ label, enabled }) })
+	}
 
 	useEffect(() => {
 		const tick = () => setTime(new Date().toLocaleTimeString())
@@ -486,12 +648,18 @@ export function TelegramView() {
 						</p>
 					</div>
 					<div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-						<StatusCard label="Bot" value="Online" color="text-emerald-300" />
+						<StatusCard
+							label="Bot"
+							value={
+								webhookStatus === "active" ? "Online" : webhookStatus === "inactive" ? "Offline" : "…"
+							}
+							color={webhookStatus === "active" ? "text-emerald-300" : "text-amber-300"}
+						/>
 						<StatusCard label="Session" value="30 min" color="text-cyan-300" />
-						<StatusCard label="Queue" value={`${MOCK_TASKS.length} tasks`} color="text-white" />
+						<StatusCard label="Queue" value={`${tasks.length} tasks`} color="text-white" />
 						<StatusCard
 							label="Approvals"
-							value={`${MOCK_TASKS.filter((t) => t.status === "waiting_approval" || t.status === "review").length} pending`}
+							value={`${tasks.filter((t) => t.status === "waiting_approval" || t.status === "review").length} pending`}
 							color="text-amber-300"
 						/>
 					</div>
@@ -527,10 +695,12 @@ export function TelegramView() {
 							Coding Tasks
 						</div>
 						<p className="text-xs leading-relaxed text-slate-400">
-							Create coding tasks with <code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/code</code>. Review diffs with{" "}
+							Create coding tasks with{" "}
+							<code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/code</code>. Review diffs with{" "}
 							<code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/diff</code>, approve with{" "}
 							<code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/approve</code>, and deploy with{" "}
-							<code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/deploy</code> — all from your phone.
+							<code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/deploy</code> — all from your
+							phone.
 						</p>
 					</div>
 					<div className="group rounded-2xl border border-[#1e2535] bg-[#0f1117]/40 p-4 transition-all duration-200 hover:border-amber-500/30 hover:bg-[#0f1117]/80 hover:shadow-lg hover:shadow-amber-500/5">
@@ -541,9 +711,10 @@ export function TelegramView() {
 							Auth & Security
 						</div>
 						<p className="text-xs leading-relaxed text-slate-400">
-							Login via email OTP with <code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/login</code>. Set up Google
-							Authenticator with <code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/otp</code>. OTP-protected deploy gate
-							for production. Session auto-expiry after 30 min.
+							Login via email OTP with{" "}
+							<code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/login</code>. Set up Google
+							Authenticator with <code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/otp</code>.
+							OTP-protected deploy gate for production. Session auto-expiry after 30 min.
 						</p>
 					</div>
 					<div className="group rounded-2xl border border-[#1e2535] bg-[#0f1117]/40 p-4 transition-all duration-200 hover:border-purple-500/30 hover:bg-[#0f1117]/80 hover:shadow-lg hover:shadow-purple-500/5">
@@ -554,9 +725,10 @@ export function TelegramView() {
 							Group Chat Integration
 						</div>
 						<p className="text-xs leading-relaxed text-slate-400">
-							Bind a workspace to any group with <code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/specify</code>. List
-							projects with <code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/projects</code>. Every message is
-							auto-processed — no need to tag the bot.
+							Bind a workspace to any group with{" "}
+							<code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/specify</code>. List projects
+							with <code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/projects</code>. Every
+							message is auto-processed — no need to tag the bot.
 						</p>
 					</div>
 					<div className="group rounded-2xl border border-[#1e2535] bg-[#0f1117]/40 p-4 transition-all duration-200 hover:border-rose-500/30 hover:bg-[#0f1117]/80 hover:shadow-lg hover:shadow-rose-500/5">
@@ -567,9 +739,11 @@ export function TelegramView() {
 							Debug & Diagnostics
 						</div>
 						<p className="text-xs leading-relaxed text-slate-400">
-							Create structured debug plans with <code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/debug</code>. Read PM2
-							and Docker logs with <code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/logs</code>. Run tests with{" "}
-							<code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/tests</code> and restart workers with{" "}
+							Create structured debug plans with{" "}
+							<code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/debug</code>. Read PM2 and
+							Docker logs with <code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/logs</code>.
+							Run tests with <code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/tests</code> and
+							restart workers with{" "}
 							<code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/restart</code>.
 						</p>
 					</div>
@@ -582,8 +756,8 @@ export function TelegramView() {
 						</div>
 						<p className="text-xs leading-relaxed text-slate-400">
 							Open a full code editor inside Telegram with{" "}
-							<code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/miniide</code>. Browse files, edit code, upload
-							attachments, and use the AI assistant — all from your mobile.
+							<code className="rounded bg-cyan-500/10 px-1 text-cyan-300">/miniide</code>. Browse files,
+							edit code, upload attachments, and use the AI assistant — all from your mobile.
 						</p>
 					</div>
 					<div className="group rounded-2xl border border-[#1e2535] bg-[#0f1117]/40 p-4 transition-all duration-200 hover:border-orange-500/30 hover:bg-[#0f1117]/80 hover:shadow-lg hover:shadow-orange-500/5">
@@ -637,19 +811,42 @@ export function TelegramView() {
 										onChange={(e) => setMessage(e.target.value)}
 										className="flex-1 rounded-xl border border-[#1e2535] bg-[#070b14] px-4 py-3 text-sm text-slate-100 outline-none ring-cyan-500/20 placeholder:text-slate-600 focus:ring-4"
 									/>
-									<button className="rounded-xl bg-cyan-500 px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-cyan-400">
+									<button
+										onClick={handleSendTest}
+										className="rounded-xl bg-cyan-500 px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-cyan-400">
 										Send
 									</button>
 								</div>
 							</div>
 							<div className="grid grid-cols-1 gap-4 md:grid-cols-3">
 								{[
-									{ icon: FileText, title: "View Diff", desc: "Show changed files before approval." },
-									{ icon: Play, title: "Run Tests", desc: "Run sandbox test suite safely." },
-									{ icon: Rocket, title: "Deploy Gate", desc: "Requires fresh OTP confirmation." },
-								].map(({ icon: Icon, title, desc }) => (
+									{
+										icon: FileText,
+										title: "View Diff",
+										desc: "Show changed files before approval.",
+										onClick: () => {
+											const t = tasks.find(
+												(t) => t.status === "review" || t.status === "review_approved",
+											)
+											if (t) setSelectedTask(t)
+										},
+									},
+									{
+										icon: Play,
+										title: "Run Tests",
+										desc: "Run sandbox test suite safely.",
+										onClick: handleRunTests,
+									},
+									{
+										icon: Rocket,
+										title: "Deploy Gate",
+										desc: "Requires fresh OTP confirmation.",
+										onClick: () => {},
+									},
+								].map(({ icon: Icon, title, desc, onClick }) => (
 									<button
 										key={title}
+										onClick={onClick}
 										className="rounded-2xl border border-[#1e2535] bg-[#0f1117]/60 p-4 text-left hover:border-cyan-500/40">
 										<Icon className="mb-3 text-cyan-300" size={20} />
 										<p className="font-medium text-slate-100">{title}</p>
@@ -763,7 +960,7 @@ export function TelegramView() {
 							right={
 								<Pill type="neutral">
 									{
-										MOCK_TASKS.filter(
+										tasks.filter(
 											(t) =>
 												t.status !== "completed" &&
 												t.status !== "rejected" &&
@@ -776,7 +973,7 @@ export function TelegramView() {
 						/>
 						<div className="p-5">
 							<div className="space-y-3">
-								{MOCK_TASKS.map((task) => (
+								{tasks.map((task) => (
 									<button
 										key={task.id}
 										onClick={() => setSelectedTask(selectedTask?.id === task.id ? null : task)}
@@ -842,11 +1039,23 @@ export function TelegramView() {
 												)}
 												{(task.status === "waiting_approval" || task.status === "review") && (
 													<div className="mt-3 grid grid-cols-2 gap-3">
-														<button className="rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-emerald-400">
-															Approve
+														<button
+															onClick={(e) => {
+																e.stopPropagation()
+																void handleApprove(task.id)
+															}}
+															disabled={actionLoading[`approve-${task.id}`]}
+															className="rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-50">
+															{actionLoading[`approve-${task.id}`] ? "…" : "Approve"}
 														</button>
-														<button className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-2.5 text-sm font-semibold text-red-300 hover:bg-red-500/20">
-															Reject
+														<button
+															onClick={(e) => {
+																e.stopPropagation()
+																void handleReject(task.id)
+															}}
+															disabled={actionLoading[`reject-${task.id}`]}
+															className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-2.5 text-sm font-semibold text-red-300 hover:bg-red-500/20 disabled:opacity-50">
+															{actionLoading[`reject-${task.id}`] ? "…" : "Reject"}
 														</button>
 													</div>
 												)}
