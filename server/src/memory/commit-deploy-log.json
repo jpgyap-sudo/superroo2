@@ -643,6 +643,20 @@
 			"healthCheckLatencyMs": 250,
 			"startedAt": "2026-05-18T00:39:00.000Z",
 			"completedAt": "2026-05-18T00:40:10.000Z"
+		},
+		{
+			"id": "deploy-report-trace-v2.2.0",
+			"version": "2.2.0",
+			"commitSha": "6b656d3be",
+			"agent": "DeepSeek (code mode)",
+			"status": "healthy",
+			"environment": "production",
+			"commitsIncluded": ["6b656d3be"],
+			"featuresDeployed": ["cross-project-learning-layer", "lesson-tracking", "reporting", "tracing"],
+			"healthCheckPassed": true,
+			"healthCheckLatencyMs": 200,
+			"startedAt": "2026-05-18T00:49:00.000Z",
+			"completedAt": "2026-05-18T00:52:00.000Z"
 		}
 	]
 }
