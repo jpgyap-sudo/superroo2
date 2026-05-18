@@ -330,20 +330,27 @@ export PATH="$HOME/.superroo/bin:$PATH"
 
 ### Workflow for Any Project
 
-**Before coding:**
+**CRITICAL RULE: Every project MUST use `superroo-learn` to capture lessons.**
+
+When coding in ANY project (not just superroo2), agents MUST ensure lessons are captured and stored in Central Brain. This is how cross-project learning works — lessons from project A become searchable from project B.
+
+**Before coding in a new project:**
 
 ```bash
-# Query lessons from all projects
+# 1. Install the global git hook (one-time per machine)
+node tools/install-global-hook.mjs
+
+# 2. Verify superroo-learn is accessible
+superroo-learn health
+
+# 3. Query lessons from ALL projects (including superroo2)
 superroo-learn query "how to fix database connection leaks"
 
 # Or query a specific project
 superroo-learn query "deployment best practices" "superroo2"
-
-# Check if Central Brain is reachable
-superroo-learn health
 ```
 
-**After coding:**
+**After coding in ANY project:**
 
 ```bash
 # Store a lesson manually (auto-fallback to local if Central Brain is down)
@@ -352,6 +359,20 @@ superroo-learn store "React performance" "Disable strict mode in production to a
 # Or just commit — the global hook auto-extracts lessons:
 git commit -m "fix: resolved memory leak in WebSocket connection pool"
 # Lesson is auto-stored in Central Brain (or locally if Central Brain is down)
+# The lesson will include the project name (auto-detected from git remote)
+```
+
+**Verify cross-project tracking is working:**
+
+```bash
+# See which projects have contributed lessons
+superroo-learn report
+
+# Trace a topic across all projects
+superroo-learn trace "deployment"
+
+# Check if Central Brain is reachable
+superroo-learn health
 ```
 
 **Check status:**
