@@ -60,6 +60,52 @@ mcp, deepseek, claude-code, agent-routing, workflow-enforcement, deepseek-v4
 
 ---
 
+### Lesson: Separate missing workflow telemetry from failed compliance
+
+Date: 2026-05-18
+Source: Codex task completion
+Model/API used: GPT-5
+Confidence: high
+Related files: cloud/api/routes/workflow-compliance.js, cloud/dashboard/src/components/views/workflow-compliance.tsx, cloud/api/routes/monitoring.js, cloud/dashboard/src/components/views/monitoring.tsx, cloud/worker/autoDeployer.js
+
+#### Task Summary
+
+Improved the workflow-compliance experience with tracking coverage, linkage diagnostics, trend summaries, service health visibility, and stronger post-deploy checks after a production dashboard outage.
+
+#### Files Changed
+
+- `cloud/api/routes/workflow-compliance.js`
+- `cloud/dashboard/src/components/views/workflow-compliance.tsx`
+- `cloud/api/routes/monitoring.js`
+- `cloud/dashboard/src/components/views/monitoring.tsx`
+- `cloud/worker/autoDeployer.js`
+
+#### Bug Cause
+
+The dashboard treated untracked commits as if they were noncompliant, while service outages were hidden behind generic `502` failures because the UI lacked process-level health signals and deploy verification only checked a narrow success path.
+
+#### Fix Applied
+
+Added tracked vs untracked commit accounting, usage-to-commit linkage diagnostics, source-health metadata, trend rollups, visible API/process health indicators, and post-deploy checks for API health, compliance stats, and dashboard renderability.
+
+#### Test Result
+
+pass for targeted `node --check` validation and isolated `esbuild` parsing; full dashboard TypeScript validation remains blocked by the existing local `next` package resolution issue.
+
+#### Lesson Learned
+
+Operational dashboards stay trustworthy when they distinguish absent telemetry from negative outcomes and expose the health of every dependency that can invalidate the page.
+
+#### Reusable Rule
+
+For diagnostic dashboards, model `missing`, `untracked`, and `failed` as separate states, and make deploy health checks cover every endpoint the operator relies on.
+
+#### Tags
+
+dashboard, workflow-compliance, monitoring, deploy, telemetry
+
+---
+
 ### Lesson: Global git hook blocked by stale local hooksPath override in superroo-vsix
 
 Date: 2026-05-18

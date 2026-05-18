@@ -626,7 +626,7 @@ export function MonitoringView() {
 									<Server className="h-4 w-4 text-gray-600" />
 								</div>
 								<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-									{stats.services.map((service) => (
+									{(stats.services || []).map((service) => (
 										<div
 											key={service.name}
 											className="rounded border border-[#1e2535] bg-[#0a0e1a] p-3">

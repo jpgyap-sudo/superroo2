@@ -220,6 +220,19 @@ export default function WorkflowComplianceView() {
 				</div>
 			)}
 
+			{(stats?.linkage.orphanedUsageRecords || 0) > 0 && (stats?.withDeepSeek || 0) === 0 && (
+				<div className="flex items-start gap-3 rounded border border-sky-500/30 bg-sky-500/10 p-3">
+					<Link2Off className="mt-0.5 h-4 w-4 shrink-0 text-sky-300" />
+					<div className="text-sm text-sky-100">
+						<div className="font-medium">Usage records are not linked to commits</div>
+						<div className="mt-1 text-xs text-sky-200/80">
+							DeepSeek activity exists in the usage log, but no recent commits carry matching model
+							metadata.
+						</div>
+					</div>
+				</div>
+			)}
+
 			{/* Stats Grid */}
 			<div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
 				<StatCard

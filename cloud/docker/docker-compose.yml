@@ -75,6 +75,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3001
+      - HOSTNAME=0.0.0.0
       - NEXT_PUBLIC_API_URL=http://localhost:8787
       - API_INTERNAL_URL=http://superroo-api:8787
     mem_limit: 256m

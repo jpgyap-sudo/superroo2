@@ -54,10 +54,13 @@ function printStats(data) {
 
 	console.log(color("yellow", "\n📊 Statistics:"))
 	console.log(`   Total Commits: ${data.totalCommits || 0}`)
+	console.log(`   Tracked Commits: ${data.trackedCommits || 0}`)
+	console.log(`   Untracked Commits: ${data.untrackedCommits || 0}`)
 	console.log(`   With Model Tracking: ${data.withModelUsage || 0}`)
 	console.log(`   Using DeepSeek: ${data.withDeepSeek || 0}`)
 	console.log(`   Fully Compliant: ${data.fullyCompliant || 0}`)
-	console.log(`   Compliance Rate: ${data.complianceRate || 0}%`)
+	console.log(`   Compliance Rate: ${data.complianceRate ?? "N/A"}%`)
+	console.log(`   Tracking Coverage: ${data.trackingCoverage || 0}%`)
 	console.log(`   Delegation Rate: ${data.delegationRate || 0}%`)
 
 	if (data.deepseekUsage) {
