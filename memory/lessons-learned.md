@@ -9185,3 +9185,59 @@ When adding a new API endpoint to `cloud/api/api.js` that should be publicly acc
 memory-explorer, auth, 401, central-brain, mcp, cross-project, lessons, dashboard
 
 ---
+
+### Auto-Extracted Lesson: Feat(cloud): Visual Crawler Pipeline, LSP Bridge, Redis fallback
+
+Date: 2026-05-18
+Source: Git commit ccc4d564
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/api/api.js, cloud/api/visual-crawler.js, cloud/dashboard/src/components/views/telegram.tsx, memory/lesson-index.jsonl, memory/lessons-learned.md
+
+#### Task Summary
+
+feat(cloud): Visual Crawler Pipeline, LSP Bridge, Redis fallback
+
+#### Files Changed
+
+- `cloud/api/api.js`
+- `cloud/api/visual-crawler.js`
+- `cloud/dashboard/src/components/views/telegram.tsx`
+- `memory/lesson-index.jsonl`
+- `memory/lessons-learned.md`
+- `package.json`
+- `pnpm-lock.yaml`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit ccc4d564.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit ccc4d564 by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+api, bugfix
+
+---

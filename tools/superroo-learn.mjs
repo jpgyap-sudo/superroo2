@@ -7,16 +7,20 @@
  * automatic local fallback when the server is unreachable.
  *
  * Usage:
- *   superroo-learn query "how to fix race conditions"
- *   superroo-learn store "React hooks" "useEffect cleanup pattern..."
- *   superroo-learn projects
- *   superroo-learn recall "deployment best practices"
- *   superroo-learn extract-commit <sha> <msg> <author> <files>
- *   superroo-learn register [project-name]
- *   superroo-learn status
- *   superroo-learn health
- *   superroo-learn sync [--force|--dry-run|--status]
- *   superroo-learn retry [--flush]
+ *   superroo-learn query "<text>" [project]         Search lessons across all projects
+ *   superroo-learn store "<topic>" "<content>"      Store a new lesson
+ *   superroo-learn recall "<text>"                  Semantic search via Hermes Claw
+ *   superroo-learn projects                         List registered projects
+ *   superroo-learn register [name]                  Register current directory as a project
+ *   superroo-learn scan [--dir <path>] [--dry-run]  Retroactively extract lessons from existing repo
+ *   superroo-learn publish [--skill <name>]         Publish structured lessons from a skill to Central Brain
+ *   superroo-learn extract-commit <sha> <msg> <author> <files>  Auto-extract from git commit
+ *   superroo-learn status                           Show learning layer status
+ *   superroo-learn health                           Check Central Brain and local fallback health
+ *   superroo-learn sync [--force|--dry-run|--status]  Push local lessons to Central Brain
+ *   superroo-learn retry [--flush]                  Process retry queue (failed MCP stores)
+ *   superroo-learn report                           Generate cross-project lesson report
+ *   superroo-learn trace "<text>"                   Trace a lesson/topic across projects
  *
  * Environment variables:
  *   SUPERROO_MCP_URL       — MCP server URL (default: http://127.0.0.1:3419/mcp)
@@ -662,7 +666,36 @@ async function cmdRegister(projectName) {
 	}
 	await saveConfig(config)
 	console.error(`✅ Registered project "${project}" in ${CONFIG_FILE}`)
-	console.log(JSON.stringify({ project, configFile: CONFIG_FILE }, null, 2))
+
+	// Also register with Central Brain via MCP (best-effort)
+	try {
+		await withFallback(
+			async () => {
+				await mcpToolCall("hermes_learn", {
+					topic: `[system] Project registered: ${project}`,
+					content: JSON.stringify({
+						type: "project_registration",
+						project,
+						directory: process.cwd(),
+						registeredAt: new Date().toISOString(),
+					}),
+				})
+				console.error(`   ✅ Also registered "${project}" in Central Brain`)
+				return { success: true }
+			},
+			async () => {
+				// Local fallback: just note it in the config (already done above)
+				return { success: true, stored: "local-only" }
+			},
+			`register-${project}`,
+			{ operation: "register", project },
+		)
+	} catch (err) {
+		console.error(`   ⚠️  Could not register in Central Brain: ${err.message}`)
+		console.error(`   (Project is still registered locally in ${CONFIG_FILE})`)
+	}
+
+	console.log(JSON.stringify({ project, configFile: CONFIG_FILE, centralBrain: "best-effort" }, null, 2))
 }
 
 async function cmdStatus() {
@@ -788,6 +821,503 @@ async function cmdExtractCommit(sha, message, author, files) {
 		console.error(`✅ Lesson stored from commit ${sha}`)
 	}
 	console.log(JSON.stringify({ sha, project, topic, result }, null, 2))
+}
+
+/**
+	* Scan a repository for retroactive lesson extraction.
+	* Analyzes git history and source files to find lesson-worthy content.
+	*
+	* Usage:
+	*   superroo-learn scan                    Scan current directory
+	*   superroo-learn scan --dir ~/xsjprd55   Scan specific project
+	*   superroo-learn scan --dry-run          Preview without storing
+	*/
+async function cmdScan(options = {}) {
+	const { dir = process.cwd(), dryRun = false } = options
+	const originalCwd = process.cwd()
+
+	console.error(`🔍 Scanning repository for retroactive lesson extraction...`)
+	console.error(`   Directory: ${dir}`)
+	console.error(`   Dry run:   ${dryRun ? "✅ Yes (no data will be stored)" : "❌ No"}`)
+	console.error("")
+
+	// Change to target directory for git commands
+	try {
+		process.chdir(dir)
+	} catch (err) {
+		console.error(`❌ Cannot access directory: ${dir}`)
+		process.exit(1)
+	}
+
+	const project = detectProjectName()
+	console.error(`   Project:   ${project}`)
+	console.error("")
+
+	const results = {
+		project,
+		directory: dir,
+		commitsExtracted: 0,
+		patternsFound: 0,
+		skillsFound: 0,
+		totalLessons: 0,
+		lessons: [],
+	}
+
+	// ── Phase 1: Scan git history for lesson-worthy commits ──
+	console.error("── Phase 1: Scanning git history ──────────────────────────")
+
+	let commitCount = 0
+	try {
+		const logOutput = execSync(
+			'git log --all --format="%H||%s||%an||%ai" --diff-filter=ACDMR --name-only',
+			{ encoding: "utf-8", stdio: ["pipe", "pipe", "ignore"], maxBuffer: 10 * 1024 * 1024 }
+		)
+
+		const commits = logOutput.split("\n").filter(l => l.trim())
+		const commitBlocks = []
+		let currentBlock = null
+
+		for (const line of commits) {
+			if (line.includes("||")) {
+				if (currentBlock) commitBlocks.push(currentBlock)
+				const [sha, msg, author, date] = line.split("||")
+				currentBlock = { sha, msg, author, date: date || "", files: [] }
+			} else if (currentBlock && line.trim()) {
+				currentBlock.files.push(line.trim())
+			}
+		}
+		if (currentBlock) commitBlocks.push(currentBlock)
+
+		commitCount = commitBlocks.length
+		console.error(`   Found ${commitCount} total commits. Scanning for lesson indicators...`)
+
+		const indicators = [
+			/fix(e[ds])?:?\s+/i, /bug:?:?\s+/i, /lesson:?:?\s+/i,
+			/workaround:?:?\s+/i, /solution:?:?\s+/i, /issue:?:?\s+/i,
+			/error:?:?\s+/i, /crash:?:?\s+/i, /race[\s-]?condition:?:?\s+/i,
+			/memory[\s-]?leak:?:?\s+/i, /performance:?:?\s+/i,
+			/optimize:?:?\s+/i, /refactor:?:?\s+/i, /breaking[\s-]?change:?:?\s+/i,
+			/add:?\s+/i, /implement:?\s+/i, /feature:?\s+/i,
+		]
+
+		for (const block of commitBlocks) {
+			const matched = indicators.filter(p => p.test(block.msg))
+			if (matched.length === 0) continue
+
+			const topic = `[${project}] ${block.msg.split("\n")[0].slice(0, 120)}`
+			const content = [
+				`## Auto-extracted from commit ${block.sha}`,
+				``,
+				`**Project:** ${project}`,
+				`**Author:** ${block.author}`,
+				`**Date:** ${block.date}`,
+				`**Message:** ${block.msg}`,
+				`**Files:** ${block.files.join(", ")}`,
+				``,
+				`**Indicators matched:** ${matched.join(", ")}`,
+				``,
+				`**Lesson:** Review this commit for reusable engineering insights.`,
+			].join("\n")
+
+			results.commitsExtracted++
+			results.totalLessons++
+
+			if (!dryRun) {
+				// Auto-register project if not known
+				const config = await getConfig()
+				if (!config.projects[project]) {
+					config.projects[project] = {
+						firstSeen: new Date().toISOString(),
+						registered: new Date().toISOString(),
+						directory: dir,
+					}
+					await saveConfig(config)
+				}
+
+				await withFallback(
+					async () => await mcpToolCall("hermes_learn", { topic, content }),
+					async () => { await storeLessonLocally(topic, content); return { success: true, stored: "local" } },
+					`scan-commit-${block.sha.slice(0, 8)}`,
+					{ operation: "store", topic, content, project },
+				)
+			}
+
+			results.lessons.push({
+				type: "commit",
+				sha: block.sha.slice(0, 8),
+				topic: topic.slice(0, 80),
+				matched: matched.map(m => m.source),
+			})
+		}
+	} catch (err) {
+		console.error(`   ⚠️  Git history scan failed: ${err.message}`)
+		console.error("   (This is normal if the directory is not a git repository)")
+	}
+
+	console.error(`   ✅ Extracted ${results.commitsExtracted} lessons from git history`)
+	console.error("")
+
+	// ── Phase 2: Scan for architecture patterns in source files ──
+	console.error("── Phase 2: Scanning source files for architecture patterns ─")
+
+	const patternSignatures = [
+		{ name: "Brain Pipeline", pattern: /buildSignalContext|brain-router|brain.*pipeline|pipeline.*stage/g, confidence: "high" },
+		{ name: "Safety Gates", pattern: /risk.?gate|safety.?gate|gates\.push|gates\.every|verdict.*BLOCKED/g, confidence: "high" },
+		{ name: "Weighted Scoring", pattern: /composite.*=.*\*.*0\.\d+|weighted.*score|factor.*\*.*0\./g, confidence: "high" },
+		{ name: "Signal TTL Schema", pattern: /valid_until|generated_at|entity_type.*status.*confidence/g, confidence: "medium" },
+		{ name: "Learning Pipeline", pattern: /learning.?layer|recordOutcome|discoverPatterns|detectRegime|tuneWeights|generateSkills/g, confidence: "high" },
+		{ name: "Multi-Worker PM2", pattern: /ecosystem\.config|exec_mode.*fork|max_memory_restart|kill_timeout/g, confidence: "high" },
+		{ name: "Subsystem Bridge", pattern: /mock.*bridge|bridge\.recordOutcome|bridge\.getRegime|bridge\.checkSkills/g, confidence: "medium" },
+		{ name: "Multi-Agent Attribution", pattern: /coder.?signature|coder.?changelog|agent.*attribution|signature.*prefix/g, confidence: "medium" },
+		{ name: "Deployment Verification", pattern: /deploy.?checker|deploy.?verify|health.*endpoint.*200|deploy.*checklist/g, confidence: "medium" },
+		{ name: "Env-Configurable Config", pattern: /process\.env\..*\|.*\d+|FEATURE_ENABLED.*!==.*false/g, confidence: "medium" },
+	]
+
+	// Walk through source files (limited depth to avoid huge scans)
+	const sourceDirs = ["src", "lib", "workers", "api", "scripts"]
+	for (const subdir of sourceDirs) {
+		const fullPath = path.join(dir, subdir)
+		try {
+			await fs.access(fullPath)
+			const entries = await fs.readdir(fullPath, { withFileTypes: true, recursive: true })
+
+			for (const entry of entries) {
+				if (!entry.isFile()) continue
+				const ext = path.extname(entry.name)
+				if (![".js", ".ts", ".mjs", ".cjs", ".py", ".jsx", ".tsx"].includes(ext)) continue
+
+				const filePath = path.join(entry.parentPath || fullPath, entry.name)
+				try {
+					const content = await fs.readFile(filePath, "utf-8")
+					const relativePath = path.relative(dir, filePath)
+
+					for (const sig of patternSignatures) {
+						sig.pattern.lastIndex = 0
+						const match = content.match(sig.pattern)
+						if (match) {
+							const topic = `[${project}] Architecture Pattern: ${sig.name}`
+							const contentStr = [
+								`## Architecture Pattern: ${sig.name}`,
+								``,
+								`**Project:** ${project}`,
+								`**File:** ${relativePath}`,
+								`**Confidence:** ${sig.confidence}`,
+								`**Match:** \`${match[0].slice(0, 100)}\``,
+								``,
+								`**Pattern Description:**`,
+								`This repository contains the ${sig.name} pattern detected in ${relativePath}.`,
+								`See the coding-lessons-from-trading-bot skill for the full reusable lesson.`,
+							].join("\n")
+
+							results.patternsFound++
+							results.totalLessons++
+
+							if (!dryRun) {
+								await withFallback(
+									async () => await mcpToolCall("hermes_learn", { topic, content: contentStr }),
+									async () => { await storeLessonLocally(topic, contentStr); return { success: true, stored: "local" } },
+									`scan-pattern-${sig.name.replace(/\s+/g, "-").toLowerCase()}`,
+									{ operation: "store", topic, content: contentStr, project },
+								)
+							}
+
+							results.lessons.push({
+								type: "pattern",
+								pattern: sig.name,
+								file: relativePath,
+								confidence: sig.confidence,
+							})
+							break // One pattern per file
+						}
+					}
+				} catch {
+					// Skip unreadable files
+				}
+			}
+		} catch {
+			// Directory doesn't exist, skip
+		}
+	}
+
+	console.error(`   ✅ Found ${results.patternsFound} architecture pattern(s) in source files`)
+	console.error("")
+
+	// ── Phase 3: Scan for existing skill files ──
+	console.error("── Phase 3: Scanning for existing skill files ─────────────")
+
+	const skillDir = path.join(dir, ".roo", "skills")
+	try {
+		await fs.access(skillDir)
+		const skillEntries = await fs.readdir(skillDir, { withFileTypes: true })
+
+		for (const entry of skillEntries) {
+			if (!entry.isDirectory()) continue
+			const skillFile = path.join(skillDir, entry.name, "SKILL.md")
+			try {
+				const skillContent = await fs.readFile(skillFile, "utf-8")
+				const lessonBlocks = skillContent.split(/(?=^## Lesson \d+:)/m)
+
+				for (const block of lessonBlocks) {
+					if (!block.trim()) continue
+					const titleMatch = block.match(/^## Lesson \d+:\s*(.+)$/m)
+					const title = titleMatch ? titleMatch[1].trim() : `Skill: ${entry.name}`
+
+					const topic = `[${project}] ${title}`
+					const content = [
+						`## ${title}`,
+						``,
+						`**Project:** ${project}`,
+						`**Skill:** ${entry.name}`,
+						``,
+						block.trim().slice(0, 1000),
+					].join("\n")
+
+					results.skillsFound++
+					results.totalLessons++
+
+					if (!dryRun) {
+						await withFallback(
+							async () => await mcpToolCall("hermes_learn", { topic, content }),
+							async () => { await storeLessonLocally(topic, content); return { success: true, stored: "local" } },
+							`scan-skill-${entry.name}-${title.slice(0, 30).replace(/\s+/g, "-")}`,
+							{ operation: "store", topic, content, project },
+						)
+					}
+
+					results.lessons.push({
+						type: "skill",
+						skill: entry.name,
+						title,
+					})
+				}
+			} catch {
+				// Skip unreadable skill files
+			}
+		}
+	} catch {
+		console.error("   ℹ️  No .roo/skills directory found")
+	}
+
+	console.error(`   ✅ Extracted ${results.skillsFound} lesson(s) from skill files`)
+	console.error("")
+
+	// ── Summary ──
+	console.error("╔══════════════════════════════════════════════════════════╗")
+	console.error("║     📊 Scan Complete                                    ║")
+	console.error("╚══════════════════════════════════════════════════════════╝")
+	console.error("")
+	console.error(`   Project:              ${results.project}`)
+	console.error(`   Directory:            ${dir}`)
+	console.error(`   Git commits scanned:  ${commitCount}`)
+	console.error(`   Lessons from commits: ${results.commitsExtracted}`)
+	console.error(`   Patterns found:       ${results.patternsFound}`)
+	console.error(`   Skill lessons:        ${results.skillsFound}`)
+	console.error(`   Total lessons:        ${results.totalLessons}`)
+	if (dryRun) {
+		console.error(`   Mode:                 🔍 Dry run (nothing stored)`)
+	} else {
+		console.error(`   Mode:                 ✅ Lessons stored (Central Brain or local fallback)`)
+	}
+	console.error("")
+
+	// Restore original working directory
+	process.chdir(originalCwd)
+
+	console.log(JSON.stringify(results, null, 2))
+}
+
+/**
+	* Publish structured lessons from a skill to Central Brain.
+	* This is the universal replacement for project-specific sync scripts.
+	*
+	* Usage:
+	*   superroo-learn publish --skill coding-lessons-from-trading-bot
+	*   superroo-learn publish --dir ~/xsjprd55 --skill my-skill
+	*   superroo-learn publish --dry-run
+	*/
+async function cmdPublish(options = {}) {
+	const { skill: skillName, dir = process.cwd(), dryRun = false } = options
+	const originalCwd = process.cwd()
+
+	console.error(`📤 Publishing structured lessons to Central Brain...`)
+	console.error(`   Skill:       ${skillName || "(auto-detect)"}`)
+	console.error(`   Directory:   ${dir}`)
+	console.error(`   Dry run:     ${dryRun ? "✅ Yes" : "❌ No"}`)
+	console.error("")
+
+	// Change to target directory
+	try {
+		process.chdir(dir)
+	} catch (err) {
+		console.error(`❌ Cannot access directory: ${dir}`)
+		process.exit(1)
+	}
+
+	const project = detectProjectName()
+	console.error(`   Project:     ${project}`)
+	console.error("")
+
+	const results = {
+		project,
+		skill: skillName || "auto-detected",
+		lessonsPublished: 0,
+		lessons: [],
+	}
+
+	// Find the skill file
+	let skillFilePath = null
+	let skillContent = null
+
+	if (skillName) {
+		// Check both global and project-local skill directories
+		const searchPaths = [
+			path.join(os.homedir(), ".roo", "skills", skillName, "SKILL.md"),
+			path.join(dir, ".roo", "skills", skillName, "SKILL.md"),
+			path.join(dir, "..", ".roo", "skills", skillName, "SKILL.md"),
+		]
+		for (const sp of searchPaths) {
+			try {
+				await fs.access(sp)
+				skillFilePath = sp
+				break
+			} catch {}
+		}
+	} else {
+		// Auto-detect: look for skill files in .roo/skills/
+		const localSkills = path.join(dir, ".roo", "skills")
+		try {
+			const entries = await fs.readdir(localSkills, { withFileTypes: true })
+			for (const entry of entries) {
+				if (!entry.isDirectory()) continue
+				const sp = path.join(localSkills, entry.name, "SKILL.md")
+				try {
+					await fs.access(sp)
+					if (!skillFilePath) {
+						skillFilePath = sp
+						results.skill = entry.name
+					}
+				} catch {}
+			}
+		} catch {}
+	}
+
+	if (!skillFilePath) {
+		console.error(`❌ Skill "${skillName || "auto-detect"}" not found.`)
+		console.error(`   Searched: ~/.roo/skills/<name>/SKILL.md and .roo/skills/<name>/SKILL.md`)
+		process.chdir(originalCwd)
+		process.exit(1)
+	}
+
+	console.error(`   Skill file:  ${skillFilePath}`)
+	skillContent = await fs.readFile(skillFilePath, "utf-8")
+	console.error("")
+
+	// Extract lesson blocks from the skill
+	// Supports both formats:
+	//   ## Lesson 1: Title  (coding-lessons-from-trading-bot style)
+	//   ### Lesson: Title  (lessons-learned.md style)
+	const lessonBlocks = skillContent.split(/(?=^#{2,3} Lesson\b)/m)
+
+	for (const block of lessonBlocks) {
+		if (!block.trim()) continue
+
+		// Extract title
+		const titleMatch = block.match(/^#{2,3} Lesson\b[:\s]\s*(.+)$/m)
+		if (!titleMatch) continue
+
+		const title = titleMatch[1].trim()
+
+		// Extract description/summary
+		const descMatch = block.match(/^\*\*(.*?)\*\*$/m)
+		const description = descMatch ? descMatch[1] : ""
+
+		// Extract source file references
+		const sourceFiles = []
+		const sourceMatches = block.matchAll(/`([^`]+)`/g)
+		for (const m of sourceMatches) {
+			if (m[1].includes("/") || m[1].endsWith(".js") || m[1].endsWith(".ts") || m[1].endsWith(".mjs") || m[1].endsWith(".cjs")) {
+				sourceFiles.push(m[1])
+			}
+		}
+
+		// Extract tags
+		const tags = []
+		const tagSection = block.match(/Tags:\s*(.+)$/m)
+		if (tagSection) {
+			tags.push(...tagSection[1].split(",").map(t => t.trim()).filter(Boolean))
+		}
+		// Also extract from "When to use" section
+		if (block.toLowerCase().includes("when to use")) {
+			tags.push("when-to-use")
+		}
+		if (block.toLowerCase().includes("key implementation rules")) {
+			tags.push("implementation-rules")
+		}
+		if (block.toLowerCase().includes("validation")) {
+			tags.push("validation")
+		}
+
+		// Build structured lesson content
+		const topic = `[${project}] ${title}`
+		const content = [
+			`## ${title}`,
+			``,
+			`**Source:** ${results.skill}`,
+			`**Project:** ${project}`,
+			`**Files:** ${sourceFiles.join(", ") || "N/A"}`,
+			`**Tags:** ${tags.join(", ") || "coding-lessons"}`,
+			``,
+			block.trim(),
+		].join("\n")
+
+		results.lessonsPublished++
+		results.lessons.push({
+			title,
+			sourceFiles,
+			tags,
+		})
+
+		if (!dryRun) {
+			// Auto-register project
+			const config = await getConfig()
+			if (!config.projects[project]) {
+				config.projects[project] = {
+					firstSeen: new Date().toISOString(),
+					registered: new Date().toISOString(),
+					directory: dir,
+				}
+				await saveConfig(config)
+			}
+
+			await withFallback(
+				async () => await mcpToolCall("hermes_learn", { topic, content }),
+				async () => { await storeLessonLocally(topic, content); return { success: true, stored: "local" } },
+				`publish-${title.slice(0, 30).replace(/\s+/g, "-").toLowerCase()}`,
+				{ operation: "store", topic, content, project },
+			)
+		}
+	}
+
+	// Restore original working directory
+	process.chdir(originalCwd)
+
+	// Summary
+	console.error("")
+	console.error("╔══════════════════════════════════════════════════════════╗")
+	console.error("║     📤 Publish Complete                                ║")
+	console.error("╚══════════════════════════════════════════════════════════╝")
+	console.error("")
+	console.error(`   Skill:              ${results.skill}`)
+	console.error(`   Project:            ${results.project}`)
+	console.error(`   Lessons published:  ${results.lessonsPublished}`)
+	if (dryRun) {
+		console.error(`   Mode:               🔍 Dry run (nothing stored)`)
+	} else {
+		console.error(`   Mode:               ✅ Stored to Central Brain (or local fallback)`)
+	}
+	console.error("")
+
+	console.log(JSON.stringify(results, null, 2))
 }
 
 async function cmdSync(options = {}) {
@@ -1177,6 +1707,8 @@ async function main() {
 		 superroo-learn projects                    List registered projects
 		 superroo-learn register [name]             Register current directory as a project
 		 superroo-learn extract-commit <sha> <msg> <author> <files>  Auto-extract from git commit
+		 superroo-learn scan [--dir <path>] [--dry-run]  Retroactively extract lessons from existing repo (git history + source patterns + skills)
+		 superroo-learn publish --skill <name> [--dir <path>] [--dry-run]  Publish structured lessons from a skill file to Central Brain
 		 superroo-learn status                      Show learning layer status
 		 superroo-learn health                      Check Central Brain and local fallback health
 		 superroo-learn sync [--force|--dry-run|--status]  Push local lessons to Central Brain
@@ -1184,6 +1716,19 @@ async function main() {
 		 superroo-learn report                      Generate cross-project lesson report (stats by project, type, tag, confidence, timeline)
 		 superroo-learn trace "<text>"              Trace a lesson/topic across projects (origin, files, agents, tags)
 		 superroo-learn --help                      Show this help
+	
+	Scan Command:
+		 superroo-learn scan [--dir <path>] [--dry-run]
+		   Phase 1: Scans full git history for lesson-worthy commits (fix, bug, lesson, etc.)
+		   Phase 2: Scans source files for architecture pattern signatures
+		   Phase 3: Scans .roo/skills/ for existing skill files
+		   Auto-registers the project if not already known.
+	
+	Publish Command:
+		 superroo-learn publish --skill <name> [--dir <path>] [--dry-run]
+		   Parses a skill file (from ~/.roo/skills/<name>/SKILL.md or .roo/skills/<name>/SKILL.md)
+		   and publishes each lesson block to Central Brain.
+		   This replaces the need for project-specific sync scripts.
 	
 	Local Fallback:
 		 When Central Brain is unreachable, the CLI automatically falls back to
@@ -1282,6 +1827,26 @@ async function main() {
 				const query = args[1]
 				if (!query) throw new Error('Usage: superroo-learn trace "<text>"')
 				await cmdTrace(query)
+				break
+			}
+
+			case "scan": {
+				const scanOptions = {
+					dir: args.includes("--dir") ? args[args.indexOf("--dir") + 1] : process.cwd(),
+					dryRun: args.includes("--dry-run") || args.includes("-n"),
+				}
+				await cmdScan(scanOptions)
+				break
+			}
+
+			case "publish": {
+				const publishOptions = {
+					skill: args.includes("--skill") ? args[args.indexOf("--skill") + 1] : null,
+					dir: args.includes("--dir") ? args[args.indexOf("--dir") + 1] : process.cwd(),
+					dryRun: args.includes("--dry-run") || args.includes("-n"),
+				}
+				if (!publishOptions.skill) throw new Error('Usage: superroo-learn publish --skill <name> [--dir <path>] [--dry-run]')
+				await cmdPublish(publishOptions)
 				break
 			}
 

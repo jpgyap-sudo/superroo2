@@ -14,6 +14,10 @@
 #      memory/lessons-learned.md and memory/lesson-index.jsonl
 #   3. If neither is available, silently skip (no data loss)
 #
+# Auto-registration:
+#   On first commit from an unknown project, the hook auto-registers
+#   the project with Central Brain (or local config as fallback).
+#
 # This is non-blocking — runs in background so git commit stays fast.
 
 # Only run if node is available
@@ -51,6 +55,21 @@ COMMIT_SHA=$(git rev-parse HEAD 2>/dev/null)
 COMMIT_MSG=$(git log -1 --pretty=%B 2>/dev/null)
 COMMIT_AUTHOR=$(git log -1 --pretty=%an 2>/dev/null)
 FILES_CHANGED=$(git diff-tree --no-commit-id --name-only -r HEAD 2>/dev/null | tr '\n' ',')
+
+# ── Auto-register unknown projects ──
+# On first commit from a project not in the registry, auto-register it.
+# This runs synchronously (fast) before the background extract-commit.
+PROJECT_NAME=$(git remote -v 2>/dev/null | head -1 | sed 's/.*[/:]\([^/]*\)\/\([^/]*\)\.git.*/\1-\2/')
+if [ -z "$PROJECT_NAME" ]; then
+  PROJECT_NAME=$(basename "$(pwd)" 2>/dev/null)
+fi
+if [ -n "$PROJECT_NAME" ]; then
+  if echo "$SUPERROO_LEARN" | grep -q "^node "; then
+    eval "$SUPERROO_LEARN register \"$PROJECT_NAME\"" >/dev/null 2>&1
+  else
+    node "$SUPERROO_LEARN" register "$PROJECT_NAME" >/dev/null 2>&1
+  fi
+fi
 
 # Check if commit looks lesson-worthy
 if echo "$COMMIT_MSG" | grep -qiE "(fix|bug|lesson|learned|workaround|solution|issue|error|crash|race|leak|performance|optimize|refactor|breaking)"; then

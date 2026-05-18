@@ -227,7 +227,9 @@ export function QueueView() {
 	useEffect(() => {
 		const fetchStats = async () => {
 			try {
-				const res = await fetch("/api/queue/stats")
+				const token = localStorage.getItem("superroo_auth_token")
+				const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
+				const res = await fetch("/api/queue/stats", { headers })
 				if (res.ok) {
 					const data = await res.json()
 					setStats({

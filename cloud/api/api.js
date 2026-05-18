@@ -577,10 +577,18 @@ async function initOrchestrator() {
 			}),
 		)
 
-		orchestrator.registerAgentRegistry(new AgentRegistry())
+		const agentRegistry = new AgentRegistry()
+		await agentRegistry.initialize()
+		orchestrator.registerAgentRegistry(agentRegistry)
 
-		orchestrator.registerFeatureRegistry(new FeatureRegistry({ memoryStore: orchestrator.memory }))
-		orchestrator.registerBugRegistry(new BugRegistry({ memoryStore: orchestrator.memory }))
+		const featureRegistry = new FeatureRegistry({ memoryStore: orchestrator.memory })
+		await featureRegistry.initialize()
+		orchestrator.registerFeatureRegistry(featureRegistry)
+
+		const bugRegistry = new BugRegistry({ memoryStore: orchestrator.memory })
+		await bugRegistry.initialize()
+		orchestrator.registerBugRegistry(bugRegistry)
+
 		orchestrator.registerCommitDeployLog(new CommitDeployLog())
 
 		// ── ModelUsageTracker — tracks AI model API usage & workflow compliance ──
@@ -6534,7 +6542,7 @@ const server = http.createServer(async (req, res) => {
 				sendJson(res, 503, { success: false, error: "AgentRegistry not initialized" })
 				return
 			}
-			const agents = orchestrator.agentRegistry.listAgents()
+			const agents = orchestrator.agentRegistry.list()
 			sendJson(res, 200, { success: true, agents })
 			return
 		}

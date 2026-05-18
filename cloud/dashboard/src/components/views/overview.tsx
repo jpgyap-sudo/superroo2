@@ -237,19 +237,26 @@ export function Overview() {
 		redis: false,
 		worker: false,
 	})
+	const [agents, setAgents] = useState<any[]>([])
 
 	useEffect(() => {
 		const fetchData = async () => {
 			try {
+				const token = localStorage.getItem("superroo_auth_token")
+				const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
 				const [sysRes, queueRes, healthRes] = await Promise.all([
-					fetch("/api/system").catch(() => null),
-					fetch("/api/queue/stats").catch(() => null),
-					fetch("/api/health").catch(() => null),
+					fetch("/api/system/resources", { headers }).catch(() => null),
+					fetch("/api/queue/stats", { headers }).catch(() => null),
+					fetch("/api/health", { headers }).catch(() => null),
 				])
 
 				if (sysRes?.ok) {
 					const data = await sysRes.json()
-					setSystem(data)
+					setSystem({
+						cpu: data.cpu || 0,
+						ram: data.memory || 0,
+						disk: data.processes || 0,
+					})
 				}
 
 				if (queueRes?.ok) {
@@ -265,7 +272,18 @@ export function Overview() {
 
 				if (healthRes?.ok) {
 					const data = await healthRes.json()
-					setHealth(data)
+					setHealth({
+						status: data.status || "offline",
+						redis: data.redis || false,
+						worker: data.worker || false,
+					})
+				}
+
+				// Fetch real agents
+				const agentsRes = await fetch("/api/orchestrator/agents", { headers }).catch(() => null)
+				if (agentsRes?.ok) {
+					const data = await agentsRes.json()
+					setAgents(data.agents || [])
 				}
 			} catch (err) {
 				console.error("Error fetching overview data:", err)
@@ -290,7 +308,32 @@ export function Overview() {
 			{/* ── Command Strip ── */}
 			<div className="overflow-x-auto rounded-xl border border-[rgba(82,120,190,0.22)] bg-[linear-gradient(180deg,rgba(13,20,34,0.94),rgba(6,11,22,0.96))] shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_0_30px_rgba(40,110,255,0.08)]">
 				<div className="flex items-center px-5 py-3 min-w-max">
-					{MOCK_COMMAND_STRIP.map((s, i) => (
+					{[
+						{
+							label: "API",
+							value: health.status === "online" ? "Online" : "Offline",
+							tone: health.status === "online" ? "green" : "red",
+						},
+						{
+							label: "Workers",
+							value: health.worker ? "Active" : "Down",
+							tone: health.worker ? "green" : "red",
+						},
+						{
+							label: "Redis",
+							value: health.redis ? "Healthy" : "Unavailable",
+							tone: health.redis ? "green" : "yellow",
+						},
+						{ label: "CPU", value: `${system.cpu}%`, tone: system.cpu > 80 ? "red" : "blue" },
+						{ label: "RAM", value: `${system.ram}%`, tone: system.ram > 80 ? "red" : "blue" },
+						{
+							label: "Queue",
+							value: `${jobStats.waiting} waiting`,
+							tone: jobStats.waiting > 10 ? "yellow" : "green",
+						},
+						{ label: "Agents", value: `${agents.length} registered`, tone: "blue" },
+						{ label: "Failed", value: `${jobStats.failed}`, tone: jobStats.failed > 0 ? "red" : "green" },
+					].map((s) => (
 						<div key={s.label} className="shrink-0 border-r border-slate-800 px-3 sm:px-5 last:border-r-0">
 							<p className="text-xs text-slate-400">{s.label}</p>
 							<p
@@ -299,9 +342,11 @@ export function Overview() {
 										? "text-emerald-400"
 										: s.tone === "blue"
 											? "text-blue-400"
-											: s.tone === "greenBadge"
-												? "inline rounded border border-emerald-500/40 bg-emerald-500/10 px-2 text-emerald-300"
-												: "text-slate-100"
+											: s.tone === "red"
+												? "text-red-400"
+												: s.tone === "yellow"
+													? "text-yellow-400"
+													: "text-slate-100"
 								}`}>
 								{s.value}
 							</p>
@@ -349,7 +394,7 @@ export function Overview() {
 					title="Agent Swarm Status"
 					action={
 						<span className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs text-emerald-300">
-							4 Active
+							{agents.filter((a) => a.enabled).length} Active
 						</span>
 					}
 					className="col-span-12 lg:col-span-5">
@@ -368,22 +413,29 @@ export function Overview() {
 								</tr>
 							</thead>
 							<tbody>
-								{MOCK_AGENTS.map((a) => (
-									<tr key={a.name} className="border-t border-slate-800">
-										<td className="py-3 font-medium">{a.name}</td>
+								{(agents.length > 0 ? agents : MOCK_AGENTS).map((a: any) => (
+									<tr key={a.id || a.name} className="border-t border-slate-800">
+										<td className="py-3 font-medium">{a.name || a.id}</td>
 										<td>
-											<span className="rounded border border-violet-500/30 bg-violet-500/10 px-2 py-1 text-violet-300">
-												{a.status}
+											<span
+												className={`rounded border px-2 py-1 ${a.enabled ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" : "border-slate-500/30 bg-slate-500/10 text-slate-400"}`}>
+												{a.enabled ? "Active" : "Disabled"}
 											</span>
 										</td>
-										<td className="text-slate-300">{a.task}</td>
-										<td>{a.cpu}%</td>
-										<td>{a.tokens}</td>
-										<td>
-											<span className="mr-2">{a.confidence}%</span>
-											<span className="inline-block h-1.5 w-10 rounded bg-emerald-400" />
+										<td className="text-slate-300 truncate max-w-[120px]">
+											{a.description || a.task || "—"}
 										</td>
-										<td>{a.last}</td>
+										<td>{a.cpu ?? "—"}</td>
+										<td>{a.tokens ?? "—"}</td>
+										<td>
+											<span className="mr-2">
+												{a.confidence ?? (a.capabilities?.length || 0)}
+											</span>
+											{a.confidence && (
+												<span className="inline-block h-1.5 w-10 rounded bg-emerald-400" />
+											)}
+										</td>
+										<td>{a.last ?? "—"}</td>
 									</tr>
 								))}
 							</tbody>
@@ -391,12 +443,15 @@ export function Overview() {
 					</div>
 					{/* Mobile card layout */}
 					<div className="space-y-2 sm:hidden">
-						{MOCK_AGENTS.map((a) => (
-							<div key={a.name} className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+						{(agents.length > 0 ? agents : MOCK_AGENTS).map((a: any) => (
+							<div
+								key={a.id || a.name}
+								className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
 								<div className="flex items-center justify-between mb-1">
-									<span className="text-sm font-medium text-slate-100">{a.name}</span>
-									<span className="rounded border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-[11px] text-violet-300">
-										{a.status}
+									<span className="text-sm font-medium text-slate-100">{a.name || a.id}</span>
+									<span
+										className={`rounded border px-2 py-0.5 text-[11px] ${a.enabled ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" : "border-slate-500/30 bg-slate-500/10 text-slate-400"}`}>
+										{a.enabled ? "Active" : "Disabled"}
 									</span>
 								</div>
 								<p className="text-xs text-slate-400 mb-2">{a.task}</p>
