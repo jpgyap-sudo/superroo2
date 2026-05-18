@@ -9028,3 +9028,61 @@ To be determined — this commit was auto-flagged as potentially containing a le
 bugfix
 
 ---
+
+### Auto-Extracted Lesson: Feat(cloud-ide): LSP Bridge Backend, Redis dev fallback, WebSocket proxy fix
+
+Date: 2026-05-18
+Source: Git commit c99ff8f8
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/api/api.js, cloud/api/auth.js, cloud/api/lsp-bridge.js, cloud/dashboard/src/components/views/memory-explorer.tsx, memory/lesson-index.jsonl
+
+#### Task Summary
+
+feat(cloud-ide): LSP Bridge Backend, Redis dev fallback, WebSocket proxy fix
+
+#### Files Changed
+
+- `cloud/api/api.js`
+- `cloud/api/api.js`
+- `cloud/api/lsp-bridge.js`
+- `cloud/dashboard/src/components/ide-terminal/api.ts`
+- `cloud/dashboard/src/components/ide-terminal/hooks/useWebSocket.ts`
+- `cloud/dashboard/src/components/ide-terminal/hooks/useIdeTerminal.ts`
+
+#### Bug Cause
+
+1. Next.js dev server rewrites only proxy HTTP requests — WebSocket upgrade requests fail with `ERR_INVALID_HTTP_RESPONSE`.
+2. Redis unavailable in dev caused BullMQ/IORedis to enter infinite `ECONNREFUSED` reconnect loops, spamming logs.
+3. Cloud IDE Monaco editor had zero language intelligence because no LSP backend existed.
+
+#### Fix Applied
+
+1. Added `getWebSocketUrl()` helper that detects dev mode (`localhost:3001`) and connects directly to `ws://localhost:8787`, bypassing Next.js.
+2. Implemented `cloud/api/lsp-bridge.js` — a full LSP bridge that spawns `typescript-language-server --stdio`, handles JSON-RPC framing, and translates frontend messages to LSP methods (completion, hover, definition, references, didOpen, didChange).
+3. Wired `/api/ws/lsp` into the API server's WebSocket upgrade handler.
+4. Added `NoopQueue` dev fallback: if Redis ping fails within 2s, swap real BullMQ Queue for a no-op stub that logs a single warning.
+
+#### Test Result
+
+pass — all 7 Playwright E2E tests pass (15.8s)
+
+#### Lesson Learned
+
+- Next.js `rewrites` in `next.config.js` do NOT proxy WebSocket upgrades. For dev, always connect WebSockets directly to the API server.
+- Making external infrastructure (Redis) optional in dev with graceful degradation (NoopQueue) prevents noisy log spam and improves DX.
+- LSP over stdio requires careful Content-Length framing. Buffering partial reads is essential because stdout data arrives in chunks.
+
+#### Reusable Rule
+
+**When building a Cloud IDE with Next.js frontend + standalone API backend:**
+
+1. Create a `getWebSocketUrl()` utility that routes around Next.js in dev.
+2. Make Redis/BullMQ optional in dev with a `NoopQueue` fallback.
+3. Spawn language servers with `--stdio`, buffer JSON-RPC messages with Content-Length parsing, and always send `initialized` notification after `initialize` response.
+
+#### Tags
+
+cloud-ide, lsp, websocket, redis, nextjs, dev-experience, bullmq
+
+---

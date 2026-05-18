@@ -1142,6 +1142,44 @@
 				},
 				"violations": ["Missing review phase (Codex review not completed)"]
 			}
+		},
+		{
+			"id": "commit_kimi_cloud_ide_lsp_1779073661168",
+			"commitSha": "c99ff8f84",
+			"agent": "Kimi",
+			"type": "feature",
+			"title": "feat(cloud-ide): LSP Bridge Backend, Redis dev fallback, WebSocket proxy fix",
+			"description": "Implemented LSP Bridge Backend that spawns typescript-language-server and bridges WebSocket messages to JSON-RPC. Fixed Redis reconnect loops in dev with NoopQueue fallback. Fixed WebSocket proxying for Next.js dev.",
+			"filesChanged": [
+				"cloud/api/api.js",
+				"cloud/api/auth.js",
+				"cloud/api/lsp-bridge.js",
+				"cloud/dashboard/src/components/views/memory-explorer.tsx"
+			],
+			"featuresAffected": ["cloud-ide", "cloud-dashboard", "cloud-api", "lsp-bridge"],
+			"bugsFixed": ["Redis ECONNREFUSED reconnect loops in dev", "Next.js dev WebSocket proxy failure"],
+			"timestamp": "2026-05-18T03:07:41.168Z",
+			"modelsUsed": [
+				{
+					"phase": "coding",
+					"provider": "kimi",
+					"model": "kimi-k2",
+					"promptTokens": 0,
+					"completionTokens": 0,
+					"latencyMs": 0,
+					"success": true
+				}
+			],
+			"workflowCompliance": {
+				"isCompliant": false,
+				"steps": {
+					"lessonsRead": true,
+					"deepseekDelegated": false,
+					"codexReviewed": false,
+					"ollamaSummarized": false
+				},
+				"violations": ["Missing review phase"]
+			}
 		}
 	],
 	"deploys": [
