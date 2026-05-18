@@ -10408,4 +10408,160 @@ To be determined — this commit was auto-flagged as potentially containing a le
 
 bugfix
 
+### Lesson: Multi-project tracking requires auth module exports and broad isActive detection
+
+Date: 2026-05-18
+Source: DeepSeek (code mode) task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/api/auth.js, cloud/api/api.js, cloud/dashboard/src/components/views/projects.tsx
+
+#### Task Summary
+
+Built and deployed a multi-project tracking feature for the SuperRoo Cloud Dashboard. The `/api/projects` endpoint aggregates data from `auth.projects` (project registry), `auth.projectPresence` (active sessions), and `commit-deploy-log.json` (commit/deploy history). The dashboard Projects tab displays all projects with status, language, activity, and commit/deploy stats.
+
+#### Files Changed
+
+- cloud/api/auth.js
+- cloud/api/api.js
+- cloud/dashboard/src/components/views/projects.tsx
+
+#### Bug Cause
+
+Three bugs were found during e2e testing:
+
+1. **Auth module not exporting `projects`/`projectPresence`**: `auth.js` had `let projects = []` and `let projectPresence = []` as module-scoped variables but they were NOT in `module.exports`. So `auth.projects` was `undefined`, causing the fallback path to run which only found repos from commit-deploy-log (just superroo2).
+
+2. **`isActive` logic too narrow**: The original check `currentWorkspace.repoName === p.repoName` only marked a project active if it matched the current workspace. But `projectPresence` data contains projects with `status: "active"` that should also be considered active.
+
+3. **`.slice()` result discarded**: `activityEvents.sort(...).slice(0, 20)` — `.slice()` returns a new array without mutating the original. The result was discarded, so all events were returned instead of just the top 20.
+
+#### Fix Applied
+
+1. Added getter properties to `module.exports` in auth.js: `get projects() { return projects }` and `get projectPresence() { return projectPresence }`
+2. Changed `isActive` to also check presence status: `|| (latestPresence && latestPresence.status === "active")`
+3. Changed `.slice(0, 20)` to `.splice(20)` which mutates the array in place
+
+#### Test Result
+
+pass — Dashboard compiles cleanly, endpoint returns all 5 projects with correct data, 2 active projects detected, 20 activity events returned, all 6 PM2 processes online.
+
+#### Lesson Learned
+
+When building API endpoints that aggregate data from multiple in-memory stores loaded by a separate auth module, always verify the stores are actually exported from the module. A silent `undefined` fallback path can mask the bug. Also, JavaScript array methods like `.slice()` return new arrays and don't mutate — use `.splice()` for in-place truncation.
+
+#### Reusable Rule
+
+When an API endpoint reads data from another module's in-memory store (e.g., `auth.projects`), verify that the store variable is actually exported in `module.exports`. Add getter properties if needed. For array truncation, use `.splice(n)` (mutates) not `.slice(0, n)` (returns new array, discarded if not assigned).
+
+#### Tags
+
+api, bugfix, multi-project, dashboard, auth, e2e
+
+### Lesson: Commit-deploy-log entries must include repoName for multi-project attribution
+
+Date: 2026-05-18
+Source: DeepSeek (code mode) task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/api/api.js, cloud/data/auth/projects.json, server/src/memory/commit-deploy-log.json
+
+#### Task Summary
+
+Diagnosed and fixed "disconnected" projects in the dashboard — all 4 non-superroo2 projects showed 0 commits and 0 deploys because the commit-deploy-log entries lacked a `repoName` field, causing all commits to default to "superroo2" via the fallback `commit.repoName || "superroo2"` on line 4606 of api.js.
+
+#### Files Changed
+
+- `cloud/api/api.js` (line 4606, 4631 — fallback logic already existed but entries lacked repoName)
+- `server/src/memory/commit-deploy-log.json` (backfilled repoName field + git history)
+- `tmp_fix_commit_log.py` (temporary script, deleted after use)
+
+#### Bug Cause
+
+The commit-deploy-log was a flat list of commits and deploys without per-project attribution. When the `/api/projects` endpoint iterated over commits to build `projectStats`, it used `commit.repoName || "superroo2"` as the key. Since no entries had a `repoName` field, ALL commits were attributed to "superroo2", leaving other projects with zero stats.
+
+#### Fix Applied
+
+1. Added `repoName: "superroo2"` to all 22 existing commits and 18 deploys in commit-deploy-log.json
+2. Backfilled 157 commits from `/opt/xsjprd55` git history with `repoName: "xsjprd55"`
+3. Backfilled 1 commit from `/opt/quotation-automation` git history with `repoName: "quotation-automation-system"`
+4. Result: 180 total commits across 3 repos with correct per-project attribution
+
+#### Test Result
+
+pass — Verified via `curl http://127.0.0.1:8787/projects`:
+
+- superroo2: 22 commits, 18 deploys, 89% success rate
+- xsjprd55: 157 commits, 0 deploys
+- quotation-automation-system: 1 commit, 0 deploys
+- productgenerator: 0 commits (no local repo on VPS)
+- e2e-test-project: 0 commits (no local repo on VPS)
+
+#### Lesson Learned
+
+When building multi-project aggregation from a flat commit/deploy log, every entry MUST include a `repoName` field for proper attribution. The fallback `commit.repoName || "superroo2"` silently masks missing data for all other projects. New projects added via Telegram without a localPath/repoUrl will always show 0 commits — this is expected behavior, not a bug.
+
+#### Reusable Rule
+
+Always include a `repoName` field when recording commits and deploys in the commit-deploy-log. The `CommitDeployLog.recordCommit()` and `recordDeploy()` methods must accept and persist `repoName`. When backfilling historical data from git repos, use `git log --format="%H|%s|%an|%aI"` to extract commit metadata and map it to the commit-deploy-log schema.
+
+#### Tags
+
+api, bugfix, multi-project, commit-deploy-log, backfill, git, attribution
+
+### Auto-Extracted Lesson: Feat: forward file attachments to LLM prompts via text enrichment
+
+Date: 2026-05-18
+Source: Git commit 118785fc
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/api/api.js, console.log(', memory/lesson-index.jsonl, memory/lessons-learned.md, pnpm-lock.yaml
+
+#### Task Summary
+
+feat: forward file attachments to LLM prompts via text enrichment
+
+#### Files Changed
+
+- `cloud/api/api.js`
+- `console.log('`
+- `memory/lesson-index.jsonl`
+- `memory/lessons-learned.md`
+- `pnpm-lock.yaml`
+- `src/core/webview/webviewMessageHandler.ts`
+- `tmp_check_projects.py`
+- `tmp_fix_commit_log.py`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 118785fc.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 118785fc by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+ui, api
+
 ---

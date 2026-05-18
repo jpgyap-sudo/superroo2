@@ -243,6 +243,20 @@ export const webviewMessageHandler = async (
 		})
 		return resolved
 	}
+
+	/**
+	 * Appends file attachment info to message text so the LLM is aware of non-text attachments.
+	 * Text files and images are already embedded by the frontend; this handles PDF/ZIP/etc.
+	 */
+	const enrichTextWithFiles = (text: string, files?: any[]): string => {
+		if (!files || files.length === 0) return text
+		const nonTextFiles = files.filter((f) => f && !f.isText && !f.type?.startsWith("image/"))
+		if (nonTextFiles.length === 0) return text
+		const fileList = nonTextFiles.map((f) => `- ${f.name} (${f.type}, ${f.size} bytes)`).join("\n")
+		const attachmentNote = `[Attached files]\n${fileList}\n(Note: these file types cannot be read directly. Ask the user to paste relevant content if needed.)`
+		return text ? `${text}\n\n${attachmentNote}` : attachmentNote
+	}
+
 	/**
 	 * Shared utility to find message indices based on timestamp.
 	 * When multiple messages share the same timestamp (e.g., after condense),
@@ -687,8 +701,9 @@ export const webviewMessageHandler = async (
 			// task. This essentially creates a fresh slate for the new task.
 			try {
 				const resolved = await resolveIncomingImages({ text: message.text, images: message.images })
+				const textWithFiles = enrichTextWithFiles(resolved.text, message.files)
 				await provider.createTask(
-					resolved.text,
+					textWithFiles,
 					resolved.images,
 					undefined,
 					{ taskId: message.taskId },
@@ -712,9 +727,10 @@ export const webviewMessageHandler = async (
 		case "askResponse":
 			{
 				const resolved = await resolveIncomingImages({ text: message.text, images: message.images })
+				const textWithFiles = enrichTextWithFiles(resolved.text, message.files)
 				provider
 					.getCurrentTask()
-					?.handleWebviewAskResponse(message.askResponse!, resolved.text, resolved.images)
+					?.handleWebviewAskResponse(message.askResponse!, textWithFiles, resolved.images)
 			}
 			break
 
@@ -2111,9 +2127,10 @@ export const webviewMessageHandler = async (
 		case "editMessageConfirm":
 			if (message.messageTs && message.text) {
 				const resolved = await resolveIncomingImages({ text: message.text, images: message.images })
+				const textWithFiles = enrichTextWithFiles(resolved.text, message.files)
 				await handleEditMessageConfirm(
 					message.messageTs,
-					resolved.text,
+					textWithFiles,
 					message.restoreCheckpoint,
 					resolved.images,
 				)
@@ -3375,7 +3392,8 @@ export const webviewMessageHandler = async (
 
 		case "queueMessage": {
 			const resolved = await resolveIncomingImages({ text: message.text, images: message.images })
-			provider.getCurrentTask()?.messageQueueService.addMessage(resolved.text, resolved.images)
+			const textWithFiles = enrichTextWithFiles(resolved.text, message.files)
+			provider.getCurrentTask()?.messageQueueService.addMessage(textWithFiles, resolved.images)
 			break
 		}
 		case "removeQueuedMessage": {
@@ -3385,7 +3403,8 @@ export const webviewMessageHandler = async (
 		case "editQueuedMessage": {
 			if (message.payload) {
 				const { id, text, images } = message.payload as EditQueuedMessagePayload
-				provider.getCurrentTask()?.messageQueueService.updateMessage(id, text, images)
+				const textWithFiles = enrichTextWithFiles(text, message.files)
+				provider.getCurrentTask()?.messageQueueService.updateMessage(id, textWithFiles, images)
 			}
 
 			break

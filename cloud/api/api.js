@@ -4667,10 +4667,18 @@ const server = http.createServer(async (req, res) => {
 						lastCommit: null,
 						lastDeploy: null,
 					}
-					// Active if it matches the current workspace OR has recent presence activity (within last 24h)
-					const isActive =
+					// Active if:
+					//   1. It matches the current IDE workspace (VS Code extension WebSocket connection)
+					//   2. It has recent presence activity with status "active" (within last 24h)
+					//   3. It has commits within the last 30 days (captures locally-used projects
+					//      where the VS Code extension doesn't connect to this cloud dashboard)
+					const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+					const hasRecentCommits = stats.lastCommit && new Date(stats.lastCommit.time) > thirtyDaysAgo
+					const isActive = !!(
 						currentWorkspace.repoName === p.repoName ||
-						(latestPresence && latestPresence.status === "active")
+						(latestPresence && latestPresence.status === "active") ||
+						hasRecentCommits
+					)
 
 					return {
 						...p,

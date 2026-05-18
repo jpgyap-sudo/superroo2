@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS ollama_lessons (
     topic TEXT NOT NULL,
     content TEXT NOT NULL,
     source_task_id TEXT,
+    project TEXT DEFAULT 'superroo2',   -- project name for cross-project learning
     embedding vector(768),
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT NOW()
@@ -51,6 +52,7 @@ CREATE INDEX IF NOT EXISTS idx_ollama_lessons_embedding
     WITH (m = 16, ef_construction = 200);
 
 CREATE INDEX IF NOT EXISTS idx_ollama_lessons_type ON ollama_lessons(lesson_type);
+CREATE INDEX IF NOT EXISTS idx_ollama_lessons_project ON ollama_lessons(project);
 
 -- ── Vector Search Functions ───────────────────────────────────────────────────
 
@@ -97,6 +99,7 @@ RETURNS TABLE(
     lesson_type TEXT,
     topic TEXT,
     content TEXT,
+    project TEXT,
     similarity float
 )
 LANGUAGE plpgsql
@@ -108,6 +111,7 @@ BEGIN
         ollama_lessons.lesson_type,
         ollama_lessons.topic,
         ollama_lessons.content,
+        ollama_lessons.project,
         1 - (ollama_lessons.embedding <=> query_embedding) AS similarity
     FROM ollama_lessons
     WHERE 1 - (ollama_lessons.embedding <=> query_embedding) > match_threshold
