@@ -66,9 +66,11 @@ class JsonRpcStream {
 }
 
 class LanguageServerProcess {
-	constructor(lang, cwd) {
+	constructor(lang, cwd, cmd, args = ["--stdio"]) {
 		this.lang = lang
 		this.cwd = cwd
+		this.cmd = cmd
+		this.args = args
 		this.process = null
 		this.stream = new JsonRpcStream()
 		this.pending = new Map() // id -> { resolve, reject, timer }
@@ -89,13 +91,11 @@ class LanguageServerProcess {
 	}
 
 	async _start() {
-		const cmd = "typescript-language-server"
-		const args = ["--stdio"]
 		try {
-			this.process = spawn(cmd, args, { cwd: this.cwd })
+			this.process = spawn(this.cmd, this.args, { cwd: this.cwd })
 		} catch (err) {
 			this.initializing = false
-			throw new Error(`Failed to spawn ${cmd}: ${err.message}`)
+			throw new Error(`Failed to spawn ${this.cmd}: ${err.message}`)
 		}
 
 		this.process.on("error", (err) => {
@@ -247,12 +247,20 @@ class LspBridge {
 		const key = this.getLangKey(lang)
 		if (this.servers.has(key)) return this.servers.get(key)
 
-		// Only typescript-language-server is guaranteed available
-		if (key !== "typescript") {
+		// Map language keys to language server commands
+		const serverConfig = {
+			typescript: { cmd: "typescript-language-server", args: ["--stdio"] },
+			json: { cmd: "vscode-json-language-server", args: ["--stdio"] },
+			css: { cmd: "vscode-css-language-server", args: ["--stdio"] },
+			html: { cmd: "vscode-html-language-server", args: ["--stdio"] },
+		}
+
+		const config = serverConfig[key]
+		if (!config) {
 			return null
 		}
 
-		const server = new LanguageServerProcess(key, this.workspaceDir)
+		const server = new LanguageServerProcess(key, this.workspaceDir, config.cmd, config.args)
 		this.servers.set(key, server)
 		return server
 	}
@@ -261,6 +269,21 @@ class LspBridge {
 		if (uri.startsWith("file://")) return uri
 		const abs = path.isAbsolute(uri) ? uri : path.join(this.workspaceDir, uri)
 		return "file://" + abs.replace(/\\/g, "/")
+	}
+
+	_normalizeLanguageId(lang) {
+		const map = {
+			javascript: "javascript",
+			typescript: "typescript",
+			tsx: "typescriptreact",
+			jsx: "javascriptreact",
+			json: "json",
+			css: "css",
+			scss: "scss",
+			less: "less",
+			html: "html",
+		}
+		return map[lang] || lang
 	}
 
 	async handleMessage(ws, msg) {
@@ -281,7 +304,7 @@ class LspBridge {
 					server.sendNotification("textDocument/didOpen", {
 						textDocument: {
 							uri: lspUri,
-							languageId: lang,
+							languageId: this._normalizeLanguageId(lang),
 							version: version || 1,
 							text: text || "",
 						},
@@ -296,7 +319,7 @@ class LspBridge {
 						server.sendNotification("textDocument/didOpen", {
 							textDocument: {
 								uri: lspUri,
-								languageId: lang,
+								languageId: this._normalizeLanguageId(lang),
 								version: version || 1,
 								text: text || "",
 							},

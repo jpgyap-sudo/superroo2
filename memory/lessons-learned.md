@@ -9368,3 +9368,65 @@ To be determined — this commit was auto-flagged as potentially containing a le
 api, bugfix
 
 ---
+
+### Auto-Extracted Lesson: Feat(dashboard): wire bugs view to real orchestrator bug registry API
+
+Date: 2026-05-18
+Source: Git commit f26db108
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/dashboard/e2e-report/index.html, cloud/dashboard/e2e/screenshots/ide-terminal-ai-chat.png, cloud/dashboard/e2e/screenshots/ide-terminal-ai-closed.png, cloud/dashboard/e2e/screenshots/ide-terminal-command.png, cloud/dashboard/e2e/screenshots/ide-terminal-loaded.png
+
+#### Task Summary
+
+feat(dashboard): wire bugs view to real orchestrator bug registry API
+
+#### Files Changed
+
+- `cloud/dashboard/e2e-report/index.html`
+- `cloud/dashboard/e2e/screenshots/ide-terminal-ai-chat.png`
+- `cloud/dashboard/e2e/screenshots/ide-terminal-ai-closed.png`
+- `cloud/dashboard/e2e/screenshots/ide-terminal-command.png`
+- `cloud/dashboard/e2e/screenshots/ide-terminal-loaded.png`
+- `cloud/dashboard/e2e/screenshots/ide-terminal-monaco.png`
+- `cloud/dashboard/e2e/screenshots/ide-terminal-shortcuts.png`
+- `cloud/dashboard/e2e/screenshots/ide-terminal-suggestions.png`
+- `cloud/dashboard/src/components/views/bugs.tsx`
+- `cloud/dashboard/test-results/.last-run.json`
+- `memory/lesson-index.jsonl`
+- `memory/lessons-learned.md`
+- `server/src/memory/commit-deploy-log.json`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit f26db108.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit f26db108 by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+testing, deployment
+
+---

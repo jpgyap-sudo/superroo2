@@ -217,6 +217,7 @@ async function appendIndexEntry(analysis) {
     source: `Git commit ${analysis.sha.slice(0, 8)}`,
     model: analysis.author || 'unknown',
     confidence: 'medium',
+    project: 'superroo2',
     files: analysis.files.slice(0, 5),
     tags,
     relevance_score: 0.75,
