@@ -794,8 +794,57 @@ function sendJson(res, status, payload) {
 async function _getEmbedding(text) {
 	try {
 		const http = require("http")
-		const postData = JSON.stringify({ model: "nomic-embed-text", prompt: text })
-		const embedding = await new Promise((resolve, reject) => {
+		const requestJson = (path, payload) =>
+			new Promise((resolve, reject) => {
+				const postData = JSON.stringify(payload)
+				const req = http.request(
+					`http://127.0.0.1:11434${path}`,
+					{
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							"Content-Length": Buffer.byteLength(postData),
+						},
+						timeout: 30_000,
+					},
+					(res) => {
+						let body = ""
+						res.on("data", (chunk) => (body += chunk))
+						res.on("end", () => {
+							try {
+								const json = JSON.parse(body)
+								if (res.statusCode >= 400) {
+									reject(new Error(json.error || `Ollama ${res.statusCode}`))
+									return
+								}
+								resolve(json)
+							} catch (e) {
+								reject(e)
+							}
+						})
+					},
+				)
+				req.on("error", reject)
+				req.on("timeout", () => {
+					req.destroy()
+					reject(new Error("timeout"))
+				})
+				req.write(postData)
+				req.end()
+			})
+		try {
+			const modern = await requestJson("/api/embed", { model: "nomic-embed-text", input: text })
+			const embedding = Array.isArray(modern.embeddings?.[0])
+				? modern.embeddings[0]
+				: Array.isArray(modern.embedding)
+					? modern.embedding
+					: []
+			if (embedding.length > 0) {
+				return embedding
+			}
+		} catch {}
+		const legacy = await new Promise((resolve, reject) => {
+			const postData = JSON.stringify({ model: "nomic-embed-text", prompt: text })
 			const req = http.request(
 				"http://127.0.0.1:11434/api/embeddings",
 				{
@@ -827,7 +876,7 @@ async function _getEmbedding(text) {
 			req.write(postData)
 			req.end()
 		})
-		return embedding
+		return legacy
 	} catch (e) {
 		writeApiLog("warn", "brain-mcp", "Embedding generation failed", { error: e.message })
 		// Return a zero vector as fallback (768 dims for nomic-embed-text)
@@ -1440,16 +1489,16 @@ const PROVIDERS = [
 	{
 		id: "ollama",
 		name: "Ollama (Local)",
-		description: "Local Ollama models (qwen2.5:3b, qwen2.5:0.5b)",
+		description: "Local Ollama models (qwen2.5:0.5b, qwen2.5:1.5b)",
 		envName: null,
 		website: "https://ollama.com",
 		docsUrl: "https://github.com/ollama/ollama",
 		apiBaseUrl: "http://127.0.0.1:11434/v1",
-		defaultModel: "qwen2.5:3b",
+		defaultModel: "qwen2.5:0.5b",
 		local: true,
 		models: [
-			{ id: "qwen2.5:3b", name: "Qwen 2.5 3B" },
 			{ id: "qwen2.5:0.5b", name: "Qwen 2.5 0.5B" },
+			{ id: "qwen2.5:1.5b", name: "Qwen 2.5 1.5B" },
 		],
 		capabilities: ["chat"],
 	},
@@ -1533,7 +1582,7 @@ const DEFAULT_AGENT_ROUTES = [
 		label: "Planner",
 		primary: { provider: "deepseek", model: "deepseek-chat-v4-pro" },
 		fallbacks: [
-			{ provider: "ollama", model: "qwen2.5:3b" },
+			{ provider: "ollama", model: "qwen2.5:1.5b" },
 			{ provider: "anthropic", model: "claude-sonnet-4-20250514" },
 			{ provider: "openai", model: "gpt-4o" },
 		],
@@ -1543,7 +1592,7 @@ const DEFAULT_AGENT_ROUTES = [
 		label: "Coder",
 		primary: { provider: "deepseek", model: "deepseek-chat-v4-flash" },
 		fallbacks: [
-			{ provider: "ollama", model: "qwen2.5:3b" },
+			{ provider: "ollama", model: "qwen2.5:1.5b" },
 			{ provider: "anthropic", model: "claude-sonnet-4-20250514" },
 			{ provider: "openai", model: "gpt-4o" },
 		],
@@ -1553,7 +1602,7 @@ const DEFAULT_AGENT_ROUTES = [
 		label: "Debugger",
 		primary: { provider: "deepseek", model: "deepseek-chat-v4-pro" },
 		fallbacks: [
-			{ provider: "ollama", model: "qwen2.5:3b" },
+			{ provider: "ollama", model: "qwen2.5:1.5b" },
 			{ provider: "anthropic", model: "claude-sonnet-4-20250514" },
 			{ provider: "openai", model: "gpt-4o" },
 		],
@@ -1563,7 +1612,7 @@ const DEFAULT_AGENT_ROUTES = [
 		label: "Crawler",
 		primary: { provider: "deepseek", model: "deepseek-chat-v4-flash" },
 		fallbacks: [
-			{ provider: "ollama", model: "qwen2.5:3b" },
+			{ provider: "ollama", model: "qwen2.5:1.5b" },
 			{ provider: "groq", model: "llama-3.3-70b-versatile" },
 			{ provider: "openai", model: "gpt-4o-mini" },
 		],
@@ -1573,7 +1622,7 @@ const DEFAULT_AGENT_ROUTES = [
 		label: "Tester",
 		primary: { provider: "deepseek", model: "deepseek-chat-v4-flash" },
 		fallbacks: [
-			{ provider: "ollama", model: "qwen2.5:3b" },
+			{ provider: "ollama", model: "qwen2.5:1.5b" },
 			{ provider: "groq", model: "llama-3.3-70b-versatile" },
 			{ provider: "openai", model: "gpt-4o-mini" },
 		],
@@ -1583,7 +1632,7 @@ const DEFAULT_AGENT_ROUTES = [
 		label: "Deploy Checker",
 		primary: { provider: "deepseek", model: "deepseek-chat-v4-pro" },
 		fallbacks: [
-			{ provider: "ollama", model: "qwen2.5:3b" },
+			{ provider: "ollama", model: "qwen2.5:1.5b" },
 			{ provider: "groq", model: "llama-3.3-70b-versatile" },
 			{ provider: "openai", model: "gpt-4o-mini" },
 		],
@@ -1593,7 +1642,7 @@ const DEFAULT_AGENT_ROUTES = [
 		label: "Consultant",
 		primary: { provider: "deepseek", model: "deepseek-chat-v4-pro" },
 		fallbacks: [
-			{ provider: "ollama", model: "qwen2.5:3b" },
+			{ provider: "ollama", model: "qwen2.5:1.5b" },
 			{ provider: "anthropic", model: "claude-sonnet-4-20250514" },
 			{ provider: "openai", model: "gpt-4o" },
 		],
@@ -1708,8 +1757,47 @@ async function loadSettings() {
 	} catch {
 		return {
 			activeProfile: "default",
-			approval: { enabled: true, rules: [], maxApprovalCount: 10, maxCostUsd: 5, timeWindowMinutes: 60 },
-			mcp: { servers: [] },
+			autoApprove: true,
+			mcp: { enabled: true, servers: [] },
+			approval: {
+				enabled: true,
+				rules: [],
+				maxApprovalCount: 10,
+				maxCostUsd: 5,
+				timeWindowMinutes: 60,
+				rows: [
+					{
+						action: "Read Files",
+						risk: "Low",
+						desc: "Allow agents to inspect project files and logs.",
+						defaultChecked: true,
+					},
+					{
+						action: "Write Files",
+						risk: "Medium",
+						desc: "Allow coding agents to edit repo files inside approved workspace.",
+						defaultChecked: true,
+					},
+					{
+						action: "Execute Commands",
+						risk: "High",
+						desc: "Run tests, builds, docker logs, and diagnostics.",
+						defaultChecked: true,
+					},
+					{
+						action: "MCP Tool Calls",
+						risk: "Medium",
+						desc: "Use Playwright, GitHub, database, or docs fetcher MCP tools.",
+						defaultChecked: true,
+					},
+					{
+						action: "Deploy / Restart VPS",
+						risk: "Critical",
+						desc: "Restart services, rebuild Docker, pull updates, or deploy production.",
+						defaultChecked: false,
+					},
+				],
+			},
 			routing: { routes: DEFAULT_AGENT_ROUTES },
 			guardrails: {
 				maxConcurrentJobs: 3,
@@ -1717,6 +1805,7 @@ async function loadSettings() {
 				ramHighPercent: 85,
 				onHighCpu: "warn",
 				onHighRam: "warn",
+				cpuAction: "pause_crawler",
 			},
 		}
 	}
@@ -8826,7 +8915,7 @@ const server = http.createServer(async (req, res) => {
 							role: "Cheap Local Processing",
 							description:
 								"Handles cheap tasks: summarization, classification, tagging, embeddings, short replies",
-							models: ["qwen2.5:3b", "qwen2.5:0.5b", "nomic-embed-text"],
+							models: ["qwen2.5:1.5b", "qwen2.5:0.5b", "nomic-embed-text"],
 							embeddingDimensions: 768,
 							baseUrl: "http://127.0.0.1:11434",
 						},
@@ -8950,7 +9039,7 @@ const server = http.createServer(async (req, res) => {
 								},
 								health: { method: "POST", path: "/api/brain/mcp", body: { action: "ollama_health" } },
 							},
-							models: ["qwen2.5-coder:3b", "qwen2.5:1.5b", "nomic-embed-text"],
+							models: ["qwen2.5:0.5b", "qwen2.5:1.5b", "nomic-embed-text"],
 							baseUrl: "http://127.0.0.1:11434",
 						},
 					},
@@ -10476,6 +10565,187 @@ const server = http.createServer(async (req, res) => {
 				}
 				const result = await autonomousLoop.stop()
 				sendJson(res, 200, result)
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// ── Debug Team Endpoints ───────────────────────────────────────────────
+
+		// GET /debug-team/status — Get debug team / autonomous loop status
+		if (method === "GET" && (url === "/debug-team/status" || normalizedUrl === "/debug-team/status")) {
+			try {
+				if (!autonomousLoop) {
+					sendJson(res, 200, {
+						success: true,
+						status: "idle",
+						running: false,
+						jobId: null,
+						currentStep: 0,
+						currentStepName: "—",
+						totalSteps: 10,
+						progress: 0,
+						elapsedFormatted: "—",
+						remainingFormatted: "—",
+						stepResults: [],
+						error: null,
+					})
+					return
+				}
+				const status = autonomousLoop.getStatus()
+				sendJson(res, 200, { success: true, ...status })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /debug-team/start — Start debug team autonomous loop
+		if (method === "POST" && (url === "/debug-team/start" || normalizedUrl === "/debug-team/start")) {
+			try {
+				const body = await parseBody(req)
+				const target = body.target || "superroo2"
+				const branch = body.branch || "main"
+				const durationMs = body.durationMs || 5 * 60 * 60 * 1000
+				const stepTimeoutMs = body.stepTimeoutMs || 10 * 60 * 1000
+
+				if (!orchestrator) {
+					sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
+					return
+				}
+
+				if (autonomousLoop && autonomousLoop.getStatus().running) {
+					sendJson(res, 409, { success: false, error: "Debug team loop is already running" })
+					return
+				}
+
+				autonomousLoop = new AutonomousLoop({
+					orchestrator,
+					target,
+					branch,
+					durationMs,
+					stepTimeoutMs,
+					workspaceRoot: process.cwd(),
+					containerFirst: body.containerFirst !== false,
+				})
+
+				const result = await autonomousLoop.start({ jobId: `debug-${Date.now()}` })
+				sendJson(res, result.success ? 200 : 400, result)
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /debug-team/stop — Stop debug team autonomous loop
+		if (method === "POST" && (url === "/debug-team/stop" || normalizedUrl === "/debug-team/stop")) {
+			try {
+				if (!autonomousLoop) {
+					sendJson(res, 404, { success: false, error: "No debug team loop is running" })
+					return
+				}
+				const result = await autonomousLoop.stop()
+				sendJson(res, 200, result)
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /debug-team/jobs — List recent debug jobs from orchestrator events
+		if (method === "GET" && (url === "/debug-team/jobs" || normalizedUrl === "/debug-team/jobs")) {
+			try {
+				const limit = parseInt(new URL(req.url, `http://localhost`).searchParams.get("limit") || "20")
+				let jobs = []
+				if (orchestrator && orchestrator.eventLog) {
+					const events = await orchestrator.eventLog.query({ agent: "debug-team", limit: limit * 2 })
+					// Group events into synthetic jobs
+					const jobMap = new Map()
+					for (const ev of events || []) {
+						const jobId = ev.data?.jobId || ev.data?.debugJobId || "unknown"
+						if (!jobMap.has(jobId)) {
+							jobMap.set(jobId, {
+								id: jobId,
+								goal: ev.data?.goal || "Autonomous debug task",
+								status: "unknown",
+								createdAt: ev.timestamp || Date.now(),
+								updatedAt: ev.timestamp || Date.now(),
+								events: [],
+							})
+						}
+						const job = jobMap.get(jobId)
+						job.events.push(ev)
+						job.updatedAt = Math.max(job.updatedAt, ev.timestamp || Date.now())
+						if (ev.type?.includes("success")) job.status = "success"
+						else if (ev.type?.includes("failed")) job.status = "failed"
+						else if (ev.type?.includes("started")) job.status = "running"
+					}
+					jobs = Array.from(jobMap.values()).slice(0, limit)
+				}
+				// Fallback: if autonomousLoop is running, include its current job
+				if (autonomousLoop) {
+					const autoStatus = autonomousLoop.getStatus()
+					if (autoStatus.running) {
+						const existing = jobs.find((j) => j.id === autoStatus.jobId)
+						if (!existing) {
+							jobs.unshift({
+								id: autoStatus.jobId,
+								goal: `Autonomous loop: ${autoStatus.target}`,
+								status: "running",
+								createdAt: autoStatus.startedAt || Date.now(),
+								updatedAt: Date.now(),
+								events: [],
+								currentStep: autoStatus.currentStep,
+								currentStepName: autoStatus.currentStepName,
+								progress: autoStatus.progress,
+							})
+						} else {
+							existing.status = "running"
+							existing.currentStep = autoStatus.currentStep
+							existing.currentStepName = autoStatus.currentStepName
+							existing.progress = autoStatus.progress
+						}
+					}
+				}
+				sendJson(res, 200, { success: true, jobs })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /debug-team/test-telegram — Test Telegram notification config
+		if (
+			method === "POST" &&
+			(url === "/debug-team/test-telegram" || normalizedUrl === "/debug-team/test-telegram")
+		) {
+			try {
+				const body = await parseBody(req)
+				const { botToken, chatId } = body
+				if (!botToken || !chatId) {
+					sendJson(res, 400, { success: false, error: "botToken and chatId are required" })
+					return
+				}
+				const text =
+					"🧪 *SuperRoo Debug Team Test*\n\nYour Telegram notification configuration is working correctly!\n\n_Test sent at " +
+					new Date().toISOString() +
+					"_"
+				const tgRes = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						chat_id: chatId,
+						text,
+						parse_mode: "Markdown",
+					}),
+				})
+				if (!tgRes.ok) {
+					const tgBody = await tgRes.text()
+					sendJson(res, 400, { success: false, error: `Telegram API error ${tgRes.status}: ${tgBody}` })
+					return
+				}
+				sendJson(res, 200, { success: true, message: "Test notification sent" })
 			} catch (err) {
 				sendJson(res, 500, { success: false, error: err.message })
 			}

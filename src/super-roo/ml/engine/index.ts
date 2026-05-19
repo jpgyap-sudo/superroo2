@@ -13,7 +13,17 @@ export {
 	BatchNormLayer,
 	type Layer,
 } from "./Layer"
-export { CrossEntropyLoss, MSELoss, BCELoss, HuberLoss, HingeLoss, type LossFn } from "./Loss"
+export {
+	CrossEntropyLoss,
+	MSELoss,
+	BCELoss,
+	HuberLoss,
+	HingeLoss,
+	MAELoss,
+	KLLoss,
+	CosineSimilarityLoss,
+	type LossFn,
+} from "./Loss"
 export {
 	AdamOptimizer,
 	SGDOptimizer,
@@ -27,10 +37,14 @@ export {
 	StepDecayScheduler,
 	ExponentialDecayScheduler,
 	ReduceLROnPlateau,
+	CosineAnnealingScheduler,
+	DropoutScheduler,
 	type LRScheduler,
 	type StepDecayConfig,
 	type ExponentialDecayConfig,
 	type ReduceLROnPlateauConfig,
+	type CosineAnnealingConfig,
+	type DropoutSchedulerConfig,
 } from "./LRScheduler"
 export { NeuralNetwork, type NeuralNetworkConfig, type TrainingConfig } from "./NeuralNetwork"
 export {

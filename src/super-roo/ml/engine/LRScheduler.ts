@@ -175,3 +175,108 @@ export class ReduceLROnPlateau implements LRScheduler {
 		this.currentLR = this.initialLR
 	}
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cosine Annealing — smooth cosine decay with optional warm restarts
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface CosineAnnealingConfig {
+	initialLR: number
+	/** Number of epochs for one full cosine cycle. Default: 50 */
+	T_max?: number
+	/** Minimum LR floor. Default: 1e-8 */
+	minLR?: number
+	/** Number of warm restarts (0 = no restarts). Default: 0 */
+	restarts?: number
+	/** Multiplicative factor for T_max after each restart. Default: 1 */
+	T_mult?: number
+}
+
+export class CosineAnnealingScheduler implements LRScheduler {
+	private readonly initialLR: number
+	private readonly T_max: number
+	private readonly minLR: number
+	private readonly restarts: number
+	private readonly T_mult: number
+	private currentRestart = 0
+	private epochOffset = 0
+
+	constructor(config: CosineAnnealingConfig) {
+		this.initialLR = config.initialLR
+		this.T_max = config.T_max ?? 50
+		this.minLR = config.minLR ?? 1e-8
+		this.restarts = config.restarts ?? 0
+		this.T_mult = config.T_mult ?? 1
+	}
+
+	getLearningRate(epoch: number): number {
+		const localEpoch = epoch - this.epochOffset
+		const T_cur = Math.min(localEpoch, this.T_max)
+		const cos = Math.cos((Math.PI * T_cur) / this.T_max)
+		const lr = this.minLR + 0.5 * (this.initialLR - this.minLR) * (1 + cos)
+
+		// Handle warm restarts
+		if (this.restarts > 0 && localEpoch >= this.T_max && this.currentRestart < this.restarts) {
+			this.currentRestart++
+			this.epochOffset = epoch
+			return this.initialLR // Reset to initial LR after restart
+		}
+
+		return Math.max(lr, this.minLR)
+	}
+
+	reset(): void {
+		this.currentRestart = 0
+		this.epochOffset = 0
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Dropout Scheduler — anneals dropout rate during training
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface DropoutSchedulerConfig {
+	/** Initial dropout rate. Default: 0.5 */
+	initialRate: number
+	/** Final dropout rate after annealing. Default: 0.1 */
+	finalRate: number
+	/** Number of epochs over which to anneal. Default: 100 */
+	totalEpochs: number
+	/** Annealing strategy: "linear" | "exponential" | "cosine". Default: "linear" */
+	mode?: "linear" | "exponential" | "cosine"
+}
+
+export class DropoutScheduler {
+	private readonly initialRate: number
+	private readonly finalRate: number
+	private readonly totalEpochs: number
+	private readonly mode: "linear" | "exponential" | "cosine"
+
+	constructor(config: DropoutSchedulerConfig) {
+		this.initialRate = config.initialRate
+		this.finalRate = config.finalRate
+		this.totalEpochs = config.totalEpochs
+		this.mode = config.mode ?? "linear"
+	}
+
+	/** Get the dropout rate for the given epoch. */
+	getRate(epoch: number): number {
+		const t = Math.min(epoch / this.totalEpochs, 1)
+		switch (this.mode) {
+			case "linear":
+				return this.initialRate + (this.finalRate - this.initialRate) * t
+			case "exponential":
+				return this.initialRate * Math.pow(this.finalRate / this.initialRate, t)
+			case "cosine": {
+				const cos = Math.cos((Math.PI * t) / 2)
+				return this.finalRate + (this.initialRate - this.finalRate) * cos
+			}
+			default:
+				return this.initialRate + (this.finalRate - this.initialRate) * t
+		}
+	}
+
+	reset(): void {
+		// No mutable state
+	}
+}

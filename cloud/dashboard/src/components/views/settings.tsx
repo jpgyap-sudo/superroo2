@@ -9,6 +9,34 @@ type SystemStats = {
 	disk: number
 }
 
+type ApprovalRowConfig = {
+	action: string
+	risk: "Low" | "Medium" | "High" | "Critical"
+	desc: string
+	defaultChecked: boolean
+}
+
+type SettingsData = {
+	autoApprove: boolean
+	mcp: { enabled: boolean; servers: unknown[] }
+	approval: {
+		enabled: boolean
+		rules: unknown[]
+		maxApprovalCount: number
+		maxCostUsd: number
+		timeWindowMinutes: number
+		rows: ApprovalRowConfig[]
+	}
+	guardrails: {
+		maxConcurrentJobs: number
+		cpuHighPercent: number
+		ramHighPercent: number
+		onHighCpu: string
+		onHighRam: string
+		cpuAction: string
+	}
+}
+
 function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void }) {
 	return (
 		<button
@@ -48,14 +76,15 @@ function ApprovalRow({
 	action,
 	risk,
 	desc,
-	defaultChecked = true,
+	checked,
+	onToggle,
 }: {
 	action: string
 	risk: "Low" | "Medium" | "High" | "Critical"
 	desc: string
-	defaultChecked?: boolean
+	checked: boolean
+	onToggle: () => void
 }) {
-	const [checked, setChecked] = useState(defaultChecked)
 	const tone = risk === "Low" ? "green" : risk === "Medium" ? "blue" : risk === "High" ? "amber" : "red"
 
 	return (
@@ -68,7 +97,7 @@ function ApprovalRow({
 				<p className="mt-1 text-xs text-gray-500">{desc}</p>
 			</div>
 			<div className="flex items-center gap-3 md:block">
-				<Toggle checked={checked} onChange={() => setChecked(!checked)} />
+				<Toggle checked={checked} onChange={onToggle} />
 				<button className="rounded-xl border border-[#1e2535] px-3 py-2 text-sm text-[#e2e8f0] hover:bg-[#1e2535] md:mt-0">
 					Edit Rules
 				</button>
@@ -189,15 +218,39 @@ function AccountSection() {
 
 export function SettingsView() {
 	const [autoApprove, setAutoApprove] = useState(true)
-	const [mcp, setMcp] = useState(true)
+	const [mcpEnabled, setMcpEnabled] = useState(true)
 	const [stats, setStats] = useState<SystemStats | null>(null)
 	const [cpuAction, setCpuAction] = useState("pause_crawler")
+	const [approvalRows, setApprovalRows] = useState<ApprovalRowConfig[]>([])
+	const [saveMessage, setSaveMessage] = useState("")
+	const [saveError, setSaveError] = useState("")
+	const [loading, setLoading] = useState(true)
 
+	// Load settings from API on mount
 	useEffect(() => {
-		fetch("/api/system")
-			.then((r) => r.json())
-			.then(setStats)
-			.catch(() => {})
+		async function load() {
+			try {
+				const [settingsRes, statsRes] = await Promise.all([fetch("/api/settings"), fetch("/api/system")])
+				if (settingsRes.ok) {
+					const data = await settingsRes.json()
+					const s: SettingsData = data.settings
+					setAutoApprove(s.autoApprove ?? true)
+					setMcpEnabled(s.mcp?.enabled ?? true)
+					setCpuAction(s.guardrails?.cpuAction ?? "pause_crawler")
+					setApprovalRows(s.approval?.rows ?? [])
+				}
+				if (statsRes.ok) {
+					const statsData = await statsRes.json()
+					setStats(statsData)
+				}
+			} catch {
+				// Use defaults on error
+			} finally {
+				setLoading(false)
+			}
+		}
+		load()
+
 		const iv = setInterval(() => {
 			fetch("/api/system")
 				.then((r) => r.json())
@@ -208,6 +261,60 @@ export function SettingsView() {
 	}, [])
 
 	const cpuHigh = stats && stats.cpu > 90
+
+	const handleSave = async () => {
+		setSaveMessage("")
+		setSaveError("")
+		try {
+			const res = await fetch("/api/settings", {
+				method: "PUT",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					settings: {
+						autoApprove,
+						mcp: { enabled: mcpEnabled, servers: [] },
+						approval: {
+							enabled: autoApprove,
+							rules: [],
+							maxApprovalCount: 10,
+							maxCostUsd: 5,
+							timeWindowMinutes: 60,
+							rows: approvalRows,
+						},
+						guardrails: {
+							maxConcurrentJobs: 3,
+							cpuHighPercent: 80,
+							ramHighPercent: 85,
+							onHighCpu: "warn",
+							onHighRam: "warn",
+							cpuAction,
+						},
+					},
+				}),
+			})
+			const data = await res.json()
+			if (data.success) {
+				setSaveMessage("Settings saved successfully.")
+				setTimeout(() => setSaveMessage(""), 3000)
+			} else {
+				setSaveError(data.error || "Failed to save settings.")
+			}
+		} catch {
+			setSaveError("Network error saving settings.")
+		}
+	}
+
+	const toggleApprovalRow = (index: number) => {
+		setApprovalRows((prev) => {
+			const next = [...prev]
+			next[index] = { ...next[index], defaultChecked: !next[index].defaultChecked }
+			return next
+		})
+	}
+
+	if (loading) {
+		return <div className="flex items-center justify-center h-64 text-gray-500">Loading settings...</div>
+	}
 
 	return (
 		<div className="text-[#e2e8f0]">
@@ -222,11 +329,24 @@ export function SettingsView() {
 				<div className="flex items-center gap-2">
 					<Pill tone="green">API Online</Pill>
 					{stats && <Pill tone={cpuHigh ? "red" : "amber"}>CPU {stats.cpu}%</Pill>}
-					<button className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-bold text-white hover:bg-sky-400">
+					<button
+						onClick={handleSave}
+						className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-bold text-white hover:bg-sky-400">
 						Save
 					</button>
 				</div>
 			</div>
+
+			{saveMessage && (
+				<div className="mb-4 rounded-lg bg-emerald-900/20 border border-emerald-800/40 px-4 py-2 text-sm text-emerald-400">
+					{saveMessage}
+				</div>
+			)}
+			{saveError && (
+				<div className="mb-4 rounded-lg bg-red-900/20 border border-red-800/40 px-4 py-2 text-sm text-red-400">
+					{saveError}
+				</div>
+			)}
 
 			<div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
 				<div className="space-y-6">
@@ -242,32 +362,16 @@ export function SettingsView() {
 						</div>
 
 						<div className="space-y-3">
-							<ApprovalRow
-								action="Read Files"
-								risk="Low"
-								desc="Allow agents to inspect project files and logs."
-							/>
-							<ApprovalRow
-								action="Write Files"
-								risk="Medium"
-								desc="Allow coding agents to edit repo files inside approved workspace."
-							/>
-							<ApprovalRow
-								action="Execute Commands"
-								risk="High"
-								desc="Run tests, builds, docker logs, and diagnostics."
-							/>
-							<ApprovalRow
-								action="MCP Tool Calls"
-								risk="Medium"
-								desc="Use Playwright, GitHub, database, or docs fetcher MCP tools."
-							/>
-							<ApprovalRow
-								action="Deploy / Restart VPS"
-								risk="Critical"
-								desc="Restart services, rebuild Docker, pull updates, or deploy production."
-								defaultChecked={false}
-							/>
+							{approvalRows.map((row, i) => (
+								<ApprovalRow
+									key={row.action}
+									action={row.action}
+									risk={row.risk}
+									desc={row.desc}
+									checked={row.defaultChecked}
+									onToggle={() => toggleApprovalRow(i)}
+								/>
+							))}
 						</div>
 					</Card>
 
@@ -279,7 +383,7 @@ export function SettingsView() {
 									Assign tools to agents and monitor risk, status, and usage.
 								</p>
 							</div>
-							<Toggle checked={mcp} onChange={() => setMcp(!mcp)} />
+							<Toggle checked={mcpEnabled} onChange={() => setMcpEnabled(!mcpEnabled)} />
 						</div>
 
 						<div className="space-y-3">
