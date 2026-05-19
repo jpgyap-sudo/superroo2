@@ -13736,3 +13736,139 @@ When enhancing a healing/self-healing module:
 [healing-module, self-healing-loop, escalation, repair-tracking, circuit-breaker, notification-routing, classification-metrics, confusion-matrix, trend-tracking]
 
 ---
+
+### Auto-Extracted Lesson: Feat: comprehensive improvements across ML Engine, Healing Module, VPS stabil...
+
+Date: 2026-05-19
+Source: Git commit 2ca0921b
+Model/API used: unknown
+Confidence: medium
+Related files: .claude/settings.json, .codex/config.toml, .mcp.json, .roo/skills/init-project-learning-layer/SKILL.md, AGENTS.md
+
+#### Task Summary
+
+feat: comprehensive improvements across ML Engine, Healing Module, VPS stability, docs, and Central Brain sync
+
+#### Files Changed
+
+- `.claude/settings.json`
+- `.codex/config.toml`
+- `.mcp.json`
+- `.roo/skills/init-project-learning-layer/SKILL.md`
+- `AGENTS.md`
+- `CLAUDE.md`
+- `cloud/api/routes/monitoring.js`
+- `cloud/api/scripts/aggregate-logs.mjs`
+- `cloud/api/telegramClassifier.js`
+- `cloud/dashboard/package.json`
+- `cloud/dashboard/scripts/build-safe.mjs`
+- `cloud/dashboard/src/app/page.tsx`
+- `cloud/dashboard/src/components/sidebar.tsx`
+- `cloud/ecosystem.config.js`
+- `cloud/orchestrator/modules/AutonomousLoop.js`
+- `cloud/orchestrator/modules/DeployOrchestrator.js`
+- `cloud/orchestrator/stores/BugKnowledgeStore.js`
+- `cloud/worker/autoDeployer.js`
+- `cloud/worker/deploymentAllowlist.js`
+- `console.log(p.name`
+- `docs/super-roo/ARCHITECTURE_DIAGRAMS.md`
+- `docs/super-roo/CENTRAL_BRAIN.md`
+- `docs/super-roo/HEALING_MODULE_GUIDE.md`
+- `docs/super-roo/ML_ENGINE_API.md`
+- `docs/super-roo/ollama-activation.md`
+- `memory/.stop-hook-last-run`
+- `memory/.sync-state.json`
+- `memory/_sync_productgenerator.sql`
+- `memory/context/latest-agent-context.md`
+- `memory/lesson-index.jsonl`
+- `memory/lesson-summaries.json`
+- `memory/lessons-learned.md`
+- `product-features/feature-gap-scan.md`
+- `scripts/check-deployment-allowlist.mjs`
+- `scripts/check-workflow-compliance.mjs`
+- `scripts/deepseek-coder-mcp.mjs`
+- `scripts/fix-remaining-embeddings-v2.mjs`
+- `scripts/fix-remaining-embeddings.mjs`
+- `scripts/generate-ollama-lesson-embeddings-v2.sh`
+- `scripts/generate-ollama-lesson-embeddings-v3.sh`
+- `scripts/generate-ollama-lesson-embeddings.sh`
+- `scripts/generate-pg-embeddings.cjs`
+- `scripts/mcp-codex-bridge.mjs`
+- `scripts/ml/build-agent-context.mjs`
+- `scripts/ml/build-agent-context.multi-pass.bak`
+- `scripts/ml/build-agent-context.single-pass.mjs`
+- `scripts/ml/ollama-curl-helper.cmd`
+- `scripts/ollama-mcp.mjs`
+- `scripts/ollama-summarize-lesson.mjs`
+- `scripts/pull-ollama-models.sh`
+- `scripts/run-migration-post-processing.sh`
+- `scripts/sync-pg-lessons.mjs`
+- `scripts/sync-productgenerator-to-vps.mjs`
+- `scripts/test-claude-mcp-workflow.mjs`
+- `server/src/memory/McpMemoryServer.ts`
+- `server/src/memory/codextask.json`
+- `server/src/memory/commit-deploy-log.json`
+- `src/core/webview/webviewMessageHandler.ts`
+- `src/super-roo/__tests__/ml/loop.test.ts`
+- `src/super-roo/agents/__tests__/SelfHealingAgent.test.ts`
+- `src/super-roo/healing/HealingMetrics.ts`
+- `src/super-roo/healing/MLClassifier.ts`
+- `src/super-roo/healing/RootCauseClassifier.ts`
+- `src/super-roo/healing/SelfHealingLoop.ts`
+- `src/super-roo/healing/__tests__/MLClassifier.test.ts`
+- `src/super-roo/healing/__tests__/RepairPlanBuilder.test.ts`
+- `src/super-roo/healing/__tests__/SelfHealingLoop.test.ts`
+- `src/super-roo/healing/index.ts`
+- `src/super-roo/ml/engine/Loss.ts`
+- `src/super-roo/ml/engine/__tests__/ConvLayer.test.ts`
+- `src/super-roo/ml/engine/__tests__/LRScheduler.test.ts`
+- `src/super-roo/ml/engine/__tests__/Loss.test.ts`
+- `src/super-roo/ml/engine/__tests__/ModelCheckpoint.test.ts`
+- `src/super-roo/ml/engine/__tests__/NeuralNetwork.test.ts`
+- `src/super-roo/ollama/OllamaClient.ts`
+- `src/super-roo/types/index.ts`
+- `tmp_mcp_call.json`
+- `tmp_ollama_test.json`
+- `tools/global-post-commit.mjs`
+- `tools/init-project-learning-layer.mjs`
+- `tools/install-global-hook.mjs`
+- `tools/superroo-learn.mjs`
+- `tools/verify-global-hook.mjs`
+- `webview-ui/src/components/super-roo/SuperRooDashboard.tsx`
+- `webview-ui/src/components/super-roo/messaging/protocol.ts`
+- `webview-ui/src/components/super-roo/tabs/VpsHealthTab.tsx`
+- `webview-ui/src/components/super-roo/types/index.ts`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 2ca0921b.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 2ca0921b by JPG Yap.
+
+#### Test Result
+
+Tests were included in this commit.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+testing, ml-engine, ui, api, deployment
+
+---

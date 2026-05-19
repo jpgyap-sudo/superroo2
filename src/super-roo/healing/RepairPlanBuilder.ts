@@ -136,6 +136,9 @@ function determineAffectedFiles(incident: IncidentRecord, category: RootCauseCat
 		FILE_SYSTEM_ERROR: ["src/", "lib/", "scripts/"],
 		DNS_RESOLUTION: ["src/api/", "lib/api/", "src/config/"],
 		SSL_TLS_ERROR: [], // Don't suggest files for certificate issues
+		CIRCUIT_BREAKER: ["src/healing/", "lib/circuit-breaker/"],
+		DEPLOYMENT_FAILURE: [".github/workflows/", "scripts/deploy/", "ops/"],
+		DATABASE_CONNECTION: ["src/db/", "lib/db/", "supabase/migrations/"],
 		UNKNOWN: ["src/", "lib/", "api/"],
 	}
 
@@ -281,6 +284,24 @@ function buildSafePatchPlan(category: RootCauseCategory, affectedFiles: string[]
 			"Verify certificate chain and expiry",
 			"Check SSL/TLS library configuration",
 			"Review certificate pinning logic",
+		],
+		CIRCUIT_BREAKER: [
+			"Check circuit breaker state and thresholds",
+			"Review failure rate and reset policy",
+			"Consider manual reset if safe",
+			"Add circuit breaker monitoring",
+		],
+		DEPLOYMENT_FAILURE: [
+			"Check deployment pipeline logs",
+			"Verify build artifacts integrity",
+			"Review deployment configuration",
+			"Consider rolling back to previous version",
+		],
+		DATABASE_CONNECTION: [
+			"Check database connection string and credentials",
+			"Verify database server is reachable",
+			"Review connection pool configuration",
+			"Add connection retry with backoff",
 		],
 		UNKNOWN: [
 			"Gather more diagnostic data",

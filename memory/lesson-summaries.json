@@ -1,16 +1,16 @@
 {
-	"generatedAt": "2026-05-19T15:16:48.031Z",
+	"generatedAt": "2026-05-19T15:55:46.269Z",
 	"deepseekModel": "deepseek-chat",
 	"ollamaUrl": "http://100.64.175.88:11434",
 	"sourceFile": "memory/lessons-learned.md",
 	"count": 1,
 	"summaries": [
 		{
-			"title": "VPS project isolation ? QAS must not run on SuperRoo VPS",
-			"date": "unknown",
-			"model": "unknown",
-			"confidence": "unknown",
-			"summary": "A duplicate Quotation Automation System (QAS) stack was mistakenly deployed on the SuperRoo VPS, causing a port collision on port 3001 that routed traffic to the wrong project. The fix required removing the duplicate containers and nginx vhost, verifying that each service runs on its designated VPS. The key takeaway is that cross-project registration does not authorize deployment; always verify host identity, DNS, and port ownership before touching services.",
+			"title": "Healing Module — add ML classification metrics, per-category escalation, repair tracking, and notification routing",
+			"date": "2026-05-19",
+			"model": "deepseek-chat",
+			"confidence": "high",
+			"summary": "The lesson enhanced the Healing Module by adding ML classification metrics (precision/recall/F1, confusion matrix), per-category escalation policies, repair tracking with automatic circuit breaker triggers, and notification routing to channels like Slack and Telegram. A key takeaway is that per-category escalation requires explicit configuration layering—tests must set `escalationPolicy.maxRetries` rather than relying on the top-level `maxRetries` in `SelfHealingConfig`, as the default `maxRetries: 3` can prevent escalation from triggering.",
 			"hasEmbeddings": true
 		}
 	]
