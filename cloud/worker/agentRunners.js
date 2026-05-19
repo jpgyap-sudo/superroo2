@@ -233,6 +233,9 @@ async function runCoder(job) {
 		case "commit":
 			result = await runCoderCommit(job, jobId, taskId, telegram)
 			break
+		case "test":
+			result = await runCoderTest(job, jobId, taskId, telegram)
+			break
 		case "deploy":
 			result = await runCoderDeploy(job, jobId, taskId, telegram)
 			break
@@ -295,7 +298,10 @@ function getNextAutoPhase(currentPhase, result) {
 			// Apply succeeded — auto-commit
 			return "commit"
 		case "commit":
-			// Commit succeeded — auto-deploy
+			// Commit succeeded — auto-test (Improvement 6: test phase before deploy)
+			return "test"
+		case "test":
+			// Test passed — auto-deploy
 			return "deploy"
 		case "deploy":
 			// Deploy is the final phase
@@ -445,16 +451,53 @@ Be precise. Output ONLY valid JSON, no markdown fences.`
 	const userPrompt = `Task: ${instruction}\n\nProject context:\n${context}\n\nGenerate the code changes needed. If the task is vague, use the conversation history above to infer intent. If still unclear, set needsClarification: true.`
 
 	log("coder", jobId, "Calling LLM for code generation plan...")
+
+	// Improvement 4: Progress feedback — send periodic "still working" messages during LLM call
+	let progressInterval = null
+	if (telegram && telegram.botToken && telegram.chatId) {
+		const notifier = require("../api/telegramNotifier")
+		let progressCount = 0
+		progressInterval = setInterval(() => {
+			progressCount++
+			const messages = [
+				"🤔 Thinking about your request...",
+				"🧠 Analyzing code structure...",
+				"📝 Generating implementation plan...",
+				"🔍 Reviewing for edge cases...",
+				"⚡ Almost done...",
+			]
+			const msg = messages[Math.min(progressCount - 1, messages.length - 1)]
+			notifier.sendCoderProgress(telegram.botToken, telegram.chatId, taskId, msg).catch(() => {})
+		}, 15000)
+	}
+
 	let llmReply = await callLLM(systemPrompt, userPrompt, {
 		maxTokens: 8000,
 		temperature: 0.2,
 	})
+
+	// Clear progress interval
+	if (progressInterval) {
+		clearInterval(progressInterval)
+		progressInterval = null
+	}
 
 	// ─── Self-Healing Retry ─────────────────────────────────────────────
 	// If LLM fails on first attempt, retry once automatically with
 	// slightly higher temperature for more creative output.
 	if (!llmReply) {
 		log("coder", jobId, "LLM returned null — retrying once with higher temperature")
+		if (telegram && telegram.botToken && telegram.chatId) {
+			const notifier = require("../api/telegramNotifier")
+			notifier
+				.sendCoderProgress(
+					telegram.botToken,
+					telegram.chatId,
+					taskId,
+					"🔄 Retrying with adjusted parameters...",
+				)
+				.catch(() => {})
+		}
 		llmReply = await callLLM(systemPrompt, userPrompt, {
 			maxTokens: 8000,
 			temperature: 0.5,
@@ -705,6 +748,33 @@ async function runCoderApply(job, jobId, taskId, telegram) {
 				appliedChanges.push({ file: change.file, action: change.action, success: false, error: result.error })
 				allSuccess = false
 			}
+		}
+	}
+
+	// Improvement 10: Auto dependency install — check if package.json was modified
+	const packageJsonChanged = appliedChanges.some(
+		(c) => c.file === "package.json" || c.file.endsWith("/package.json") || c.file.endsWith("\\package.json"),
+	)
+	if (packageJsonChanged && allSuccess) {
+		output.push("")
+		output.push("── Auto dependency install (package.json changed) ──")
+		try {
+			const { stdout, stderr } = await execAsync(
+				`cd ${workspaceDir} && npm install 2>&1 || pnpm install --no-frozen-lockfile 2>&1 || true`,
+				{ timeout: 120000 },
+			)
+			output.push(`  ✅ Dependencies installed`)
+			if (stdout) {
+				const lines = stdout
+					.split("\n")
+					.filter((l) => l.trim())
+					.slice(-5)
+				for (const line of lines) {
+					output.push(`     ${line.substring(0, 200)}`)
+				}
+			}
+		} catch (err) {
+			output.push(`  ⚠️  Auto dependency install failed (non-fatal): ${err.message}`)
 		}
 	}
 
@@ -1003,6 +1073,153 @@ async function runCoderCommit(job, jobId, taskId, telegram) {
 		phase: "awaiting_deploy",
 		taskId,
 		commit: { hash: commitHash, message: commitMessage, branch },
+	}
+}
+
+/**
+ * Phase "test" — Run the project's test suite after commit, before deploy.
+ * Improvement 6: Test phase in auto-mode between commit and deploy.
+ * Returns { phase: "awaiting_deploy", taskId } on success.
+ * Returns { phase: "test_failed", taskId } on failure (non-blocking — user can still deploy).
+ */
+async function runCoderTest(job, jobId, taskId, telegram) {
+	const { instruction, workspaceDir } = job.data
+
+	log("coder", jobId, "Phase: test — running project test suite")
+
+	const output = []
+	output.push("╔══════════════════════════════════════════════╗")
+	output.push("║     Coder Agent — Running Tests             ║")
+	output.push("╚══════════════════════════════════════════════╝")
+
+	// Detect package manager and test framework
+	let testCommands = []
+	try {
+		const pkgPath = path.join(workspaceDir, "package.json")
+		const pkgContent = await readFileContent(pkgPath)
+		if (pkgContent) {
+			const pkg = JSON.parse(pkgContent)
+			const scripts = pkg.scripts || {}
+
+			// Prefer the test script, then try common test frameworks
+			if (scripts.test && scripts.test !== 'echo "Error: no test specified" && exit 1') {
+				testCommands.push(scripts.test)
+			}
+			if (scripts["test:run"]) testCommands.push(scripts["test:run"])
+			if (scripts.vitest) testCommands.push(scripts.vitest)
+			if (scripts.jest) testCommands.push(scripts.jest)
+			if (scripts.mocha) testCommands.push(scripts.mocha)
+
+			// If no test script found, try direct framework detection
+			if (testCommands.length === 0) {
+				const hasVitest = pkg.devDependencies && pkg.devDependencies.vitest
+				const hasJest = pkg.devDependencies && pkg.devDependencies.jest
+				const hasMocha = pkg.devDependencies && pkg.devDependencies.mocha
+				if (hasVitest) testCommands.push("npx vitest run")
+				if (hasJest) testCommands.push("npx jest")
+				if (hasMocha) testCommands.push("npx mocha")
+			}
+		}
+	} catch {
+		// non-fatal
+	}
+
+	if (testCommands.length === 0) {
+		output.push("⚠️  No test framework detected — skipping test phase")
+		log("coder", jobId, "No test commands found, skipping test phase")
+		if (telegram && taskId) {
+			try {
+				const notifier = require("../api/telegramNotifier")
+				notifier
+					.sendCoderProgress(
+						telegram.botToken,
+						telegram.chatId,
+						taskId,
+						"⚠️ No tests configured — skipping test phase",
+					)
+					.catch(() => {})
+			} catch (e) {
+				log("coder", jobId, `Failed to send test skip notification: ${e.message}`)
+			}
+		}
+		return { success: true, output, phase: "awaiting_deploy", taskId }
+	}
+
+	// Send progress notification
+	if (telegram && taskId) {
+		try {
+			const notifier = require("../api/telegramNotifier")
+			notifier
+				.sendCoderProgress(telegram.botToken, telegram.chatId, taskId, "🧪 Running tests...")
+				.catch(() => {})
+		} catch (e) {
+			log("coder", jobId, `Failed to send test progress: ${e.message}`)
+		}
+	}
+
+	// Run each test command
+	let allTestsPassed = true
+	for (const cmd of testCommands) {
+		output.push(`  Running: ${cmd}`)
+		try {
+			const { stdout, stderr } = await execAsync(`cd ${workspaceDir} && ${cmd}`, { timeout: 180000 })
+			output.push(`  ✅ ${cmd} — passed`)
+			if (stdout) {
+				const lines = stdout
+					.split("\n")
+					.filter((l) => l.trim())
+					.slice(-5)
+				for (const line of lines) {
+					output.push(`     ${line.substring(0, 200)}`)
+				}
+			}
+		} catch (err) {
+			output.push(`  ❌ ${cmd} — failed (exit ${err.code || 1})`)
+			if (err.stderr) {
+				const lines = err.stderr
+					.split("\n")
+					.filter((l) => l.trim())
+					.slice(-5)
+				for (const line of lines) {
+					output.push(`     ${line.substring(0, 200)}`)
+				}
+			}
+			allTestsPassed = false
+		}
+	}
+
+	output.push("")
+	output.push(allTestsPassed ? "✅ All tests passed" : "⚠️  Some tests failed — you can still deploy manually")
+
+	await writeResultLog("coder", jobId, { success: allTestsPassed, testCommands, phase: "test" })
+
+	// Notify Telegram
+	if (telegram && taskId) {
+		try {
+			const notifier = require("../api/telegramNotifier")
+			const pendingData = notifier.getPendingCoderJob(taskId)
+			notifier.setPendingCoderJob(taskId, {
+				...(pendingData || {}),
+				status: allTestsPassed ? "awaiting_deploy" : "test_failed",
+				testResults: { allTestsPassed, testCommands },
+				updatedAt: new Date().toISOString(),
+			})
+			await notifier.sendCoderTestResult(telegram.botToken, telegram.chatId, taskId, instruction, {
+				allTestsPassed,
+				testCommands,
+			})
+			log("coder", jobId, `Test result sent to Telegram chat ${telegram.chatId}`)
+		} catch (e) {
+			log("coder", jobId, `Failed to send Telegram test notification: ${e.message}`)
+		}
+	}
+
+	return {
+		success: allTestsPassed,
+		output,
+		phase: allTestsPassed ? "awaiting_deploy" : "test_failed",
+		taskId,
+		test: { allTestsPassed, commands: testCommands },
 	}
 }
 

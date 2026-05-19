@@ -80,6 +80,43 @@ const RATE_LIMIT_WINDOW_MS = 60 * 1000
 
 var rateLimitMap = new Map()
 
+/**
+ * Token-based command lookup for Telegram callback_data (max 64 bytes).
+ * Stores full command strings keyed by short random tokens so that
+ * brain_exec:<token> fits within Telegram's callback_data limit.
+ * Tokens are 6 hex chars = 6 bytes, prefix "brain_exec:" = 11 bytes → 17 bytes total.
+ * Tokens expire after 5 minutes via a cleanup interval.
+ */
+var callbackCommandTokens = new Map()
+var CALLBACK_TOKEN_TTL_MS = 5 * 60 * 1000
+setInterval(function () {
+	var now = Date.now()
+	for (var entry of callbackCommandTokens) {
+		if (now - entry[1].ts > CALLBACK_TOKEN_TTL_MS) {
+			callbackCommandTokens.delete(entry[0])
+		}
+	}
+}, 60 * 1000).unref()
+
+/**
+ * Generate a short random token and store a command string for callback lookup.
+ * Returns the token string (6 hex chars).
+ */
+function storeCallbackCommand(command) {
+	var token = Math.random().toString(16).slice(2, 8)
+	callbackCommandTokens.set(token, { command: command, ts: Date.now() })
+	return token
+}
+
+/**
+ * Look up a command string by token. Returns null if token is unknown or expired.
+ */
+function resolveCallbackCommand(token) {
+	var entry = callbackCommandTokens.get(token)
+	if (!entry) return null
+	return entry.command
+}
+
 function checkRateLimit(chatId) {
 	var now = Date.now()
 	var entry = rateLimitMap.get(chatId)
@@ -464,6 +501,23 @@ async function _callOllamaChat(messages, options) {
  * into multiple API calls to respect Telegram's 4096-character limit.
  * Each chunk is sent as a separate message in sequence.
  */
+/**
+ * Strip common markdown formatting characters from text for plain text fallback.
+ */
+function stripMarkdown(text) {
+	return text
+		.replace(/\*{1,2}([^*]+)\*{1,2}/g, "$1") // bold **text** or italic *text*
+		.replace(/_{1,2}([^_]+)_{1,2}/g, "$1") // underline __text__ or _text_
+		.replace(/`{1,3}([^`]+)`{1,3}/g, "$1") // inline code `text` or ```code```
+		.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1") // links [text](url)
+		.replace(/^#{1,6}\s+/gm, "") // headings # text
+		.replace(/^[-*+]\s+/gm, "") // list items - * +
+		.replace(/^\d+\.\s+/gm, "") // numbered list items
+		.replace(/~~([^~]+)~~/g, "$1") // strikethrough
+		.replace(/>\s+/g, "") // blockquotes
+		.trim()
+}
+
 async function sendMessage(botToken, chatId, text, opts) {
 	opts = opts || {}
 	var chunks = splitLongMessage(text)
@@ -501,7 +555,16 @@ async function sendMessage(botToken, chatId, text, opts) {
 					if (parseMode === "Markdown" && err.includes("can't parse entities")) {
 						console.log("[telegram] Markdown parse failed, falling back to plain text for chunk " + ci)
 						parseMode = ""
+						// Strip markdown formatting for plain text fallback
+						chunk = stripMarkdown(chunk)
 						continue
+					}
+					// If plain text also fails (e.g. message too long), log and skip
+					if (!parseMode) {
+						console.error(
+							"[telegram] Plain text send also failed for chunk " + ci + ": " + err.slice(0, 200),
+						)
+						break
 					}
 					console.error("[telegram] sendMessage error: " + res.status + " " + err.slice(0, 200))
 				}
@@ -946,6 +1009,33 @@ async function saveConversationHistory() {
 	}
 }
 
+/**
+ * Register shutdown handlers to persist conversation history and state
+ * before the process exits. This prevents data loss on PM2 restarts.
+ */
+function registerShutdownHandlers() {
+	var persisted = false
+	var persist = async function () {
+		if (persisted) return
+		persisted = true
+		console.log("[telegram] Shutdown: persisting conversation history and state...")
+		try {
+			await saveConversationHistory()
+		} catch (err) {
+			console.error("[telegram] Shutdown: failed to persist conversation history:", err.message)
+		}
+		try {
+			await persistState()
+		} catch (err) {
+			console.error("[telegram] Shutdown: failed to persist state:", err.message)
+		}
+		console.log("[telegram] Shutdown: persistence complete")
+	}
+	process.on("SIGINT", persist)
+	process.on("SIGTERM", persist)
+	process.on("exit", persist)
+}
+
 /** Debounce timeout for state persistence */
 let _statePersistTimeout = null
 
@@ -973,6 +1063,33 @@ async function persistState() {
  * Loads persisted state from disk into the in-memory Maps.
  * Called once at startup.
  */
+/**
+ * Register shutdown handlers to persist conversation history and state
+ * before the process exits. This prevents data loss on PM2 restarts.
+ */
+function registerShutdownHandlers() {
+	var persisted = false
+	var persist = async function () {
+		if (persisted) return
+		persisted = true
+		console.log("[telegram] Shutdown: persisting conversation history and state...")
+		try {
+			await saveConversationHistory()
+		} catch (err) {
+			console.error("[telegram] Shutdown: failed to persist conversation history:", err.message)
+		}
+		try {
+			await persistState()
+		} catch (err) {
+			console.error("[telegram] Shutdown: failed to persist state:", err.message)
+		}
+		console.log("[telegram] Shutdown: persistence complete")
+	}
+	process.on("SIGINT", persist)
+	process.on("SIGTERM", persist)
+	process.on("exit", persist)
+}
+
 async function loadState() {
 	try {
 		const data = await fs.readFile(TELEGRAM_BOT_STATE_FILE, "utf-8")
@@ -1930,7 +2047,10 @@ async function handleAgain(botToken, chatId, queue, orchestratorBridge) {
 /**
  * Handles /code <instruction> - creates a coding task.
  */
-async function handleCode(botToken, chatId, args, queue, orchestratorBridge) {
+async function handleCode(botToken, chatId, args, queue, orchestratorBridge, options) {
+	// Improvement 3: Accept optional workspaceDir/repoName from NL routing or caller
+	options = options || {}
+
 	// Parse --auto flag for fully automated coding (no approval clicks needed)
 	var autoIndex = args.indexOf("--auto")
 	var isAuto = autoIndex !== -1
@@ -1948,30 +2068,65 @@ async function handleCode(botToken, chatId, args, queue, orchestratorBridge) {
 		return
 	}
 
+	// Improvement 8: Validate minimum instruction length
+	if (instruction.length < 10) {
+		await sendMessage(
+			botToken,
+			chatId,
+			"*Instruction too short* 📝\n\nPlease provide a more detailed instruction (at least 10 characters).\n\nExample: `/code fix the login timeout bug`",
+		)
+		return
+	}
+
+	// Improvement 9: Auth check for NL-routed requests that bypass the classifier's auth check
+	if (options.requireAuth) {
+		var authSession = await checkAuthSession(options.telegramUserId || chatId, chatId)
+		if (!authSession) {
+			await sendMessage(
+				botToken,
+				chatId,
+				"🔒 *Login required for coding*\n\nPlease use `/login` to authenticate, then try again.",
+			)
+			return
+		}
+	}
+
 	var taskId =
 		"TG-" + Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).slice(2, 6).toUpperCase()
 	var branchName = "tg/" + taskId.toLowerCase()
 
+	// Improvement 3: Resolve workspaceDir/repoName from options, with fallback to defaults
+	var workspaceDir = options.workspaceDir || "/opt/superroo2"
+	var repoName = options.repoName || "superroo2"
+
 	// Build conversation summary for the worker so it has context
 	var conversationSummary = buildConversationSummary(chatId)
 
-	var job = await queue.add("coder-plan-" + taskId, {
-		task: instruction,
-		agentId: "superroo-coder-agent",
-		phase: "plan",
-		taskId: taskId,
-		workspaceDir: "/opt/superroo2",
-		repoName: "superroo2",
-		branch: branchName,
-		telegram: {
-			botToken: botToken,
-			chatId: chatId,
+	// Improvement 2: Add retry logic to all queue.add() calls
+	var job = await queue.add(
+		"coder-plan-" + taskId,
+		{
+			task: instruction,
+			agentId: "superroo-coder-agent",
+			phase: "plan",
 			taskId: taskId,
-			branchName: branchName,
-			conversationSummary: conversationSummary,
-			auto: isAuto,
+			workspaceDir: workspaceDir,
+			repoName: repoName,
+			branch: branchName,
+			telegram: {
+				botToken: botToken,
+				chatId: chatId,
+				taskId: taskId,
+				branchName: branchName,
+				conversationSummary: conversationSummary,
+				auto: isAuto,
+			},
 		},
-	})
+		{
+			attempts: 3,
+			backoff: { type: "exponential", delay: 5000 },
+		},
+	)
 
 	if (!userTasks.has(chatId)) userTasks.set(chatId, [])
 	userTasks.get(chatId).push({
@@ -2897,6 +3052,18 @@ async function handleSettings(botToken, chatId) {
  * @param {number} chatId
  * @param {number} telegramUserId
  */
+/**
+ * Validate a URL string. Returns true if the URL is valid and has http/https protocol.
+ */
+function isValidUrl(str) {
+	try {
+		var url = new URL(str)
+		return url.protocol === "http:" || url.protocol === "https:"
+	} catch (_) {
+		return false
+	}
+}
+
 async function handleMiniIde(botToken, chatId, telegramUserId) {
 	var authSession = await checkAuthSession(telegramUserId, chatId)
 	if (!authSession) {
@@ -2915,7 +3082,8 @@ async function handleMiniIde(botToken, chatId, telegramUserId) {
 			await sendMessage(
 				botToken,
 				chatId,
-				"*No Projects Found*\n\nYou don't have any projects yet. Create one in the SuperRoo Cloud Dashboard.\n\nDASHBOARD_URL",
+				"*No Projects Found*\n\nYou don't have any projects yet. Create one in the SuperRoo Cloud Dashboard.\n\n" +
+					DASHBOARD_URL,
 			)
 			return
 		}
@@ -2928,6 +3096,22 @@ async function handleMiniIde(botToken, chatId, telegramUserId) {
 				encodeURIComponent(project.id || project.project_id) +
 				"&chat_id=" +
 				chatId
+
+			// Validate the Mini IDE URL before sending — Telegram rejects invalid web_app URLs
+			// with BUTTON_TYPE_INVALID error. Fall back to a regular URL button if invalid.
+			var buttonRow
+			if (isValidUrl(miniIdeUrl)) {
+				buttonRow = [{ text: "🚀 Open Mini IDE", web_app: miniIdeUrl }]
+			} else {
+				console.warn("[telegram] Invalid DASHBOARD_URL for Mini IDE web_app button, using URL fallback")
+				buttonRow = [
+					{
+						text: "🚀 Open Mini IDE (Web)",
+						url: DASHBOARD_URL + "/telegram-miniapp?chat_id=" + chatId,
+					},
+				]
+			}
+
 			await sendInlineKeyboard(
 				botToken,
 				chatId,
@@ -2935,7 +3119,7 @@ async function handleMiniIde(botToken, chatId, telegramUserId) {
 					(project.name || project.project_name) +
 					"*\n\nOpen the Mini IDE to code with a full editor, file browser, AI assistant, and file uploads.",
 				[
-					[{ text: "🚀 Open Mini IDE", web_app: miniIdeUrl }],
+					buttonRow,
 					[
 						{ text: "📁 Projects", callback_data: "projects" },
 						{ text: "❓ Help", callback_data: "help" },
@@ -4130,14 +4314,22 @@ async function handleCodingIntentDirect(botToken, chatId, codingIntent, provider
 						? planResult.commands[0]
 						: planResult.commands[0].command || ""
 				if (firstCmd) {
+					// Use token-based callback_data to stay within Telegram's 64-byte limit
+					var planExecToken = storeCallbackCommand(firstCmd)
+					var planPipeToken = storeCallbackCommand(query)
 					await sendInlineKeyboard(
 						botToken,
 						chatId,
 						"*Execute this plan?* 🚀\n\nTap below to run the first command or the full pipeline.",
 						[
-							[{ text: "▶️ Run: " + firstCmd.slice(0, 30), callback_data: "brain_exec:" + firstCmd }],
 							[
-								{ text: "🔄 Full Pipeline", callback_data: "brain_pipeline:" + query },
+								{
+									text: "▶️ Run: " + firstCmd.slice(0, 30),
+									callback_data: "brain_exec:" + planExecToken,
+								},
+							],
+							[
+								{ text: "🔄 Full Pipeline", callback_data: "brain_pipeline:" + planPipeToken },
 								{ text: "❌ Cancel", callback_data: "brain_cancel" },
 							],
 						],
@@ -4246,9 +4438,12 @@ async function sendQuickActionButtons(botToken, chatId, lastCommand, lastResult)
 
 		// Always offer: Run Again, Explain, Fix
 		if (lastCommand) {
+			// Use token-based callback_data to stay within Telegram's 64-byte limit
+			var execToken = storeCallbackCommand(lastCommand)
+			var explainToken = storeCallbackCommand(lastCommand)
 			buttons.push([
-				{ text: "🔄 Run Again", callback_data: "brain_exec:" + lastCommand },
-				{ text: "❓ Explain", callback_data: "brain_explain:" + lastCommand },
+				{ text: "🔄 Run Again", callback_data: "brain_exec:" + execToken },
+				{ text: "❓ Explain", callback_data: "brain_explain:" + explainToken },
 			])
 		}
 
@@ -4257,17 +4452,20 @@ async function sendQuickActionButtons(botToken, chatId, lastCommand, lastResult)
 			lastResult &&
 			((lastResult.feedback && lastResult.feedback.exitCode !== 0) ||
 				(lastResult.errors && lastResult.errors.length > 0))
-		if (hadErrors) {
+		if (hadErrors && lastCommand) {
+			var fixToken = storeCallbackCommand(lastCommand)
+			var errToken = storeCallbackCommand(lastCommand)
 			buttons.push([
-				{ text: "🔧 Auto-Fix", callback_data: "brain_fix:" + lastCommand },
-				{ text: "📋 Show Errors", callback_data: "brain_errors:" + lastCommand },
+				{ text: "🔧 Auto-Fix", callback_data: "brain_fix:" + fixToken },
+				{ text: "📋 Show Errors", callback_data: "brain_errors:" + errToken },
 			])
 		}
 
 		// If successful, offer deploy
 		var wasSuccess = lastResult && lastResult.feedback && lastResult.feedback.exitCode === 0
-		if (wasSuccess) {
-			buttons.push([{ text: "🚀 Deploy", callback_data: "brain_deploy:" + lastCommand }])
+		if (wasSuccess && lastCommand) {
+			var deployToken = storeCallbackCommand(lastCommand)
+			buttons.push([{ text: "🚀 Deploy", callback_data: "brain_deploy:" + deployToken }])
 		}
 
 		// Common actions
@@ -5760,9 +5958,38 @@ async function handleNaturalLanguageInstruction(
 		// ─── Code Task Intent ───────────────────────────────────────────────
 		// The primary NL coding path. Routes directly to the coder queue.
 		// "add a login page", "implement the auth flow", "refactor the API" etc.
+		// Improvement 3: Resolve project context from classifier for multi-project support
+		// Improvement 9: Pass auth context for NL-routed requests
 		if (intentKind === "code_task") {
 			try {
-				await handleCode(botToken, chatId, [text], queue, orchestratorBridge)
+				var codeTaskOptions = {
+					requireAuth: true,
+					telegramUserId: telegramUserId,
+				}
+				// Resolve project from classifier output or active project
+				var classifierProject = classified.project
+				if (classifierProject) {
+					var resolvedWs = null
+					var candidateDirs = [
+						"/opt/" + classifierProject,
+						"/root/" + classifierProject,
+						"/home/" + classifierProject,
+					]
+					var fsSync3 = require("fs")
+					for (var cd of candidateDirs) {
+						try {
+							if (fsSync3.existsSync(cd)) {
+								resolvedWs = cd
+								break
+							}
+						} catch (_) {}
+					}
+					if (resolvedWs) {
+						codeTaskOptions.workspaceDir = resolvedWs
+						codeTaskOptions.repoName = classifierProject
+					}
+				}
+				await handleCode(botToken, chatId, [text], queue, orchestratorBridge, codeTaskOptions)
 			} catch (err) {
 				logTelegramError("nlp:code_task", chatId, telegramUserId, err, { text: text.slice(0, 100) })
 				await sendMessage(botToken, chatId, "*Coding task error* ❌\n\n" + err.message)
@@ -6568,9 +6795,19 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 
 			// ─── Smart Terminal Callbacks ──────────────────────────────────────
 
-			// brain_exec:<command> — Execute a command via Terminal Brain
+			// brain_exec:<token> — Execute a command via Terminal Brain (token-based to stay within 64-byte limit)
 			if (cqData.startsWith("brain_exec:")) {
-				var execCmd = cqData.slice(11)
+				var execToken = cqData.slice(11)
+				var execCmd = resolveCallbackCommand(execToken)
+				if (!execCmd) {
+					await sendMessage(
+						botToken,
+						cqChatId,
+						"*Command Expired* ⏰\n\nThis quick action button has expired. Please run the command again directly.",
+					)
+					await answerCallbackQuery(botToken, cq.id)
+					return
+				}
 				logTelegramUsage("callback:brain_exec", cqChatId, cqUserId, { command: execCmd.slice(0, 60) })
 				await sendChatAction(botToken, cqChatId, "typing")
 				try {
@@ -6615,9 +6852,19 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 				return
 			}
 
-			// brain_pipeline:<query> — Run full pipeline
+			// brain_pipeline:<token> — Run full pipeline (token-based)
 			if (cqData.startsWith("brain_pipeline:")) {
-				var pipeQuery = cqData.slice(15)
+				var pipeToken = cqData.slice(15)
+				var pipeQuery = resolveCallbackCommand(pipeToken)
+				if (!pipeQuery) {
+					await sendMessage(
+						botToken,
+						cqChatId,
+						"*Command Expired* ⏰\n\nThis quick action button has expired. Please run the command again directly.",
+					)
+					await answerCallbackQuery(botToken, cq.id)
+					return
+				}
 				logTelegramUsage("callback:brain_pipeline", cqChatId, cqUserId, { query: pipeQuery.slice(0, 60) })
 				await sendChatAction(botToken, cqChatId, "typing")
 				try {
@@ -6662,9 +6909,19 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 				return
 			}
 
-			// brain_explain:<command> — Explain a command
+			// brain_explain:<token> — Explain a command (token-based)
 			if (cqData.startsWith("brain_explain:")) {
-				var explainCmd = cqData.slice(14)
+				var explainToken = cqData.slice(14)
+				var explainCmd = resolveCallbackCommand(explainToken)
+				if (!explainCmd) {
+					await sendMessage(
+						botToken,
+						cqChatId,
+						"*Command Expired* ⏰\n\nThis quick action button has expired. Please run the command again directly.",
+					)
+					await answerCallbackQuery(botToken, cq.id)
+					return
+				}
 				logTelegramUsage("callback:brain_explain", cqChatId, cqUserId, { command: explainCmd.slice(0, 60) })
 				await sendChatAction(botToken, cqChatId, "typing")
 				try {
@@ -6693,9 +6950,19 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 				return
 			}
 
-			// brain_fix:<command> — Auto-fix errors from last command
+			// brain_fix:<token> — Auto-fix errors from last command (token-based)
 			if (cqData.startsWith("brain_fix:")) {
-				var fixCmd = cqData.slice(9)
+				var fixToken = cqData.slice(9)
+				var fixCmd = resolveCallbackCommand(fixToken)
+				if (!fixCmd) {
+					await sendMessage(
+						botToken,
+						cqChatId,
+						"*Command Expired* ⏰\n\nThis quick action button has expired. Please run the command again directly.",
+					)
+					await answerCallbackQuery(botToken, cq.id)
+					return
+				}
 				logTelegramUsage("callback:brain_fix", cqChatId, cqUserId, { command: fixCmd.slice(0, 60) })
 				await sendChatAction(botToken, cqChatId, "typing")
 				try {
@@ -6733,9 +7000,19 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 				return
 			}
 
-			// brain_errors:<command> — Show errors from last command
+			// brain_errors:<token> — Show errors from last command (token-based)
 			if (cqData.startsWith("brain_errors:")) {
-				var errCmd = cqData.slice(13)
+				var errToken = cqData.slice(13)
+				var errCmd = resolveCallbackCommand(errToken)
+				if (!errCmd) {
+					await sendMessage(
+						botToken,
+						cqChatId,
+						"*Command Expired* ⏰\n\nThis quick action button has expired. Please run the command again directly.",
+					)
+					await answerCallbackQuery(botToken, cq.id)
+					return
+				}
 				logTelegramUsage("callback:brain_errors", cqChatId, cqUserId, { command: errCmd.slice(0, 60) })
 				await sendChatAction(botToken, cqChatId, "typing")
 				try {
@@ -6757,9 +7034,20 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 				return
 			}
 
-			// brain_deploy:<command> — Deploy after successful execution
+			// brain_deploy:<token> — Deploy after successful execution (token-based)
 			if (cqData.startsWith("brain_deploy:")) {
-				logTelegramUsage("callback:brain_deploy", cqChatId, cqUserId)
+				var deployToken = cqData.slice(13)
+				var deployCmd = resolveCallbackCommand(deployToken)
+				if (!deployCmd) {
+					await sendMessage(
+						botToken,
+						cqChatId,
+						"*Command Expired* ⏰\n\nThis quick action button has expired. Please run the command again directly.",
+					)
+					await answerCallbackQuery(botToken, cq.id)
+					return
+				}
+				logTelegramUsage("callback:brain_deploy", cqChatId, cqUserId, { command: deployCmd.slice(0, 60) })
 				await sendMessage(
 					botToken,
 					cqChatId,
@@ -6832,23 +7120,37 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 						var coderTaskId = coderResult.taskId
 						var pendingJob = telegramNotifier.getPendingCoderJob(coderTaskId)
 
+						// Improvement 1 & 7: Build fresh conversation context for each phase
+						var freshConversationSummary = buildConversationSummary(cqChatId)
+
+						// Improvement 2: Shared retry options for all queue.add() calls
+						var jobOpts = { attempts: 3, backoff: { type: "exponential", delay: 5000 } }
+
 						if (coderResult.action === "approved") {
 							// User approved the plan — enqueue an "apply" job
 							await sendChatAction(botToken, cqChatId, "typing")
-							var applyJob = await queue.add("coder-apply-" + coderTaskId, {
-								task: pendingJob ? pendingJob.instruction : "Apply approved changes",
-								agentId: "superroo-coder-agent",
-								phase: "apply",
-								taskId: coderTaskId,
-								workspaceDir: pendingJob ? pendingJob.workspaceDir : undefined,
-								repoName: pendingJob ? pendingJob.repoName : undefined,
-								branch: pendingJob ? pendingJob.branch : undefined,
-								plan: pendingJob ? pendingJob.plan : undefined,
-								telegram: {
-									botToken: botToken,
-									chatId: cqChatId,
+							var applyJob = await queue.add(
+								"coder-apply-" + coderTaskId,
+								{
+									task: pendingJob ? pendingJob.instruction : "Apply approved changes",
+									agentId: "superroo-coder-agent",
+									phase: "apply",
+									taskId: coderTaskId,
+									workspaceDir: pendingJob ? pendingJob.workspaceDir : undefined,
+									repoName: pendingJob ? pendingJob.repoName : undefined,
+									branch: pendingJob ? pendingJob.branch : undefined,
+									plan: pendingJob ? pendingJob.plan : undefined,
+									telegram: {
+										botToken: botToken,
+										chatId: cqChatId,
+										taskId: coderTaskId,
+										branchName: pendingJob ? pendingJob.branch : undefined,
+										conversationSummary: freshConversationSummary,
+										auto: pendingJob ? pendingJob.auto : false,
+									},
 								},
-							})
+								jobOpts,
+							)
 							logTelegramUsage("callback:coder:apply_enqueued", cqChatId, cqUserId, {
 								taskId: coderTaskId,
 								jobId: applyJob.id,
@@ -6856,18 +7158,27 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 						} else if (coderResult.action === "commit") {
 							// User wants to commit — enqueue a "commit" job
 							await sendChatAction(botToken, cqChatId, "typing")
-							var commitJob = await queue.add("coder-commit-" + coderTaskId, {
-								task: pendingJob ? pendingJob.instruction : "Commit changes",
-								agentId: "superroo-coder-agent",
-								phase: "commit",
-								taskId: coderTaskId,
-								workspaceDir: pendingJob ? pendingJob.workspaceDir : undefined,
-								branch: pendingJob ? pendingJob.branch : undefined,
-								telegram: {
-									botToken: botToken,
-									chatId: cqChatId,
+							var commitJob = await queue.add(
+								"coder-commit-" + coderTaskId,
+								{
+									task: pendingJob ? pendingJob.instruction : "Commit changes",
+									agentId: "superroo-coder-agent",
+									phase: "commit",
+									taskId: coderTaskId,
+									workspaceDir: pendingJob ? pendingJob.workspaceDir : undefined,
+									repoName: pendingJob ? pendingJob.repoName : undefined,
+									branch: pendingJob ? pendingJob.branch : undefined,
+									telegram: {
+										botToken: botToken,
+										chatId: cqChatId,
+										taskId: coderTaskId,
+										branchName: pendingJob ? pendingJob.branch : undefined,
+										conversationSummary: freshConversationSummary,
+										auto: pendingJob ? pendingJob.auto : false,
+									},
 								},
-							})
+								jobOpts,
+							)
 							logTelegramUsage("callback:coder:commit_enqueued", cqChatId, cqUserId, {
 								taskId: coderTaskId,
 								jobId: commitJob.id,
@@ -6875,18 +7186,27 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 						} else if (coderResult.action === "deploy") {
 							// User wants to deploy — enqueue a "deploy" job
 							await sendChatAction(botToken, cqChatId, "typing")
-							var deployJob = await queue.add("coder-deploy-" + coderTaskId, {
-								task: pendingJob ? pendingJob.instruction : "Deploy changes",
-								agentId: "superroo-coder-agent",
-								phase: "deploy",
-								taskId: coderTaskId,
-								workspaceDir: pendingJob ? pendingJob.workspaceDir : undefined,
-								branch: pendingJob ? pendingJob.branch : undefined,
-								telegram: {
-									botToken: botToken,
-									chatId: cqChatId,
+							var deployJob = await queue.add(
+								"coder-deploy-" + coderTaskId,
+								{
+									task: pendingJob ? pendingJob.instruction : "Deploy changes",
+									agentId: "superroo-coder-agent",
+									phase: "deploy",
+									taskId: coderTaskId,
+									workspaceDir: pendingJob ? pendingJob.workspaceDir : undefined,
+									repoName: pendingJob ? pendingJob.repoName : undefined,
+									branch: pendingJob ? pendingJob.branch : undefined,
+									telegram: {
+										botToken: botToken,
+										chatId: cqChatId,
+										taskId: coderTaskId,
+										branchName: pendingJob ? pendingJob.branch : undefined,
+										conversationSummary: freshConversationSummary,
+										auto: pendingJob ? pendingJob.auto : false,
+									},
 								},
-							})
+								jobOpts,
+							)
 							logTelegramUsage("callback:coder:deploy_enqueued", cqChatId, cqUserId, {
 								taskId: coderTaskId,
 								jobId: deployJob.id,
@@ -6900,19 +7220,27 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 						} else if (coderResult.action === "retry") {
 							// User wants to retry with more details — enqueue a new "plan" job
 							await sendChatAction(botToken, cqChatId, "typing")
-							var retryJob = await queue.add("coder-plan-" + coderTaskId, {
-								task: pendingJob ? pendingJob.instruction : "Retry coding task",
-								agentId: "superroo-coder-agent",
-								phase: "plan",
-								taskId: coderTaskId,
-								workspaceDir: pendingJob ? pendingJob.workspaceDir : undefined,
-								repoName: pendingJob ? pendingJob.repoName : undefined,
-								branch: pendingJob ? pendingJob.branch : undefined,
-								telegram: {
-									botToken: botToken,
-									chatId: cqChatId,
+							var retryJob = await queue.add(
+								"coder-plan-" + coderTaskId,
+								{
+									task: pendingJob ? pendingJob.instruction : "Retry coding task",
+									agentId: "superroo-coder-agent",
+									phase: "plan",
+									taskId: coderTaskId,
+									workspaceDir: pendingJob ? pendingJob.workspaceDir : undefined,
+									repoName: pendingJob ? pendingJob.repoName : undefined,
+									branch: pendingJob ? pendingJob.branch : undefined,
+									telegram: {
+										botToken: botToken,
+										chatId: cqChatId,
+										taskId: coderTaskId,
+										branchName: pendingJob ? pendingJob.branch : undefined,
+										conversationSummary: freshConversationSummary,
+										auto: pendingJob ? pendingJob.auto : false,
+									},
 								},
-							})
+								jobOpts,
+							)
 							logTelegramUsage("callback:coder:retry_enqueued", cqChatId, cqUserId, {
 								taskId: coderTaskId,
 								jobId: retryJob.id,
@@ -7581,6 +7909,8 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 loadGroupWorkspaces()
 loadConversationHistory()
 loadState()
+// Register shutdown handlers to persist data before PM2 restarts
+registerShutdownHandlers()
 
 module.exports = {
 	sendMessage,
@@ -7627,4 +7957,6 @@ module.exports = {
 	handleUpgrade,
 	// MCP Bridge
 	handleMcp,
+	// Shutdown handlers
+	registerShutdownHandlers,
 }

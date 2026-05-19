@@ -793,6 +793,50 @@ async function sendCoderRetryableFailure(botToken, chatId, taskId, instruction, 
 }
 
 // ---------------------------------------------------------------------------
+// Improvement 4: Progress feedback — send periodic "still working" messages
+// ---------------------------------------------------------------------------
+async function sendCoderProgress(botToken, chatId, taskId, message) {
+	const text =
+		`*⏳ Coder Progress: ${taskId}*\n\n` + `${message}\n\n` + `_I'll notify you when the current phase completes._`
+
+	return await sendMessage(botToken, chatId, text)
+}
+
+// ---------------------------------------------------------------------------
+// Improvement 6: Test phase result notification
+// ---------------------------------------------------------------------------
+async function sendCoderTestResult(botToken, chatId, taskId, instruction, testResult) {
+	const statusEmoji = testResult.allTestsPassed ? "✅" : "⚠️"
+	const statusText = testResult.allTestsPassed ? "All tests passed" : "Some tests failed"
+	const commandsList = (testResult.testCommands || []).map((c) => "`" + c + "`").join("\n")
+
+	const text =
+		`${statusEmoji} *Test Result: ${taskId}*\n\n` +
+		`*Instruction:* ${instruction.slice(0, 200)}${instruction.length > 200 ? "..." : ""}\n\n` +
+		`*Status:* ${statusText}\n` +
+		`*Commands:*\n${commandsList || "_(none)_"}\n\n` +
+		(testResult.allTestsPassed
+			? "_Tests passed — ready for deployment._"
+			: "_Tests failed — you can still deploy manually if needed._")
+
+	const buttons = testResult.allTestsPassed
+		? [
+				[
+					{ text: "🚀 Deploy", callback_data: `coder:deploy:${taskId}` },
+					{ text: "📋 View Logs", callback_data: `notify:logs:${taskId}` },
+				],
+			]
+		: [
+				[
+					{ text: "🚀 Deploy Anyway", callback_data: `coder:deploy:${taskId}` },
+					{ text: "🔄 Retry Tests", callback_data: `coder:retry:${taskId}` },
+				],
+			]
+
+	return await sendInlineKeyboard(botToken, chatId, text, buttons)
+}
+
+// ---------------------------------------------------------------------------
 // Handle Coder Workflow Callback Queries
 // ---------------------------------------------------------------------------
 async function handleCoderCallback(botToken, callbackQuery) {
@@ -1266,6 +1310,8 @@ module.exports = {
 	sendCoderDeployed,
 	sendCoderClarification,
 	sendCoderRetryableFailure,
+	sendCoderProgress,
+	sendCoderTestResult,
 
 	// Callback handlers
 	handleNotificationCallback,
