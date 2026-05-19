@@ -126,3 +126,28 @@ export interface SrSettings {
 	mode: SafetyMode
 	selfImprove: boolean
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// VPS Health monitoring types
+// ──────────────────────────────────────────────────────────────────────────────
+
+export interface VpsAggregatedLogEntry {
+	id: number
+	timestamp: string | null
+	source: string | null
+	level: string | null
+	message: string | null
+	service: string | null
+	type: string | null
+	metric: string | null
+	value: number | null
+	container: string | null
+}
+
+export interface VpsAggregatedStats {
+	total: number
+	last24h: number
+	errors24h: number
+	levelDistribution: Array<{ level: string; count: number }>
+	sourceDistribution: Array<{ source: string; count: number }>
+}

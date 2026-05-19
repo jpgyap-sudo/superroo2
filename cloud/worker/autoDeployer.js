@@ -26,18 +26,21 @@ const { execSync, exec } = require("child_process")
 const fs = require("fs")
 const path = require("path")
 const http = require("http")
+const { assertAllowedTarget, remoteVerificationCommand } = require("./deploymentAllowlist")
 
 // ── Configuration ──────────────────────────────────────────────────────────────
 
 const STATUS_FILE = path.join(__dirname, "..", "memory", "auto-deploy-status.json")
 const LOG_FILE = path.join(__dirname, "..", "logs", "auto-deployer.log")
 const PROJECT_ROOT = "/opt/superroo2"
+const DEPLOY_PROJECT = "superroo2"
 const CLOUD_DIR = path.join(PROJECT_ROOT, "cloud")
 const DASHBOARD_DIR = path.join(CLOUD_DIR, "dashboard")
 // Using Tailscale IP (100.64.175.88) instead of public IP for secure mesh connection
 const SSH_TARGET = "root@100.64.175.88"
 const SSH_KEY = "/root/.ssh/id_superroo_vps"
 const SSH_OPTS = `-o StrictHostKeyChecking=no -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -i ${SSH_KEY}`
+assertAllowedTarget(DEPLOY_PROJECT, { sshTarget: SSH_TARGET, rootPath: PROJECT_ROOT })
 
 const MAX_RETRIES = 5
 const RETRY_DELAY = 10 // seconds, doubles each retry
@@ -140,9 +143,20 @@ function sshCmd(desc, timeout, command) {
 
 async function runDeploy() {
 	log("=== Auto-Deployer: Starting deploy ===")
+	assertAllowedTarget(DEPLOY_PROJECT, { sshTarget: SSH_TARGET, rootPath: PROJECT_ROOT })
 
 	// Step 1: Test connection
 	await sshCmd("SSH connection test", 15, "echo 'SSH OK'")
+
+	// Step 1b: Verify the remote host is the SuperRoo VPS, not another project VPS.
+	await sshCmd(
+		"deployment allowlist remote verification",
+		15,
+		remoteVerificationCommand(DEPLOY_PROJECT, {
+			sshTarget: SSH_TARGET,
+			rootPath: PROJECT_ROOT,
+		}),
+	)
 
 	// Step 2: Git pull
 	await sshCmd("git pull", 60, `cd ${PROJECT_ROOT} && git pull origin main`)

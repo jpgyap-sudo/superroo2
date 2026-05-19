@@ -7,18 +7,18 @@ This file provides guidance to agents when working with code in this repository.
 Default orchestration flow:
 
 1. Superoo retrieves relevant lessons from memory.
-2. Ollama summarizes and compresses the relevant lessons.
+2. DeepSeek API compresses context (lessons, files, architecture, bugs, features, model decisions) into a compact task brief. Pre-computed lesson summaries from `memory/lesson-summaries.json` are injected directly — no re-compression needed.
 3. Superoo builds compact task context.
 4. DeepSeek is the default implementation coder.
 5. Codex reviews architecture, safety, tests, and regressions.
 6. New lessons are extracted after task completion.
-7. Ollama summarizes the new lesson.
+7. DeepSeek API generates lesson summaries; Ollama generates embeddings for semantic search.
 8. Central Brain stores the lesson permanently.
 
 Important:
 
 - Ollama is NOT the default coder.
-- DeepSeek is the primary coding worker.
+- DeepSeek MCP is the mandatory coding worker for substantial implementation tasks.
 - Codex is the planner/reviewer.
 - Superoo orchestrates all models.
 
@@ -169,8 +169,8 @@ When working on `SettingsView`, inputs must bind to the local `cachedState`, NOT
 This repository uses a model-routing workflow:
 
 - **Codex** = planner, reviewer, tester, final verifier
-- **DeepSeek** = primary low-cost coder / refactor worker
-- **Ollama** = local memory, lessons, summaries, feature knowledge, retrieval helper
+- **DeepSeek MCP** = mandatory low-cost coder / refactor worker; DeepSeek API also handles context and lesson summaries
+- **Ollama MCP** = local embeddings, memory learner, and retrieval helper
 - **Central Brain** = persistent memory database / pgvector / lesson store
 
 For Codex-led tasks, prefer this sequence:
@@ -178,10 +178,10 @@ For Codex-led tasks, prefer this sequence:
 1. Read repo rules and current context.
 2. Check prior lessons and memory for related work.
 3. Write the implementation plan.
-4. Delegate the main coding work to DeepSeek when that route is available and appropriate.
+4. Verify `node scripts/mcp-codex-bridge.mjs deepseek status` is healthy, then delegate the main coding work to DeepSeek MCP.
 5. Review the result, run tests, and record lessons or updates.
 
-Codex may still code directly when the task is small, urgent, or the available tooling does not expose a DeepSeek worker path.
+If DeepSeek MCP is unavailable for a substantial coding task, fix the MCP/API connection first or mark the task blocked. Codex may only make minimal connectivity/configuration fixes needed to restore the DeepSeek route, or handle tiny non-implementation edits.
 
 ## Learning Layer Permanent Sync
 

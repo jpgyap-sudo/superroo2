@@ -28,12 +28,15 @@
 │  │  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └────────┘  │  │
 │  │                                                                     │  │
 │  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────────────┐  │  │
-│  │  │ Healing  │ │ ML Engine│ │ TaskQueue│ │ Product Memory       │  │  │
+│  │  │ Healing  │ │ ML Engine│ │ Infinite │ │ Product Memory       │  │  │
+│  │  │ Module   │ │(Learners)│ │Improve.  │ │ (Features, Bugs)     │  │  │
+│  │  │          │ │          │ │Loop      │ │                      │  │  │
 │  │  │ Module   │ │(Learners)│ │          │ │ (Features, Bugs)     │  │  │
 │  │  └──────────┘ └──────────┘ └──────────┘ └──────────────────────┘  │  │
 │  │                                                                     │  │
 │  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────────────┐  │  │
 │  │  │ CPU Guard│ │ Parallel │ │ Crawler  │ │ LogAggregator        │  │  │
+│  │  │          │ │Executor  │ │ Agent    │ │ (buffered JSONL)     │  │  │
 │  │  │          │ │Executor  │ │ Agent    │ │ (buffered JSONL)     │  │  │
 │  │  └──────────┘ └──────────┘ └──────────┘ └──────────────────────┘  │  │
 │  └───────────────────────────────────────────────────────────────────┘  │
@@ -96,18 +99,20 @@ flowchart TD
     MONITOR["Health Monitor Alert"]
     AGENT["Agent Error Report"]
     USER["Manual Report"]
+    SELFHEAL["SelfHealingAgent\n(agent-based)"]
 
     %% Healing Bus
     SMOKE --> BUS["HealingBus.reportIncident()"]
     MONITOR --> BUS
     AGENT --> BUS
     USER --> BUS
+    SELFHEAL --> BUS
 
     BUS --> DEDUP{"Deduplicate\n(fingerprint match)"}
     DEDUP -->|New| NEW["Status: new"]
     DEDUP -->|Existing| UPDATE["Update record"]
 
-    NEW --> CLASSIFY["RootCauseClassifier\nclassifyRootCause()"]
+    NEW --> CLASSIFY["RootCauseClassifier\nclassifyRootCause()\n(or ML via SelfHealingAgent)"]
     CLASSIFY --> CAT{"Category?"}
 
     CAT -->|ENV_MISSING| ENV["Check env vars"]
@@ -115,6 +120,11 @@ flowchart TD
     CAT -->|DB_SCHEMA_MISMATCH| DB["Check migrations"]
     CAT -->|DEPLOY_DRIFT| DRIFT["Check version mismatch"]
     CAT -->|SECURITY_RISK| SEC["Flag for human review"]
+    CAT -->|AUTHENTICATION_FAILURE| AUTH["Check auth tokens"]
+    CAT -->|NETWORK_TIMEOUT| NET["Check network config"]
+    CAT -->|FILE_SYSTEM_ERROR| FS["Check file permissions"]
+    CAT -->|DNS_RESOLUTION| DNS["Check DNS records"]
+    CAT -->|SSL_TLS_ERROR| SSL["Check certificates"]
     CAT -->|UNKNOWN| UNK["Fallback: general inspect"]
 
     ENV --> PLAN["RepairPlanBuilder\nbuildRepairPlan()"]
@@ -122,6 +132,11 @@ flowchart TD
     DB --> PLAN
     DRIFT --> PLAN
     SEC --> PLAN
+    AUTH --> PLAN
+    NET --> PLAN
+    FS --> PLAN
+    DNS --> PLAN
+    SSL --> PLAN
     UNK --> PLAN
 
     PLAN --> APPROVAL{"Approval\nRequired?"}
@@ -155,10 +170,31 @@ flowchart TD
 
     REOPENED --> RETRY
 
-    %% Metrics
-    VERIFIED --> METRICS["HealingMetrics\nrecordOutcome(success)"]
-    BLOCKED --> METRICS_FAIL["HealingMetrics\nrecordOutcome(failure)"]
+    %% Metrics (Phase 2)
+    VERIFIED --> METRICS["HealingMetrics\nrecordOutcome(success)\nrecordClassification()"]
+    BLOCKED --> METRICS_FAIL["HealingMetrics\nrecordOutcome(failure)\nrecordClassification()"]
     CB --> METRICS_FAIL
+
+    %% Repair Attempt Tracking (Phase 2)
+    FIX --> REPAIR_TRACK["RepairTracker\nrecordRepairAttempt()\n(timestamp, duration, outcome)"]
+    REPAIR_TRACK --> REPAIR_STATS["Repair Success Rate\nper category\noverall rate"]
+
+    %% Per-Category Escalation (Phase 2)
+    ESCALATE --> CAT_THRESHOLD{"Category\nThreshold\nExceeded?"}
+    CAT_THRESHOLD -->|MEMORY_LEAK| CAT_WARN["categoryActions:\nnotify"]
+    CAT_THRESHOLD -->|SECURITY_RISK| CAT_BLOCK["categoryActions:\nblock"]
+    CAT_THRESHOLD -->|DEPLOY_DRIFT| CAT_CB["categoryActions:\ncircuit_breaker"]
+
+    %% Notification Routing (Phase 2)
+    NOTIFY --> NOTIF_ROUTE["NotificationRouter\nrouteNotification()"]
+    NOTIF_ROUTE --> TG["Telegram"]
+    NOTIF_ROUTE --> SLACK["Slack"]
+    NOTIF_ROUTE --> EMAIL["Email"]
+    NOTIF_ROUTE --> DASH["Dashboard"]
+
+    %% Confusion Matrix (Phase 2)
+    METRICS --> CONF_MATRIX["ConfusionMatrix\n(predicted → actual → count)"]
+    CONF_MATRIX --> PRECISION["Precision / Recall\nper category"]
 
     %% Styling
     classDef source fill:#e1f5fe,stroke:#0288d1
@@ -166,12 +202,14 @@ flowchart TD
     classDef decision fill:#fff3e0,stroke:#f57c00
     classDef terminal fill:#e8f5e9,stroke:#388e3c
     classDef failure fill:#fce4ec,stroke:#d32f2f
+    classDef phase2 fill:#e0f7fa,stroke:#00695c
 
-    class SMOKE,MONITOR,AGENT,USER source
+    class SMOKE,MONITOR,AGENT,USER,SELFHEAL source
     class BUS,CLASSIFY,PLAN source
-    class CAT,APPROVAL,RESULT,RETRY,ESCALATE,PASS decision
+    class CAT,APPROVAL,RESULT,RETRY,ESCALATE,PASS,CAT_THRESHOLD decision
     class VERIFIED,CLOSE terminal
     class BLOCKED,CB failure
+    class REPAIR_TRACK,REPAIR_STATS,CAT_WARN,CAT_BLOCK,CAT_CB,NOTIF_ROUTE,TG,SLACK,EMAIL,DASH,CONF_MATRIX,PRECISION phase2
 ```
 
 ### Incident State Machine
@@ -247,7 +285,7 @@ flowchart LR
     subgraph OPTIMIZERS["Optimizers"]
         ADAM["AdamOptimizer\n(beta1, beta2, eps)"]
         SGD["SGDOptimizer\n(momentum)"]
-        LRS["LR Schedulers\nStepDecay | ExpDecay | ReduceLROnPlateau"]
+        LRS["LR Schedulers\nStepDecay | ExpDecay | ReduceLROnPlateau\nCosineAnnealing | DropoutScheduler"]
     end
 
     subgraph LOSS["Loss Functions"]
@@ -288,8 +326,14 @@ flowchart LR
         TL["TestLearner"]
     end
 
+    subgraph LOOP["Improvement Loop"]
+        IIL["InfiniteImprovementLoop\n(8-phase lifecycle)"]
+    end
+
     NN --> LEARNERS
     PERSIST --> LEARNERS
+    LEARNERS --> IIL
+    IIL -->|"predictAndAct()"| NN
 
     %% Styling
     classDef api fill:#e3f2fd,stroke:#1565c0
@@ -571,16 +615,22 @@ flowchart TD
 
     %% VPS
     subgraph VPS["DigitalOcean VPS (100.64.175.88)"]
-        DAEMON["SuperRoo Daemon\n(systemd service)"]
-        API["Cloud API\n(api.js, port 8787)"]
-        DASHBOARD["Cloud Dashboard\n(Next.js)"]
-        WORKER["Cloud Worker\n(background jobs)"]
-        TELEGRAM["Telegram Bot\n(bridge)"]
+        subgraph DOCKER["Docker Containers"]
+            DASHBOARD["Cloud Dashboard\n(Next.js, port 3001)"]
+            MINIIDE["Mini IDE\n(sandboxed, port 8081)"]
+            API["Cloud API\n(api.js, port 8787)"]
+        end
+
+        subgraph PM2["PM2 Processes (host)"]
+            WORKER["Cloud Worker\n(background jobs)"]
+            AUTODEPLOYER["Auto-Deployer\n(watches GitHub, port 8790)"]
+            MCPMEMORY["MCP Memory\n(port 3419)"]
+        end
+
         N8N["n8n\n(workflow automation)"]
-        MINIIDE["Mini IDE\n(sandboxed)"]
+        TELEGRAM["Telegram Bot\n(bridge)"]
     end
 
-    BUILD -->|"scp via Tailscale SSH"| DAEMON
     BUILD -->|"scp via Tailscale SSH"| API
     BUILD -->|"scp via Tailscale SSH"| DASHBOARD
     BUILD -->|"scp via Tailscale SSH"| WORKER
@@ -591,15 +641,14 @@ flowchart TD
 
     TELEGRAM <--> TG
     API <--> SUPABASE
-    DAEMON --> API
-    DAEMON --> WORKER
     API --> DASHBOARD
     API --> MINIIDE
+    API --> WORKER
 
     %% Auto-deployer
-    WATCHER["Auto-Deployer Worker\n(watches GitHub)"]
-    GH -->|"poll for new commits"| WATCHER
-    WATCHER -->|"auto-deploy"| DAEMON
+    GH -->|"poll for new commits"| AUTODEPLOYER
+    AUTODEPLOYER -->|"auto-deploy"| API
+    AUTODEPLOYER -->|"auto-deploy"| DASHBOARD
 
     %% Styling
     classDef external fill:#e1f5fe,stroke:#0288d1

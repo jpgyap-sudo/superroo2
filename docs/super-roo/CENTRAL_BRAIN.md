@@ -94,7 +94,7 @@ curl -X POST https://dev.abcx124.xyz/api/brain/mcp \
     └──────┬──────┘    └──────┬──────┘    └──────┬──────┘
            │                  │                  │
     ┌──────▼──────┐    ┌──────▼──────┐           │
-    │ pgvector    │    │ qwen2.5:3b  │           │
+    │ pgvector    │    │ qwen2.5:0.5b│           │
     │ PostgreSQL  │    │ nomic-embed │           │
     │ (RAG Store) │    │ (Embeddings)│           │
     └─────────────┘    └─────────────┘           │
@@ -535,11 +535,11 @@ Accessible via Telegram bot or direct API routing through the orchestrator.
 
 Handles cheap, repetitive tasks locally:
 
-| Model              | Purpose                             |
-| ------------------ | ----------------------------------- |
-| `qwen2.5:3b`       | Chat, summarization, classification |
-| `qwen2.5:0.5b`     | Ultra-cheap quick responses         |
-| `nomic-embed-text` | Text embeddings (768 dimensions)    |
+| Model              | Purpose                            |
+| ------------------ | ---------------------------------- |
+| `qwen2.5:0.5b`     | Ultra-cheap chat and summarization |
+| `qwen2.5:1.5b`     | Fallback deeper summarization      |
+| `nomic-embed-text` | Text embeddings (768 dimensions)   |
 
 **Ollama API:** `http://127.0.0.1:11434` (internal only)
 

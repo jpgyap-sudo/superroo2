@@ -3,6 +3,13 @@
  *
  * Analyzes incident symptoms and evidence to classify the root cause category.
  * This helps route incidents to the appropriate repair strategy.
+ *
+ * Features:
+ * - Keyword-based pattern matching across 20+ categories
+ * - Confidence scoring with ratio-based adjustment
+ * - Minimum confidence threshold to avoid false positives
+ * - Evidence-aware classification (title, symptom, evidence fields)
+ * - Security risk detection and human approval routing
  */
 
 import type { RootCauseCategory, IncidentRecord } from "../types"
@@ -19,8 +26,15 @@ export interface ClassificationPattern {
 	confidence: number
 }
 
+/**
+ * Minimum confidence threshold for a classification to be accepted.
+ * Classifications below this threshold fall back to UNKNOWN.
+ * This prevents false positives from weak keyword matches.
+ */
+export const MIN_CONFIDENCE = 0.3
+
 // Pattern database for root cause classification
-const CLASSIFICATION_PATTERNS: ClassificationPattern[] = [
+export const CLASSIFICATION_PATTERNS: ClassificationPattern[] = [
 	{
 		category: "ENV_MISSING",
 		keywords: [
@@ -258,6 +272,55 @@ const CLASSIFICATION_PATTERNS: ClassificationPattern[] = [
 		],
 		confidence: 0.85,
 	},
+	{
+		category: "CIRCUIT_BREAKER",
+		keywords: [
+			"circuit breaker",
+			"circuit_breaker",
+			"too many failures",
+			"consecutive failures",
+			"backoff",
+			"rate limiting self",
+			"cooldown period",
+			"temporarily disabled",
+		],
+		confidence: 0.9,
+	},
+	{
+		category: "DEPLOYMENT_FAILURE",
+		keywords: [
+			"deploy failed",
+			"deployment error",
+			"build failed",
+			"docker build",
+			"container exit",
+			"image pull",
+			"registry auth",
+			"deploy timeout",
+			"rollback",
+			"health check failed",
+			"container restart",
+		],
+		confidence: 0.85,
+	},
+	{
+		category: "DATABASE_CONNECTION",
+		keywords: [
+			"database connection",
+			"db connection",
+			"connection pool",
+			"max connections",
+			"too many connections",
+			"connection refused",
+			"postgres",
+			"supabase",
+			"pg pool",
+			"database timeout",
+			"db timeout",
+			"cannot connect to database",
+		],
+		confidence: 0.9,
+	},
 ]
 
 /**
@@ -286,15 +349,18 @@ export function classifyRootCause(incident: IncidentRecord): ClassificationResul
 		}
 	}
 
-	if (bestMatch) {
+	if (bestMatch && bestMatch.confidence >= MIN_CONFIDENCE) {
 		return bestMatch
 	}
 
-	// Default fallback
+	// Default fallback — either no match or below confidence threshold
+	const reason = bestMatch
+		? `Best match "${bestMatch.category}" had confidence ${bestMatch.confidence.toFixed(3)} below threshold ${MIN_CONFIDENCE}`
+		: "No clear pattern match found"
 	return {
 		category: "UNKNOWN",
-		confidence: 0.5,
-		reasoning: "No clear pattern match found",
+		confidence: bestMatch?.confidence ?? 0.5,
+		reasoning: reason,
 	}
 }
 
@@ -344,6 +410,7 @@ export function requiresHumanApproval(category: RootCauseCategory): boolean {
 		"TRADING_GATE_BLOCKED",
 		"DEPLOY_DRIFT", // May need deploy coordination
 		"SSL_TLS_ERROR", // Certificate changes need human review
+		"DEPLOYMENT_FAILURE", // Deployment failures need human review
 	]
 	return requiresApproval.includes(category)
 }
@@ -478,6 +545,25 @@ export function getDiagnosticSteps(category: RootCauseCategory): string[] {
 			"Verify certificate expiry dates",
 			"Check certificate chain completeness",
 			"Review SSL/TLS library configuration",
+		],
+		CIRCUIT_BREAKER: [
+			"Check consecutive failure count",
+			"Review recent error patterns",
+			"Verify backoff configuration",
+			"Consider manual reset if safe",
+		],
+		DEPLOYMENT_FAILURE: [
+			"STOP - Do not auto-fix deployment failures",
+			"Check Docker build logs",
+			"Verify container registry access",
+			"Review deployment configuration",
+			"Check health check endpoint",
+		],
+		DATABASE_CONNECTION: [
+			"Check database service status",
+			"Verify connection string and credentials",
+			"Review connection pool settings",
+			"Check for database maintenance windows",
 		],
 		UNKNOWN: [
 			"Review application logs",

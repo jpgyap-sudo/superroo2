@@ -1,14 +1,15 @@
 # SuperRoo Ollama Activation Pack
 
-This pack wires Ollama as a free/local log summarizer and context compressor.
+This pack wires Ollama as a local embedding generator and fallback summarizer.
 
 ## Goal
 
-Use Ollama for cheap local work:
+Use Ollama for local embeddings and lightweight tasks; DeepSeek API for high-quality summarization:
 
 ```text
 Raw logs/errors/context
-  -> Ollama summarizes/compresses
+  -> DeepSeek API summarizes/compresses (primary)
+  -> Ollama generates embeddings for semantic search
   -> Codex receives clean senior-debug brief
   -> DeepSeek receives implementation-only task
   -> Codex reviews final patch
@@ -45,8 +46,9 @@ Add to your `.env`:
 
 ```bash
 OLLAMA_BASE_URL=http://127.0.0.1:11434
-OLLAMA_MODEL=qwen2.5-coder:3b
-OLLAMA_SUMMARY_MODEL=qwen2.5-coder:3b
+OLLAMA_MODEL=qwen2.5:0.5b
+OLLAMA_SUMMARY_MODEL=qwen2.5:0.5b
+OLLAMA_FALLBACK_MODEL=qwen2.5:1.5b
 OLLAMA_TIMEOUT_MS=120000
 OLLAMA_TEMPERATURE=0.1
 OLLAMA_NUM_CTX=8192
@@ -57,19 +59,19 @@ SUPERRROO_USE_OLLAMA_SUMMARIZER=true
 Recommended weak VPS model:
 
 ```bash
-OLLAMA_SUMMARY_MODEL=qwen2.5:1.5b
+OLLAMA_SUMMARY_MODEL=qwen2.5:0.5b
 ```
 
-Recommended 8GB RAM VPS model:
+Recommended fallback model:
+
+```bash
+OLLAMA_FALLBACK_MODEL=qwen2.5:1.5b
+```
+
+Optional larger coding model if the VPS has enough spare RAM:
 
 ```bash
 OLLAMA_SUMMARY_MODEL=qwen2.5-coder:3b
-```
-
-Recommended 16GB+ RAM VPS model:
-
-```bash
-OLLAMA_SUMMARY_MODEL=qwen2.5-coder:7b
 ```
 
 ## Test manually

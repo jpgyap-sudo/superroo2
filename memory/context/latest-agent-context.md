@@ -1,25 +1,25 @@
 # Latest Agent Context
 
-Generated: 2026-05-18T13:19:34.911Z
-Task: Improve workflow compliance dashboard, service health visibility, metadata diagnostics, trends, and deploy guardrails
+Generated: 2026-05-19T14:52:29.135Z
+Task: enforce deployment VPS allowlist so QAS cannot deploy to SuperRoo VPS and SuperRoo cannot deploy to QAS VPS
 
 ## Relevant Lessons
 
-1. **Comprehensive Gap Analysis and Full-Stack Improvement Execution**
-    - Rule: Before implementing any improvement from a gap analysis document, verify the actual source code to confirm the gap still exists. For Vitest ESM mocking of default imports, always include "default: { ... }" alongside named exports in the mock factory.
-    - Why: When doing a comprehensive codebase gap analysis, always verify which gaps have already been filled by checking the actual source code rather than relying on the gap analysis document. Many items from NEXT_IMPROVEMENTS.md had already been implemented in a previous pass. For ESM module mocking in Vitest, default imports (import fs from "fs/promises") require the "default:" key in the mock factory, not just named exports. The createPopulatedRetriever() pattern using type assertion to bypass load() is more reliable than mocking filesystem operations for filtering/sorting/formatting tests.
-2. **Deploy dashboards should summarize recorded facts, not infer missing telemetry**
-    - Rule: For dashboard health summaries, compute metrics from persisted backend facts and render unavailable states for absent telemetry; never pair a local-only form with copy that implies infrastructure changes were saved.
-    - Why: The deploy tab fabricated failure reasons and average duration while exposing a non-persistent config editor; a canonical deploy summary endpoint and read-only target panel restored truthful operational data.
-3. **Production deploys must keep source and dependency manifests in sync**
-    - Rule: When production source files change together with dependencies, deploy the matching `package.json` and verify generated runtime artifacts exist before declaring recovery complete.
-    - Why: Hotfixes can restore one failing layer while leaving another stale layer broken. For production recovery, validate the runtime artifact set as well as the source change, especially when a deploy spans both app code and dependency manifests.
-4. **Model Router Service Task Routing**
-    - Rule: Use the Model Router for all AI calls. Route by task type, not just by user preference. Always have fallback providers configured.
-    - Why: Different AI providers excel at different task types. A routing layer improves both cost-efficiency and output quality.
-5. **Claude Task Tracking System — MCP Memory Server Integration**
-    - Rule: When adding a new agent type to the MCP Memory Server, always add all 8 integration points in order: constant → interfaces → tool definitions → handlers → resource → search → helpers → agent config file. Missing any one breaks the full workflow.
-    - Why: When adding a new agent task tracking system to the MCP Memory Server, follow the exact pattern of existing agent implementations (Codex → Kimi → Claude). Each agent needs: (1) a JSON log file, (2) a path constant, (3) TypeScript interfaces, (4) 4 MCP tool definitions in \_registerTools(), (5) handler cases in \_handleToolCall(), (6) a resource endpoint in \_registerResources(), (7) the JSON file added to \_searchLocalMemory(), and (8) 6 helper methods (read, write, upsert, list, get, getActive). The CLAUDE.md file follows the same pattern as .codex/config.toml for Codex.
+1. **VPS project isolation ? QAS must not run on SuperRoo VPS**
+    - Rule: Before service deploy/removal, verify hostname, Tailscale IP, public IP, DNS A record, project path, and port ownership; enforce per-project VPS allowlists.
+    - Why: A duplicate QAS stack on the SuperRoo VPS bound port 3001 and caused dev.abcx124.xyz to serve the wrong app. QAS belongs on 165.22.110.111 / 100.86.182.7; SuperRoo belongs on 104.248.225.250 / 100.64.175.88.
+2. **Tailscale SSH Deployment Standard**
+    - Rule: ALL deployments MUST use Tailscale SSH (100.64.175.88). Never use public IP (104.248.225.250) for SSH.
+    - Why: Security practices must be enforced at the tooling level, not just documented. Automated systems will fall back to insecure defaults without explicit constraints.
+3. **Cross-Project Learning Layer — Sync Script, Retry Queue, and Systemd Timer**
+    - Rule: When deploying systemd timers for cron-like tasks: use `OnCalendar=hourly`, `Persistent=true` to catch missed runs, `RandomizedDelaySec=5min` to spread load, and always run an initial sync after enabling to verify the service works end-to-end.
+    - Why: When building infrastructure for cross-project learning, always verify the fallback paths work on all target OSes (Windows paths differ from Unix paths). The 3-layer fallback architecture (local JSONL → Central Brain MCP → markdown) provides graceful degradation — no single point of failure. Systemd timers with RandomizedDelaySec prevent thundering herd on Central Brain.
+4. **PM2 env_block overrides env_file - hardcode vault keys directly in ecosystem.config.js**
+    - Rule: When configuring PM2 ecosystem.config.js, NEVER use `process.env.X || ""` in the `env` block for critical secrets that are defined in `env_file`. The `env` block takes precedence over `env_file`. Either hardcode the value directly, or ensure the variable is set in the shell environment before `pm2 start`. Always verify with `cat /proc/<pid>/environ | tr '\0' '\n' | grep KEY_NAME` after restart.
+    - Why: PM2 env_file directive is unreliable. The env block process.env.X patterns override .env values with empty strings. Fixed by hardcoding SUPERROO_VAULT_KEY directly. Also fixed: shutdown handler, classifier prompt, markdown stripping, button URL validation, missing pg module.
+5. **VPS deployment with Caddy reverse proxy and PM2 process management**
+    - Rule: Node.js production deployment MUST include: Caddy reverse proxy with automatic HTTPS, PM2 process manager with memory limits and auto-restart, environment variables in PM2 env files, and a deployment script. Never expose Node.js directly to the internet.
+    - Why: Deployed the Product Image Studio app to a VPS using Caddy as a reverse proxy (automatic HTTPS via Let's Encrypt) and PM2 for Node.js process management. Required proper environment variable handling and Caddyfile configuration.
 
 ## Active Codex Tasks
 
@@ -27,21 +27,19 @@ Task: Improve workflow compliance dashboard, service health visibility, metadata
 
 ## Architecture Reminder
 
-         │     ├── Repair Plan Builder (structured fix generation)
-
-- **Features**: Priority queuing, Job retry & backoff, Concurrency control
-- **Features**: Feature lifecycle tracking (planned → building → testing → working → deprecated), Health monitoring (unknown → healthy → degraded → failing), Bug-to-feature mapping
 - **Features**: Incident detection, Root cause classification, Repair plan generation, Auto-fix deployment, Verification cycle
-    - **Repair Plan Builder** ([`src/super-roo/healing/RepairPlanBuilder.ts`](../src/super-roo/healing/RepairPlanBuilder.ts)) - Structured fix generation
-        > **IMPORTANT**: This is THE single source of truth for all commits and deployments across all coding agents. Every agent MUST use `CommitDeployLog.recordCommit()` and `CommitDeployLog.recordDeploy()` to record their work. The log is append-only (no deletions, only status updates) and agent-aware (records which agent made the change).
+    > **IMPORTANT**: This is THE single source of truth for all commits and deployments across all coding agents. Every agent MUST use `CommitDeployLog.recordCommit()` and `CommitDeployLog.recordDeploy()` to record their work. The log is append-only (no deletions, only status updates) and agent-aware (records which agent made the change).
 - **Features**: Autonomous multi-agent debugging, Complex feature problem solving, Phase-by-phase breakdown, Hypothesis-driven iteration, Safe container execution (Docker), Automatic git snapshot/rollback, Multi-feature integration sync, Auto-generated skills from failures, Auto-approval mode (all approvals auto-granted, all deployments auto-run), 24/7 unlimited iteration
 - **Features**: GitHub Actions dispatch, VPS SSH deployment, Rollback management, Health check verification
-- **Features**: Provider API key management, Encrypted secret storage (AES-256-GCM), Real provider connection testing, Agent routing sync, VPS control center (auto-approve, MCP, guardrails), Deployment safety validation - **API Keys View** ([`cloud/dashboard/src/components/views/api-keys.tsx`](../cloud/dashboard/src/components/views/api-keys.tsx)) - Provider key management UI with save/test/delete
-  Incident Detection → Healing Bus → Root Cause Classifier → Repair Plan Builder → Self-Healing Loop → Fix → Verify
+- **Features**: Provider API key management, Encrypted secret storage (AES-256-GCM), Real provider connection testing, Agent routing sync, VPS control center (auto-approve, MCP, guardrails), Deployment safety validation
+
+### DeepSeek Architecture Summary
+
+The deployment VPS allowlist enforcement affects the **Deployment & CI/CD** module (GitHub Actions dispatch, VPS SSH deployment, rollback, health checks) and the **VPS Control Center** (auto-approve, MCP, guardrails, deployment safety validation). These modules connect via agent routing sync and encrypted secret storage, with the architecture constraint that deployment safety validation must reject any cross-VPS deployment (QAS to SuperRoo or vice versa) based on the allowlist.
 
 ## Task Signals
 
-Inferred tags: ui, deployment
+Inferred tags: deployment
 
 ## Feature Knowledge
 
@@ -92,6 +90,10 @@ Implemented `safeJsonParse<T>(json, fallback)` helper function that:
 - Applied consistently across all registry modules
 - HealingBus already used this pattern; extended to other registries
 
+### DeepSeek Bug Memory Summary
+
+Recurring pattern: multiple registry modules (BugRegistry, TaskQueue, FeatureRegistry, MemoryStore) lacked safe JSON parsing, causing crashes on corrupted database rows. Root cause: direct `JSON.parse()` usage without fallback for malformed data. Fix: added `safeJsonParse` helper across all affected files, with enhanced usage in HealingBus.
+
 ## Model Decisions
 
 # model-decisions.md
@@ -134,3 +136,7 @@ Created routing table with primary and fallback providers:
 #### Rationale
 
 - Claude excels at coding and planning tasks
+
+### DeepSeek Model Decision Summary
+
+The developer chose the **kimi-k2.5** model for implementing a model routing service that maps task types to optimal provider/model pairs based on cost, quality, and speed tradeoffs. This decision was made to support the deployment VPS allowlist enforcement by ensuring that QAS and SuperRoo deployments are routed to their respective VPS environments. The model router service (in `modelRouterService.ts`) provides the necessary logic to enforce these deployment restrictions.

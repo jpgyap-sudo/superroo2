@@ -10,6 +10,7 @@
 const fs = require("fs")
 const path = require("path")
 const { spawnSync } = require("child_process")
+const { assertAllowedTarget, remoteVerificationCommand } = require("../../worker/deploymentAllowlist")
 
 /**
  * @typedef {Object} DeployConfig
@@ -40,6 +41,7 @@ class DeployOrchestrator {
 	 */
 	constructor(config) {
 		this.config = config
+		this.projectName = config.projectName || config.repoName || "superroo2"
 		/** @type {DeployState[]} */
 		this.history = []
 		/** @type {DeployState|null} */
@@ -153,6 +155,10 @@ class DeployOrchestrator {
 	 * @private
 	 */
 	async _triggerGitHubWorkflow(version, commitSha) {
+		assertAllowedTarget(this.projectName, {
+			sshTarget: this.config.vpsHost,
+			rootPath: this.config.vpsDeployPath,
+		})
 		const manifestDir = path.join(process.cwd(), ".super-roo", "deploy")
 		fs.mkdirSync(manifestDir, { recursive: true })
 		const manifest = {
@@ -170,6 +176,10 @@ class DeployOrchestrator {
 	 * @private
 	 */
 	async _deployToVps(version) {
+		assertAllowedTarget(this.projectName, {
+			sshTarget: this.config.vpsHost,
+			rootPath: this.config.vpsDeployPath,
+		})
 		const bundleDir = path.join(process.cwd(), ".super-roo", "deploy", "bundles")
 		fs.mkdirSync(bundleDir, { recursive: true })
 		const bundlePath = path.join(bundleDir, `${version}.tar.gz`)
@@ -186,18 +196,29 @@ class DeployOrchestrator {
 		]
 
 		const keyArgs = this.config.vpsKeyPath ? ["-i", this.config.vpsKeyPath] : []
+		const sshTarget = `${this.config.vpsUser}@${this.config.vpsHost}`
 
 		this._runCommand("scp", [
 			...sshHangPrevention,
 			...keyArgs,
 			bundlePath,
-			`${this.config.vpsUser}@${this.config.vpsHost}:${this.config.vpsDeployPath}/`,
+			`${sshTarget}:${this.config.vpsDeployPath}/`,
 		])
 
 		this._runCommand("ssh", [
 			...sshHangPrevention,
 			...keyArgs,
-			`${this.config.vpsUser}@${this.config.vpsHost}`,
+			sshTarget,
+			remoteVerificationCommand(this.projectName, {
+				sshTarget: this.config.vpsHost,
+				rootPath: this.config.vpsDeployPath,
+			}),
+		])
+
+		this._runCommand("ssh", [
+			...sshHangPrevention,
+			...keyArgs,
+			sshTarget,
 			`cd ${this._shellQuote(this.config.vpsDeployPath)} && tar -xzf ${this._shellQuote(`${version}.tar.gz`)} && ./scripts/restart.sh`,
 		])
 	}

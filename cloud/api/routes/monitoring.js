@@ -8,6 +8,8 @@
  *   GET /api/monitoring/logs              — Query aggregated logs
  *   GET /api/monitoring/stats             — System stats (CPU, memory, active agents, recent errors)
  *   GET /api/monitoring/health-timeline   — Health check history
+ *   GET /api/monitoring/aggregated-logs   — Query pgvector aggregated logs
+ *   GET /api/monitoring/aggregated-stats  — Stats about aggregated logs
  */
 
 const fs = require("fs")
@@ -18,7 +20,7 @@ const { promisify } = require("util")
 
 const execAsync = promisify(exec)
 
-// ── Configuration ────────────────────────────────────────────────────────────────
+// -- Configuration ----------------------------------------------------------------
 
 /** Path to the logs directory (relative to project root) */
 const LOGS_DIR = path.resolve(__dirname, "..", "..", "..", "logs")
@@ -41,7 +43,7 @@ const COMMIT_DEPLOY_LOG_PATH = path.resolve(
 /** Path to the health check log file */
 const HEALTH_LOG_PATH = path.resolve(__dirname, "..", "..", "data", "health-timeline.json")
 
-// ── Helpers ──────────────────────────────────────────────────────────────────────
+// -- Helpers ----------------------------------------------------------------------
 
 /**
  * Safely read and parse a JSON file.
@@ -103,7 +105,7 @@ function parseQuery(url) {
 	}
 }
 
-// ── Route Handlers ───────────────────────────────────────────────────────────────
+// -- Route Handlers ---------------------------------------------------------------
 
 /**
  * GET /api/monitoring/logs
@@ -464,7 +466,178 @@ async function handleRecordHealthCheck(req, res, body) {
 	sendJson(res, 200, { success: true, recorded: true })
 }
 
-// ── Router ───────────────────────────────────────────────────────────────────────
+// -- Aggregated Logs (pgvector) ---------------------------------------------------
+
+const DB_CONTAINER = "d2081035b419"
+
+/**
+ * GET /api/monitoring/aggregated-logs
+ *
+ * Query aggregated logs from the pgvector aggregated_logs table.
+ * Supports filtering by level, source, search text, and time range.
+ *
+ * Query params:
+ *   level   — Filter by level (debug, info, warn, error)
+ *   source  — Filter by source
+ *   search  — Search string in message (ILIKE)
+ *   since   — ISO timestamp to filter from
+ *   limit   — Max results (default: 50)
+ *   offset  — Pagination offset
+ */
+async function handleGetAggregatedLogs(req, res, url) {
+	const parsedUrl = new URL(url, "http://localhost")
+	const limit = parseInt(parsedUrl.searchParams.get("limit") || "50", 10)
+	const level = parsedUrl.searchParams.get("level") || ""
+	const source = parsedUrl.searchParams.get("source") || ""
+	const search = parsedUrl.searchParams.get("search") || ""
+	const since = parsedUrl.searchParams.get("since") || ""
+	const offset = parseInt(parsedUrl.searchParams.get("offset") || "0", 10)
+
+	try {
+		const { execSync } = require("child_process")
+		let sql =
+			"SELECT id, timestamp, source, level, message, service, type, metric, value, container FROM aggregated_logs WHERE 1=1"
+
+		if (level) {
+			sql += " AND level = '" + level.replace(/'/g, "''") + "'"
+		}
+		if (source) {
+			sql += " AND source = '" + source.replace(/'/g, "''") + "'"
+		}
+		if (search) {
+			sql += " AND message ILIKE '%" + search.replace(/'/g, "''") + "%'"
+		}
+		if (since) {
+			sql += " AND timestamp >= '" + since.replace(/'/g, "''") + "'"
+		}
+
+		// Get total count
+		const countSql = sql.replace(/SELECT .* FROM/, "SELECT COUNT(*) FROM")
+		const countResult = execSync(
+			"docker exec -i " +
+				DB_CONTAINER +
+				' psql -U superroo -d superroo -t -A -c "' +
+				countSql.replace(/"/g, '\\"') +
+				'"',
+			{ encoding: "utf-8", timeout: 10000 },
+		).trim()
+		const total = parseInt(countResult) || 0
+
+		// Get paginated results using pipe delimiter (avoids shell escaping issues with tab)
+		sql += " ORDER BY timestamp DESC LIMIT " + limit + " OFFSET " + offset
+		const result = execSync(
+			"docker exec -i " +
+				DB_CONTAINER +
+				" psql -U superroo -d superroo -t -A -F '|' -c \"" +
+				sql.replace(/"/g, '\\"') +
+				'"',
+			{ encoding: "utf-8", timeout: 10000 },
+		).trim()
+
+		const rows = result
+			? result
+					.split("\n")
+					.filter(Boolean)
+					.map((line) => {
+						const cols = line.split("|")
+						return {
+							id: parseInt(cols[0]) || 0,
+							timestamp: cols[1] || null,
+							source: cols[2] || null,
+							level: cols[3] || null,
+							message: cols[4] || null,
+							service: cols[5] || null,
+							type: cols[6] || null,
+							metric: cols[7] || null,
+							value: cols[8] ? parseFloat(cols[8]) : null,
+							container: cols[9] || null,
+						}
+					})
+			: []
+
+		sendJson(res, 200, { rows, total, limit, offset })
+	} catch (err) {
+		sendJson(res, 500, { error: err.message })
+	}
+}
+
+/**
+ * GET /api/monitoring/aggregated-stats
+ *
+ * Returns summary statistics about the aggregated logs in pgvector.
+ */
+async function handleGetAggregatedStats(req, res) {
+	try {
+		const { execSync } = require("child_process")
+
+		// Level distribution
+		const levelResult = execSync(
+			"docker exec -i " +
+				DB_CONTAINER +
+				" psql -U superroo -d superroo -t -A -F '|' -c \"SELECT level, COUNT(*) as cnt FROM aggregated_logs GROUP BY level ORDER BY cnt DESC\"",
+			{ encoding: "utf-8", timeout: 10000 },
+		).trim()
+		const levelDist = levelResult
+			? levelResult
+					.split("\n")
+					.filter(Boolean)
+					.map((line) => {
+						const [level, cnt] = line.split("|")
+						return { level, count: parseInt(cnt) || 0 }
+					})
+			: []
+
+		// Source distribution
+		const sourceResult = execSync(
+			"docker exec -i " +
+				DB_CONTAINER +
+				" psql -U superroo -d superroo -t -A -F '|' -c \"SELECT source, COUNT(*) as cnt FROM aggregated_logs GROUP BY source ORDER BY cnt DESC\"",
+			{ encoding: "utf-8", timeout: 10000 },
+		).trim()
+		const sourceDist = sourceResult
+			? sourceResult
+					.split("\n")
+					.filter(Boolean)
+					.map((line) => {
+						const [source, cnt] = line.split("|")
+						return { source, count: parseInt(cnt) || 0 }
+					})
+			: []
+
+		// Total count
+		const totalResult = execSync(
+			"docker exec -i " +
+				DB_CONTAINER +
+				' psql -U superroo -d superroo -t -A -c "SELECT COUNT(*) FROM aggregated_logs"',
+			{ encoding: "utf-8", timeout: 10000 },
+		).trim()
+		const total = parseInt(totalResult) || 0
+
+		// Last 24h count
+		const dayResult = execSync(
+			"docker exec -i " +
+				DB_CONTAINER +
+				" psql -U superroo -d superroo -t -A -c \"SELECT COUNT(*) FROM aggregated_logs WHERE timestamp > NOW() - INTERVAL '24 hours'\"",
+			{ encoding: "utf-8", timeout: 10000 },
+		).trim()
+		const last24h = parseInt(dayResult) || 0
+
+		// Error count last 24h
+		const errorResult = execSync(
+			"docker exec -i " +
+				DB_CONTAINER +
+				" psql -U superroo -d superroo -t -A -c \"SELECT COUNT(*) FROM aggregated_logs WHERE level = 'error' AND timestamp > NOW() - INTERVAL '24 hours'\"",
+			{ encoding: "utf-8", timeout: 10000 },
+		).trim()
+		const errors24h = parseInt(errorResult) || 0
+
+		sendJson(res, 200, { total, last24h, errors24h, levelDistribution: levelDist, sourceDistribution: sourceDist })
+	} catch (err) {
+		sendJson(res, 500, { error: err.message })
+	}
+}
+
+// -- Router -----------------------------------------------------------------------
 
 /**
  * Main entry point for monitoring routes.
@@ -503,6 +676,18 @@ async function handleMonitoringRoute(method, url, req, res) {
 		// Body is already parsed by the caller
 		const body = req.body || {}
 		await handleRecordHealthCheck(req, res, body)
+		return true
+	}
+
+	// GET /api/monitoring/aggregated-logs — query pgvector aggregated logs
+	if (method === "GET" && pathname === "/api/monitoring/aggregated-logs") {
+		await handleGetAggregatedLogs(req, res, url)
+		return true
+	}
+
+	// GET /api/monitoring/aggregated-stats — stats about aggregated logs
+	if (method === "GET" && pathname === "/api/monitoring/aggregated-stats") {
+		await handleGetAggregatedStats(req, res)
 		return true
 	}
 

@@ -411,7 +411,10 @@ class McpMemoryServer {
 								type: "object",
 								properties: {
 									topic: { type: "string", description: "The topic or subject of the lesson" },
-									content: { type: "string", description: "The lesson content or knowledge to store" },
+									content: {
+										type: "string",
+										description: "The lesson content or knowledge to store",
+									},
 								},
 								required: ["topic", "content"],
 							},
@@ -942,7 +945,11 @@ class McpMemoryServer {
 				for (const lesson of lessons) {
 					try {
 						if (!lesson.topic || !lesson.content) {
-							results.push({ topic: lesson.topic || "(untitled)", status: "skipped", error: "Missing topic or content" })
+							results.push({
+								topic: lesson.topic || "(untitled)",
+								status: "skipped",
+								error: "Missing topic or content",
+							})
 							continue
 						}
 						// Dedup check for each lesson
@@ -964,7 +971,12 @@ class McpMemoryServer {
 						})
 					}
 				}
-				return { success: true, results, total: lessons.length, stored: results.filter((r) => r.status === "stored").length }
+				return {
+					success: true,
+					results,
+					total: lessons.length,
+					stored: results.filter((r) => r.status === "stored").length,
+				}
 			}
 
 			case "hermes_list_skills": {
@@ -1159,7 +1171,11 @@ class McpMemoryServer {
 			try {
 				const restResult = await this._proxyToRestApi(action, params)
 				// Also check REST API for success:false
-				if (restResult && typeof restResult === "object" && "success" in (restResult as Record<string, unknown>)) {
+				if (
+					restResult &&
+					typeof restResult === "object" &&
+					"success" in (restResult as Record<string, unknown>)
+				) {
 					const r = restResult as Record<string, unknown>
 					if (r.success === false) {
 						throw new Error(`REST API returned success:false: ${(r.error as string) || "unknown error"}`)
@@ -1215,9 +1231,7 @@ class McpMemoryServer {
 			case "list_projects": {
 				// Scan ~/.superroo/config.json for registered projects
 				const configProjects = await this._readSuperrooConfig()
-				const projects = Object.keys(configProjects).length > 0
-					? Object.keys(configProjects)
-					: ["superroo2"]
+				const projects = Object.keys(configProjects).length > 0 ? Object.keys(configProjects) : ["superroo2"]
 				return {
 					success: true,
 					projects,
@@ -1366,15 +1380,62 @@ class McpMemoryServer {
 			}
 		}
 
+		// Also search lesson-index.jsonl (JSONL format — one JSON object per line)
+		try {
+			const raw = await fs.readFile(LESSON_INDEX_PATH, "utf8")
+			const lines = raw.split("\n").filter((l) => l.trim())
+			const lessonMatches: unknown[] = []
+			for (const line of lines) {
+				try {
+					const entry = JSON.parse(line) as Record<string, unknown>
+					if (JSON.stringify(entry).toLowerCase().includes(q)) {
+						lessonMatches.push(entry)
+						if (lessonMatches.length >= limit) break
+					}
+				} catch {
+					// skip malformed JSON lines
+				}
+			}
+			if (lessonMatches.length > 0) {
+				results.push({ file: "lesson-index.jsonl", matches: lessonMatches })
+			}
+		} catch {
+			// skip unreadable files
+		}
+
+		// Also search lessons-learned.md (markdown with ### Lesson: blocks)
+		try {
+			const raw = await fs.readFile(LESSONS_LEARNED_PATH, "utf8")
+			const lessonBlocks = raw.split("### ")
+			const mdMatches: unknown[] = []
+			for (const block of lessonBlocks) {
+				if (!block.trim()) continue
+				if (block.toLowerCase().includes(q)) {
+					const titleLine = block.split("\n")[0]?.trim() || "(untitled)"
+					mdMatches.push({
+						title: titleLine,
+						content: block.slice(0, 500).trim(),
+						source: "lessons-learned.md",
+					})
+					if (mdMatches.length >= limit) break
+				}
+			}
+			if (mdMatches.length > 0) {
+				results.push({ file: "lessons-learned.md", matches: mdMatches })
+			}
+		} catch {
+			// skip unreadable files
+		}
+
 		return results.slice(0, limit)
 	}
 
 	// ── New Helper Methods ──
 
 	/**
-		* Read the ~/.superroo/config.json file and return registered projects.
-		* Returns an empty object if the file doesn't exist or is invalid.
-		*/
+	 * Read the ~/.superroo/config.json file and return registered projects.
+	 * Returns an empty object if the file doesn't exist or is invalid.
+	 */
 	private async _readSuperrooConfig(): Promise<Record<string, SuperrooProjectConfig>> {
 		try {
 			const raw = await fs.readFile(SUPERROO_CONFIG_PATH, "utf8")
@@ -1388,15 +1449,18 @@ class McpMemoryServer {
 				return {}
 			}
 			// Log unexpected errors but don't crash
-			console.warn(`[mcp-memory] Failed to read superroo config at ${SUPERROO_CONFIG_PATH}:`, err instanceof Error ? err.message : String(err))
+			console.warn(
+				`[mcp-memory] Failed to read superroo config at ${SUPERROO_CONFIG_PATH}:`,
+				err instanceof Error ? err.message : String(err),
+			)
 			return {}
 		}
 	}
 
 	/**
-		* Register a project in ~/.superroo/config.json.
-		* Creates the file and parent directories if they don't exist.
-		*/
+	 * Register a project in ~/.superroo/config.json.
+	 * Creates the file and parent directories if they don't exist.
+	 */
 	private async _registerProject(name: string, directory: string): Promise<unknown> {
 		if (!name) {
 			throw new Error("Project name is required")
@@ -1434,10 +1498,12 @@ class McpMemoryServer {
 	}
 
 	/**
-		* Find a duplicate lesson by searching local lesson files for a matching topic.
-		* Checks both lessons-learned.md and lesson-index.jsonl.
-		*/
-	private async _findDuplicateLesson(topic: string): Promise<{ topic: string; content?: string; source: string } | null> {
+	 * Find a duplicate lesson by searching local lesson files for a matching topic.
+	 * Checks both lessons-learned.md and lesson-index.jsonl.
+	 */
+	private async _findDuplicateLesson(
+		topic: string,
+	): Promise<{ topic: string; content?: string; source: string } | null> {
 		if (!topic) return null
 
 		const normalizedTopic = topic.toLowerCase().trim()
@@ -1459,7 +1525,9 @@ class McpMemoryServer {
 			}
 		} catch (err) {
 			if (!isNodeError(err) || err.code !== "ENOENT") {
-				console.warn(`[mcp-memory] Failed to read lesson index: ${err instanceof Error ? err.message : String(err)}`)
+				console.warn(
+					`[mcp-memory] Failed to read lesson index: ${err instanceof Error ? err.message : String(err)}`,
+				)
 			}
 		}
 
@@ -1476,7 +1544,9 @@ class McpMemoryServer {
 			}
 		} catch (err) {
 			if (!isNodeError(err) || err.code !== "ENOENT") {
-				console.warn(`[mcp-memory] Failed to read lessons file: ${err instanceof Error ? err.message : String(err)}`)
+				console.warn(
+					`[mcp-memory] Failed to read lessons file: ${err instanceof Error ? err.message : String(err)}`,
+				)
 			}
 		}
 
@@ -1484,9 +1554,9 @@ class McpMemoryServer {
 	}
 
 	/**
-		* Get sync status by testing connectivity to all available backends.
-		* Tests daemon, REST API fallback, and local fallback.
-		*/
+	 * Get sync status by testing connectivity to all available backends.
+	 * Tests daemon, REST API fallback, and local fallback.
+	 */
 	private async _getSyncStatus(): Promise<unknown> {
 		const status: Record<string, unknown> = {
 			server: {
@@ -1558,8 +1628,8 @@ class McpMemoryServer {
 	}
 
 	/**
-		* Proxy a request to the Central Brain daemon.
-		*/
+	 * Proxy a request to the Central Brain daemon.
+	 */
 	private async _proxyToDaemon(action: string, params: Record<string, unknown>): Promise<unknown> {
 		const headers: Record<string, string> = {
 			"content-type": "application/json",

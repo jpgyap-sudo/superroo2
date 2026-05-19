@@ -54,7 +54,7 @@ The engine is organized into these key modules:
 | [`Conv2D/MaxPool2D/Flatten`](src/super-roo/ml/engine/layers/conv.ts) | `layers/conv.ts`      | Convolutional layers with im2col                                          |
 | [`Optimizer`](src/super-roo/ml/engine/Optimizer.ts)                  | `Optimizer.ts`        | Adam + SGD optimizers with LR scheduler integration                       |
 | [`LRScheduler`](src/super-roo/ml/engine/LRScheduler.ts)              | `LRScheduler.ts`      | StepDecay, ExponentialDecay, ReduceLROnPlateau                            |
-| [`Loss`](src/super-roo/ml/engine/Loss.ts)                            | `Loss.ts`             | MSE, CrossEntropy, Huber, Hinge, BCE                                      |
+| [`Loss`](src/super-roo/ml/engine/Loss.ts)                            | `Loss.ts`             | MSE, CrossEntropy, Huber, Hinge, MAE, KL, CosineSimilarity, BCE           |
 | [`NeuralNetwork`](src/super-roo/ml/engine/NeuralNetwork.ts)          | `NeuralNetwork.ts`    | Sequential model builder with train/predict                               |
 | [`Metrics`](src/super-roo/ml/engine/Metrics.ts)                      | `Metrics.ts`          | Accuracy, precision, recall, F1, confusion matrix, regression metrics     |
 | [`ModelPersistence`](src/super-roo/ml/engine/ModelPersistence.ts)    | `ModelPersistence.ts` | Full learner state persistence                                            |
@@ -392,6 +392,58 @@ const scheduler = new ReduceLROnPlateau({
 scheduler.onPlateauEnd(valLoss)
 ```
 
+### CosineAnnealing
+
+Smooth cosine decay from `initialLR` to `minLR` over `T_max` epochs, with optional warm restarts that reset the LR to `initialLR` and restart the cosine cycle.
+
+```typescript
+import { CosineAnnealingScheduler } from "../ml/engine"
+
+const scheduler = new CosineAnnealingScheduler({
+	initialLR: 0.01,
+	T_max: 50, // Epochs per full cosine cycle (default: 50)
+	minLR: 1e-8, // Minimum LR floor (default: 1e-8)
+	restarts: 2, // Number of warm restarts (0 = no restarts, default: 0)
+	T_mult: 1, // T_max multiplier after each restart (default: 1)
+})
+
+// LR at epoch 0:  0.01
+// LR at epoch 25: ~0.005 (mid-cycle)
+// LR at epoch 50:  1e-8  (end of cycle, then restarts at 0.01 if restarts > 0)
+```
+
+- **Warm restarts**: When `restarts > 0`, the LR jumps back to `initialLR` after each full cycle, simulating a new training run with a warm start.
+- **T_mult**: Multiplies `T_max` after each restart (e.g., `T_mult=2` doubles the cycle length each restart).
+
+### DropoutScheduler
+
+Anneals the dropout rate over the course of training, starting at `initialRate` and moving toward `finalRate`. Supports three annealing strategies.
+
+```typescript
+import { DropoutScheduler } from "../ml/engine"
+
+// Linear annealing (default)
+const scheduler = new DropoutScheduler({
+	initialRate: 0.5, // Starting dropout rate (default: 0.5)
+	finalRate: 0.1, // Ending dropout rate (default: 0.1)
+	totalEpochs: 100, // Annealing duration (default: 100)
+	mode: "linear", // "linear" | "exponential" | "cosine"
+})
+
+// Get the dropout rate for a given epoch
+const rate = scheduler.getRate(epoch) // e.g., epoch 50 → 0.3 (linear midpoint)
+```
+
+Annealing modes:
+
+| Mode            | Behavior                                       | Use Case                           |
+| --------------- | ---------------------------------------------- | ---------------------------------- |
+| `"linear"`      | `rate = initial + (final - initial) * t`       | Steady regularization decay        |
+| `"exponential"` | `rate = initial * (final/initial)^t`           | Fast initial drop, slow tail       |
+| `"cosine"`      | `rate = final + (initial - final) * cos(πt/2)` | Slow initial drop, fast final drop |
+
+Where `t = min(epoch / totalEpochs, 1)`.
+
 ---
 
 ## Loss Functions
@@ -404,16 +456,28 @@ interface LossFn {
 }
 ```
 
-| Loss                 | Class                                                 | Use Case                                 |
-| -------------------- | ----------------------------------------------------- | ---------------------------------------- |
-| MSE                  | [`MSELoss`](src/super-roo/ml/engine/Loss.ts)          | Regression                               |
-| Cross-Entropy        | [`CrossEntropyLoss`](src/super-roo/ml/engine/Loss.ts) | Multi-class classification               |
-| Binary Cross-Entropy | [`BCELoss`](src/super-roo/ml/engine/Loss.ts)          | Binary classification                    |
-| Huber                | [`HuberLoss`](src/super-roo/ml/engine/Loss.ts)        | Robust regression (delta=1.0)            |
-| Hinge                | [`HingeLoss`](src/super-roo/ml/engine/Loss.ts)        | SVM-style classification (targets: -1/1) |
+| Loss                 | Class                                                     | Use Case                                   |
+| -------------------- | --------------------------------------------------------- | ------------------------------------------ |
+| MSE                  | [`MSELoss`](src/super-roo/ml/engine/Loss.ts)              | Regression                                 |
+| Cross-Entropy        | [`CrossEntropyLoss`](src/super-roo/ml/engine/Loss.ts)     | Multi-class classification                 |
+| Binary Cross-Entropy | [`BCELoss`](src/super-roo/ml/engine/Loss.ts)              | Binary classification                      |
+| Huber                | [`HuberLoss`](src/super-roo/ml/engine/Loss.ts)            | Robust regression (delta=1.0)              |
+| Hinge                | [`HingeLoss`](src/super-roo/ml/engine/Loss.ts)            | SVM-style classification (targets: -1/1)   |
+| MAE                  | [`MAELoss`](src/super-roo/ml/engine/Loss.ts)              | Mean Absolute Error regression             |
+| KL Divergence        | [`KLLoss`](src/super-roo/ml/engine/Loss.ts)               | Distribution matching (e.g., distillation) |
+| Cosine Similarity    | [`CosineSimilarityLoss`](src/super-roo/ml/engine/Loss.ts) | Similarity learning (1 - cos similarity)   |
 
 ```typescript
-import { MSELoss, CrossEntropyLoss, HuberLoss, HingeLoss, BCELoss } from "../ml/engine"
+import {
+	MSELoss,
+	CrossEntropyLoss,
+	HuberLoss,
+	HingeLoss,
+	MAELoss,
+	KLLoss,
+	CosineSimilarityLoss,
+	BCELoss,
+} from "../ml/engine"
 
 const mse = new MSELoss()
 const { loss, grad } = mse.forward(predictions, targets)
@@ -421,6 +485,9 @@ const { loss, grad } = mse.forward(predictions, targets)
 const huber = new HuberLoss(1.0) // delta parameter
 const crossEntropy = new CrossEntropyLoss()
 const hinge = new HingeLoss()
+const mae = new MAELoss()
+const kl = new KLLoss()
+const cosine = new CosineSimilarityLoss()
 const bce = new BCELoss()
 ```
 
@@ -517,12 +584,21 @@ await ckpt.save(model.layers, optimizer, {
 	valLoss: 0.02,
 })
 
-// Save with validation tracking
-const improved = await ckpt.saveWithValidation(model.layers, valLoss, optimizer, epoch, trainLoss)
+// Save with validation tracking — returns true if val loss improved
+const improved: boolean = await ckpt.saveWithValidation(
+	model.layers,
+	valLoss, // Current validation loss
+	optimizer, // Optional optimizer state
+	epoch, // Current epoch
+	trainLoss, // Current training loss
+)
 
 // Load checkpoint
 const data = await ckpt.load(model.layers, optimizer)
 // data.metadata contains epoch, trainLoss, valLoss
+
+// Clear all checkpoint files
+await ckpt.clear()
 ```
 
 ### ModelPersistence

@@ -17,9 +17,9 @@ if curl -s http://127.0.0.1:11434/api/tags > /dev/null 2>&1; then
     # Ensure required models are available
     echo "📦 Checking required models..."
     
-    if ! curl -s http://127.0.0.1:11434/api/tags | grep -q "qwen2.5"; then
-        echo "⬇️  Pulling qwen2.5:3b for summarization..."
-        curl -X POST http://127.0.0.1:11434/api/pull -d '{"name": "qwen2.5:3b"}'
+    if ! curl -s http://127.0.0.1:11434/api/tags | grep -q "qwen2.5:0.5b"; then
+        echo "⬇️  Pulling qwen2.5:0.5b for summarization..."
+        curl -X POST http://127.0.0.1:11434/api/pull -d '{"name": "qwen2.5:0.5b"}'
     fi
     
     if ! curl -s http://127.0.0.1:11434/api/tags | grep -q "nomic-embed"; then
@@ -27,12 +27,12 @@ if curl -s http://127.0.0.1:11434/api/tags > /dev/null 2>&1; then
         curl -X POST http://127.0.0.1:11434/api/pull -d '{"name": "nomic-embed-text"}'
     fi
     
-    # Run Ollama summarization
+    # Run lesson summarization (DeepSeek for summaries, Ollama for embeddings)
     echo ""
-    echo "📝 Running Ollama summarization..."
+    echo "📝 Running lesson summarization..."
     node scripts/ollama-summarize-lesson.mjs memory/lessons-learned.md
-    node scripts/ollama-summarize-lesson.mjs memory/bugs-fixed.md
-    node scripts/ollama-summarize-lesson.mjs memory/model-decisions.md
+    # Note: bugs-fixed.md and model-decisions.md are not processed by ollama-summarize-lesson.mjs
+    # They are read directly by build-agent-context.mjs during context compression
 else
     echo "❌ Ollama not available at http://127.0.0.1:11434"
     echo "   Start Ollama with: ollama serve"

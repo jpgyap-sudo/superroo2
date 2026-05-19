@@ -75,34 +75,22 @@ function exec(command) {
 }
 
 /**
- * Run a command in the background (detached child process).
- * Works on both Windows and Unix.
+ * Run extract-commit synchronously.
+ * On Windows, orphaned child processes (spawn + unref) may not have time
+ * to initialize before the parent exits. Using execSync is more reliable
+ * and the performance impact on git commit is negligible (~1-2 seconds).
  */
-function runBackground(command) {
+function runExtractCommit(superrooLearn, sha, message, author, files) {
 	try {
-		const child = spawn(process.execPath, [
-			"-e",
-			`
-				const { execSync } = require("child_process");
-				try {
-					execSync(${JSON.stringify(command)}, {
-						encoding: "utf-8",
-						stdio: "ignore",
-						timeout: 30000,
-						windowsHide: true,
-					});
-				} catch (e) {
-					// Silently fail in background
-				}
-			`,
-		], {
-			detached: true,
+		const escapedMessage = message.replace(/"/g, '\\"')
+		const cmd = `${superrooLearn} extract-commit "${sha}" "${escapedMessage}" "${author}" "${files}"`
+		execSync(cmd, {
+			encoding: "utf-8",
 			stdio: "ignore",
-			windowsHide: true,
+			timeout: 30000,
 		})
-		child.unref()
 	} catch {
-		// Background spawn failure is non-critical
+		// Extract failure is non-critical
 	}
 }
 
@@ -114,6 +102,12 @@ function main() {
 		// superroo-learn not found — silently skip
 		process.exit(0)
 	}
+
+	// Parse superrooLearn into program + base args
+	// Format: node "path/to/script.mjs" or "path/to/script.sh"
+	const parts = superrooLearn.match(/(?:[^\s"]+|"[^"]*")+/g) || []
+	const program = parts[0]
+	const baseArgs = parts.slice(1).map((a) => a.replace(/^"|"$/g, ""))
 
 	// Get commit info
 	const sha = exec("git rev-parse HEAD")
@@ -176,27 +170,8 @@ function main() {
 		process.exit(0)
 	}
 
-	// Run in background — don't slow down git commit
-	const escapedMessage = message.replace(/"/g, '\\"')
-	const extractCmd = `${superrooLearn} extract-commit "${sha}" "${escapedMessage}" "${author}" "${files}"`
-	runBackground(extractCmd)
-
-	// Also run Ollama summarization in background (graceful if Ollama offline)
-	// Try to find the ollama-summarize-lesson.mjs script in the repo
-	const repoPaths = [
-		path.join(os.homedir(), "superroo", "superroo2"),
-		path.join(os.homedir(), "projects", "superroo2"),
-		path.join(os.homedir(), "code", "superroo2"),
-		"C:\\Users\\User\\superroo\\superroo2",
-	]
-	for (const dir of repoPaths) {
-		const ollamaScript = path.join(dir, "scripts", "ollama-summarize-lesson.mjs")
-		if (existsSync(ollamaScript)) {
-			const ollamaCmd = `node "${ollamaScript}" --quiet --last-only`
-			runBackground(ollamaCmd)
-			break
-		}
-	}
+	// Run extract-commit synchronously
+	runExtractCommit(superrooLearn, sha, message, author, files)
 }
 
 main()

@@ -76,11 +76,43 @@ async function install() {
 	const cliDest = path.join(BIN_DIR, "superroo-learn.mjs")
 	const cliContent = await fs.readFile(cliSource, "utf-8")
 	await fs.writeFile(cliDest, cliContent, { mode: 0o755 })
+	const isWindows = process.platform === "win32"
+	const bridgeSource = path.resolve(TOOLS_DIR, "..", "scripts", "mcp-codex-bridge.mjs")
+	const bridgeWrapperPath = path.join(BIN_DIR, "superroo-codex-bridge")
+	const bridgeWrapperCmdPath = path.join(BIN_DIR, "superroo-codex-bridge.cmd")
+	const bridgeWrapperContent = isWindows
+		? `@echo off
+node "${bridgeSource}" %*
+`
+		: `#!/bin/sh
+node "${bridgeSource}" "$@"
+`
+	await fs.writeFile(bridgeWrapperPath, bridgeWrapperContent, { mode: 0o755 })
+	if (isWindows) {
+		await fs.writeFile(bridgeWrapperCmdPath, bridgeWrapperContent, { mode: 0o755 })
+	}
 	console.log(`   📝 Installed CLI: ${cliDest}`)
+
+	const hookVerifierSource = path.resolve(TOOLS_DIR, "verify-global-hook.mjs")
+	const hookVerifierDest = path.join(BIN_DIR, "superroo-verify-hook.mjs")
+	const hookVerifierContent = await fs.readFile(hookVerifierSource, "utf-8")
+	await fs.writeFile(hookVerifierDest, hookVerifierContent, { mode: 0o755 })
+	const hookVerifierWrapperPath = path.join(BIN_DIR, "superroo-verify-hook")
+	const hookVerifierWrapperCmdPath = path.join(BIN_DIR, "superroo-verify-hook.cmd")
+	const hookVerifierWrapperContent = isWindows
+		? `@echo off
+node "${hookVerifierDest}" %*
+`
+		: `#!/bin/sh
+node "${hookVerifierDest}" "$@"
+`
+	await fs.writeFile(hookVerifierWrapperPath, hookVerifierWrapperContent, { mode: 0o755 })
+	if (isWindows) {
+		await fs.writeFile(hookVerifierWrapperCmdPath, hookVerifierWrapperContent, { mode: 0o755 })
+	}
 
 	// Also create a wrapper script for PATH (cross-platform)
 	const wrapperPath = path.join(BIN_DIR, "superroo-learn")
-	const isWindows = process.platform === "win32"
 	let wrapperContent
 	if (isWindows) {
 		// Windows batch wrapper

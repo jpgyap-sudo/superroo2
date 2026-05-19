@@ -1,0 +1,49 @@
+{
+	"models": [
+		{
+			"name": "qwen2.5:0.5b",
+			"model": "qwen2.5:0.5b",
+			"modified_at": "2026-05-19T01:13:03.771200147Z",
+			"size": 397821319,
+			"digest": "a8b0c51577010a279d933d14c2a8ab4b268079d44c5c8830c0a93900f1827c67",
+			"details": {
+				"parent_model": "",
+				"format": "gguf",
+				"family": "qwen2",
+				"families": ["qwen2"],
+				"parameter_size": "494.03M",
+				"quantization_level": "Q4_K_M"
+			}
+		},
+		{
+			"name": "nomic-embed-text:latest",
+			"model": "nomic-embed-text:latest",
+			"modified_at": "2026-05-19T01:12:59.841982142Z",
+			"size": 274302450,
+			"digest": "0a109f422b47e3a30ba2b10eca18548e944e8a23073ee3f3e947efcf3c45e59f",
+			"details": {
+				"parent_model": "",
+				"format": "gguf",
+				"family": "nomic-bert",
+				"families": ["nomic-bert"],
+				"parameter_size": "137M",
+				"quantization_level": "F16"
+			}
+		},
+		{
+			"name": "qwen2.5:1.5b",
+			"model": "qwen2.5:1.5b",
+			"modified_at": "2026-05-19T01:11:32.423131672Z",
+			"size": 986061892,
+			"digest": "65ec06548149b04c096a120e4a6da9d4017ea809c91734ea5631e89f96ddc57b",
+			"details": {
+				"parent_model": "",
+				"format": "gguf",
+				"family": "qwen2",
+				"families": ["qwen2"],
+				"parameter_size": "1.5B",
+				"quantization_level": "Q4_K_M"
+			}
+		}
+	]
+}

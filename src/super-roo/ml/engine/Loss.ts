@@ -127,6 +127,99 @@ export class HingeLoss implements LossFn {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Mean Absolute Error (for regression, robust to outliers)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class MAELoss implements LossFn {
+	forward(pred: Tensor, target: Tensor): { loss: number; grad: Tensor } {
+		if (pred.rows !== target.rows || pred.cols !== target.cols) {
+			throw new Error("Shape mismatch in MAELoss")
+		}
+		let totalLoss = 0
+		const grad = new Tensor(pred.rows, pred.cols, "zeros")
+		const n = pred.rows * pred.cols
+		for (let i = 0; i < pred.rows; i++) {
+			for (let j = 0; j < pred.cols; j++) {
+				const diff = pred.get(i, j) - target.get(i, j)
+				totalLoss += Math.abs(diff)
+				grad.set(i, j, Math.sign(diff) / n)
+			}
+		}
+		return { loss: totalLoss / n, grad }
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// KL Divergence — for variational models, knowledge distillation
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class KLLoss implements LossFn {
+	forward(pred: Tensor, target: Tensor): { loss: number; grad: Tensor } {
+		if (pred.rows !== target.rows || pred.cols !== target.cols) {
+			throw new Error("Shape mismatch in KLLoss")
+		}
+		let totalLoss = 0
+		const grad = new Tensor(pred.rows, pred.cols, "zeros")
+		const rowNorm = 1 / pred.rows
+		for (let i = 0; i < pred.rows; i++) {
+			for (let j = 0; j < pred.cols; j++) {
+				const p = Math.max(pred.get(i, j), 1e-8)
+				const t = Math.max(target.get(i, j), 1e-8)
+				totalLoss += t * Math.log(t / p)
+				// Gradient of KL(p||t) w.r.t. p: -t/p
+				grad.set(i, j, (-t / p) * rowNorm)
+			}
+		}
+		return { loss: totalLoss / pred.rows, grad }
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cosine Similarity Loss — for embedding/similarity learning
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class CosineSimilarityLoss implements LossFn {
+	forward(pred: Tensor, target: Tensor): { loss: number; grad: Tensor } {
+		if (pred.rows !== target.rows || pred.cols !== target.cols) {
+			throw new Error("Shape mismatch in CosineSimilarityLoss")
+		}
+		let totalLoss = 0
+		const grad = new Tensor(pred.rows, pred.cols, "zeros")
+		const n = pred.rows
+
+		for (let i = 0; i < pred.rows; i++) {
+			// Extract row vectors
+			let dot = 0
+			let normPred = 0
+			let normTarget = 0
+			for (let j = 0; j < pred.cols; j++) {
+				const p = pred.get(i, j)
+				const t = target.get(i, j)
+				dot += p * t
+				normPred += p * p
+				normTarget += t * t
+			}
+			normPred = Math.sqrt(Math.max(normPred, 1e-8))
+			normTarget = Math.sqrt(Math.max(normTarget, 1e-8))
+			const cosine = dot / (normPred * normTarget)
+			// Loss = 1 - cosine (range [0, 2])
+			totalLoss += 1 - cosine
+
+			// Gradient of (1 - cosine) w.r.t. pred row
+			// d/dp (1 - dot/(np*nt)) = -t/(np*nt) + dot*p/(np^3*nt)
+			for (let j = 0; j < pred.cols; j++) {
+				const p = pred.get(i, j)
+				const t = target.get(i, j)
+				const gradVal = -t / (normPred * normTarget) + (dot * p) / (normPred * normPred * normPred * normTarget)
+				grad.set(i, j, gradVal / n)
+			}
+		}
+
+		return { loss: totalLoss / n, grad }
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Binary Cross-Entropy (for binary classification)
 // ─────────────────────────────────────────────────────────────────────────────
 

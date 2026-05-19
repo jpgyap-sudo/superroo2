@@ -1,80 +1,39 @@
 {
-  "commits": [
-    {
-      "id": "commit_8e8577c8-487a-414f-83d9-45a0d3ea691d",
-      "commitSha": "9cbb9345e07c3951b259b65d9f37c74a16bd289d",
-      "agent": "Codex",
-      "type": "bugfix",
-      "title": "Improve Telegram coder retry flow",
-      "description": "Fix sync createTask handling and split retryable system failures from user clarification UX.",
-      "filesChanged": [
-        "cloud/api/telegramBot.js",
-        "cloud/api/telegramNotifier.js",
-        "cloud/worker/agentRunners.js",
-        "cloud/test-verify-fixes.js"
-      ],
-      "featuresAffected": [
-        "telegram",
-        "orchestrator"
-      ],
-      "bugsFixed": [
-        "telegram-createTask-sync-catch",
-        "telegram-retryable-failure-copy"
-      ],
-      "timestamp": "2026-05-18T12:50:23.860Z"
-    },
-    {
-      "agent": "Kimi Code CLI",
-      "type": "feature",
-      "title": "ESLint v9 flat config, ExtensionsPanel runtime wiring, Docker hybrid compose",
-      "filesChanged": [
-        "cloud/dashboard/eslint.config.mjs",
-        "cloud/dashboard/package.json",
-        "cloud/dashboard/src/components/ide-terminal/ExtensionsPanel.tsx",
-        "cloud/dashboard/src/components/ide-terminal/hooks/useExtensionState.ts",
-        "cloud/dashboard/src/components/views/ide-terminal.tsx",
-        "cloud/docker/Dockerfile.auto-deployer",
-        "cloud/docker/Dockerfile.worker",
-        "cloud/docker/README.md",
-        "cloud/docker/docker-compose.yml",
-        "packages/config-eslint/package.json"
-      ],
-      "featuresAffected": [
-        "Dashboard IDE",
-        "Extensions Panel",
-        "Docker Deployment"
-      ],
-      "modelsUsed": [],
-      "workflowCompliance": null,
-      "timestamp": 1779106701922
-    }
-  ],
-  "deploys": [
-    {
-      "id": "deploy_79c8937e-50a1-46bc-a1bb-979e6f7d8b5b",
-      "version": "telegram-fix-9cbb9345e",
-      "commitSha": "9cbb9345e07c3951b259b65d9f37c74a16bd289d",
-      "agent": "Codex",
-      "status": "healthy",
-      "environment": "production",
-      "commitsIncluded": [
-        "9cbb9345e07c3951b259b65d9f37c74a16bd289d"
-      ],
-      "featuresDeployed": [
-        "telegram",
-        "orchestrator"
-      ],
-      "healthCheckPassed": true,
-      "healthCheckLatencyMs": 8000,
-      "startedAt": "2026-05-18T12:50:50.846Z",
-      "completedAt": "2026-05-18T12:51:26.571Z"
-    },
-    {
-      "version": "3.53.3",
-      "commitSha": "241e097ed",
-      "agent": "Kimi Code CLI",
-      "status": "deploying",
-      "timestamp": 1779106701924
-    }
-  ]
+	"commits": [
+		{
+			"agent": "Kimi Code CLI",
+			"type": "feature",
+			"title": "Docker hybrid migration: API/Dashboard/Mini-IDE containerized, TS errors fixed",
+			"filesChanged": [
+				"src/super-roo/product-memory/index.ts",
+				"webview-ui/src/components/chat/KimiTasksPanel.tsx",
+				"webview-ui/src/components/chat/ChatView.tsx",
+				"cloud/docker/docker-compose.yml",
+				"cloud/docker/Dockerfile.api",
+				"cloud/docker/Dockerfile.dashboard",
+				"cloud/docker/Dockerfile.mini-ide",
+				"cloud/docker/Dockerfile.worker",
+				"cloud/docker/Dockerfile.auto-deployer",
+				"cloud/dashboard/next.config.js",
+				"cloud/dashboard/package.json",
+				"cloud/dashboard/eslint.config.mjs",
+				"cloud/dashboard/src/components/ide-terminal/hooks/useExtensionState.ts",
+				"cloud/dashboard/src/components/ide-terminal/ExtensionsPanel.tsx",
+				"cloud/dashboard/src/components/views/ide-terminal.tsx"
+			],
+			"featuresAffected": ["Dashboard IDE", "Extensions Panel", "Docker Deployment", "TypeScript Build"],
+			"modelsUsed": [],
+			"workflowCompliance": null,
+			"timestamp": 1779111103074
+		}
+	],
+	"deploys": [
+		{
+			"version": "3.53.3",
+			"commitSha": "05373f87b",
+			"agent": "Kimi Code CLI",
+			"status": "deploying",
+			"timestamp": 1779111103077
+		}
+	]
 }

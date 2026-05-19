@@ -1,20 +1,21 @@
 # SuperRoo Codex Configuration
 # This file configures Codex to work with the SuperRoo intelligence layer
+# Codex uses the MCP Codex Bridge to invoke DeepSeek and Ollama tools
+# via CLI commands instead of JSON-RPC/stdio (since Codex doesn't support MCP natively)
 
 approval_policy = "on-request"
 sandbox_mode = "workspace-write"
 
 [project]
 name = "superroo2"
-default_agent_flow = "codex_reads_lessons_deepseek_codes_ollama_summarizes"
+default_agent_flow = "codex_reads_lessons_deepseek_mcp_codes_deepseek_summarizes_ollama_embeds"
 
-# DeepSeek API Key (last 4 chars: b52d)
-# Full key should be in DEEPSEEK_API_KEY environment variable
+# DeepSeek API key is loaded from DEEPSEEK_API_KEY or repo .env by the bridge.
 
 [superoo_intelligence]
 read_lessons_before_task = true
 write_lessons_after_task = true
-ollama_summary_enabled = true
+deepseek_summary_enabled = true
 central_brain_enabled = true
 
 [models]
@@ -29,21 +30,61 @@ Read AGENTS.md before every task.
 
 Superoo workflow:
 - Codex = planner and reviewer
-- DeepSeek = main coder
-- Ollama = lesson summarizer and memory learner
+- DeepSeek MCP = mandatory implementation coder AND context summarizer
+- Ollama MCP = embeddings and memory learner only
 - Central Brain = permanent lesson storage
 
 Before coding:
-1. Read memory/lessons-learned.md
-2. Read memory/bugs-fixed.md
-3. Read memory/model-decisions.md
-4. Read docs/intelligence-layer/architecture.md (if exists)
+1. Run: node scripts/ml/build-agent-context.mjs "<task description>"
+2. Read: memory/context/latest-agent-context.md
+   (This file contains DeepSeek-compressed summaries of relevant lessons, files,
+    working tree, bugs, features, and model decisions — pre-computed lesson
+    summaries from memory/lesson-summaries.json are injected directly.)
 
 Use the LessonRetriever to find relevant lessons:
 - Query by task type (coding, debugging, testing, deployment)
 - Query by file paths being modified
 - Query by tags (e.g., 'error-handling', 'performance', 'security')
 - Include top 5 most relevant lessons in your planning
+
+=== MCP Codex Bridge Usage ===
+
+Instead of calling DeepSeek or Ollama APIs directly, use the MCP Codex Bridge.
+This ensures the same tools and workflow are used across Claude Code and Codex.
+The bridge loads DEEPSEEK_API_KEY from the environment or repo .env before falling back to .mcp.json.
+
+DeepSeek tools (via bridge):
+  deepseek_code <prompt> [--system <system>] [--model <model>]
+  deepseek_review <code> [--context <context>]
+  deepseek_refactor <code> [--instructions <instructions>]
+  deepseek_explain <code> [--context <context>]
+  deepseek_status
+
+Ollama tools (via bridge):
+  ollama_embed <text> [--model <model>]     # embeddings only (nomic-embed-text)
+  ollama_chat <message> [--system <system>] # local chat (qwen2.5:0.5b)
+  ollama_list_models
+  ollama_status
+
+Note: Summarization is now handled by DeepSeek API, not Ollama.
+The `ollama_summarize` bridge command is deprecated — use `ollama-summarize-lesson.mjs` instead.
+
+Usage: node scripts/mcp-codex-bridge.mjs <provider> <tool> [args...]
+
+Examples:
+  node scripts/mcp-codex-bridge.mjs deepseek code "Write a function to sort an array" --system "You are a senior engineer"
+  node scripts/mcp-codex-bridge.mjs deepseek review "function foo() { return bar; }" --context "This is a utility module"
+  node scripts/mcp-codex-bridge.mjs deepseek status
+  node scripts/mcp-codex-bridge.mjs ollama embed "Text to embed"
+  node scripts/mcp-codex-bridge.mjs ollama status
+
+=== Workflow ===
+
+1. PLAN: Run build-agent-context.mjs, read latest-agent-context.md, then plan
+2. CODE: Use `deepseek_code` bridge command for implementation. If DeepSeek status is not healthy, fix the MCP/API connection first and mark coding blocked until it is healthy.
+3. REVIEW: Use `deepseek_review` bridge command for code review
+4. SUMMARIZE: Run `node scripts/ollama-summarize-lesson.mjs` (uses DeepSeek API for summaries, Ollama for embeddings)
+5. RECORD: Append lesson to memory/lessons-learned.md
 
 After every task, you MUST record lessons learned:
 
@@ -94,7 +135,7 @@ Related files: [comma-separated list]
 
 Then run the lesson capture scripts if available:
 - node scripts/extract-lesson-from-commit.mjs --interactive
-- node scripts/ollama-summarize-lesson.mjs (when Ollama is running)
+- node scripts/ollama-summarize-lesson.mjs (uses DeepSeek API for summaries, Ollama for embeddings)
 - node scripts/central-brain-store-lesson.mjs (when Central Brain is running)
 
 Finally, update the lesson index:
@@ -107,12 +148,28 @@ read_lessons = "node -e \"const {getLessonRetriever} = require('./src/super-roo/
 find_lessons_for_file = "node -e \"const {getLessonRetriever} = require('./src/super-roo/lessons'); const retriever = getLessonRetriever(); retriever.load().then(() => retriever.getLessonsForFile(process.argv[1], 5)).then(lessons => console.log(JSON.stringify(lessons, null, 2)))\""
 find_lessons_for_task = "node -e \"const {getLessonRetriever} = require('./src/super-roo/lessons'); const retriever = getLessonRetriever(); retriever.load().then(() => retriever.getLessonsForTask(process.argv[1], 5)).then(lessons => console.log(JSON.stringify(lessons, null, 2)))\""
 
-# NEW: Check workflow compliance
+# MCP Codex Bridge — DeepSeek tools
+deepseek_code = "node scripts/mcp-codex-bridge.mjs deepseek code"
+deepseek_review = "node scripts/mcp-codex-bridge.mjs deepseek review"
+deepseek_refactor = "node scripts/mcp-codex-bridge.mjs deepseek refactor"
+deepseek_explain = "node scripts/mcp-codex-bridge.mjs deepseek explain"
+deepseek_status = "node scripts/mcp-codex-bridge.mjs deepseek status"
 
+# MCP Codex Bridge — Ollama tools
+ollama_summarize = "node scripts/mcp-codex-bridge.mjs ollama summarize"
+ollama_embed = "node scripts/mcp-codex-bridge.mjs ollama embed"
+ollama_chat = "node scripts/mcp-codex-bridge.mjs ollama chat"
+ollama_list_models = "node scripts/mcp-codex-bridge.mjs ollama list-models"
+ollama_status = "node scripts/mcp-codex-bridge.mjs ollama status"
+
+# Check workflow compliance
 check_compliance = "node scripts/check-workflow-compliance.mjs"
 check_compliance_since = "node scripts/check-workflow-compliance.mjs --since"
 verify_api_key = "node scripts/check-workflow-compliance.mjs --verify-key"
 generate_compliance_report = "node scripts/check-workflow-compliance.mjs --report"
+
+# E2E test
+e2e_test = "node scripts/test-claude-mcp-workflow.mjs"
 
 [features]
 # Enable specific SuperRoo features
@@ -121,7 +178,10 @@ auto_test = true
 code_review = true
 security_audit = true
 performance_check = true
-# NEW: Workflow tracking features
+# Workflow tracking features
 workflow_tracking = true
 model_usage_tracking = true
 deepseek_verification = true
+# MCP Codex Bridge features
+mcp_bridge_deepseek = true
+mcp_bridge_ollama = true

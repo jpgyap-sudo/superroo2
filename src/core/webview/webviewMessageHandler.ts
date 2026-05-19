@@ -139,6 +139,80 @@ async function handleSuperRooMessage(provider: ClineProvider, message: Record<st
 			}
 			break
 		}
+
+		// ── VPS Health monitoring ──────────────────────────────────────────
+		case "superRoo:getVpsAggregatedLogs":
+		case "superRoo:getVpsAggregatedStats": {
+			try {
+				const http = await import("http")
+				const vpsIp = "100.64.175.88"
+				const vpsPort = 8787
+
+				let path = "/api/monitoring/"
+				if (type === "superRoo:getVpsAggregatedLogs") {
+					const params = new URLSearchParams()
+					const limit = message.limit as number | undefined
+					const level = message.level as string | undefined
+					const source = message.source as string | undefined
+					const search = message.search as string | undefined
+					const since = message.since as string | undefined
+					const offset = message.offset as number | undefined
+					if (limit !== undefined) params.set("limit", String(limit))
+					if (level) params.set("level", level)
+					if (source) params.set("source", source)
+					if (search) params.set("search", search)
+					if (since) params.set("since", since)
+					if (offset !== undefined) params.set("offset", String(offset))
+					path = "/api/monitoring/aggregated-logs?" + params.toString()
+				} else {
+					path = "/api/monitoring/aggregated-stats"
+				}
+
+				const data = await new Promise<string>((resolve, reject) => {
+					const req = http.get({ hostname: vpsIp, port: vpsPort, path, timeout: 15000 }, (res) => {
+						let body = ""
+						res.on("data", (chunk: Buffer) => (body += chunk.toString()))
+						res.on("end", () => resolve(body))
+					})
+					req.on("error", reject)
+					req.on("timeout", () => {
+						req.destroy()
+						reject(new Error("timeout"))
+					})
+				})
+
+				const parsed = JSON.parse(data)
+
+				if (type === "superRoo:getVpsAggregatedLogs") {
+					await provider.postMessageToWebview({
+						type: "superRoo:vpsAggregatedLogs",
+						rows: parsed.rows || [],
+						total: parsed.total || 0,
+						limit: parsed.limit || 50,
+						offset: parsed.offset || 0,
+					} as unknown as import("@superroo/types").ExtensionMessage)
+				} else {
+					await provider.postMessageToWebview({
+						type: "superRoo:vpsAggregatedStats",
+						total: parsed.total || 0,
+						last24h: parsed.last24h || 0,
+						errors24h: parsed.errors24h || 0,
+						levelDistribution: parsed.levelDistribution || [],
+						sourceDistribution: parsed.sourceDistribution || [],
+					} as unknown as import("@superroo/types").ExtensionMessage)
+				}
+			} catch (error) {
+				provider.log(
+					`[superRoo] VPS health fetch error: ${error instanceof Error ? error.message : String(error)}`,
+				)
+				await provider.postMessageToWebview({
+					type: "superRoo:error",
+					message: `Failed to fetch VPS health data: ${error instanceof Error ? error.message : String(error)}`,
+				} as unknown as import("@superroo/types").ExtensionMessage)
+			}
+			break
+		}
+
 		default:
 			provider.log(`[superRoo] Unhandled message type: ${type}`)
 	}

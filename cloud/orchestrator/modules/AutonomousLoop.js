@@ -21,6 +21,7 @@ const { exec } = require("child_process")
 const { promisify } = require("util")
 const fs = require("fs")
 const path = require("path")
+const { assertAllowedTarget, remoteVerificationCommand } = require("../../worker/deploymentAllowlist")
 
 const execAsync = promisify(exec)
 
@@ -926,7 +927,7 @@ class AutonomousLoop {
 			if (this._modelUsageTracker) {
 				try {
 					const ollamaBaseUrl = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434"
-					const ollamaModel = process.env.OLLAMA_MODEL || "llama3.2:3b"
+					const ollamaModel = process.env.OLLAMA_MODEL || "qwen2.5:0.5b"
 					const summaryPrompt = `Summarize the following git diff for a commit message:\n\n${gitStatus.stdout.slice(0, 4000)}`
 					const startTime = Date.now()
 					const summaryRes = await fetch(`${ollamaBaseUrl}/api/generate`, {
@@ -1027,8 +1028,21 @@ class AutonomousLoop {
 			const SSH_OPTS =
 				"-o StrictHostKeyChecking=no -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3"
 			const SSH_TARGET = "root@100.64.175.88"
+			const DEPLOY_PROJECT = "superroo2"
+			const DEPLOY_ROOT = "/opt/superroo2"
+			assertAllowedTarget(DEPLOY_PROJECT, { sshTarget: SSH_TARGET, rootPath: DEPLOY_ROOT })
 			const SAFE_DEPLOY_SCRIPT = `/root/${this.target}/roo-safe-deploy.sh`
 			const SAFE_STATUS_SCRIPT = `/root/${this.target}/roo-safe-status.sh`
+
+			await execAsync(
+				`ssh ${SSH_OPTS} ${SSH_TARGET} ${JSON.stringify(
+					remoteVerificationCommand(DEPLOY_PROJECT, {
+						sshTarget: SSH_TARGET,
+						rootPath: DEPLOY_ROOT,
+					}),
+				)}`,
+				{ timeout: 15000 },
+			)
 
 			// First check if safe deploy script exists
 			const checkCmd = `ssh ${SSH_OPTS} ${SSH_TARGET} "test -f ${SAFE_DEPLOY_SCRIPT} && echo 'exists' || echo 'not_found'"`
@@ -1089,7 +1103,27 @@ class AutonomousLoop {
 			const SSH_OPTS =
 				"-o StrictHostKeyChecking=no -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3"
 			const SSH_TARGET = "root@100.64.175.88"
+			const DEPLOY_PROJECT = "superroo2"
+			const DEPLOY_ROOT = "/opt/superroo2"
+			assertAllowedTarget(DEPLOY_PROJECT, { sshTarget: SSH_TARGET, rootPath: DEPLOY_ROOT })
 			const healthResults = []
+
+			// Verify the remote host identity before reading status/logs so a
+			// selected cross-project workspace cannot health-check the wrong VPS.
+			try {
+				await execAsync(
+					`ssh ${SSH_OPTS} ${SSH_TARGET} ${JSON.stringify(
+						remoteVerificationCommand(DEPLOY_PROJECT, {
+							sshTarget: SSH_TARGET,
+							rootPath: DEPLOY_ROOT,
+						}),
+					)}`,
+					{ timeout: 15000 },
+				)
+				healthResults.push({ check: "deployment_allowlist", passed: true, output: "SuperRoo VPS verified" })
+			} catch (err) {
+				healthResults.push({ check: "deployment_allowlist", passed: false, output: err.message })
+			}
 
 			// Check PM2 status
 			try {

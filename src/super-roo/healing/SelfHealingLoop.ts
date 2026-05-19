@@ -19,9 +19,11 @@
  *   fixing → blocked
  *   queued_for_fix → needs_human_approval
  *
- * Phase 1 enhancements:
- *   - Escalation rules for repeated failures
- *   - Failure count tracking per incident signature
+ * Phase 2 enhancements:
+ *   - Repair attempt tracking with timestamps and outcomes
+ *   - Per-category escalation thresholds
+ *   - Automatic circuit breaker triggers based on repair failure patterns
+ *   - Notification routing for escalated incidents
  */
 
 import type { IncidentRecord, IncidentStatus, RootCauseCategory, TaskInputRaw, TaskPriority } from "../types"
@@ -44,6 +46,18 @@ export interface EscalationPolicy {
 	escalationAction: EscalationAction
 	/** Whether to skip auto-repair after escalation */
 	skipAutoRepair: boolean
+	/**
+	 * Per-category escalation threshold overrides.
+	 * Key is the RootCauseCategory string, value is the max retries for that category.
+	 * Falls back to `maxRetries` if not specified for a category.
+	 */
+	categoryThresholds?: Record<string, number>
+	/**
+	 * Per-category escalation action overrides.
+	 * Key is the RootCauseCategory string, value is the escalation action for that category.
+	 * Falls back to `escalationAction` if not specified for a category.
+	 */
+	categoryActions?: Record<string, EscalationAction>
 }
 
 export interface IncidentSignature {
@@ -56,6 +70,36 @@ export interface FailureRecord {
 	failureCount: number
 	lastFailureAt: number
 	escalated: boolean
+}
+
+/**
+ * Tracks a single repair attempt for an incident.
+ */
+export interface RepairAttempt {
+	/** Incident ID */
+	incidentId: string
+	/** Timestamp when the repair was attempted */
+	timestamp: number
+	/** Duration of the repair attempt in milliseconds */
+	durationMs: number
+	/** Whether the repair was successful */
+	success: boolean
+	/** Root cause category at the time of attempt */
+	category: RootCauseCategory
+	/** Optional error message if the repair failed */
+	error?: string
+}
+
+/**
+ * Routing target for escalated incident notifications.
+ */
+export interface NotificationRoute {
+	/** Channel to send notification (e.g., "telegram", "slack", "email", "dashboard") */
+	channel: string
+	/** Target identifier (e.g., chat ID, channel name, email address) */
+	target: string
+	/** Minimum escalation action level that triggers this route */
+	minAction: EscalationAction
 }
 
 export interface SelfHealingConfig {
@@ -84,6 +128,21 @@ export interface SelfHealingConfig {
 	cleanupIntervalCycles?: number
 	/** Escalation policy for repeated failures. Default: 3 retries, warn, skip auto-repair */
 	escalationPolicy?: EscalationPolicy
+	/**
+	 * Repair failure rate threshold (0.0–1.0) that triggers circuit breaker.
+	 * When the repair failure rate in the recent window exceeds this, circuit breaker opens.
+	 * Default: 0.8 (80% failure rate triggers circuit breaker)
+	 */
+	repairFailureCircuitBreakerThreshold?: number
+	/**
+	 * Window size for repair failure rate calculation. Default: 10
+	 */
+	repairFailureWindowSize?: number
+	/**
+	 * Notification routes for escalated incidents.
+	 * When an incident is escalated, notifications are sent to matching routes.
+	 */
+	notificationRoutes?: NotificationRoute[]
 }
 
 export interface SelfHealingStats {
@@ -100,6 +159,14 @@ export interface SelfHealingStats {
 	consecutiveFailures: number
 	/** Whether circuit breaker is currently open */
 	circuitBreakerOpen: boolean
+	/** Total repair attempts recorded */
+	totalRepairAttempts: number
+	/** Successful repair attempts */
+	successfulRepairs: number
+	/** Failed repair attempts */
+	failedRepairs: number
+	/** Number of notifications sent */
+	notificationsSent: number
 }
 
 export class SelfHealingLoop {
@@ -117,6 +184,10 @@ export class SelfHealingLoop {
 		isRunning: false,
 		consecutiveFailures: 0,
 		circuitBreakerOpen: false,
+		totalRepairAttempts: 0,
+		successfulRepairs: 0,
+		failedRepairs: 0,
+		notificationsSent: 0,
 	}
 
 	private healingBus: HealingBus
@@ -127,6 +198,9 @@ export class SelfHealingLoop {
 
 	/** Tracks failure counts per incident signature for escalation */
 	private failureRecords: Map<string, FailureRecord> = new Map()
+
+	/** Tracks all repair attempts for trend analysis and circuit breaker triggers */
+	private repairHistory: RepairAttempt[] = []
 
 	constructor(
 		private readonly orchestrator: SuperRooOrchestrator,
@@ -159,6 +233,9 @@ export class SelfHealingLoop {
 			maxBackoffMs: 300000,
 			cleanupIntervalCycles: 10,
 			escalationPolicy: defaultEscalationPolicy,
+			repairFailureCircuitBreakerThreshold: 0.8,
+			repairFailureWindowSize: 10,
+			notificationRoutes: [],
 			...config,
 		}
 		this.healingBus = new HealingBus(orchestrator.memory, orchestrator.events, {
@@ -290,7 +367,15 @@ export class SelfHealingLoop {
 	 * Run a single healing cycle: process open incidents.
 	 */
 	async runHealingCycle(): Promise<{ processed: number; actions: string[] }> {
-		const incidents = this.healingBus.listOpen(this.config.maxPerCycle)
+		let incidents: IncidentRecord[] = []
+		try {
+			incidents = this.healingBus.listOpen(this.config.maxPerCycle)
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err)
+			this.orchestrator.events.error("healing.loop.list_error", `Failed to list open incidents: ${msg}`)
+			return { processed: 0, actions: [] }
+		}
+
 		const actions: string[] = []
 
 		for (const incident of incidents) {
@@ -624,8 +709,31 @@ export class SelfHealingLoop {
 	}
 
 	/**
+	 * Get the effective max retries for a category, considering per-category overrides.
+	 */
+	private getCategoryMaxRetries(category: RootCauseCategory): number {
+		const overrides = this.config.escalationPolicy.categoryThresholds
+		if (overrides && overrides[category] !== undefined) {
+			return overrides[category]
+		}
+		return this.config.escalationPolicy.maxRetries
+	}
+
+	/**
+	 * Get the effective escalation action for a category, considering per-category overrides.
+	 */
+	private getCategoryEscalationAction(category: RootCauseCategory): EscalationAction {
+		const overrides = this.config.escalationPolicy.categoryActions
+		if (overrides && overrides[category] !== undefined) {
+			return overrides[category]
+		}
+		return this.config.escalationPolicy.escalationAction
+	}
+
+	/**
 	 * Check whether an incident should be escalated based on failure history.
-	 * Returns true if the incident signature has failed >= maxRetries times.
+	 * Uses per-category thresholds if configured, otherwise falls back to global maxRetries.
+	 * Returns true if the incident signature has failed >= effective maxRetries times.
 	 */
 	shouldEscalate(incident: IncidentRecord): boolean {
 		const category = incident.rootCauseCategory ?? "UNKNOWN"
@@ -638,12 +746,14 @@ export class SelfHealingLoop {
 		if (!record) return false
 		if (record.escalated) return true // Already escalated
 
-		return record.failureCount >= this.config.escalationPolicy.maxRetries
+		const maxRetries = this.getCategoryMaxRetries(category)
+		return record.failureCount >= maxRetries
 	}
 
 	/**
 	 * Record a failure for an incident signature.
 	 * Increments the failure count and marks as escalated if threshold is reached.
+	 * Uses per-category thresholds if configured.
 	 */
 	recordFailure(incident: IncidentRecord): void {
 		const category = incident.rootCauseCategory ?? "UNKNOWN"
@@ -652,7 +762,9 @@ export class SelfHealingLoop {
 
 		const existing = this.failureRecords.get(signature)
 		const newCount = (existing?.failureCount ?? 0) + 1
-		const escalated = newCount >= this.config.escalationPolicy.maxRetries
+		const maxRetries = this.getCategoryMaxRetries(category)
+		const escalated = newCount >= maxRetries
+		const escalationAction = this.getCategoryEscalationAction(category)
 
 		this.failureRecords.set(signature, {
 			signature: { category, affectedFile: firstFile },
@@ -664,15 +776,19 @@ export class SelfHealingLoop {
 		if (escalated) {
 			this.orchestrator.events.warn(
 				"healing.loop.escalation_threshold",
-				`Incident signature ${signature} reached ${newCount} failures, escalating`,
+				`Incident signature ${signature} reached ${newCount} failures (threshold: ${maxRetries}), escalating with action: ${escalationAction}`,
 				{
 					data: {
 						signature,
 						failureCount: newCount,
-						escalationAction: this.config.escalationPolicy.escalationAction,
+						maxRetries,
+						escalationAction,
 					},
 				},
 			)
+
+			// Send notifications for escalated incidents
+			this.sendEscalationNotifications(incident, category, escalationAction)
 		}
 	}
 
@@ -691,6 +807,168 @@ export class SelfHealingLoop {
 		const firstFile = incident.affectedFiles[0] ?? "unknown"
 		const signature = this.makeSignature(category, firstFile)
 		this.failureRecords.delete(signature)
+	}
+
+	// ────────────────────────────────────────────────────────────────────────────
+	// Repair tracking
+	// ────────────────────────────────────────────────────────────────────────────
+
+	/**
+	 * Record a repair attempt with outcome, duration, and category.
+	 * Updates stats and checks if the repair failure rate should trigger circuit breaker.
+	 */
+	recordRepairAttempt(
+		incidentId: string,
+		category: RootCauseCategory,
+		success: boolean,
+		durationMs: number,
+		error?: string,
+	): void {
+		const attempt: RepairAttempt = {
+			incidentId,
+			timestamp: Date.now(),
+			durationMs,
+			success,
+			category,
+			error,
+		}
+
+		this.repairHistory.push(attempt)
+		this.stats.totalRepairAttempts++
+
+		if (success) {
+			this.stats.successfulRepairs++
+		} else {
+			this.stats.failedRepairs++
+		}
+
+		// Check if repair failure rate should trigger circuit breaker
+		this.checkRepairFailureCircuitBreaker(category)
+	}
+
+	/**
+	 * Get repair history for diagnostics.
+	 */
+	getRepairHistory(): readonly RepairAttempt[] {
+		return [...this.repairHistory]
+	}
+
+	/**
+	 * Get repair history filtered by category.
+	 */
+	getRepairHistoryByCategory(category: RootCauseCategory): RepairAttempt[] {
+		return this.repairHistory.filter((a) => a.category === category)
+	}
+
+	/**
+	 * Get repair history for a specific incident.
+	 */
+	getRepairHistoryByIncident(incidentId: string): RepairAttempt[] {
+		return this.repairHistory.filter((a) => a.incidentId === incidentId)
+	}
+
+	/**
+	 * Calculate the repair success rate for a category within a recent window.
+	 * Returns 0 if no attempts in the window.
+	 */
+	getRepairSuccessRate(category: RootCauseCategory, windowSize?: number): number {
+		const window = windowSize ?? this.config.repairFailureWindowSize
+		const recent = this.repairHistory.filter((a) => a.category === category).slice(-window)
+		if (recent.length === 0) return 1 // No data = assume success
+		return recent.filter((a) => a.success).length / recent.length
+	}
+
+	/**
+	 * Calculate the overall repair success rate across all categories.
+	 * Returns 1 if no attempts recorded.
+	 */
+	getOverallRepairSuccessRate(): number {
+		if (this.repairHistory.length === 0) return 1
+		return this.stats.successfulRepairs / this.stats.totalRepairAttempts
+	}
+
+	/**
+	 * Check if the repair failure rate for a category exceeds the circuit breaker threshold.
+	 * If so, open the circuit breaker for that category.
+	 */
+	private checkRepairFailureCircuitBreaker(category: RootCauseCategory): void {
+		const successRate = this.getRepairSuccessRate(category)
+		const failureRate = 1 - successRate
+		const threshold = this.config.repairFailureCircuitBreakerThreshold
+
+		if (failureRate >= threshold) {
+			this.stats.circuitBreakerOpen = true
+			this.orchestrator.events.error(
+				"healing.loop.repair_circuit_breaker",
+				`Circuit breaker opened for category ${category}: ` +
+					`repair failure rate ${(failureRate * 100).toFixed(0)}% ` +
+					`exceeds threshold ${(threshold * 100).toFixed(0)}%`,
+				{
+					data: {
+						category,
+						failureRate,
+						threshold,
+						windowSize: this.config.repairFailureWindowSize,
+						totalAttempts: this.stats.totalRepairAttempts,
+					},
+				},
+			)
+		}
+	}
+
+	// ────────────────────────────────────────────────────────────────────────────
+	// Notification routing
+	// ────────────────────────────────────────────────────────────────────────────
+
+	/**
+	 * Send notifications for an escalated incident to all matching routes.
+	 * A route matches if its minAction level is <= the escalation action.
+	 */
+	private sendEscalationNotifications(
+		incident: IncidentRecord,
+		category: RootCauseCategory,
+		action: EscalationAction,
+	): void {
+		const actionLevel = this.getEscalationActionLevel(action)
+		const routes = this.config.notificationRoutes
+
+		for (const route of routes) {
+			const routeMinLevel = this.getEscalationActionLevel(route.minAction)
+			if (actionLevel >= routeMinLevel) {
+				this.orchestrator.events.info(
+					"healing.loop.notification",
+					`Sending escalation notification to ${route.channel}:${route.target} ` +
+						`for incident ${incident.id} (action: ${action})`,
+					{
+						data: {
+							incidentId: incident.id,
+							category,
+							action,
+							channel: route.channel,
+							target: route.target,
+						},
+					},
+				)
+				this.stats.notificationsSent++
+			}
+		}
+	}
+
+	/**
+	 * Convert an escalation action to a numeric level for comparison.
+	 * Higher number = more severe.
+	 */
+	private getEscalationActionLevel(action: EscalationAction): number {
+		switch (action) {
+			case "warn":
+				return 1
+			case "notify":
+				return 2
+			case "block":
+				return 3
+			case "circuit_breaker":
+				return 4
+		}
 	}
 
 	// ────────────────────────────────────────────────────────────────────────────

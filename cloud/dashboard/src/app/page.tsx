@@ -24,6 +24,9 @@ import IdeTerminalView from "@/components/views/ide-terminal"
 import { ProjectsView } from "@/components/views/projects"
 import { TelegramView } from "@/components/views/telegram"
 import { DeployView } from "@/components/views/deploy"
+import { AutoDeployView } from "@/components/views/auto-deploy"
+import { CommitDeployView } from "@/components/views/commit-deploy"
+import { DebugTeamView } from "@/components/views/debug-team"
 import { BrainView } from "@/components/views/brain"
 import { IntelligenceLayerView } from "@/components/views/intelligence-layer"
 import WorkflowComplianceView from "@/components/views/workflow-compliance"
@@ -55,6 +58,9 @@ const PAGES: Record<string, React.FC> = {
 	projects: ProjectsView,
 	telegram: TelegramView,
 	deploy: DeployView,
+	"auto-deploy": AutoDeployView,
+	"commit-deploy": CommitDeployView,
+	"debug-team": DebugTeamView,
 	"intelligence-layer": IntelligenceLayerView,
 	brain: BrainView,
 	"ollama-growth": OllamaGrowthView,
@@ -176,6 +182,9 @@ export default function Dashboard() {
 			projects: "Projects",
 			telegram: "Telegram",
 			deploy: "Deploy",
+			"auto-deploy": "Auto Deploy",
+			"commit-deploy": "Commits",
+			"debug-team": "Debug Team",
 			brain: "Central Brain",
 			"intelligence-layer": "Intelligence Layer",
 			"workflow-compliance": "Compliance",

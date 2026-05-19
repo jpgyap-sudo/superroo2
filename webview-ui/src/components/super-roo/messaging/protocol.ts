@@ -7,7 +7,15 @@
  * dispatches on these.
  */
 
-import type { SafetyMode, SrBug, SrDashboardSnapshot, SrEvent, SrFeature, SrTask } from "../types"
+import type {
+	SafetyMode,
+	SrBug,
+	SrDashboardSnapshot,
+	SrEvent,
+	SrFeature,
+	SrTask,
+	VpsAggregatedLogEntry,
+} from "../types"
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Webview → Extension (commands)
@@ -25,6 +33,17 @@ export type SrWebviewMessage =
 	| { type: "superRoo:cancelTask"; taskId: string }
 	| { type: "superRoo:retryTask"; taskId: string }
 	| { type: "superRoo:enqueueGoal"; goal: string; agent: string; priority: string }
+	// VPS Health monitoring
+	| {
+			type: "superRoo:getVpsAggregatedLogs"
+			limit?: number
+			level?: string
+			source?: string
+			search?: string
+			since?: string
+			offset?: number
+	  }
+	| { type: "superRoo:getVpsAggregatedStats" }
 	// Product Memory commands
 	| { type: "superRoo:productMemory"; action: "testFeature"; featureId: string; result: "pass" | "fail" | "warning" }
 	| { type: "superRoo:productMemory"; action: "listFeatures" }
@@ -54,6 +73,22 @@ export type SrExtensionMessage =
 	| { type: "superRoo:settings"; mode: SafetyMode; selfImprove: boolean }
 	| { type: "superRoo:event"; event: SrEvent } // streamed from EventLog.subscribe
 	| { type: "superRoo:error"; message: string }
+	// VPS Health monitoring responses
+	| {
+			type: "superRoo:vpsAggregatedLogs"
+			rows: VpsAggregatedLogEntry[]
+			total: number
+			limit: number
+			offset: number
+	  }
+	| {
+			type: "superRoo:vpsAggregatedStats"
+			total: number
+			last24h: number
+			errors24h: number
+			levelDistribution: Array<{ level: string; count: number }>
+			sourceDistribution: Array<{ source: string; count: number }>
+	  }
 	// Provider responses
 	| {
 			type: "superRoo:providers"

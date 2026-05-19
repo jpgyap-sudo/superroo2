@@ -65,12 +65,10 @@ module.exports = {
 				REDIS_URL: "redis://127.0.0.1:6379",
 				SUPERROO_QUEUE_NAME: "superroo-jobs",
 				API_PORT: "8787",
-				SUPERROO_VAULT_KEY: process.env.SUPERROO_VAULT_KEY || "",
-				TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN || "",
+				SUPERROO_VAULT_KEY: "D16PFwmjzXtmpEfFSYrAepsaveOB+fLuneeuQrvTYVw=",
 				SMTP_HOST: "smtp.gmail.com",
 				SMTP_PORT: "587",
 				SMTP_USER: "marketing.homeu1@gmail.com",
-				SMTP_PASS: process.env.SMTP_PASS || "",
 				SMTP_FROM: "marketing.homeu1@gmail.com",
 				// Ollama (Local AI) — FREE, runs on VPS
 				OLLAMA_BASE_URL: "http://127.0.0.1:11434",
@@ -79,8 +77,6 @@ module.exports = {
 				OLLAMA_EMBED_MODEL: "nomic-embed-text",
 				OLLAMA_NUM_CTX: 2048,
 				OLLAMA_TIMEOUT_MS: 120000,
-				// Cloud API keys (fallback when Ollama is unavailable)
-				DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY || "",
 				// PostgreSQL (BugKnowledgeStore)
 				PGPASSWORD: "superroo_secret_2026",
 				PGUSER: "superroo",
@@ -130,14 +126,11 @@ module.exports = {
 				// Worker resilience config
 				WORKER_MAX_REDIS_FAILURES: "5",
 				WORKER_HEALTH_CHECK_INTERVAL_MS: "30000",
-				// AI provider keys (required for agent task execution)
-				DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY || "",
+				SUPERROO_VAULT_KEY: "D16PFwmjzXtmpEfFSYrAepsaveOB+fLuneeuQrvTYVw=",
 				OLLAMA_BASE_URL: "http://127.0.0.1:11434",
 				OLLAMA_CHAT_MODEL: "qwen2.5:0.5b",
 				// Telegram notification config
-				BOSS_TELEGRAM_CHAT_ID: process.env.BOSS_TELEGRAM_CHAT_ID || "",
 				API_BASE_URL: "http://127.0.0.1:8787",
-				SUPERROO_VAULT_KEY: process.env.SUPERROO_VAULT_KEY || "",
 			},
 			log_file: "/opt/superroo2/cloud/logs/worker-combined.log",
 			out_file: "/opt/superroo2/cloud/logs/worker-out.log",
@@ -187,7 +180,6 @@ module.exports = {
 			env: {
 				NODE_ENV: "production",
 				MINI_IDE_PORT: "8081",
-				TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN || "",
 				CORS_ORIGIN: "https://dev.abcx124.xyz",
 				SUPERROO_API_URL: "http://127.0.0.1:8787",
 				SUPERROO_API_KEY: "",

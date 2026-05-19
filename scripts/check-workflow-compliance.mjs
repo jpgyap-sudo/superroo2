@@ -4,8 +4,14 @@
  *
  * This script checks if tasks followed the SuperRoo workflow:
  * - Codex/Claude = plans and reviews
- * - DeepSeek = does the coding
- * - Ollama = summarizes lessons
+ * - DeepSeek = does the coding (via MCP or direct API)
+ * - DeepSeek = summarizes lessons; Ollama = generates embeddings
+ *
+ * Also checks MCP-based workflow compliance for Claude Code:
+ * - .mcp.json has both deepseek-coder and ollama servers
+ * - MCP servers are reachable and return expected tools
+ * - DEEPSEEK_API_KEY is configured
+ * - VPS Ollama is reachable via Tailscale
  *
  * Usage:
  *   node scripts/check-workflow-compliance.mjs [options]
@@ -18,6 +24,8 @@
  *   --report            Generate detailed compliance report
  *   --deepseek-only     Show only tasks that skipped DeepSeek
  *   --fix               Attempt to fix non-compliant records
+ *   --mcp-check         Check MCP server configuration and connectivity
+ *   --all               Run all checks (commits + MCP)
  */
 
 import fs from "fs/promises"
@@ -400,6 +408,12 @@ function parseArgs() {
 			case "--fix":
 				options.fix = true
 				break
+			case "--mcp-check":
+				options.mcpCheck = true
+				break
+			case "--all":
+				options.all = true
+				break
 			case "--help":
 			case "-h":
 				showHelp()
@@ -409,11 +423,11 @@ function parseArgs() {
 				console.log(`Unknown option: ${args[i]}`)
 				showHelp()
 				process.exit(1)
+			}
 		}
+	
+		return options
 	}
-
-	return options
-}
 
 function showHelp() {
 	console.log(`
@@ -429,6 +443,8 @@ Options:
   --report             Generate detailed compliance report
   --deepseek-only      Show only tasks that skipped DeepSeek
   --fix                Attempt to fix non-compliant records
+  --mcp-check          Check MCP server configuration and connectivity
+  --all                Run all checks (commits + MCP)
   --help, -h           Show this help message
 
 Examples:
@@ -443,22 +459,250 @@ Examples:
 
   # Detailed report for recent commits
   node scripts/check-workflow-compliance.mjs --since "3 days ago" --report
+
+  # Check MCP server configuration
+  node scripts/check-workflow-compliance.mjs --mcp-check
+
+  # Run all checks
+  node scripts/check-workflow-compliance.mjs --all
 `)
+}
+
+// ── MCP Configuration Check ──────────────────────────────────────────────────
+
+import fsSync from "fs"
+import { execSync } from "child_process"
+import os from "os"
+
+const ROOT_DIR = path.resolve(__dirname, "..")
+const MCP_CONFIG_PATH = path.join(ROOT_DIR, ".mcp.json")
+const DEEPSEEK_SCRIPT = path.join(ROOT_DIR, "scripts/deepseek-coder-mcp.mjs")
+const OLLAMA_SCRIPT = path.join(ROOT_DIR, "scripts/ollama-mcp.mjs")
+const VPS_OLLAMA_URL = "http://100.64.175.88:11434"
+const HELPER_SCRIPT = path.join(__dirname, "ml", "ollama-curl-helper.cmd")
+const TMP_DIR = fsSync.mkdtempSync(path.join(os.tmpdir(), "sr-ollama-check-"))
+
+function readEnvValue(key, filePath = path.join(ROOT_DIR, ".env")) {
+	try {
+		const lines = fsSync.readFileSync(filePath, "utf8").split(/\r?\n/)
+		for (const line of lines) {
+			const trimmed = line.trim()
+			if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) {
+				continue
+			}
+
+			const index = trimmed.indexOf("=")
+			const envKey = trimmed.slice(0, index).trim()
+			if (envKey !== key) {
+				continue
+			}
+
+			let value = trimmed.slice(index + 1).trim()
+			if (
+				(value.startsWith('"') && value.endsWith('"')) ||
+				(value.startsWith("'") && value.endsWith("'"))
+			) {
+				value = value.slice(1, -1)
+			}
+			return value
+		}
+	} catch {}
+	return ""
+}
+
+/**
+ * Call Ollama API via curl.exe helper (avoids Node.js fetch() hanging on Tailscale IPs on Windows).
+ */
+function curlOllama(url, body, timeoutMs) {
+	const outFile = path.join(TMP_DIR, `resp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.json`)
+	try {
+		if (body) {
+			const bodyFile = path.join(TMP_DIR, `body_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.json`)
+			fsSync.writeFileSync(bodyFile, JSON.stringify(body), "utf8")
+			execSync(`"${HELPER_SCRIPT}" "${url}" "${outFile}" "${bodyFile}"`, {
+				timeout: (timeoutMs || 120000) + 5000,
+				stdio: ["pipe", "pipe", "ignore"],
+				windowsHide: true,
+			})
+			try { fsSync.unlinkSync(bodyFile) } catch {}
+		} else {
+			execSync(`"${HELPER_SCRIPT}" "${url}" "${outFile}"`, {
+				timeout: (timeoutMs || 10000) + 5000,
+				stdio: ["pipe", "pipe", "ignore"],
+				windowsHide: true,
+			})
+		}
+		const raw = fsSync.readFileSync(outFile, "utf8")
+		return JSON.parse(raw)
+	} catch {
+		return null
+	} finally {
+		try { fsSync.unlinkSync(outFile) } catch {}
+	}
+}
+
+async function checkMCPConfiguration() {
+	console.log(color("bright", "\n═══════════════════════════════════════════════════════════"))
+	console.log(color("bright", "       MCP WORKFLOW CONFIGURATION CHECK"))
+	console.log(color("bright", "═══════════════════════════════════════════════════════════\n"))
+
+	const checks = []
+	let passed = 0
+	let failed = 0
+
+	// Check 1: .mcp.json exists
+	try {
+		const content = await fs.readFile(MCP_CONFIG_PATH, "utf-8")
+		const config = JSON.parse(content)
+		checks.push({ name: ".mcp.json exists and valid JSON", passed: true })
+		passed++
+
+		// Check 2: deepseek-coder server
+		const dsServer = config.mcpServers?.["deepseek-coder"]
+		if (dsServer) {
+			checks.push({ name: "deepseek-coder server registered in .mcp.json", passed: true })
+			passed++
+
+			// Check 3: deepseek-coder script exists
+			const dsScript = dsServer.args?.find(a => a.includes("deepseek-coder-mcp"))
+			if (dsScript) {
+				const fullPath = path.resolve(ROOT_DIR, dsScript)
+				try {
+					await fs.access(fullPath)
+					checks.push({ name: `deepseek-coder script exists: ${dsScript}`, passed: true })
+					passed++
+				} catch {
+					checks.push({ name: `deepseek-coder script NOT FOUND: ${dsScript}`, passed: false, detail: "File missing" })
+					failed++
+				}
+			} else {
+				checks.push({ name: "deepseek-coder args missing script path", passed: false, detail: "No deepseek-coder-mcp in args" })
+				failed++
+			}
+		} else {
+			checks.push({ name: "deepseek-coder server NOT registered", passed: false, detail: "Missing from mcpServers" })
+			failed++
+		}
+
+		// Check 4: ollama server
+		const ollamaServer = config.mcpServers?.ollama
+		if (ollamaServer) {
+			checks.push({ name: "ollama server registered in .mcp.json", passed: true })
+			passed++
+
+			// Check 5: ollama script exists
+			const ollamaScript = ollamaServer.args?.find(a => a.includes("ollama-mcp"))
+			if (ollamaScript) {
+				const fullPath = path.resolve(ROOT_DIR, ollamaScript)
+				try {
+					await fs.access(fullPath)
+					checks.push({ name: `ollama script exists: ${ollamaScript}`, passed: true })
+					passed++
+				} catch {
+					checks.push({ name: `ollama script NOT FOUND: ${ollamaScript}`, passed: false, detail: "File missing" })
+					failed++
+				}
+			} else {
+				checks.push({ name: "ollama args missing script path", passed: false, detail: "No ollama-mcp in args" })
+				failed++
+			}
+		} else {
+			checks.push({ name: "ollama server NOT registered", passed: false, detail: "Missing from mcpServers" })
+			failed++
+		}
+	} catch (err) {
+		checks.push({ name: ".mcp.json check failed", passed: false, detail: err.message })
+		failed++
+	}
+
+	// Check 6: DEEPSEEK_API_KEY
+	const terminalKey = process.env.DEEPSEEK_API_KEY
+	const envFileKey = readEnvValue("DEEPSEEK_API_KEY")
+	let mcpJsonKey = false
+	try {
+		const mcpConfig = JSON.parse(fs.readFileSync(MCP_CONFIG_PATH, "utf-8"))
+		const dsEnv = mcpConfig?.mcpServers?.["deepseek-coder"]?.env
+		mcpJsonKey = !!(dsEnv?.DEEPSEEK_API_KEY && dsEnv.DEEPSEEK_API_KEY.length >= 10)
+	} catch {}
+	if (terminalKey) {
+		checks.push({ name: "DEEPSEEK_API_KEY set in terminal environment", passed: true })
+		passed++
+	} else if (envFileKey && envFileKey.length >= 10) {
+		checks.push({ name: "DEEPSEEK_API_KEY set in repo .env", passed: true })
+		passed++
+	} else if (mcpJsonKey) {
+		checks.push({ name: "DEEPSEEK_API_KEY set in .mcp.json env block", passed: true })
+		passed++
+	} else {
+		checks.push({ name: "DEEPSEEK_API_KEY NOT set", passed: false, detail: "Required for deepseek-coder MCP" })
+		failed++
+	}
+
+	// Check 7: VPS Ollama reachable
+	try {
+		const data = curlOllama(`${VPS_OLLAMA_URL}/api/tags`, null, 5000)
+		if (data) {
+			const modelCount = (data.models || []).length
+			checks.push({ name: `VPS Ollama reachable (${modelCount} models)`, passed: true })
+			passed++
+		} else {
+			checks.push({ name: "VPS Ollama unreachable", passed: false, detail: "curl helper returned null" })
+			failed++
+		}
+	} catch (err) {
+		checks.push({ name: "VPS Ollama unreachable", passed: false, detail: err.message })
+		failed++
+	}
+
+	// Print results
+	for (const check of checks) {
+		const icon = check.passed ? color("green", "  ✅") : color("red", "  ❌")
+		console.log(`${icon} ${check.name}${check.detail ? ": " + color(check.passed ? "green" : "red", check.detail) : ""}`)
+	}
+
+	console.log(color("bright", "\n───────────────────────────────────────────────────────────"))
+	console.log(`  MCP checks: ${passed} passed, ${failed} failed`)
+	const rate = ((passed / checks.length) * 100).toFixed(1)
+	console.log(`  Rate: ${failed === 0 ? color("green", rate + "%") : color("yellow", rate + "%")}`)
+	console.log(color("bright", "───────────────────────────────────────────────────────────\n"))
+
+	return { passed, failed, total: checks.length }
 }
 
 async function main() {
 	const options = parseArgs()
 
-	// Default to stats if no specific option given
-	if (!options.stats && !options.report && !options.verifyKey && !options.deepseekOnly) {
+	// Handle --all: run everything
+	if (options.all) {
 		options.stats = true
+		options.report = true
+		options.mcpCheck = true
 	}
 
-	try {
-		await generateReport(options)
-	} catch (err) {
-		console.error(color("red", "Error:"), err.message)
-		process.exit(1)
+	// Run MCP check if requested
+	if (options.mcpCheck) {
+		await checkMCPConfiguration()
+	}
+
+	// Run commit-based checks if requested
+	if (options.stats || options.report || options.verifyKey || options.deepseekOnly) {
+		try {
+			await generateReport(options)
+		} catch (err) {
+			console.error(color("red", "Error:"), err.message)
+			process.exit(1)
+		}
+	}
+
+	// Default: show stats if nothing specific requested
+	if (!options.stats && !options.report && !options.verifyKey && !options.deepseekOnly && !options.mcpCheck && !options.all) {
+		options.stats = true
+		try {
+			await generateReport(options)
+		} catch (err) {
+			console.error(color("red", "Error:"), err.message)
+			process.exit(1)
+		}
 	}
 }
 

@@ -14,7 +14,7 @@
  *   superroo-learn register [name]                  Register current directory as a project
  *   superroo-learn scan [--dir <path>] [--dry-run]  Retroactively extract lessons from existing repo
  *   superroo-learn publish [--skill <name>]         Publish structured lessons from a skill to Central Brain
- *   superroo-learn extract-commit <sha> <msg> <author> <files>  Auto-extract from git commit
+ *   superroo-learn extract-commit <sha> <msg> <author> <files>  Auto-extract from git commit (DeepSeek-summarized)
  *   superroo-learn status                           Show learning layer status
  *   superroo-learn health                           Check Central Brain and local fallback health
  *   superroo-learn sync [--force|--dry-run|--status]  Push local lessons to Central Brain
@@ -29,11 +29,13 @@
  *   SUPERROO_NO_FALLBACK   — Set to "1" to disable local fallback
  *   SUPERROO_RETRY_MAX     — Max retry attempts for queued operations (default: 5)
  *   SUPERROO_RETRY_BASE_MS — Base delay for exponential backoff in ms (default: 2000)
+ *   SUPERROO_MEMORY_DIR    — Path to a shared cross-project lesson store directory
+ *                           (default: ~/superroo/superroo2/memory/)
  */
 
 import { execSync } from "child_process"
 import fs from "fs/promises"
-import { accessSync } from "fs"
+import { accessSync, readFileSync } from "fs"
 import path from "path"
 import os from "os"
 import { fileURLToPath } from "url"
@@ -46,6 +48,131 @@ const MCP_URL = process.env.SUPERROO_MCP_URL || "http://127.0.0.1:3419/mcp"
 const CONFIG_DIR = path.join(os.homedir(), ".superroo")
 const CONFIG_FILE = path.join(CONFIG_DIR, "config.json")
 const NO_FALLBACK = process.env.SUPERROO_NO_FALLBACK === "1"
+
+/**
+ * Shared cross-project lesson store directory.
+ * Can be overridden via SUPERROO_MEMORY_DIR env var.
+ * Defaults to ~/superroo/superroo2/memory/ which is the superroo2 repo.
+ */
+const SHARED_MEMORY_DIR = (() => {
+	if (process.env.SUPERROO_MEMORY_DIR) {
+		return process.env.SUPERROO_MEMORY_DIR
+	}
+	// Try common locations
+	const candidates = [
+		path.join(os.homedir(), "superroo", "superroo2", "memory"),
+		path.join(os.homedir(), "superroo2", "memory"),
+	]
+	for (const dir of candidates) {
+		try {
+			accessSync(dir)
+			return dir
+		} catch {}
+	}
+	// Fall back to the first candidate even if it doesn't exist yet
+	return candidates[0]
+})()
+
+// ── DeepSeek API Configuration ──
+
+const DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
+const DEEPSEEK_MODEL = "deepseek-chat"
+const DEEPSEEK_TIMEOUT_MS = 30000
+
+/**
+ * Load environment variables from .env file (lightweight, no dotenv dependency).
+ * Checks ROOT/.env, ROOT/cloud/.env, and the superroo2 repo's .env as fallback
+ * (for cross-project use where the global hook runs from ~/.superroo/bin/).
+ */
+function loadEnvFile() {
+	if (process.env.DEEPSEEK_API_KEY) return // already set
+	const root = path.resolve(__dirname, "..")
+	const superroo2Env = path.resolve(os.homedir(), "superroo", "superroo2", ".env")
+	const candidates = [
+		path.join(root, ".env"),
+		path.join(root, "cloud", ".env"),
+		superroo2Env,
+	]
+	for (const envPath of candidates) {
+		try {
+			accessSync(envPath)
+			const text = readFileSync(envPath, "utf-8")
+			for (const line of text.split("\n")) {
+				const trimmed = line.trim()
+				if (!trimmed || trimmed.startsWith("#")) continue
+				const eqIdx = trimmed.indexOf("=")
+				if (eqIdx === -1) continue
+				const key = trimmed.slice(0, eqIdx).trim()
+				const val = trimmed.slice(eqIdx + 1).trim()
+				if (key === "DEEPSEEK_API_KEY" && !process.env.DEEPSEEK_API_KEY) {
+					process.env.DEEPSEEK_API_KEY = val
+				}
+			}
+		} catch {}
+	}
+}
+
+/**
+ * Summarize text using DeepSeek API.
+ * Returns a concise summary string, or the original text if summarization fails.
+ */
+async function deepseekSummarize(text, instruction) {
+	loadEnvFile()
+	const apiKey = process.env.DEEPSEEK_API_KEY
+	if (!apiKey) {
+		console.error("⚠️  DEEPSEEK_API_KEY not set. Skipping DeepSeek summarization.")
+		return text
+	}
+
+	const systemPrompt = "You are a precise engineering lesson summarizer. Summarize the following content concisely, extracting the key engineering insight, root cause, and reusable takeaway. Keep the summary under 200 words."
+	const userPrompt = instruction || "Summarize this engineering lesson:"
+
+	const controller = new AbortController()
+	const timeout = setTimeout(() => controller.abort(), DEEPSEEK_TIMEOUT_MS)
+
+	try {
+		const response = await fetch(DEEPSEEK_API_URL, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"Authorization": `Bearer ${apiKey}`,
+			},
+			body: JSON.stringify({
+				model: DEEPSEEK_MODEL,
+				messages: [
+					{ role: "system", content: systemPrompt },
+					{ role: "user", content: `${userPrompt}\n\n${text}` },
+				],
+				max_tokens: 300,
+				temperature: 0.3,
+			}),
+			signal: controller.signal,
+		})
+
+		if (!response.ok) {
+			const errText = await response.text().catch(() => "unknown")
+			console.error(`⚠️  DeepSeek API error (${response.status}): ${errText}`)
+			return text
+		}
+
+		const data = await response.json()
+		const summary = data?.choices?.[0]?.message?.content?.trim()
+		if (!summary) {
+			console.error("⚠️  DeepSeek returned empty response")
+			return text
+		}
+		return summary
+	} catch (err) {
+		if (err.name === "AbortError") {
+			console.error("⚠️  DeepSeek API request timed out")
+		} else {
+			console.error(`⚠️  DeepSeek API request failed: ${err.message}`)
+		}
+		return text
+	} finally {
+		clearTimeout(timeout)
+	}
+}
 
 // ── Local Fallback Paths ──
 
@@ -62,6 +189,12 @@ function findLocalLessonFiles() {
 	const parts = cwd.split(path.sep)
 	for (let i = parts.length - 1; i > 0; i--) {
 		searchPaths.push(parts.slice(0, i).join(path.sep))
+	}
+
+	// Also check the shared cross-project lesson store (SUPERROO_MEMORY_DIR or default)
+	const sharedParent = path.dirname(SHARED_MEMORY_DIR)
+	if (!searchPaths.includes(sharedParent)) {
+		searchPaths.push(sharedParent)
 	}
 
 	const results = { jsonl: null, md: null }
@@ -89,15 +222,18 @@ function findLocalLessonFiles() {
 
 /**
  * Query local lesson files for matching content.
+ * Searches the nearest project's files first, then falls back to the
+ * superroo2 shared cross-project lesson store if no matches found.
  */
 async function queryLocalLessons(query, limit = 10) {
 	const files = findLocalLessonFiles()
 	const results = []
 
-	// Try JSONL first
-	if (files.jsonl) {
+	// Helper: search a single JSONL file
+	async function searchJsonl(jsonlPath) {
+		const found = []
 		try {
-			const content = await fs.readFile(files.jsonl, "utf-8")
+			const content = await fs.readFile(jsonlPath, "utf-8")
 			const lines = content.split("\n").filter((l) => l.trim())
 			const queryLower = query.toLowerCase()
 
@@ -115,8 +251,8 @@ async function queryLocalLessons(query, limit = 10) {
 						.toLowerCase()
 
 					if (searchText.includes(queryLower)) {
-						results.push({
-							file: files.jsonl,
+						found.push({
+							file: jsonlPath,
 							matches: [
 								{
 									text: `[${lesson.type}] ${lesson.title}\n${lesson.lesson_summary || ""}`,
@@ -129,19 +265,21 @@ async function queryLocalLessons(query, limit = 10) {
 				} catch {}
 			}
 		} catch {}
+		return found
 	}
 
-	// Fall back to markdown if JSONL had no matches
-	if (results.length === 0 && files.md) {
+	// Helper: search a single markdown file
+	async function searchMarkdown(mdPath) {
+		const found = []
 		try {
-			const content = await fs.readFile(files.md, "utf-8")
+			const content = await fs.readFile(mdPath, "utf-8")
 			const queryLower = query.toLowerCase()
 			const lessonBlocks = content.split(/(?=^### Lesson:)/m)
 
 			for (const block of lessonBlocks) {
 				if (block.toLowerCase().includes(queryLower)) {
-					results.push({
-						file: files.md,
+					found.push({
+						file: mdPath,
 						matches: [
 							{
 								text: block.trim().slice(0, 500),
@@ -153,15 +291,61 @@ async function queryLocalLessons(query, limit = 10) {
 				}
 			}
 		} catch {}
+		return found
 	}
 
-	return { results, source: results.length > 0 ? (files.jsonl ? "local-jsonl" : "local-markdown") : "none" }
+	// Phase 1: Search the nearest project's files
+	if (files.jsonl) {
+		const jsonlResults = await searchJsonl(files.jsonl)
+		results.push(...jsonlResults)
+	}
+
+	if (results.length === 0 && files.md) {
+		const mdResults = await searchMarkdown(files.md)
+		results.push(...mdResults)
+	}
+
+	// Phase 2: If no matches in the local project, also search the shared
+	// cross-project lesson store (SUPERROO_MEMORY_DIR or default).
+	// This ensures lessons from other projects (e.g., productgenerator)
+	// are findable from any project directory.
+	if (results.length === 0) {
+		const sharedJsonl = path.join(SHARED_MEMORY_DIR, "lesson-index.jsonl")
+		if (sharedJsonl !== files.jsonl) {
+			try {
+				accessSync(sharedJsonl)
+				const sharedResults = await searchJsonl(sharedJsonl)
+				if (sharedResults.length > 0) {
+					results.push(...sharedResults)
+				}
+			} catch {}
+		}
+
+		// If still no matches, try shared markdown
+		if (results.length === 0) {
+			const sharedMd = path.join(SHARED_MEMORY_DIR, "lessons-learned.md")
+			if (sharedMd !== files.md) {
+				try {
+					accessSync(sharedMd)
+					const sharedResults = await searchMarkdown(sharedMd)
+					if (sharedResults.length > 0) {
+						results.push(...sharedResults)
+					}
+				} catch {}
+			}
+		}
+	}
+
+	return { results, source: results.length > 0 ? "local-jsonl" : "none" }
 }
 
 /**
  * Store a lesson locally (fallback when Central Brain is unreachable).
+ * @param {string} topic - Lesson topic/title
+ * @param {string} content - Full lesson content (markdown)
+ * @param {string} [summary] - Optional DeepSeek-generated summary for JSONL index
  */
-async function storeLessonLocally(topic, content) {
+async function storeLessonLocally(topic, content, summary) {
 	const project = detectProjectName()
 	const cwd = process.cwd()
 	const memoryDir = path.join(cwd, "memory")
@@ -177,8 +361,8 @@ async function storeLessonLocally(topic, content) {
 
 Date: ${date}
 Source: superroo-learn CLI (local fallback)
-Model/API used: local
-Confidence: medium
+Model/API used: ${summary ? "deepseek-chat" : "local"}
+Confidence: ${summary ? "high" : "medium"}
 Related files:
 Tags:
 
@@ -188,7 +372,7 @@ ${content}
 
 #### Lesson Learned
 
-${content}
+${summary || content}
 
 #### Tags
 
@@ -213,15 +397,15 @@ cross-project, local-fallback
 			type: "lesson",
 			date,
 			source: "superroo-learn-cli",
-			model: "local",
-			confidence: "medium",
+			model: summary ? "deepseek-chat" : "local",
+			confidence: summary ? "high" : "medium",
 			project: project,
 			files: [],
 			tags: ["cross-project", "local-fallback"],
 			relevance_score: 0.7,
 			relevance_factors: {},
-			rule_summary: content.slice(0, 200),
-			lesson_summary: content.slice(0, 300),
+			rule_summary: (summary || content).slice(0, 200),
+			lesson_summary: (summary || content).slice(0, 300),
 		})
 		await fs.appendFile(jsonlPath, jsonlEntry + "\n", "utf-8")
 	} catch {
@@ -351,6 +535,28 @@ async function withFallback(mcpFn, fallbackFn, operationName, retryContext) {
 
 	try {
 		const result = await mcpFn()
+
+		// Check if Central Brain returned empty results — if so, try local fallback
+		// This handles the case where pgvector/semantic search is offline but the
+		// MCP server itself is running (returns 0 results without error)
+		if (result && typeof result === "object") {
+			const resultsArray = result.results || result.matches || result
+			const isEmpty = Array.isArray(resultsArray) && resultsArray.length === 0
+			if (isEmpty) {
+				console.error(`⚠️  Central Brain returned 0 results for "${operationName}" — trying local fallback...`)
+				const fallbackResult = await fallbackFn()
+				if (retryContext) {
+					await enqueueRetry(
+						retryContext.operation,
+						retryContext.topic,
+						retryContext.content,
+						retryContext.project,
+					)
+				}
+				return { success: true, result: fallbackResult, fallbackUsed: true }
+			}
+		}
+
 		return { success: true, result, fallbackUsed: false }
 	} catch (err) {
 		console.error(`⚠️  Central Brain unreachable for "${operationName}": ${err.message}`)
@@ -789,9 +995,9 @@ async function cmdExtractCommit(sha, message, author, files) {
 		return { success: true, skipped: true, reason: "no_lesson_indicators" }
 	}
 
-	// Build a lesson from the commit
+	// Build raw lesson content from the commit
 	const topic = `[${project}] ${message.split("\n")[0].slice(0, 120)}`
-	const content = [
+	const rawContent = [
 		`## Auto-extracted from commit ${sha}`,
 		``,
 		`**Project:** ${project}`,
@@ -804,12 +1010,35 @@ async function cmdExtractCommit(sha, message, author, files) {
 		`**Lesson:** Review this commit for reusable engineering insights.`,
 	].join("\n")
 
+	// Generate a concise DeepSeek summary for the lesson
+	console.error(`   🤖 Generating DeepSeek summary for commit ${sha}...`)
+	const summary = await deepseekSummarize(
+		`Commit: ${message}\nFiles: ${files}\nProject: ${project}`,
+		"Summarize this engineering commit as a reusable lesson. Extract: what was fixed, why it broke, and the reusable takeaway.",
+	)
+
+	// Use the summary as the lesson content (richer than raw commit data)
+	const content = summary !== rawContent ? [
+		`## DeepSeek-Summarized Lesson from commit ${sha}`,
+		``,
+		`**Project:** ${project}`,
+		`**Author:** ${author}`,
+		`**Commit:** ${sha}`,
+		`**Files:** ${files}`,
+		``,
+		`**Summary:**`,
+		summary,
+		``,
+		`---`,
+		`*Original commit message: ${message.split("\n")[0]}*`,
+	].join("\n") : rawContent
+
 	const { success, result, fallbackUsed } = await withFallback(
 		async () => {
 			return await mcpToolCall("hermes_learn", { topic, content })
 		},
 		async () => {
-			await storeLessonLocally(topic, content)
+			await storeLessonLocally(topic, content, summary)
 			return { success: true, stored: "local", sha, project, topic }
 		},
 		"extract-commit",
@@ -905,7 +1134,7 @@ async function cmdScan(options = {}) {
 			if (matched.length === 0) continue
 
 			const topic = `[${project}] ${block.msg.split("\n")[0].slice(0, 120)}`
-			const content = [
+			const rawContent = [
 				`## Auto-extracted from commit ${block.sha}`,
 				``,
 				`**Project:** ${project}`,
@@ -918,6 +1147,29 @@ async function cmdScan(options = {}) {
 				``,
 				`**Lesson:** Review this commit for reusable engineering insights.`,
 			].join("\n")
+
+			// Generate DeepSeek summary for the commit
+			console.error(`   🤖 Generating DeepSeek summary for commit ${block.sha.slice(0, 8)}...`)
+			const summary = await deepseekSummarize(
+				`Commit: ${block.msg}\nFiles: ${block.files.join(", ")}\nProject: ${project}`,
+				"Summarize this engineering commit as a reusable lesson. Extract: what was fixed, why it broke, and the reusable takeaway.",
+			)
+
+			const content = summary !== rawContent ? [
+				`## DeepSeek-Summarized Lesson from commit ${block.sha}`,
+				``,
+				`**Project:** ${project}`,
+				`**Author:** ${block.author}`,
+				`**Date:** ${block.date}`,
+				`**Commit:** ${block.sha}`,
+				`**Files:** ${block.files.join(", ")}`,
+				``,
+				`**Summary:**`,
+				summary,
+				``,
+				`---`,
+				`*Original commit message: ${block.msg.split("\n")[0]}*`,
+			].join("\n") : rawContent
 
 			results.commitsExtracted++
 			results.totalLessons++
@@ -936,7 +1188,7 @@ async function cmdScan(options = {}) {
 
 				await withFallback(
 					async () => await mcpToolCall("hermes_learn", { topic, content }),
-					async () => { await storeLessonLocally(topic, content); return { success: true, stored: "local" } },
+					async () => { await storeLessonLocally(topic, content, summary); return { success: true, stored: "local" } },
 					`scan-commit-${block.sha.slice(0, 8)}`,
 					{ operation: "store", topic, content, project },
 				)

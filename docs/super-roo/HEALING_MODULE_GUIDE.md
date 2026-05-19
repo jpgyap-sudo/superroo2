@@ -25,25 +25,25 @@ The Healing Module is SuperRoo's autonomous self-healing system. It detects inci
 ## Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        SelfHealingLoop                              │
-│  ┌──────────┐   ┌──────────────┐   ┌───────────────┐   ┌────────┐  │
-│  │ Monitor  │──▶│  Classify    │──▶│  Repair Plan  │──▶│ Execute│  │
-│  │ (polling)│   │ (keywords)   │   │  Builder      │   │ (agent)│  │
-│  └──────────┘   └──────────────┘   └───────────────┘   └────────┘  │
-│       │                                                             │
-│       ▼                                                             │
-│  ┌──────────┐   ┌──────────────┐   ┌───────────────┐               │
-│  │HealingBus│──▶│RootCause     │──▶│HealingMetrics  │               │
-│  │(incidents)│  │Classifier    │   │(success rates) │               │
-│  └──────────┘   └──────────────┘   └───────────────┘               │
-│       │                                                             │
-│       ▼                                                             │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │  Escalation Policy & Circuit Breaker                         │   │
-│  │  (maxRetries=3, circuitBreakerThreshold=5, timeout=5min)     │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                           SelfHealingLoop                                    │
+│  ┌──────────┐   ┌──────────────┐   ┌───────────────┐   ┌────────┐           │
+│  │ Monitor  │──▶│  Classify    │──▶│  Repair Plan  │──▶│ Execute│           │
+│  │ (polling)│   │ (ML+keyword) │   │  Builder      │   │ (agent)│           │
+│  └──────────┘   └──────────────┘   └───────────────┘   └────────┘           │
+│       │                                                                    │
+│       ▼                                                                    │
+│  ┌──────────┐   ┌──────────────┐   ┌──────────────────┐   ┌─────────────┐  │
+│  │HealingBus│──▶│RootCause     │──▶│HealingMetrics     │──▶│RepairTracker│  │
+│  │(incidents)│  │Classifier    │   │(trends, confusion)│   │(attempts)   │  │
+│  └──────────┘   └──────────────┘   └──────────────────┘   └─────────────┘  │
+│       │                                                                    │
+│       ▼                                                                    │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │  Escalation Policy & Circuit Breaker                                 │   │
+│  │  (per-category thresholds, notification routing, circuit breaker)    │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Key Components
@@ -51,10 +51,11 @@ The Healing Module is SuperRoo's autonomous self-healing system. It detects inci
 | Component                                                             | File                     | Role                                                        |
 | --------------------------------------------------------------------- | ------------------------ | ----------------------------------------------------------- |
 | [`HealingBus`](src/super-roo/healing/HealingBus.ts)                   | `HealingBus.ts`          | Central incident registry — report, query, update incidents |
-| [`RootCauseClassifier`](src/super-roo/healing/RootCauseClassifier.ts) | `RootCauseClassifier.ts` | Keyword-based classification (21 categories)                |
+| [`RootCauseClassifier`](src/super-roo/healing/RootCauseClassifier.ts) | `RootCauseClassifier.ts` | Keyword + ML-based classification (21 categories)           |
 | [`RepairPlanBuilder`](src/super-roo/healing/RepairPlanBuilder.ts)     | `RepairPlanBuilder.ts`   | Generates structured repair plans with diagnostic steps     |
 | [`SelfHealingLoop`](src/super-roo/healing/SelfHealingLoop.ts)         | `SelfHealingLoop.ts`     | Autonomous polling loop with escalation and circuit breaker |
-| [`HealingMetrics`](src/super-roo/healing/HealingMetrics.ts)           | `HealingMetrics.ts`      | Tracks success/failure rates per category                   |
+| [`SelfHealingAgent`](src/super-roo/agents/SelfHealingAgent.ts)        | `SelfHealingAgent.ts`    | Agent-based healing interface (report, classify, repair)    |
+| [`HealingMetrics`](src/super-roo/healing/HealingMetrics.ts)           | `HealingMetrics.ts`      | Tracks success/failure rates, trends, confusion matrix      |
 
 ### Incident State Machine
 
@@ -165,7 +166,7 @@ const fp = makeIncidentFingerprint({
 
 ## Root Cause Classification
 
-The [`RootCauseClassifier`](src/super-roo/healing/RootCauseClassifier.ts) uses keyword matching against incident title, symptom, and evidence to determine the root cause category.
+The [`RootCauseClassifier`](src/super-roo/healing/RootCauseClassifier.ts) uses keyword matching against incident title, symptom, and evidence to determine the root cause category. It also supports ML-based classification via the [`SelfHealingAgent`](src/super-roo/agents/SelfHealingAgent.ts) which can leverage the ML engine for higher-confidence predictions.
 
 ### 21 Root Cause Categories
 
@@ -274,6 +275,48 @@ markPlanExecuted(plan, {
 
 ---
 
+### ML-Based Classification
+
+The [`SelfHealingAgent`](src/super-roo/agents/SelfHealingAgent.ts) provides an ML-enhanced classification path:
+
+```typescript
+import { SelfHealingAgent } from "../agents/SelfHealingAgent"
+
+// The agent's "classify" operation uses ML to classify root causes
+// with confidence scoring, falling back to keyword matching
+const result = await agent.run({
+	type: "classify",
+	payload: {
+		title: "API /users endpoint returning 500",
+		symptom: "GET /users returns HTTP 500 with 'Cannot read property of undefined'",
+		evidence: { stackTrace: "TypeError: Cannot read properties of undefined..." },
+	},
+})
+// { category: "BROKEN_ROUTE", confidence: 0.92, ... }
+```
+
+### Repair Tracking
+
+The [`RepairPlanBuilder`](src/super-roo/healing/RepairPlanBuilder.ts) now tracks repair execution state through the full lifecycle:
+
+```typescript
+import { buildRepairPlan, markPlanInProgress, markPlanExecuted, markPlanCancelled } from "../healing"
+
+const plan = buildRepairPlan(incident)
+
+// Track lifecycle
+markPlanInProgress(plan) // Status → "in_progress"
+markPlanExecuted(plan, {
+	// Status → "completed" or "failed"
+	success: true,
+	message: "Fix applied",
+	details: { patchFile: "src/routes/users.ts" },
+})
+markPlanCancelled(plan) // Status → "cancelled"
+```
+
+---
+
 ## The Self-Healing Loop
 
 The [`SelfHealingLoop`](src/super-roo/healing/SelfHealingLoop.ts) is the autonomous engine that continuously monitors for new incidents and processes them.
@@ -332,11 +375,78 @@ await loop.stop()
 await loop.processPendingIncidents()
 ```
 
+### SelfHealingAgent (Agent-Based Healing)
+
+The [`SelfHealingAgent`](src/super-roo/agents/SelfHealingAgent.ts) provides an alternative agent-based interface to the healing module. It wraps the [`HealingBus`](src/super-roo/healing/HealingBus.ts) and [`RootCauseClassifier`](src/super-roo/healing/RootCauseClassifier.ts) into a standard agent interface compatible with the orchestrator's agent routing system.
+
+```typescript
+import { SelfHealingAgent } from "../agents/SelfHealingAgent"
+
+const agent = new SelfHealingAgent({
+	healingBus: bus,
+	classifier: classifier,
+	metrics: metrics,
+})
+
+// Report an incident via the agent
+const result = await agent.run(ctx, {
+	type: "reportIncident",
+	payload: {
+		title: "API /users returning 500",
+		symptom: "GET /users returns HTTP 500",
+		severity: "high",
+		featureKey: "user-management",
+		affectedFiles: ["src/routes/users.ts"],
+	},
+})
+
+// Run a full healing cycle
+const cycleResult = await agent.run(ctx, {
+	type: "runCycle",
+	payload: {},
+})
+
+// Classify an incident using ML + keyword hybrid
+const classifyResult = await agent.run(ctx, {
+	type: "classify",
+	payload: {
+		title: "Database connection timeout",
+		symptom: "ETIMEDOUT on postgres connection",
+		evidence: { errorCode: "ETIMEDOUT" },
+	},
+})
+
+// List all open incidents
+const listResult = await agent.run(ctx, {
+	type: "listIncidents",
+	payload: { status: "new" },
+})
+
+// Get healing system status
+const statusResult = await agent.run(ctx, {
+	type: "getStatus",
+	payload: {},
+})
+```
+
+Supported operations:
+
+| Operation         | Description                                                 |
+| ----------------- | ----------------------------------------------------------- |
+| `reportIncident`  | Report a new incident to the healing bus                    |
+| `runCycle`        | Execute one full healing cycle (process all open incidents) |
+| `approveFix`      | Approve a pending fix for an incident                       |
+| `rejectFix`       | Reject a pending fix for an incident                        |
+| `listIncidents`   | List incidents with optional status filter                  |
+| `getStatus`       | Get healing system status and metrics                       |
+| `classify`        | Classify an incident's root cause using ML + keywords       |
+| `buildRepairPlan` | Generate a structured repair plan for an incident           |
+
 ---
 
 ## Healing Metrics
 
-The [`HealingMetrics`](src/super-roo/healing/HealingMetrics.ts) class tracks success/failure rates per category and persists to JSON.
+The [`HealingMetrics`](src/super-roo/healing/HealingMetrics.ts) class tracks success/failure rates per category and persists to JSON. Phase 2 adds trend analysis, precision/recall per category, and confusion matrix tracking.
 
 ### Recording Outcomes
 
@@ -346,6 +456,7 @@ import { HealingMetrics } from "../healing"
 const metrics = new HealingMetrics({
 	persistPath: "./memory/healing-metrics.json",
 	autoPersist: true,
+	trendWindowSize: 50, // Rolling window for trend analysis (default: 50)
 })
 
 // Record outcome after a healing attempt
@@ -382,6 +493,77 @@ metrics.getTotalSuccesses() // 122
 metrics.getTotalFailures() // 34
 ```
 
+### Trend Analysis (Phase 2)
+
+Rolling window trend tracking for recent outcomes, enabling detection of improving or degrading healing performance.
+
+```typescript
+// Trend success rate for a specific category (last N outcomes)
+const trendRate = metrics.getTrendSuccessRate("BROKEN_ROUTE", 20)
+// Returns 0-1 based on the last 20 outcomes for BROKEN_ROUTE
+
+// Overall trend rate across all categories
+const overallTrend = metrics.getOverallTrendRate(50)
+// Returns 0-1 based on the last 50 outcomes
+
+// Check if a category's trend is improving
+const improving = metrics.isTrendImproving("BROKEN_ROUTE")
+// Returns true if trend rate > overall rate for that category
+// Returns null if insufficient data
+```
+
+### Precision, Recall & Confusion Matrix (Phase 2)
+
+ML classifier evaluation metrics for tracking classification accuracy.
+
+```typescript
+// Record a classification result (predicted vs actual)
+metrics.recordClassification("BROKEN_ROUTE", "BROKEN_ROUTE") // Correct
+metrics.recordClassification("BROKEN_ROUTE", "CONFIGURATION_ERROR") // Wrong
+
+// Get precision and recall for a specific category
+const pr = metrics.getPrecisionRecall("BROKEN_ROUTE")
+// {
+//   truePositives: 15,      // Correctly predicted as BROKEN_ROUTE
+//   falsePositives: 3,      // Predicted BROKEN_ROUTE but was something else
+//   falseNegatives: 2,      // Was BROKEN_ROUTE but predicted something else
+//   precision: 0.833,       // TP / (TP + FP)
+//   recall: 0.882,          // TP / (TP + FN)
+//   f1Score: 0.857,         // 2 * (P * R) / (P + R)
+// }
+
+// Get the full confusion matrix
+const matrix = metrics.getConfusionMatrix()
+// {
+//   "BROKEN_ROUTE": { "BROKEN_ROUTE": 15, "CONFIGURATION_ERROR": 3 },
+//   "ENV_MISSING":  { "ENV_MISSING": 10, "BROKEN_ROUTE": 2 },
+// }
+
+// Get recent outcome history for custom analysis
+const history = metrics.getOutcomeHistory()
+// [{ incidentId, category, success, timestamp }, ...]
+```
+
+### Detailed Healing Metrics
+
+The [`HealingBus`](src/super-roo/healing/HealingBus.ts) provides a detailed metrics endpoint that includes per-category breakdowns, plan type metrics, and overall statistics:
+
+```typescript
+const detailed = bus.getDetailedHealingMetrics()
+// {
+//   byCategory: {
+//     "BROKEN_ROUTE": { successCount: 17, failureCount: 3, totalAttempts: 20 },
+//     "ENV_MISSING": { successCount: 12, failureCount: 1, totalAttempts: 13 },
+//   },
+//   byPlanType: {
+//     "patch": { successCount: 25, failureCount: 5, totalAttempts: 30 },
+//     "config_change": { successCount: 8, failureCount: 2, totalAttempts: 10 },
+//   },
+//   overall: { successCount: 122, failureCount: 34, totalAttempts: 156 },
+//   lastUpdated: 1712345678901,
+// }
+```
+
 ### Persisted Format
 
 Metrics are persisted to `memory/healing-metrics.json`:
@@ -411,6 +593,18 @@ interface EscalationPolicy {
 	maxRetries: number // Default: 3
 	escalationAction: EscalationAction // "warn" | "notify" | "block" | "circuit_breaker"
 	skipAutoRepair: boolean // Default: true
+	/**
+	 * Per-category escalation threshold overrides.
+	 * Key is the RootCauseCategory string, value is the max retries for that category.
+	 * Falls back to `maxRetries` if not specified for a category.
+	 */
+	categoryThresholds?: Record<string, number>
+	/**
+	 * Per-category escalation action overrides.
+	 * Key is the RootCauseCategory string, value is the escalation action for that category.
+	 * Falls back to `escalationAction` if not specified for a category.
+	 */
+	categoryActions?: Record<string, EscalationAction>
 }
 ```
 
@@ -420,6 +614,72 @@ Actions:
 - `"notify"` — Flag for human attention
 - `"block"` — Stop processing this incident
 - `"circuit_breaker"` — Open the circuit breaker
+
+### Per-Category Escalation Thresholds (Phase 2)
+
+Different root cause categories can have different escalation thresholds and actions, allowing fine-grained control over how the system responds to different types of failures.
+
+```typescript
+const loop = new SelfHealingLoop(orchestrator, {
+	escalationPolicy: {
+		maxRetries: 3, // Default for all categories
+		escalationAction: "warn",
+		skipAutoRepair: true,
+		// Per-category overrides
+		categoryThresholds: {
+			MEMORY_LEAK: 1, // Escalate after just 1 retry
+			SECURITY_RISK: 0, // Escalate immediately (no retries)
+			BROKEN_ROUTE: 5, // More lenient for routes
+		},
+		categoryActions: {
+			MEMORY_LEAK: "notify", // Notify human for memory leaks
+			SECURITY_RISK: "block", // Block security risks immediately
+			DEPLOY_DRIFT: "circuit_breaker", // Open circuit for deploy drift
+		},
+	},
+})
+```
+
+### Repair Attempt Tracking (Phase 2)
+
+Each repair attempt is tracked with timestamps, duration, and outcome, enabling detailed analysis of healing performance.
+
+```typescript
+// RepairAttempt structure (tracked internally by SelfHealingLoop)
+interface RepairAttempt {
+	incidentId: string
+	timestamp: number // When the repair was attempted
+	durationMs: number // How long the repair took
+	success: boolean // Whether it succeeded
+	category: RootCauseCategory
+	error?: string // Error message if failed
+}
+
+// Access repair history from loop stats
+const stats = loop.getStats()
+// stats.repairAttempts contains the full history
+```
+
+### Notification Routing (Phase 2)
+
+Escalated incidents can be routed to specific notification channels with configurable targets.
+
+```typescript
+interface NotificationRoute {
+	channel: string // "telegram" | "slack" | "email" | "dashboard"
+	target: string // Chat ID, channel name, email address
+}
+
+// Notification routes are configured in the SelfHealingLoop options
+const loop = new SelfHealingLoop(orchestrator, {
+	notificationRoutes: [
+		{ channel: "telegram", target: "-1001234567890" }, // Telegram group
+		{ channel: "dashboard", target: "admin" }, // Dashboard alert
+	],
+	// Only notify for these severity levels
+	notifyOnSeverity: ["high", "critical"],
+})
+```
 
 ### Circuit Breaker
 

@@ -8,6 +8,7 @@ export interface OllamaMessage {
 export interface OllamaClientOptions {
 	baseUrl?: string
 	defaultModel?: string
+	fallbackModel?: string
 	timeoutMs?: number
 	temperature?: number
 	numCtx?: number
@@ -33,6 +34,7 @@ export interface OllamaChatOptions {
 export class OllamaClient {
 	private baseUrl: string
 	private defaultModel: string
+	private fallbackModel: string
 	private timeoutMs: number
 	private temperature: number
 	private numCtx: number
@@ -45,7 +47,8 @@ export class OllamaClient {
 			"http://127.0.0.1:11434"
 		).replace(/\/$/, "")
 		this.defaultModel =
-			options.defaultModel || process.env.OLLAMA_SUMMARY_MODEL || process.env.OLLAMA_MODEL || "qwen2.5-coder:3b"
+			options.defaultModel || process.env.OLLAMA_SUMMARY_MODEL || process.env.OLLAMA_MODEL || "qwen2.5:0.5b"
+		this.fallbackModel = options.fallbackModel || process.env.OLLAMA_FALLBACK_MODEL || "qwen2.5:1.5b"
 		this.timeoutMs = Number(options.timeoutMs || process.env.OLLAMA_TIMEOUT_MS || 120000)
 		this.temperature = Number(options.temperature ?? process.env.OLLAMA_TEMPERATURE ?? 0.1)
 		this.numCtx = Number(options.numCtx || process.env.OLLAMA_NUM_CTX || 8192)
@@ -62,6 +65,20 @@ export class OllamaClient {
 	}
 
 	async generate(options: OllamaGenerateOptions): Promise<string> {
+		const body = this.buildGenerateBody(options, options.model || this.defaultModel)
+
+		const data = await this.postJsonWithModelFallback("/api/generate", body)
+		return String(data.response || "").trim()
+	}
+
+	async chat(options: OllamaChatOptions): Promise<string> {
+		const body = this.buildChatBody(options, options.model || this.defaultModel)
+
+		const data = await this.postJsonWithModelFallback("/api/chat", body)
+		return String(data.message?.content || "").trim()
+	}
+
+	private buildGenerateBody(options: OllamaGenerateOptions, model: string): any {
 		const body: any = {
 			model: options.model || this.defaultModel,
 			prompt: options.prompt,
@@ -73,19 +90,13 @@ export class OllamaClient {
 			},
 		}
 		if (options.format) body.format = options.format
-
-		const res = await this.request("/api/generate", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify(body),
-		})
-		const data = await res.json()
-		return String(data.response || "").trim()
+		body.model = model
+		return body
 	}
 
-	async chat(options: OllamaChatOptions): Promise<string> {
+	private buildChatBody(options: OllamaChatOptions, model: string): any {
 		const body: any = {
-			model: options.model || this.defaultModel,
+			model,
 			messages: options.messages,
 			stream: false,
 			options: {
@@ -94,14 +105,34 @@ export class OllamaClient {
 			},
 		}
 		if (options.format) body.format = options.format
+		return body
+	}
 
-		const res = await this.request("/api/chat", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify(body),
-		})
-		const data = await res.json()
-		return String(data.message?.content || "").trim()
+	private async postJsonWithModelFallback(path: string, body: any): Promise<any> {
+		try {
+			const res = await this.request(path, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(body),
+			})
+			return await res.json()
+		} catch (error: any) {
+			if (!this.shouldRetryWithFallbackModel(error, body.model)) {
+				throw error
+			}
+			const res = await this.request(path, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ ...body, model: this.fallbackModel }),
+			})
+			return await res.json()
+		}
+	}
+
+	private shouldRetryWithFallbackModel(error: any, attemptedModel: string): boolean {
+		if (!this.fallbackModel || attemptedModel === this.fallbackModel) return false
+		const message = error?.message || ""
+		return /model .*not found|model .* does not exist|pull model/i.test(message)
 	}
 
 	private async request(path: string, init: RequestInit): Promise<Response> {

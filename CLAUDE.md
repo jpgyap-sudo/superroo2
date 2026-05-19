@@ -11,27 +11,30 @@ This file provides guidance to Claude Code when working with the SuperRoo reposi
 This project uses a model-routing workflow:
 
 - **Codex** = planner, reviewer, tester, final verifier
-- **DeepSeek** = primary low-cost coder / refactor worker
-- **Ollama** = local memory, lessons, summaries, feature knowledge, retrieval helper
+- **DeepSeek** = primary low-cost coder / refactor worker AND context summarizer (via build-agent-context.mjs and ollama-summarize-lesson.mjs)
+- **Ollama** = embeddings only (nomic-embed-text), local chat (qwen2.5:0.5b)
 - **Central Brain** = persistent memory database / pgvector / lesson store
 - **Claude** = planner, reviewer, orchestrator — delegates coding to DeepSeek via MCP
 
 ### Workflow Enforcement (MCP Tools)
 
-Claude Code MUST use the `deepseek-coder` MCP server (registered in `.mcp.json`) to delegate coding tasks to DeepSeek V4. This is how the agent routing workflow is enforced:
+Claude Code MUST use the `deepseek-coder` and `ollama` MCP servers (registered in `.mcp.json`) to follow the SuperRoo agent routing workflow:
 
-| Phase         | Tool                          | Provider    | When to Use                                                    |
-| ------------- | ----------------------------- | ----------- | -------------------------------------------------------------- |
-| **Plan**      | Claude's own model            | Claude      | Analyze requirements, design architecture, plan implementation |
-| **Code**      | `deepseek_code`               | DeepSeek V4 | Write new code, implement features, create files               |
-| **Review**    | `deepseek_review`             | DeepSeek V4 | Review code for bugs, security, performance                    |
-| **Refactor**  | `deepseek_refactor`           | DeepSeek V4 | Improve existing code structure and quality                    |
-| **Explain**   | `deepseek_explain`            | DeepSeek V4 | Understand complex code, generate docs                         |
-| **Summarize** | `ollama-summarize-lesson.mjs` | Ollama      | Summarize lessons after task completion                        |
+| Phase         | Tool                          | Provider     | When to Use                                                                    |
+| ------------- | ----------------------------- | ------------ | ------------------------------------------------------------------------------ |
+| **Plan**      | Claude's own model            | Claude       | Analyze requirements, design architecture, plan implementation                 |
+| **Context**   | `build-agent-context.mjs`     | DeepSeek API | Run before coding to compress repo context into task brief                     |
+| **Code**      | `deepseek_code`               | DeepSeek V4  | Write new code, implement features, create files                               |
+| **Review**    | `deepseek_review`             | DeepSeek V4  | Review code for bugs, security, performance                                    |
+| **Refactor**  | `deepseek_refactor`           | DeepSeek V4  | Improve existing code structure and quality                                    |
+| **Explain**   | `deepseek_explain`            | DeepSeek V4  | Understand complex code, generate docs                                         |
+| **Summarize** | `ollama-summarize-lesson.mjs` | DeepSeek API | Summarize lessons after coding (DeepSeek for summaries, Ollama for embeddings) |
+| **Embed**     | `ollama_embed`                | Ollama (VPS) | Generate embeddings for semantic search or RAG                                 |
+| **Chat**      | `ollama_chat`                 | Ollama (VPS) | Quick questions, code explanations via local model                             |
 
-**Workflow rule:** Claude MUST call `deepseek_code` for any substantial coding task instead of writing code directly. Claude handles planning, review, and orchestration. DeepSeek handles implementation.
+**Workflow rule:** Claude MUST call `deepseek_code` for any substantial coding task instead of writing code directly. Claude handles planning, review, and orchestration. DeepSeek handles implementation AND summarization. Ollama handles embeddings only.
 
-**Available MCP tools:**
+**DeepSeek MCP tools (via `deepseek-coder` server):**
 
 1. **`deepseek_code(prompt, system?, model?, temperature?, max_tokens?)** — Generate code using DeepSeek V4. Pass the coding task as `prompt`. Optionally set `system` prompt for context.
 
@@ -43,11 +46,49 @@ Claude Code MUST use the `deepseek-coder` MCP server (registered in `.mcp.json`)
 
 5. \*\*`deepseek_status()` — Check if DeepSeek API is configured and reachable.
 
+**Ollama MCP tools (via `ollama` server, connects to VPS at `100.64.175.88:11434`):**
+
+6. **`ollama_summarize(text, model?)** — [DEPRECATED] Summarize text using VPS Ollama (qwen2.5:0.5b) — quality is poor. Use `build-agent-context.mjs` (DeepSeek) for context compression or `ollama-summarize-lesson.mjs` (DeepSeek + Ollama) for lesson summarization instead.
+
+7. **`ollama_embed(text)** — Generate embeddings using nomic-embed-text on VPS Ollama. Use for semantic search or RAG pipelines.
+
+8. **`ollama_chat(message, model?, system?)** — Chat with a model on VPS Ollama. Use for quick questions or code explanations.
+
+9. \*\*`ollama_list_models()` — List available models on the VPS Ollama instance.
+
+10. \*\*`ollama_status()` — Check if VPS Ollama is reachable and healthy.
+
 ## Learning Layer — Mandatory Sync
 
 **ALL agents are permanently synced to the SuperRoo learning layer.** This is not optional.
 
-### Before Coding — Retrieve Relevant Lessons
+### Before Coding — Build Agent Context
+
+Run the context builder to compress repo knowledge into a task brief using DeepSeek API:
+
+```bash
+node scripts/ml/build-agent-context.mjs "<task description>"
+```
+
+Then read the generated context:
+
+```bash
+# Read the compressed context (DeepSeek API summarizes files, working tree, bugs, features, model decisions)
+# Pre-computed lesson summaries from memory/lesson-summaries.json are injected directly
+cat memory/context/latest-agent-context.md
+```
+
+The context builder performs 5 DeepSeek API summarization phases:
+
+1. **Source files** — Summarize relevant files referenced by lessons
+2. **Working tree** — Summarize relevant architecture sections
+3. **Bug memory** — Summarize relevant bug log entries
+4. **Feature knowledge** — Summarize feature knowledge
+5. **Model decisions** — Summarize model decision records
+
+Lesson summaries are pre-computed (stored in `memory/lesson-summaries.json`) and injected directly — no re-compression needed.
+
+You can also query the LessonRetriever for additional context:
 
 ```bash
 # Get top lessons for the task at hand
@@ -119,7 +160,7 @@ Then run:
 
 ```bash
 node scripts/extract-lesson-from-commit.mjs --interactive
-node scripts/ollama-summarize-lesson.mjs    # when Ollama is running
+node scripts/ollama-summarize-lesson.mjs    # DeepSeek for summaries, Ollama for embeddings
 node scripts/central-brain-store-lesson.mjs  # when Central Brain is running
 ```
 
@@ -156,6 +197,21 @@ node scripts/ml/build-agent-context.mjs "<task>"
 # Run tests (from correct directory)
 cd src && npx vitest run path/to/test-file
 cd webview-ui && npx vitest run src/path/to/test-file
+
+# E2E test: verify MCP workflow is properly wired for Claude
+node scripts/test-claude-mcp-workflow.mjs
+
+# E2E test with verbose output
+node scripts/test-claude-mcp-workflow.mjs --verbose
+
+# Compliance check: verify workflow compliance across commits
+node scripts/check-workflow-compliance.mjs
+
+# Compliance check: verify MCP server configuration
+node scripts/check-workflow-compliance.mjs --mcp-check
+
+# Compliance check: run all checks (commits + MCP)
+node scripts/check-workflow-compliance.mjs --all
 
 # Deploy
 bash cloud/remote-deploy-dashboard.sh

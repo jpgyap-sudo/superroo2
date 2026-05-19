@@ -58,6 +58,8 @@ export {
 	type HealingMetricsOptions,
 } from "./HealingMetrics"
 
+export { MLClassifier, getFeatureDimension, type TrainingExample, type MLClassifierConfig } from "./MLClassifier"
+
 // Re-export from agents for convenience
 export {
 	SelfHealingAgent,

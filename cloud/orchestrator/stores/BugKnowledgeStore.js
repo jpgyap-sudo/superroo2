@@ -135,11 +135,63 @@ class BugKnowledgeStore {
 
 		try {
 			const http = require("http")
+			const requestJson = (path, payload) =>
+				new Promise((resolve) => {
+					const postData = JSON.stringify(payload)
+					const req = http.request(
+						`${this.ollamaBaseUrl}${path}`,
+						{
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								"Content-Length": Buffer.byteLength(postData),
+							},
+							timeout: 30_000,
+						},
+						(res) => {
+							let body = ""
+							res.on("data", (chunk) => (body += chunk))
+							res.on("end", () => {
+								try {
+									const data = JSON.parse(body)
+									if (res.statusCode >= 400) {
+										resolve(null)
+										return
+									}
+									resolve(data)
+								} catch {
+									resolve(null)
+								}
+							})
+						},
+					)
+					req.on("error", () => resolve(null))
+					req.on("timeout", () => {
+						req.destroy()
+						resolve(null)
+					})
+					req.write(postData)
+					req.end()
+				})
+
+			const modern = await requestJson("/api/embed", {
+				model: EMBEDDING_MODEL,
+				input: text.slice(0, 8000),
+			})
+			const modernEmbedding = Array.isArray(modern?.embeddings?.[0])
+				? modern.embeddings[0]
+				: Array.isArray(modern?.embedding)
+					? modern.embedding
+					: null
+			if (modernEmbedding) {
+				return modernEmbedding
+			}
+
 			const postData = JSON.stringify({
 				model: EMBEDDING_MODEL,
 				prompt: text.slice(0, 8000),
 			})
-			const embedding = await new Promise((resolve, reject) => {
+			const embedding = await new Promise((resolve) => {
 				const req = http.request(
 					`${this.ollamaBaseUrl}/api/embeddings`,
 					{

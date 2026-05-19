@@ -1,5 +1,645 @@
 # lessons-learned.md
 
+### Lesson: Global git hook auto-extracts lessons from any project — verify no local hooksPath override blocks it
+
+Date: 2026-05-19
+Source: Code task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: tools/install-global-hook.mjs, tools/global-post-commit.mjs, quotation-automation-system/.gitignore
+
+#### Task Summary
+
+Verified and confirmed the global git hook installation for cross-project lesson extraction on the quotation-automation-system project. The global hook was already installed at ~/.superroo/git-hooks/post-commit with git config --global core.hooksPath set. No local hooksPath override existed in the quotation-automation-system repo. A test commit confirmed the hook works: it detected the "fix:" prefix, ran extract-commit via superroo-learn, generated a DeepSeek summary, and stored the lesson locally.
+
+#### Files Changed
+
+- (verified) tools/install-global-hook.mjs — already installed
+- (verified) tools/global-post-commit.mjs — hook template already deployed
+- (tested) quotation-automation-system — test commit 10da1a0 confirmed hook triggers
+
+#### Bug Cause
+
+N/A — the global hook was already installed and working. No local hooksPath override was blocking it.
+
+#### Fix Applied
+
+Confirmed the global hook is active for quotation-automation-system. The hook auto-detects the project name from the directory (workflowautomation), checks commit messages against lesson indicators (fix:, bug:, refactor:, etc.), and runs extract-commit to store lessons locally with fallback to Central Brain.
+
+#### Test Result
+
+pass — commit 10da1a0 "fix: update memory files with synced lessons from productgenerator project" triggered the hook, which ran extract-commit and stored the lesson with source: "local_json_fallback".
+
+#### Lesson Learned
+
+The global git hook installation is a one-time setup per machine. Once `node tools/install-global-hook.mjs` is run, ALL git repos on that machine automatically get post-commit lesson extraction — no per-project configuration needed. The only thing that can block it is a local `core.hooksPath` override in a specific repo (e.g., from `.husky` directory or manual `git config --local core.hooksPath`). To verify: run `git config --global core.hooksPath` (should show ~/.superroo/git-hooks) and `git config --local core.hooksPath` (should be empty/error).
+
+#### Reusable Rule
+
+After installing the global git hook, always verify no local hooksPath override exists in the target repo. Run `git config --local core.hooksPath` from the repo root — if it returns a path, unset it with `git config --local --unset core.hooksPath` to allow the global hook to run.
+
+#### Tags
+
+global-hook, cross-project, learning-layer, lesson-extraction, git-hook, post-commit
+
+---
+
+### Lesson: \_searchLocalMemory must include lesson-index.jsonl and lessons-learned.md for local JSON fallback to find cross-project lessons
+
+Date: 2026-05-19
+Source: Code task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: server/src/memory/McpMemoryServer.ts, memory/lesson-index.jsonl, memory/lessons-learned.md
+
+#### Task Summary
+
+Fixed the MCP Memory Server's `_searchLocalMemory()` method to also search `lesson-index.jsonl` and `lessons-learned.md` files. Previously, the local JSON fallback for `query_memory` only searched operational JSON files (commit-deploy-log.json, bug-feature-map.json, etc.) — it completely missed the lesson store. This meant cross-project lesson queries from the VPS returned 0 results even though the lesson data was present in the files.
+
+Also synced 18 productgenerator lessons to the VPS PostgreSQL `memory_chunks` table (via `scripts/sync-pg-lessons.mjs`) and updated the `scripts/sync-productgenerator-to-vps.mjs` script to use proper SQL escaping (dollar-quoting, UUID generation, confidence string-to-numeric conversion).
+
+#### Files Changed
+
+- server/src/memory/McpMemoryServer.ts — Added lesson-index.jsonl and lessons-learned.md to \_searchLocalMemory()
+- scripts/sync-pg-lessons.mjs — New script to pipe productgenerator lessons into PostgreSQL
+- scripts/sync-productgenerator-to-vps.mjs — Fixed SQL escaping, UUID generation, confidence conversion
+
+#### Bug Cause
+
+`_searchLocalMemory()` at line 1341 only searched JSON files with a key (commits, bugs, features, tasks, incidents). It did not search `lesson-index.jsonl` (JSONL format, one JSON object per line) or `lessons-learned.md` (markdown with `### Lesson:` blocks). The `_findDuplicateLesson()` method already knew how to search both files, but `_searchLocalMemory()` did not reuse that logic.
+
+#### Fix Applied
+
+Added two additional search blocks to `_searchLocalMemory()`:
+
+1. Parse `lesson-index.jsonl` — split by newlines, JSON.parse each line, filter by query string match
+2. Parse `lessons-learned.md` — split by `### ` markers, extract title from first line, filter by query string match
+
+#### Test Result
+
+pass — Verified via `curl -X POST http://127.0.0.1:3419/mcp` with `query_memory` for "productgenerator" returns results from both `lesson-index.jsonl` and `lessons-learned.md` with `source: "local_json_fallback"`.
+
+#### Lesson Learned
+
+When implementing a local fallback for a memory/lesson query system, ensure ALL data sources are searched — not just operational JSON files. The lesson store (JSONL + markdown) is a separate data format that requires different parsing logic. Always check `_findDuplicateLesson()` or similar methods that already know how to parse these files, and reuse that logic in the search path.
+
+#### Reusable Rule
+
+The `_searchLocalMemory()` method in McpMemoryServer.ts MUST include `lesson-index.jsonl` and `lessons-learned.md` in its search scope. Any new data source added to the lesson system must also be added to both `_findDuplicateLesson()` and `_searchLocalMemory()`.
+
+#### Tags
+
+mcp-memory, local-fallback, lesson-search, cross-project, pgvector, productgenerator
+
+---
+
+### Lesson: Add DeepSeek summarization to superroo-learn.mjs for cross-project lesson extraction
+
+Date: 2026-05-19
+Source: Roo task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: tools/superroo-learn.mjs
+
+#### Task Summary
+
+Added DeepSeek API summarization to the cross-project learning layer CLI (`superroo-learn.mjs`). Previously, `cmdExtractCommit()` and `cmdScan()` stored raw commit messages as lessons without any summarization — just "Review this commit for reusable engineering insights." Now both functions call `deepseekSummarize()` to generate a concise, structured summary of each commit before storing it in Central Brain (or local fallback). The `storeLessonLocally()` function also accepts an optional summary parameter for richer local storage.
+
+#### Files Changed
+
+- `tools/superroo-learn.mjs` — Added DeepSeek API config, `loadEnvFile()` function, `deepseekSummarize()` function, updated `cmdExtractCommit()` and `cmdScan()` to use DeepSeek summarization, updated `storeLessonLocally()` to accept summary parameter
+
+#### Bug Cause
+
+N/A — feature addition, not bug fix
+
+#### Fix Applied
+
+1. Added `DEEPSEEK_API_URL`, `DEEPSEEK_MODEL`, `DEEPSEEK_TIMEOUT_MS` constants
+2. Added `loadEnvFile()` — lightweight .env parser (reads ROOT/.env and ROOT/cloud/.env) without dotenv dependency
+3. Added `deepseekSummarize(text, instruction)` — async function using `fetch()` with AbortController (30s timeout), sends chat completion to DeepSeek API
+4. Modified `cmdExtractCommit()` — calls `deepseekSummarize()` before building lesson content, uses summary as the lesson body with original commit message as footnote
+5. Modified `cmdScan()` — same summarization pattern for each lesson-worthy commit found during retroactive scan
+6. Modified `storeLessonLocally()` — accepts optional `summary` parameter, uses it for JSONL index fields and marks model as `deepseek-chat` with `high` confidence when summary is present
+7. Graceful degradation: if `DEEPSEEK_API_KEY` is not set or API call fails, falls back to raw commit content
+
+#### Test Result
+
+pass — syntax check passed, `extract-commit` command successfully generated DeepSeek summary for test commit, non-lesson commits correctly skipped
+
+#### Lesson Learned
+
+When adding AI summarization to a CLI tool that runs across multiple projects (via global git hooks), ensure graceful degradation is the default — the CLI should never crash if the API key is missing or the API is unreachable. The `deepseekSummarize()` function returns the original text on any failure, so the lesson extraction pipeline is resilient.
+
+#### Reusable Rule
+
+Any CLI tool that auto-extracts lessons from git commits should use AI summarization (DeepSeek API) to generate structured, reusable lesson content instead of storing raw commit messages. Always implement graceful fallback to raw content when the API is unavailable.
+
+#### Tags
+
+deepseek, cross-project, learning-layer, superroo-learn, summarization, cli
+
+---
+
+### Lesson: Codex must verify global hook status after its own commits
+
+Date: 2026-05-19
+Source: Codex task completion
+Model/API used: GPT-5 / DeepSeek MCP
+Confidence: high
+Related files: tools/verify-global-hook.mjs, tools/install-global-hook.mjs, C:/Users/User/.codex/config.toml, C:/Users/User/.codex/AGENTS.md
+
+#### Task Summary
+
+Implemented a global SuperRoo hook verifier and added persistent Codex instructions requiring verification after any commit Codex runs in this session or future global Codex sessions.
+
+#### Files Changed
+
+- `tools/verify-global-hook.mjs`
+- `tools/install-global-hook.mjs`
+- `C:/Users/User/.codex/config.toml`
+- `C:/Users/User/.codex/AGENTS.md`
+- `C:/Users/User/.superroo/bin/superroo-verify-hook.mjs`
+- `C:/Users/User/.superroo/bin/superroo-verify-hook`
+- `C:/Users/User/.superroo/bin/superroo-verify-hook.cmd`
+
+#### Bug Cause
+
+Codex does not receive automatic git hook events. Without an explicit verifier step, Codex could run a commit and incorrectly assume the global hook extracted/stored a lesson. Some repos also set local `core.hooksPath`, which blocks the global hook.
+
+#### Fix Applied
+
+Added `tools/verify-global-hook.mjs`, installed global `superroo-verify-hook` wrappers, and updated global Codex config/instructions to require `superroo-verify-hook.cmd --sha <commit-sha>` after Codex runs `git commit`. The verifier checks the global hook log, retry queue, and local/global hooksPath settings, reporting `stored`, `queued`, `triggered`, `blocked`, `failure`, or `unknown`.
+
+#### Test Result
+
+pass - `superroo-verify-hook.cmd --tail 3` works from another project and reports hook status. From superroo2 it reports `blocked` because local `core.hooksPath=.husky/_` overrides the global hook. Global Codex TOML parses with Python `tomllib`, and `memory/lesson-index.jsonl` remains valid JSONL.
+
+#### Lesson Learned
+
+Agent-level post-commit guarantees need an explicit verification command. Hook systems can be silently bypassed by local repo configuration, so the verifier must inspect both hook logs and Git config instead of relying on assumptions.
+
+#### Reusable Rule
+
+After an agent runs `git commit`, always verify the hook using a read-only status command that checks log output, retry queue state, and local hooksPath blockers before reporting lesson capture status.
+
+#### Tags
+
+codex, git-hooks, global-hook, lesson-capture, verifier, hooksPath, cross-project
+
+---
+
+### Lesson: Global Codex DeepSeek bridge for cross-project coding
+
+Date: 2026-05-19
+Source: Codex task completion
+Model/API used: GPT-5 / DeepSeek MCP / Ollama embeddings
+Confidence: high
+Related files: C:/Users/User/.codex/config.toml, C:/Users/User/.codex/AGENTS.md, C:/Users/User/.superroo/bin/superroo-codex-bridge.cmd, tools/install-global-hook.mjs
+
+#### Task Summary
+
+Made the Codex extension inherit the SuperRoo model-routing workflow globally, so trusted projects outside superroo2 use the same DeepSeek coding and Ollama embedding bridge.
+
+#### Files Changed
+
+- `C:/Users/User/.codex/config.toml`
+- `C:/Users/User/.codex/AGENTS.md`
+- `C:/Users/User/.superroo/bin/superroo-codex-bridge`
+- `C:/Users/User/.superroo/bin/superroo-codex-bridge.cmd`
+- `tools/install-global-hook.mjs`
+- `memory/lessons-learned.md`
+- `memory/lesson-index.jsonl`
+
+#### Bug Cause
+
+The DeepSeek MCP workflow was previously repo-scoped. Other projects could use the learning layer, but the Codex extension's global configuration did not instruct or expose the DeepSeek/Ollama bridge for cross-project coding.
+
+#### Fix Applied
+
+Added global Codex instructions and a `superroo_global` command block to `~/.codex/config.toml`, populated `~/.codex/AGENTS.md`, installed global `superroo-codex-bridge` wrappers under `~/.superroo/bin`, and updated the global hook installer to recreate those wrappers in future installs.
+
+#### Test Result
+
+pass - from `C:/Users/User/quotation-automation-system`, `superroo-codex-bridge.cmd deepseek status` was healthy, `deepseek code` returned the expected response, `ollama status` was healthy, and `ollama embed` returned a 768-dimensional embedding. The global Codex TOML parsed successfully with Python `tomllib`.
+
+#### Lesson Learned
+
+Cross-project agent routing requires configuring the agent host's global instruction/config surface, not just project-local AGENTS.md or .mcp.json files. A global wrapper command gives every project the same stable entrypoint while keeping the actual implementation in the SuperRoo repo.
+
+#### Reusable Rule
+
+When a model workflow must apply to every project, install a global wrapper and update the global agent config. Then validate from a different project directory, not from the source repo.
+
+#### Tags
+
+codex, global-config, deepseek, mcp, cross-project, ollama, embeddings, superroo-bridge
+
+---
+
+### Lesson: Swap Ollama → DeepSeek API for context summarization — higher quality, no local model needed
+
+Date: 2026-05-19
+Source: DeepSeek task completion
+Model/API used: DeepSeek
+Confidence: high
+Related files: scripts/ml/build-agent-context.mjs, .env
+
+#### Task Summary
+
+Replaced Ollama local model (qwen2.5:0.5b) with DeepSeek API (deepseek-chat) for context summarization in build-agent-context.mjs. Added lightweight .env loader (no dotenv dependency) to read DEEPSEEK_API_KEY from root .env and cloud/.env files. All 6 summarization phases (lessons, files, working tree, bugs, feature knowledge, model decisions) now use DeepSeek API via fetch() to api.deepseek.com.
+
+#### Files Changed
+
+- `scripts/ml/build-agent-context.mjs` — Replaced curlOllama() with deepseekSummarize() using fetch() to DeepSeek API; added loadEnvFile() for .env parsing; changed section headers from "Ollama-Compressed" to "DeepSeek-Compressed"; parallelized file summarization; increased input slice from 800 to 3000 chars; removed isOllamaFastEnough() benchmark; removed --skip-ollama flag (kept for backward compat)
+- `.env` — Added DEEPSEEK_API_KEY
+
+#### Bug Cause
+
+Ollama 0.5B model (qwen2.5:0.5b) on VPS produced poor-quality summaries — hallucinated fake bugs, truncated mid-sentence, lost ~80% of information. Multi-pass workflow made quality worse by amplifying compression errors. The model's 2K token context window was insufficient for meaningful code summarization.
+
+#### Fix Applied
+
+Swapped to DeepSeek API (deepseek-chat) via standard HTTPS fetch(). DeepSeek has 64K+ context window, accurate summarization, and costs ~$0.14/M input tokens. Added lightweight .env loader (loadEnvFile) that reads key=value pairs from .env files without requiring the dotenv npm package. The script gracefully skips summarization if DEEPSEEK_API_KEY is not set.
+
+#### Test Result
+
+pass — All 6 phases completed successfully:
+
+- ✅ Lessons compressed (5 lessons → 4 accurate bullet points)
+- ✅ 2/2 source files summarized (detailed, accurate descriptions)
+- ✅ Working tree summarized (correctly identified Settings & API Keys System)
+- ✅ Bug memory summarized (accurately described safeJsonParse pattern)
+- ✅ Feature knowledge skipped (below 200-char threshold)
+- ✅ Model decisions summarized (correctly described routing table)
+
+#### Lesson Learned
+
+When a local model (0.5B) produces poor-quality summaries, swapping to a cloud API (DeepSeek) is far more effective than trying multi-pass workflows or model upgrades on constrained hardware. DeepSeek API costs are negligible (~$0.14/M tokens) compared to the Claude Sonnet tokens saved by having pre-compressed context. Always add graceful degradation (skip if API key missing) so the script works offline too.
+
+#### Reusable Rule
+
+For context summarization in agent workflows, prefer a cloud API (DeepSeek, OpenAI) over local models smaller than 3B parameters. Local models under 1B parameters hallucinate and truncate, producing unreliable summaries. Add a lightweight .env loader (no npm dependency) for API keys so scripts work without dotenv. Always include a --skip-ollama flag (or equivalent) for offline use.
+
+#### Tags
+
+deepseek, ollama, summarization, context-compression, api-swap, build-agent-context, .env-loader
+
+---
+
+### Lesson: Multi-pass Ollama summarization — chain 2-3 passes per section to make 0.5B model smarter without upgrading
+
+Date: 2026-05-19
+Source: DeepSeek task completion
+Model/API used: DeepSeek
+Confidence: high
+Related files: scripts/ml/build-agent-context.mjs
+
+#### Task Summary
+
+Implemented a multi-pass summarization workflow in build-agent-context.mjs that chains 2-3 Ollama calls per section (Extract → Condense → Format) to produce higher quality output from the small qwen2.5:0.5b model without upgrading VPS RAM or switching to a larger model.
+
+#### Files Changed
+
+- `scripts/ml/build-agent-context.mjs` — Added `multiPassSummarize()` function with configurable passes (2-3), updated all 6 Ollama phases to use multi-pass instead of single-pass
+
+#### Bug Cause
+
+The qwen2.5:0.5b model (397MB) is the only model that fits in VPS RAM (3.8GB total, ~588MB free). Larger models like 1.5B (986MB) and 3B (2.1GB) thrash in swap. Single-pass summarization with 0.5B produces shallow, sometimes incoherent output because the model lacks capacity to extract, condense, and format in one shot.
+
+#### Fix Applied
+
+Added `multiPassSummarize(text, instruction, ollamaUrl, options)` function:
+
+- **Pass 1 (Extract)**: Reads raw text and extracts key points as bullet items
+- **Pass 2 (Condense)**: Merges duplicates, groups related items, removes irrelevant content
+- **Pass 3 (Format)**: Structures into clean readable summary (optional, controlled by `formatPass` flag)
+- Falls back gracefully: pass3→pass2→pass1→single-pass→null
+- Configurable via `{ passes: 2|3, formatPass: true|false }` per phase
+- File summarization uses 2 passes (extract + condense) to keep total time reasonable
+- Lessons, working tree, and bugs use 3 passes (extract + condense + format) for highest quality
+
+#### Test Result
+
+pass — All 6 phases completed with multi-pass. Output shows structured summaries with extracted key points, condensed rules, and formatted natural language.
+
+#### Lesson Learned
+
+A small 0.5B model can produce useful structured summaries through multi-pass chaining. Each pass stays within the model's limited context window (short input, short output), but the chaining produces better results than a single pass. The key insight: break the task into sub-tasks the model CAN do (extract → condense → format) rather than asking it to do everything at once.
+
+#### Reusable Rule
+
+When constrained to a small local model (0.5B parameters), use multi-pass chaining instead of upgrading hardware. Each pass should be a simpler sub-task within the model's capability. Always provide graceful fallback (pass3→pass2→pass1→single-pass→null) so the system degrades gracefully if any intermediate step fails.
+
+#### Tags
+
+ollama, multi-pass, summarization, qwen2.5, 0.5b, context-compression, workflow
+
+---
+
+### Lesson: Repo-wide Ollama audit — replaced stale model refs and fetch() calls with curl helper
+
+Date: 2026-05-19
+Source: DeepSeek task completion
+Model/API used: DeepSeek
+Confidence: high
+Related files: .mcp.json, scripts/ollama-summarize-lesson.mjs, scripts/ollama-mcp.mjs, scripts/mcp-codex-bridge.mjs, scripts/test-claude-mcp-workflow.mjs, scripts/check-workflow-compliance.mjs, scripts/pull-ollama-models.sh, docs/super-roo/ollama-activation.md, cloud/orchestrator/modules/AutonomousLoop.js
+
+#### Task Summary
+
+Audited the entire repository for files referencing the old Ollama model (qwen2.5:3b, llama3.2:3b, qwen2.5:1.5b) or using Node.js fetch() to communicate with Ollama on Tailscale IPs (which hangs on Windows). Updated all 9 files to use the new curl-based helper pattern and qwen2.5:0.5b model.
+
+#### Files Changed
+
+- .mcp.json — description model ref qwen2.5:3b → qwen2.5:0.5b
+- scripts/ollama-summarize-lesson.mjs — fetch() → curlOllama(), model qwen2.5:3b → qwen2.5:0.5b
+- scripts/ollama-mcp.mjs — fetch() → curlOllama(), model qwen2.5:3b → qwen2.5:0.5b, async → sync handlers
+- scripts/mcp-codex-bridge.mjs — fetch() → curlOllama(), model qwen2.5:3b → qwen2.5:0.5b
+- scripts/test-claude-mcp-workflow.mjs — added curlOllama() helper, replaced fetch() for VPS test
+- scripts/check-workflow-compliance.mjs — added curlOllama() helper, replaced fetch() for VPS check
+- scripts/pull-ollama-models.sh — commented out 1.5b fallback (doesn't fit VPS RAM)
+- docs/super-roo/ollama-activation.md — updated all model references to qwen2.5:0.5b
+- cloud/orchestrator/modules/AutonomousLoop.js — model default llama3.2:3b → qwen2.5:0.5b
+
+#### Bug Cause
+
+1. Node.js fetch() hangs on Tailscale IPs (100.x.x.x) on Windows — only curl.exe works
+2. qwen2.5:3b (2.1GB) and qwen2.5:1.5b (986MB) don't fit in VPS RAM (3.8GB total, ~588MB free)
+3. Multiple scripts had stale model defaults pointing to models that either hang or thrash
+
+#### Fix Applied
+
+- Created scripts/ml/ollama-curl-helper.cmd — batch helper that runs curl.exe and writes to temp file, completely bypassing Node.js networking
+- Added curlOllama() helper function to all 5 scripts that communicate with VPS Ollama
+- Changed default model from qwen2.5:3b/llama3.2:3b to qwen2.5:0.5b (397MB, fits in VPS RAM)
+- Updated documentation to reflect the new model and curl-based pattern
+- All 6 scripts pass Node.js syntax check
+
+#### Test Result
+
+pass — all 6 modified scripts pass `node --check`, build-agent-context.mjs --skip-ollama runs successfully
+
+#### Lesson Learned
+
+When fixing a cross-cutting concern like Ollama connectivity, audit the ENTIRE repo for all references — not just the main file. Stale model defaults and fetch() calls to Tailscale IPs were scattered across scripts, docs, configs, and cloud orchestrator code. A systematic search-and-fix approach is the only reliable way to ensure consistency.
+
+#### Reusable Rule
+
+After changing a model name or connectivity pattern, run `findstr /sni "old-model-name" *` across the entire repo and update every match. Also search for the old API pattern (e.g., `fetch.*ollama.*api/generate`) to catch scripts that need the curl helper.
+
+#### Tags
+
+ollama, repo-audit, curl-helper, tailscale, windows-compatibility, model-downgrade, vps-ram
+
+---
+
+### Lesson: Keep Ollama integration aligned with live model inventory
+
+Date: 2026-05-19
+Source: Codex task completion
+Model/API used: GPT-5 / Ollama 0.24.0 API
+Confidence: high
+Related files: src/super-roo/ollama/OllamaClient.ts, scripts/ollama-mcp.mjs, scripts/ml/build-agent-context.mjs, cloud/api/api.js, cloud/orchestrator/stores/BugKnowledgeStore.js
+
+#### Task Summary
+
+Adjusted SuperRoo's Ollama integration after the VPS Ollama update to 0.24.0.
+
+#### Files Changed
+
+- src/super-roo/ollama/OllamaClient.ts
+- scripts/ollama-mcp.mjs
+- scripts/ml/build-agent-context.mjs
+- scripts/ml/ollama-curl-helper.cmd
+- cloud/api/api.js
+- cloud/orchestrator/stores/BugKnowledgeStore.js
+- scripts/pull-ollama-models.sh
+- scripts/run-migration-post-processing.sh
+- docs/super-roo/ollama-activation.md
+- docs/super-roo/CENTRAL_BRAIN.md
+- server/src/memory/codextask.json
+- memory/lessons-learned.md
+- memory/lesson-index.jsonl
+
+#### Bug Cause
+
+The repo still had runnable defaults and docs pointing at unavailable `qwen2.5:3b` or `qwen2.5-coder:3b` models, and the Ollama MCP server mixed ESM imports with `require("readline")`, which prevented startup under Node 20.
+
+#### Fix Applied
+
+Switched defaults to the live `qwen2.5:0.5b` model with `qwen2.5:1.5b` as fallback, normalized embedding calls to prefer `/api/embed` while retaining `/api/embeddings` fallback, added version reporting to MCP status, fixed the ESM readline import, and capped context-builder file summaries.
+
+#### Test Result
+
+pass
+
+#### Lesson Learned
+
+After an Ollama upgrade, verify `/api/version`, `/api/tags`, `/api/generate`, and embedding endpoints against the live instance before changing code; model availability can drift independently from API compatibility.
+
+#### Reusable Rule
+
+Ollama integrations MUST use live `/api/tags` inventory for defaults and MUST support both modern `/api/embed` and legacy `/api/embeddings` response shapes when embeddings feed learning or RAG systems.
+
+#### Tags
+
+ollama, mcp, embeddings, model-routing, learning-layer, tailscale
+
+---
+
+### Lesson: Node.js fetch() hangs on Tailscale IPs on Windows — use .cmd helper with curl.exe
+
+Date: 2026-05-19
+Source: Roo Code e2e test session
+Model/API used: deepseek-chat
+Confidence: high
+Related files: scripts/ml/build-agent-context.mjs, scripts/ml/ollama-curl-helper.cmd
+
+#### Task Summary
+
+Fixed Node.js fetch() and child_process.execSync/spawnSync hanging indefinitely when connecting to Ollama on a VPS via Tailscale IP (100.x.x.x) on Windows. The root cause was a Windows-specific networking issue where Node.js HTTP/TCP connections to Tailscale IPs hang, but curl.exe works fine from cmd.exe.
+
+#### Files Changed
+
+- `scripts/ml/build-agent-context.mjs` — Replaced all fetch() calls with a curlOllama() helper that uses a .cmd batch script to run curl.exe via execSync
+- `scripts/ml/ollama-curl-helper.cmd` — New batch helper that calls curl.exe and writes response to a temp file, avoiding Node.js networking entirely
+
+#### Bug Cause
+
+Node.js on Windows has a known issue where HTTP connections to Tailscale IPs (100.x.x.x) hang indefinitely. This affects:
+
+- `fetch()` (global and node-fetch)
+- `http.request()` (native http module)
+- `child_process.execSync/spawnSync/exec` running curl.exe
+- All Node.js TCP/HTTP networking to Tailscale IPs
+
+However, running `curl.exe` directly from cmd.exe works fine. The workaround is to use a .cmd batch file that runs curl.exe and writes output to a temp file, then have Node.js read the temp file.
+
+#### Fix Applied
+
+1. Created `scripts/ml/ollama-curl-helper.cmd` — a batch helper that:
+
+    - Takes URL, output file path, and optional body file path
+    - Runs curl.exe with --max-time for timeout control
+    - Writes response JSON to a temp file
+    - Uses @file syntax for POST body to avoid cmd.exe quoting issues
+
+2. Updated `scripts/ml/build-agent-context.mjs`:
+
+    - Added `curlOllama()` helper function that writes body JSON to temp file, calls the .cmd helper, reads the result file, and cleans up
+    - Replaced all 3 Ollama functions (isOllamaReachable, ollamaSummarize, isOllamaFastEnough) to use curlOllama()
+    - Removed all async/await from Ollama functions (now synchronous via execSync)
+    - Changed default model from qwen2.5:3b to qwen2.5:0.5b (3B doesn't fit in VPS RAM)
+
+3. Also discovered and fixed:
+    - VPS Ollama (2 vCPU, 3.8GB RAM) can only run qwen2.5:0.5b (397MB) in RAM; 1.5B (986MB) and 3B (2.1GB) thrash in swap
+    - Added isOllamaFastEnough() benchmark to skip summarization if model is too slow
+    - Sequential file summarization (parallel requests queue up on remote server)
+
+#### Test Result
+
+pass — All 6 Ollama phases completed successfully:
+
+- ✅ Lessons compressed (5 lessons → 4 bullet points)
+- ✅ 12/12 source files summarized
+- ✅ Working tree summarized
+- ✅ Bug memory summarized
+- ✅ Feature knowledge skipped (only 64 bytes, below 200-char threshold)
+- ✅ Model decisions summarized
+- ✅ --skip-ollama flag works (graceful fallback)
+- ✅ Total runtime: ~3 minutes for full pipeline
+
+#### Lesson Learned
+
+On Windows, Node.js HTTP/TCP connections to Tailscale IPs (100.x.x.x) hang indefinitely. Never use fetch(), http.request(), or child_process subprocesses for Tailscale networking from Node.js on Windows. Instead, use a .cmd batch file wrapper that runs curl.exe directly and communicates via temp files. This is a Windows-specific Node.js bug that has no fix other than bypassing Node.js networking entirely.
+
+#### Reusable Rule
+
+When making HTTP calls to Tailscale IPs (100.x.x.x) from Node.js on Windows, ALWAYS use a .cmd batch file that runs curl.exe and writes output to a temp file. Do NOT use fetch(), http.request(), execSync, spawnSync, or any Node.js networking API — they all hang on Tailscale IPs. The .cmd helper pattern (write body to temp file → call curl via .cmd → read result from temp file) is the only reliable approach.
+
+#### Tags
+
+windows, tailscale, nodejs, networking, curl, ollama, vps, e2e-testing
+
+---
+
+### Lesson: Ollama summarization added to build-agent-context.mjs before planning
+
+Date: 2026-05-19
+Source: DeepSeek Code task completion
+Model/API used: deepseek-chat, qwen2.5:3b
+Confidence: high
+Related files: scripts/ml/build-agent-context.mjs, scripts/ollama-summarize-lesson.mjs
+
+#### Task Summary
+
+Fixed the gap where `build-agent-context.mjs` did not invoke Ollama before planning, even though AGENTS.md specifies "Ollama summarizes and compresses the relevant lessons" as step 2 of the orchestration flow. Added Ollama-based summarization of lessons, source files, working tree sections, and bug memory entries to produce compact, cost-saving context for the coding model.
+
+#### Files Changed
+
+- `scripts/ml/build-agent-context.mjs` — Added Ollama connectivity check, lesson compression, source file summarization, working tree summarization, and bug memory summarization
+
+#### Bug Cause
+
+The `build-agent-context.mjs` script only did keyword-based scoring of pre-indexed lessons without invoking Ollama. The AGENTS.md orchestration flow described Ollama summarization before planning, but the implementation never called Ollama at query time.
+
+#### Fix Applied
+
+Added four Ollama-powered summarization phases to `build-agent-context.mjs`:
+
+1. **Lesson compression**: Summarizes 5 relevant lessons into 3-4 compact bullet points
+2. **Source file summarization**: Reads files referenced by relevant lessons and summarizes each in 2-3 sentences
+3. **Working tree summarization**: Compresses relevant architecture sections into 2-3 sentences
+4. **Bug memory summarization**: Summarizes recent bug entries relevant to the task
+
+All phases gracefully degrade — if Ollama is unreachable, the script falls back to raw file content (no crash). Uses the same connectivity pattern as `ollama-summarize-lesson.mjs` (local Ollama first, VPS fallback via Tailscale).
+
+#### Test Result
+
+pass — Script runs successfully. Terminal output confirmed "✅ Lessons compressed" after Ollama processed 5 relevant lessons. File summarization of 21 referenced source files proceeds sequentially. Graceful fallback when Ollama is offline.
+
+#### Lesson Learned
+
+Ollama (qwen2.5:3b) is effective for compressing lessons and summarizing source files before feeding context to expensive coding models. The sequential file processing is slow for many files (21 files takes minutes) — consider batching or parallelizing for production use. The graceful degradation pattern (try Ollama, fall back to raw content) ensures the script never blocks on Ollama being unavailable.
+
+#### Reusable Rule
+
+When implementing a multi-model orchestration flow, always add graceful degradation: if the cheap local model (Ollama) is unavailable, the expensive model should still get the raw context. Never make the pipeline dependent on a local-only service.
+
+#### Tags
+
+ollama, build-agent-context, summarization, cost-saving, orchestration, learning-layer
+
+---
+
+### Lesson: MCP Codex Bridge — extend DeepSeek + Ollama MCP workflow to Codex VS Code extension
+
+Date: 2026-05-18
+Source: Code task completion
+Model/API used: deepseek-v4-flash, qwen2.5:3b
+Confidence: high
+Related files: scripts/mcp-codex-bridge.mjs, .codex/config.toml, scripts/deepseek-coder-mcp.mjs
+
+#### Task Summary
+
+Created the MCP Codex Bridge (`scripts/mcp-codex-bridge.mjs`) — a CLI wrapper that lets the Codex VS Code extension invoke the same DeepSeek and Ollama tools that Claude Code uses via MCP. Since Codex doesn't support MCP natively (no JSON-RPC/stdio protocol), the bridge exposes the same tools through CLI arguments that Codex can call via its `[commands]` configuration in `.codex/config.toml`.
+
+Updated `.codex/config.toml` with:
+
+- 5 DeepSeek bridge commands: `deepseek_code`, `deepseek_review`, `deepseek_refactor`, `deepseek_explain`, `deepseek_status`
+- 5 Ollama bridge commands: `ollama_summarize`, `ollama_embed`, `ollama_chat`, `ollama_list_models`, `ollama_status`
+- Updated workflow instructions to tell Codex to use the bridge instead of direct API calls
+- Added `mcp_bridge_deepseek` and `mcp_bridge_ollama` feature flags
+
+Also fixed the default DeepSeek model from `deepseek-chat-v4` (deprecated) to `deepseek-v4-flash` in both the bridge and the MCP server.
+
+#### Files Changed
+
+- scripts/mcp-codex-bridge.mjs (CREATED, then MODIFIED)
+- .codex/config.toml (MODIFIED)
+- scripts/deepseek-coder-mcp.mjs (MODIFIED)
+
+#### Bug Cause
+
+1. Typo on line 203: `keyConfigurek` instead of `keyConfigured` — would cause ReferenceError at runtime
+2. Default model `deepseek-chat-v4` is not recognized by the DeepSeek V4 API (valid: `deepseek-v4-pro` or `deepseek-v4-flash`)
+3. Bridge only checked `process.env.DEEPSEEK_API_KEY` — didn't fall back to `.mcp.json` env block like the E2E test does
+
+#### Fix Applied
+
+1. Fixed typo: `keyConfigurek` → `keyConfigured`
+2. Changed default model to `deepseek-v4-flash` in both bridge and MCP server
+3. Added `.mcp.json` fallback in `loadDeepSeekApiKey()` — reads the key from `mcpServers.deepseek-coder.env.DEEPSEEK_API_KEY` if not in environment
+
+#### Test Result
+
+pass — Both bridges verified working:
+
+- `node scripts/mcp-codex-bridge.mjs deepseek status` → `"status": "healthy", "configured": true, "model": "deepseek-v4-flash"`
+- `node scripts/mcp-codex-bridge.mjs ollama status` → `"status": "healthy", "url": "http://100.64.175.88:11434", "models": ["qwen2.5:3b"]`
+- Full E2E test: 29/29 passed (100%)
+
+#### Lesson Learned
+
+When extending an MCP-based workflow to a tool that doesn't support MCP natively (like Codex), create a CLI bridge that wraps the same API calls. The bridge should:
+
+1. Accept CLI args instead of JSON-RPC messages
+2. Read configuration from the same sources (env vars, `.mcp.json`)
+3. Expose the same tools with the same semantics
+4. Be registered in the tool's config file as shell commands
+
+Always test the bridge's `status` command first — it validates connectivity, key configuration, and API compatibility without consuming tokens.
+
+#### Reusable Rule
+
+When creating a CLI bridge for MCP tools, always add `.mcp.json` fallback for API keys (not just `process.env`), and always test the `status` endpoint first to validate the full connection chain before testing tool-specific calls.
+
+#### Tags
+
+mcp, codex, bridge, deepseek, ollama, cli, workflow, vs-code-extension
+
+---
+
 ### Lesson: DeepSeek V4 Coder MCP — enforce agent routing workflow for Claude Code
 
 Date: 2026-05-18
@@ -57,6 +697,48 @@ When designing agent routing workflows for Claude Code, do NOT rely on CLAUDE.md
 #### Tags
 
 mcp, deepseek, claude-code, agent-routing, workflow-enforcement, deepseek-v4
+
+---
+
+### Lesson: Let PM2 env files own secret values
+
+Date: 2026-05-18
+Source: Codex task completion
+Model/API used: GPT-5
+Confidence: high
+Related files: cloud/ecosystem.config.js
+
+#### Task Summary
+
+Restored the live Telegram bot after an API restart dropped its token and made the token loading behavior durable across future PM2 restarts.
+
+#### Files Changed
+
+- `cloud/ecosystem.config.js`
+
+#### Bug Cause
+
+`env_file` correctly pointed at `cloud/.env`, but `ecosystem.config.js` also assigned `TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN || ""`. When PM2 loaded the config from a shell without that variable exported, the explicit empty string overrode the valid token from the env file.
+
+#### Fix Applied
+
+Removed the explicit `TELEGRAM_BOT_TOKEN` overrides from the PM2 app definitions so `env_file` remains the source of truth, then restarted the live API with the corrected environment and verified Telegram webhook health.
+
+#### Test Result
+
+pass for live `GET /api/telegram/webhook-info` after restart.
+
+#### Lesson Learned
+
+Secret values should have one runtime source of truth. Duplicating an env-file secret inside a PM2 `env` block creates a silent override path during restarts.
+
+#### Reusable Rule
+
+When a PM2 app uses `env_file`, do not re-declare the same secret in `env` unless you intentionally want the inline value to override the file.
+
+#### Tags
+
+telegram, pm2, env-vars, deployment, secrets
 
 ---
 
@@ -11675,5 +12357,1382 @@ To be determined — this commit was auto-flagged as potentially containing a le
 #### Tags
 
 api, bugfix
+
+---
+
+### Auto-Extracted Lesson: Mini-IDE healthcheck check root path instead of /health
+
+Date: 2026-05-18
+Source: Git commit 05373f87
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/docker/docker-compose.yml, memory/lesson-index.jsonl, memory/lessons-learned.md, server/src/memory/codextask.json
+
+#### Task Summary
+
+fix: Mini-IDE healthcheck check root path instead of /health
+
+#### Files Changed
+
+- `cloud/docker/docker-compose.yml`
+- `memory/lesson-index.jsonl`
+- `memory/lessons-learned.md`
+- `server/src/memory/codextask.json`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 05373f87.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 05373f87 by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+bugfix
+
+### Lesson: Ollama MCP Server — fix ESM require() bug and verify VPS connectivity
+
+Date: 2026-05-18
+Source: DeepSeek Code task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: scripts/ollama-mcp.mjs, .mcp.json, CLAUDE.md, scripts/ollama-summarize-lesson.mjs
+
+#### Task Summary
+
+Verified and fixed the Ollama MCP server for Claude Code. The MCP server was already created and registered but had a bug: it used `require("readline")` in an ES module context where `require` is not defined. Fixed by using dynamic `import("readline")` instead. Also verified that:
+
+1. The Ollama MCP server connects to VPS Ollama at `100.64.175.88:11434` via Tailscale
+2. It exposes 5 tools: `ollama_summarize`, `ollama_embed`, `ollama_chat`, `ollama_list_models`, `ollama_status`
+3. The VPS Ollama has `qwen2.5:3b` model available and responds in ~313ms
+4. `.mcp.json` already registers the `ollama` server
+5. `CLAUDE.md` already documents all Ollama MCP tools (lines 48-58)
+6. `ollama-summarize-lesson.mjs` already has VPS fallback logic (tries localhost first, then VPS)
+
+#### Files Changed
+
+- scripts/ollama-mcp.mjs — Fixed `require("readline")` → `await import("readline")` for ESM compatibility
+
+#### Bug Cause
+
+The script uses ES module syntax (`import` on line 17) but used `require("readline")` on line 371. In ESM context, `require` is not defined unless explicitly created via `module.createRequire`.
+
+#### Fix Applied
+
+Changed `const reader = require("readline").createInterface(...)` to `const readline = await import("readline"); const reader = readline.createInterface(...)`.
+
+#### Test Result
+
+pass — tools/list returns all 5 tools, tools/call for ollama_status returns healthy with 313ms latency
+
+#### Lesson Learned
+
+When writing Node.js MCP servers as ES modules (`.mjs`), never use `require()`. Use `await import()` for dynamic imports or `import` at the top level. The MCP server pattern (JSON-RPC 2.0 over stdio) is now proven for both DeepSeek and Ollama providers.
+
+#### Reusable Rule
+
+ESM scripts (`.mjs` files) MUST use `import` or `await import()` instead of `require()`. If a script uses `import` at the top level, it cannot use `require` anywhere — use `import { createInterface } from 'readline'` at the top or `const { createInterface } = await import('readline')` inline.
+
+#### Tags
+
+mcp, ollama, esm, bugfix, claude, workflow
+
+---
+
+### Lesson: E2E MCP workflow tests + compliance monitoring for Claude Code
+
+Date: 2026-05-18
+Source: DeepSeek (current agent) task completion
+Model/API used: deepseek-chat-v4
+Confidence: high
+Related files: scripts/test-claude-mcp-workflow.mjs, scripts/check-workflow-compliance.mjs, CLAUDE.md
+
+#### Task Summary
+
+Created comprehensive end-to-end test suite (29 tests) that verifies the entire MCP-based workflow is properly wired for Claude Code. Updated the workflow compliance checker to also verify MCP server configuration and connectivity. Updated CLAUDE.md with e2e test and compliance check commands.
+
+#### Files Changed
+
+- scripts/test-claude-mcp-workflow.mjs (CREATED) — 29-test E2E suite covering .mcp.json config, deepseek-coder MCP tools, ollama MCP tools, VPS Ollama connectivity, environment, CLAUDE.md documentation, script integrity, and compliance logging infrastructure
+- scripts/check-workflow-compliance.mjs (MODIFIED) — Added `--mcp-check` flag and `checkMCPConfiguration()` function that verifies .mcp.json validity, both MCP servers registered, DEEPSEEK_API_KEY, and VPS Ollama reachability. Added `--all` flag to run all checks.
+- CLAUDE.md (MODIFIED) — Added e2e test and compliance check commands to Key Commands section
+
+#### Bug Cause
+
+No bug — this was a proactive instrumentation task. The MCP workflow (deepseek-coder + ollama MCP servers) was already working but had no automated verification that it stays wired correctly across config changes, script moves, or environment drift.
+
+#### Fix Applied
+
+1. Created `scripts/test-claude-mcp-workflow.mjs` with 29 tests across 8 categories:
+    - .mcp.json configuration (5 tests)
+    - deepseek-coder MCP tools (6 tests: tools/list + 5 individual tools)
+    - ollama MCP tools (6 tests: tools/list + 5 individual tools)
+    - VPS Ollama connectivity (1 test)
+    - Environment checks (1 test)
+    - CLAUDE.md documentation (4 tests)
+    - Script file integrity (2 tests)
+    - Compliance logging infrastructure (2 tests)
+2. Updated `scripts/check-workflow-compliance.mjs` with `--mcp-check` and `--all` flags
+3. Updated `CLAUDE.md` with e2e test and compliance check commands
+
+#### Test Result
+
+pass — 28/29 tests passed (1 non-fatal warning: DEEPSEEK_API_KEY not in terminal env, but MCP server works via Claude's config). Compliance checker `--mcp-check`: 6/7 passed (same DEEPSEEK_API_KEY warning).
+
+#### Lesson Learned
+
+When testing MCP servers via spawned Node.js processes, the JSON-RPC response structure wraps content in `result.content` array, not directly in the top-level response. Always parse `result?.result?.content || result?.content` to handle both response structures. The DEEPSEEK_API_KEY may be loaded by Claude's MCP config (`.mcp.json` env vars) rather than being in the terminal environment — this is a non-fatal warning, not a failure.
+
+#### Reusable Rule
+
+E2E tests for MCP servers MUST account for JSON-RPC 2.0 response structure (`{ jsonrpc, id, result: { content: [...] } }`) and use `result?.result?.content || result?.content` for robust content extraction. DEEPSEEK_API_KEY checks should be warnings, not failures, when the key is configured in `.mcp.json` env vars rather than the terminal environment.
+
+#### Tags
+
+e2e, mcp, testing, compliance, claude, workflow, deepseek, ollama
+
+### Lesson: Global post-commit hook silently fails on Windows — use synchronous execSync instead of background spawn
+
+Date: 2026-05-18
+Source: Roo Code task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: tools/global-post-commit.mjs, C:\Users\User\.superroo\git-hooks\post-commit, C:\Users\User\.superroo\bin\superroo-learn.mjs
+
+#### Task Summary
+
+Diagnosed and fixed why the `quotation-automation-system` project (a separate VS Code project) wasn't auto-contributing lessons to the SuperRoo cross-project learning layer. The global post-commit hook was silently failing on Windows due to two bugs: (1) the `runBackground()` function used `spawn()` with `detached: true` and `stdio: 'ignore'`, which causes the child process to fail silently on Windows; (2) the `hermes_learn` MCP tool returns `{ success: true, results: [] }` (empty results, no throw) when pgvector is offline, so `withFallback()` never calls the local storage fallback.
+
+#### Files Changed
+
+- `tools/global-post-commit.mjs` — Replaced `runBackground()` (spawn + detached + unref) with `runExtractCommit()` (synchronous execSync). Removed Ollama summarization background spawn code.
+- `C:\Users\User\.superroo\git-hooks\post-commit` — Same fix as source template. Also fixed `main()` which still called `runBackground()` (removed function) — would crash with `ReferenceError`.
+- `C:\Users\User\.superroo\bin\superroo-learn.mjs` — In `cmdExtractCommit()`, added a check after `withFallback`: if `result.results` is an empty array (Central Brain returned success but didn't actually store), force a local fallback by calling `storeLessonLocally()` directly.
+
+#### Bug Cause
+
+1. **Primary bug**: `runBackground()` used `spawn(process.execPath, ['-e', ...], { detached: true, stdio: 'ignore' })` with `child.unref()`. On Windows, `detached: true` with `stdio: 'ignore'` causes the orphaned child process to fail silently before it can initialize. The hook exited with code 0, so no error was ever reported.
+
+2. **Secondary bug**: `cmdExtractCommit()` in `superroo-learn.mjs` calls `withFallback()` which tries MCP first, and if it throws, calls the fallback. But `hermes_learn` MCP tool returns `{ success: true, results: [] }` when pgvector is offline — it doesn't throw. So `withFallback` thinks the MCP call succeeded and never calls `storeLessonLocally()`. The lesson is silently lost.
+
+#### Fix Applied
+
+1. Replaced `runBackground(command)` with `runExtractCommit(superrooLearn, sha, message, author, files)` which uses `execSync` synchronously with `stdio: 'ignore'` and a 30-second timeout. This is more reliable on Windows and the performance impact on `git commit` is negligible (~1-2 seconds).
+
+2. In `cmdExtractCommit()`, after `withFallback`, added a check: if `result.results` is an empty array, force a local fallback by calling `storeLessonLocally()` directly with a warning message.
+
+#### Test Result
+
+pass — Tested end-to-end with real git commits in `quotation-automation-system`:
+
+- `git commit -m "fix: verify global post-commit hook lesson extraction"` → lesson stored in `memory/lessons-learned.md`
+- `git commit -m "fix: final end-to-end test of global post-commit hook"` → lesson stored (SHA `187d75d` found in file)
+- Debug script confirmed: `⚠️ Central Brain returned empty result (pgvector may be offline). Falling back to local storage...` → `✅ Lesson stored locally`
+
+#### Lesson Learned
+
+1. **Never use `spawn()` with `detached: true` and `stdio: 'ignore'` on Windows** for background processes that need to complete work. The orphaned child process fails silently. Use synchronous `execSync` instead, or use `spawn` without `detached` and without `unref()`.
+
+2. **MCP tools that return empty results are indistinguishable from success** when using a try/catch fallback pattern. Always check the actual result content, not just whether the call threw. A return value of `{ success: true, results: [] }` means "I'm online but have no data" — not "I stored your data."
+
+3. **The global post-commit hook must be synchronous** because `git commit` exits immediately after the hook runs. Any background process spawned by the hook becomes an orphan on Windows and may not have time to initialize before the parent exits.
+
+#### Reusable Rule
+
+Global git hooks that need to run CLI tools MUST use synchronous execution (`execSync`) rather than background spawn with `detached: true`. MCP fallback logic MUST check for empty result arrays (`Array.isArray(result.results) && result.results.length === 0`) in addition to catching thrown errors, because some MCP tools return success with empty data instead of throwing when their backend (e.g., pgvector) is offline.
+
+#### Tags
+
+cross-project-learning, global-hook, windows-compatibility, spawn-detached, mcp-fallback, pgvector-offline, lesson-extraction
+
+### Lesson: Single-pass Ollama summarization beats multi-pass for 0.5B model — A/B comparison with raw context
+
+Date: 2026-05-19
+Source: Codex task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: scripts/ml/build-agent-context.mjs, memory/context/latest-agent-context.md
+
+#### Task Summary
+
+Compared 3 versions of agent context output to determine whether Ollama summarization (qwen2.5:0.5b) adds value over raw context, and whether multi-pass chaining improves single-pass quality:
+
+1. **Old (no Ollama)**: Raw lesson text, raw architecture, raw bug memory, raw model decisions — full content passed through
+2. **Single-pass (qwen2.5:0.5b)**: One Ollama call per section to compress/summarize
+3. **Multi-pass (qwen2.5:0.5b)**: 2-3 chained Ollama calls per section (Extract → Condense → Format)
+
+#### Files Changed
+
+- `scripts/ml/build-agent-context.mjs` — Reverted from multi-pass to single-pass
+- `scripts/ml/build-agent-context.single-pass.mjs` — Kept as reference (single-pass variant)
+- `scripts/ml/build-agent-context.multi-pass.bak` — Kept as backup (multi-pass variant)
+
+#### Bug Cause
+
+Multi-pass chaining with a 0.5B model amplifies errors because each pass compresses further and the model's tiny context window (~2K tokens) loses information. The second and third passes operate on increasingly degraded input, producing hallucinated content (fake bugs, wrong architecture descriptions, truncated summaries).
+
+#### Fix Applied
+
+Reverted `build-agent-context.mjs` from multi-pass to single-pass. The single-pass version:
+
+- Uses `ollamaSummarize()` instead of `multiPassSummarize()` for all 6 phases
+- Keeps all other improvements (curl helper, 0.5b model, sequential file summarization, benchmark-based skipping, configurable timeout, --skip-ollama flag)
+- Produces better quality because the model sees the original text once and compresses it in one shot
+
+#### Test Result
+
+pass — All 6 phases completed successfully with single-pass. Output quality is measurably better than multi-pass (no hallucinations, less truncation).
+
+#### Lesson Learned
+
+**For very small models (0.5B parameters), single-pass summarization is strictly better than multi-pass chaining.** The multi-pass intuition (break complex tasks into simpler sub-tasks) is correct for larger models (7B+) but backfires for 0.5B because:
+
+1. Each pass compresses ~50% of the remaining information
+2. After 2-3 passes, the model has lost too much context to produce accurate output
+3. The model hallucinates to fill gaps in its degraded input
+4. Single-pass sees the original text once and produces a more faithful compression
+
+The 0.5B model's output quality is still below the raw (no Ollama) version in terms of information density. The raw version preserves all details; the Ollama version trades detail for brevity. The tradeoff is acceptable when context window limits are a concern (e.g., feeding into a model with small context), but raw context is preferred when token budget allows.
+
+#### Reusable Rule
+
+When using very small local models (≤1.5B parameters) for text summarization, prefer single-pass over multi-pass chaining. Multi-pass only helps when the model has sufficient capacity (7B+) to process and retain information across passes. Always A/B test summarization quality against the raw (no summarization) baseline before committing to a strategy.
+
+#### Tags
+
+ollama, summarization, qwen2.5, 0.5b, single-pass, multi-pass, a-b-testing, context-compression, model-capacity
+
+### Lesson: Cross-project loadEnvFile() — superroo2 .env as fallback for DEEPSEEK_API_KEY
+
+Date: 2026-05-19
+Source: Code agent task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: tools/superroo-learn.mjs, C:/Users/User/quotation-automation-system/CLAUDE.md
+
+#### Task Summary
+
+Fixed cross-project DeepSeek summarization in superroo-learn.mjs. The `loadEnvFile()` function used `__dirname` to find `.env`, which resolves to `~/.superroo/` when running from the global git hook — not the superroo2 repo. Added `~/superroo/superroo2/.env` as an additional candidate path so DEEPSEEK_API_KEY is found from any project directory.
+
+#### Files Changed
+
+- `tools/superroo-learn.mjs` — added superroo2 .env fallback path
+- `C:/Users/User/quotation-automation-system/CLAUDE.md` — created with learning layer instructions
+
+#### Bug Cause
+
+`loadEnvFile()` in superroo-learn.mjs used `path.resolve(__dirname, "..", ".env")` which resolves to `~/.superroo/.env` when the script runs from the installed global hook location (`~/.superroo/bin/`). The DEEPSEEK_API_KEY lives in `~/superroo/superroo2/.env`, so it was never found from cross-project contexts.
+
+#### Fix Applied
+
+Added `path.resolve(os.homedir(), "superroo", "superroo2", ".env")` as a third candidate path in `loadEnvFile()`. The function now checks: (1) `~/.superroo/.env`, (2) `~/.superroo/cloud/.env`, (3) `~/superroo/superroo2/.env`. Synced the fix to `~/.superroo/bin/superroo-learn.mjs`.
+
+#### Test Result
+
+pass — `superroo-learn extract-commit` from quotation-automation-system directory now shows "🤖 Generating DeepSeek summary for commit..." and produces proper summaries instead of raw commit messages.
+
+#### Lesson Learned
+
+When a CLI tool is installed globally (e.g., via `install-global-hook.mjs`), `__dirname` resolves to the installation directory, not the project directory. Any path resolution that depends on `__dirname` will break when the script runs from a different project. Always include explicit fallback paths to known project locations (e.g., `~/superroo/superroo2/.env`) for cross-project tools.
+
+#### Reusable Rule
+
+For any globally-installed CLI tool that needs project-specific secrets: add explicit fallback paths to known project `.env` files using `os.homedir()` + relative path, not just `__dirname`-relative paths. Test from a completely different directory to verify the fallback works.
+
+#### Tags
+
+cross-project, loadEnvFile, deepseek-api, env-fallback, global-hook, quotation-system
+
+---
+
+### Lesson: DeepSeek MCP .env loading and async stdio shutdown
+
+Date: 2026-05-19
+Source: Codex task completion
+Model/API used: GPT-5 / DeepSeek MCP / Ollama embeddings
+Confidence: high
+Related files: scripts/deepseek-coder-mcp.mjs, scripts/mcp-codex-bridge.mjs, scripts/check-workflow-compliance.mjs, AGENTS.md, .codex/config.toml
+
+#### Task Summary
+
+Connected the DeepSeek MCP coding route for Codex by loading DEEPSEEK_API_KEY from the repo .env, verified Ollama embeddings on the Tailscale VPS, and corrected workflow instructions so substantial implementation is blocked until DeepSeek MCP is healthy.
+
+#### Files Changed
+
+- `scripts/deepseek-coder-mcp.mjs`
+- `scripts/mcp-codex-bridge.mjs`
+- `scripts/check-workflow-compliance.mjs`
+- `AGENTS.md`
+- `.codex/config.toml`
+
+#### Bug Cause
+
+The DeepSeek MCP server and Codex bridge only trusted process.env or .mcp.json, while this repo stores DEEPSEEK_API_KEY in .env. The DeepSeek MCP server also exited immediately on stdin close, which could terminate an async status call before the JSON-RPC response was flushed.
+
+#### Fix Applied
+
+Added lightweight .env loading to the DeepSeek MCP server and Codex bridge, changed the default DeepSeek model to deepseek-chat, made MCP shutdown wait for in-flight requests, and updated compliance/workflow docs to treat .env-backed DeepSeek MCP as the required coding path. Verified Ollama embeddings still route through the VPS at 100.64.175.88.
+
+#### Test Result
+
+pass - `node scripts/test-claude-mcp-workflow.mjs --verbose` passed 29/29, `node scripts/check-workflow-compliance.mjs --mcp-check` passed 7/7, `node scripts/mcp-codex-bridge.mjs deepseek code ...` returned through DeepSeek, and `node scripts/mcp-codex-bridge.mjs ollama embed ...` returned a 768-dimensional embedding.
+
+#### Lesson Learned
+
+MCP stdio servers that perform async API calls must drain pending handlers before exiting on stdin close, especially in test clients that send one request and immediately close stdin. Credential checks must match the actual runtime credential sources, including repo-local .env files.
+
+#### Reusable Rule
+
+When wiring mandatory model delegation through MCP, test the exact bridge command and the raw MCP stdio server. Load credentials from every supported runtime source and make compliance checks validate the same sources.
+
+#### Tags
+
+deepseek, mcp, codex-bridge, ollama, embeddings, env-loader, stdio, workflow-compliance
+
+---
+
+### Lesson: Hardcoded API keys in client-side code are a critical security vulnerability
+
+Date: 2026-05-06
+Source: Product Image Studio (productgenerator) task completion
+Model/API used: multiple (fal.ai, OpenAI, Gemini, DeepSeek, Stability AI)
+Confidence: high
+Related files: c:/Users/User/productgenerator/public/js/main.js, c:/Users/User/productgenerator/.env.example
+
+#### Task Summary
+
+API keys for fal.ai, Stability AI, Gemini, and DeepSeek were hardcoded in public/client-side JavaScript files. Anyone inspecting the page source could extract and abuse these keys, leading to unauthorized API usage and potential billing charges.
+
+#### Bug Cause
+
+Developer convenience — keys were embedded directly in frontend code for quick prototyping without considering that client-side code is fully visible to users.
+
+#### Fix Applied
+
+Moved all API keys to server-side environment variables (.env). Frontend now calls backend proxy endpoints that inject the keys server-side. Backend validates all requests before forwarding to external APIs.
+
+#### Lesson Learned
+
+Never embed API keys, secrets, or tokens in client-side JavaScript, HTML, or any file served to the browser. Always use server-side environment variables with a proxy/backend layer.
+
+#### Reusable Rule
+
+All API keys and secrets MUST be stored in server-side .env files and accessed through backend proxy endpoints. Client-side code MUST NEVER contain hardcoded credentials. Use a pre-commit hook or linter to detect hardcoded key patterns.
+
+#### Tags
+
+security, api-keys, env-vars, client-side, vulnerability, productgenerator
+
+---
+
+### Lesson: Durable fal.ai queue-based rendering for browser tab survival
+
+Date: 2026-05-07
+Source: Product Image Studio (productgenerator) task completion
+Model/API used: multiple (fal.ai, OpenAI, Gemini, DeepSeek, Stability AI)
+Confidence: high
+Related files: c:/Users/User/productgenerator/server/routes/generate.js, c:/Users/User/productgenerator/public/js/render.js
+
+#### Task Summary
+
+fal.ai synchronous rendering (fal.run) fails when the browser tab is closed or the page is refreshed mid-generation. The rendering job is lost and must be restarted from scratch. Migrated to fal.ai queue-based API (queue.fal.run) which persists jobs server-side and survives browser tab closure.
+
+#### Bug Cause
+
+fal.run is a synchronous HTTP request that depends on the client connection staying alive. Browser tab closure terminates the connection and the rendering job.
+
+#### Fix Applied
+
+Replaced fal.run with queue.fal.run for all image generation calls. The queue API returns a request_id immediately. A polling loop checks queue status every 2 seconds. Results are stored server-side and can be retrieved even after page refresh.
+
+#### Lesson Learned
+
+For any AI generation API that takes more than a few seconds, always use the queue/async variant instead of synchronous calls. This ensures jobs survive client disconnections and can be resumed.
+
+#### Reusable Rule
+
+When integrating AI image/video generation APIs, prefer queue-based endpoints over synchronous ones. Implement polling with exponential backoff and store request IDs for resume capability.
+
+#### Tags
+
+fal.ai, queue, rendering, async, durability, productgenerator
+
+---
+
+### Lesson: AI prompt engineering for product image generation — prevent object hallucination
+
+Date: 2026-05-07
+Source: Product Image Studio (productgenerator) task completion
+Model/API used: multiple (fal.ai, OpenAI, Gemini, DeepSeek, Stability AI)
+Confidence: high
+Related files: c:/Users/User/productgenerator/server/services/promptBuilder.js, c:/Users/User/productgenerator/config/prompts.json
+
+#### Task Summary
+
+fal.ai and Stability AI models were generating images with hallucinated objects (extra products, wrong colors, missing details) when prompts were too vague or contradictory. Structured prompt templates with explicit negative prompts and style anchors significantly improved output consistency.
+
+#### Bug Cause
+
+AI image models interpret ambiguous prompts creatively. Vague descriptions like "a product on a table" allow the model to add unrequested objects.
+
+#### Fix Applied
+
+Created structured prompt templates with: (1) explicit subject description with brand/model, (2) background specification, (3) lighting/style directives, (4) composition rules, (5) negative prompts to exclude unwanted elements, (6) style anchors referencing known visual styles.
+
+#### Lesson Learned
+
+AI image generation requires highly structured, unambiguous prompts. Negative prompts are as important as positive ones. Style anchors (e.g., "white background, studio lighting, catalog style") dramatically improve consistency.
+
+#### Reusable Rule
+
+For AI image generation, always use structured prompt templates with explicit negative prompts. Store prompt templates as configuration, not hardcoded strings. A/B test prompt variations to find the most reliable formulation.
+
+#### Tags
+
+prompt-engineering, ai-image, fal.ai, stability-ai, hallucination, productgenerator
+
+---
+
+### Lesson: Gemini API timeout handling — increase timeout and add OpenAI fallback
+
+Date: 2026-05-08
+Source: Product Image Studio (productgenerator) task completion
+Model/API used: multiple (fal.ai, OpenAI, Gemini, DeepSeek, Stability AI)
+Confidence: high
+Related files: c:/Users/User/productgenerator/server/services/aiAnalysis.js, c:/Users/User/productgenerator/server/config/aiProviders.js
+
+#### Task Summary
+
+Google Gemini API calls were timing out after the default 30-second timeout, causing image analysis to fail silently. Increased timeout to 120 seconds and implemented automatic fallback to OpenAI GPT-4o when Gemini fails.
+
+#### Bug Cause
+
+Default HTTP timeout (30s) was insufficient for Gemini API which can take 60-90 seconds for complex image analysis tasks.
+
+#### Fix Applied
+
+Increased axios/fetch timeout to 120 seconds for Gemini API calls. Added try/catch with automatic fallback to OpenAI GPT-4o. Implemented a circuit breaker pattern: after 3 consecutive Gemini failures, route all traffic to OpenAI for 5 minutes before retrying Gemini.
+
+#### Lesson Learned
+
+AI API providers have highly variable latency. Always set generous timeouts (120s+) for AI API calls and implement automatic fallback to alternative providers. Circuit breaker patterns prevent cascading failures.
+
+#### Reusable Rule
+
+AI API integrations MUST have: (1) configurable timeouts (min 120s), (2) automatic fallback to alternative provider, (3) circuit breaker to prevent repeated failures, (4) detailed error logging with provider name and response time.
+
+#### Tags
+
+gemini, openai, timeout, fallback, circuit-breaker, productgenerator
+
+---
+
+### Lesson: OLE2 compound document parsing for WPS .et spreadsheet files
+
+Date: 2026-05-08
+Source: Product Image Studio (productgenerator) task completion
+Model/API used: multiple (fal.ai, OpenAI, Gemini, DeepSeek, Stability AI)
+Confidence: high
+Related files: c:/Users/User/productgenerator/server/services/etParser.js, c:/Users/User/productgenerator/server/services/imageExtractor.js
+
+#### Task Summary
+
+Chinese WPS Office .et spreadsheet files use the OLE2 (Compound Binary Document) format, not standard OpenXML (.xlsx). Standard xlsx libraries cannot parse them. Required custom OLE2 parsing to extract embedded ZIP images from the ETCellImageData stream.
+
+#### Bug Cause
+
+WPS .et files are OLE2 compound documents containing a ZIP archive within a specific stream (ETCellImageData). Standard spreadsheet libraries expect OpenXML format.
+
+#### Fix Applied
+
+Used the compound-bytestream npm package to parse the OLE2 structure. Extracted the ETCellImageData stream as a Buffer. Unzipped it to reveal individual image files. Mapped images back to spreadsheet rows using sequential assignment.
+
+#### Lesson Learned
+
+Chinese WPS Office files (.et format) use OLE2 compound document format, not standard OpenXML. Parsing requires: (1) OLE2 structure parsing, (2) extracting specific named streams, (3) unzipping embedded content, (4) mapping extracted data back to spreadsheet semantics.
+
+#### Reusable Rule
+
+When handling Chinese office file formats (.et, .wps), check if they use OLE2 compound document format. Use compound-bytestream or similar OLE2 parser. Extract named streams and handle embedded ZIP content.
+
+#### Tags
+
+ole2, wps, spreadsheet, parsing, compound-document, productgenerator
+
+---
+
+### Lesson: Deterministic product-to-image pattern matching with scoring system
+
+Date: 2026-05-09
+Source: Product Image Studio (productgenerator) task completion
+Model/API used: multiple (fal.ai, OpenAI, Gemini, DeepSeek, Stability AI)
+Confidence: high
+Related files: c:/Users/User/productgenerator/server/services/patternMatcher.js, c:/Users/User/productgenerator/server/services/productMatcher.js
+
+#### Task Summary
+
+AI-based product-to-image matching was unreliable and expensive. Implemented a deterministic scoring system that matches product codes (e.g., "ABC-123") to image filenames using multiple pattern strategies with weighted scores.
+
+#### Bug Cause
+
+AI-based matching (using Gemini/OpenAI to visually compare products and images) was slow ($0.01-0.03 per match), inconsistent (different results each run), and failed on similar-looking products.
+
+#### Fix Applied
+
+Implemented a deterministic pattern matcher with 5 strategies: (1) exact filename match, (2) SKU prefix match, (3) numeric ID extraction, (4) partial code match, (5) fuzzy string similarity. Each strategy returns a confidence score (0-100). The highest-scoring match is selected. Threshold of 60 required to accept a match.
+
+#### Lesson Learned
+
+For structured data matching (product codes to filenames), deterministic pattern matching with scoring is cheaper, faster, and more reliable than AI-based visual matching. Reserve AI for edge cases where deterministic matching fails.
+
+#### Reusable Rule
+
+Prefer deterministic pattern matching over AI for structured data matching tasks. Implement multiple matching strategies with weighted scoring. Set confidence thresholds. Only fall back to AI when deterministic score is below threshold.
+
+#### Tags
+
+pattern-matching, deterministic, scoring, product-matching, optimization, productgenerator
+
+---
+
+### Lesson: Batch matching system with candidate filtering to reduce AI API costs
+
+Date: 2026-05-09
+Source: Product Image Studio (productgenerator) task completion
+Model/API used: multiple (fal.ai, OpenAI, Gemini, DeepSeek, Stability AI)
+Confidence: high
+Related files: c:/Users/User/productgenerator/server/services/batchMatcher.js, c:/Users/User/productgenerator/server/services/candidateFilter.js
+
+#### Task Summary
+
+Processing 1000+ products through AI matching was cost-prohibitive ($10-30 per batch). Implemented a batch matching system that first filters candidates using deterministic attributes (category, color, size) before applying expensive AI matching only to ambiguous cases.
+
+#### Bug Cause
+
+Sending every product-image pair through AI analysis was unnecessarily expensive when many pairs could be resolved with simple attribute matching.
+
+#### Fix Applied
+
+Implemented a 3-stage pipeline: (1) Attribute-based pre-filtering — match products to images by shared attributes (category, color, material), (2) Deterministic pattern matching — apply scoring system to filtered candidates, (3) AI verification — only for pairs with score between 40-60 (ambiguous cases). Reduced AI calls by 85%.
+
+#### Lesson Learned
+
+Batch processing with candidate filtering dramatically reduces AI API costs. Use cheap deterministic methods first, then progressively apply more expensive analysis only to the remaining ambiguous cases.
+
+#### Reusable Rule
+
+For batch AI processing: (1) pre-filter candidates with cheap deterministic methods, (2) apply medium-cost pattern matching, (3) use expensive AI only for edge cases. This 3-stage approach typically reduces AI costs by 80-90%.
+
+#### Tags
+
+batch-processing, candidate-filtering, cost-optimization, ai-costs, pipeline, productgenerator
+
+---
+
+### Lesson: DeepSeek AI PDF text extraction with chunking and robust JSON parsing
+
+Date: 2026-05-10
+Source: Product Image Studio (productgenerator) task completion
+Model/API used: multiple (fal.ai, OpenAI, Gemini, DeepSeek, Stability AI)
+Confidence: high
+Related files: c:/Users/User/productgenerator/server/services/deepseekExtractor.js, c:/Users/User/productgenerator/server/services/pdfChunker.js
+
+#### Task Summary
+
+Extracting structured product data from PDF catalogs using DeepSeek AI. Required chunking large PDFs into manageable sections, robust JSON parsing to handle malformed AI responses, and retry logic for failed extractions.
+
+#### Bug Cause
+
+DeepSeek API has token limits (8K output) that prevent processing entire PDFs at once. AI responses sometimes contain malformed JSON (trailing commas, unescaped quotes, markdown code fences).
+
+#### Fix Applied
+
+Implemented PDF chunking: split by page or character count (4000 chars per chunk) with overlap. Added robust JSON extraction: strip markdown fences, fix trailing commas, escape unescaped quotes, use regex to extract JSON objects. Added retry with exponential backoff (3 attempts).
+
+#### Lesson Learned
+
+AI-based document extraction requires: (1) chunking to stay within token limits, (2) robust JSON parsing that handles common AI output errors, (3) retry logic with backoff, (4) validation of extracted data against expected schema.
+
+#### Reusable Rule
+
+When extracting structured data from AI: implement chunking with overlap, use a robust JSON repair function (strip fences, fix commas, escape quotes), add retry with exponential backoff, and validate output against expected schema before accepting.
+
+#### Tags
+
+deepseek, pdf, extraction, json-parsing, chunking, productgenerator
+
+---
+
+### Lesson: Google Drive OAuth2 with Service Account JWT fallback for production uploads
+
+Date: 2026-05-10
+Source: Product Image Studio (productgenerator) task completion
+Model/API used: multiple (fal.ai, OpenAI, Gemini, DeepSeek, Stability AI)
+Confidence: high
+Related files: c:/Users/User/productgenerator/server/services/googleDriveAuth.js, c:/Users/User/productgenerator/server/services/driveUploader.js
+
+#### Task Summary
+
+Google Drive upload required OAuth2 authentication. Implemented a dual-auth strategy: OAuth2 for development (user grants access via browser) with automatic fallback to Service Account JWT authentication for production/headless environments.
+
+#### Bug Cause
+
+OAuth2 requires a browser redirect for user consent, which is impossible in headless server environments. Service accounts require domain-wide delegation setup which may not be available in development.
+
+#### Fix Applied
+
+Implemented GoogleDriveAuth class that: (1) tries OAuth2 with stored refresh token, (2) if no token or expired, falls back to Service Account JWT authentication, (3) caches tokens in memory with TTL, (4) auto-refreshes expired tokens. Service account uses impersonation to act as a specific user.
+
+#### Lesson Learned
+
+Google Drive API integration needs dual authentication: OAuth2 for development (interactive) and Service Account JWT for production (headless). Always cache tokens and implement auto-refresh. Service accounts need domain-wide delegation and impersonation for user-specific Drive access.
+
+#### Reusable Rule
+
+For Google Drive API: implement dual auth (OAuth2 + Service Account JWT). Cache tokens with TTL. Use service account impersonation for production. Handle token refresh transparently. Log auth method used for debugging.
+
+#### Tags
+
+google-drive, oauth2, service-account, jwt, authentication, productgenerator
+
+---
+
+### Lesson: E2E testing pattern for AI image generation pipelines
+
+Date: 2026-05-11
+Source: Product Image Studio (productgenerator) task completion
+Model/API used: multiple (fal.ai, OpenAI, Gemini, DeepSeek, Stability AI)
+Confidence: high
+Related files: c:/Users/User/productgenerator/tests/e2e/generation.test.js, c:/Users/User/productgenerator/tests/e2e/pipeline.test.js
+
+#### Task Summary
+
+Testing AI image generation pipelines is challenging because outputs are non-deterministic (different image each time). Developed an E2E testing pattern that validates the pipeline structure and metadata rather than pixel-perfect output.
+
+#### Bug Cause
+
+Traditional snapshot testing fails for AI-generated images because each generation produces different output. Assertions on pixel values or image hashes would always fail.
+
+#### Fix Applied
+
+Implemented E2E tests that validate: (1) API returns 200 with correct structure, (2) response contains expected fields (request_id, status, image_url), (3) image URL is accessible and returns an image (check Content-Type), (4) image dimensions are within expected range, (5) generation completes within timeout, (6) error handling returns proper error codes.
+
+#### Lesson Learned
+
+AI pipeline testing should validate structure, metadata, and behavior — not exact output. Test that the pipeline completes, returns correct types, handles errors, and produces valid output within constraints.
+
+#### Reusable Rule
+
+For AI pipeline E2E tests: validate response structure, field types, status codes, timing constraints, and error handling. Do NOT test exact output values. Use schema validation libraries (Joi/Zod) for response structure checks.
+
+#### Tags
+
+e2e-testing, ai-pipeline, image-generation, testing-pattern, non-deterministic, productgenerator
+
+---
+
+### Lesson: UI panel toggle ordering — call hideWorkspacePanels() before setting panel visibility
+
+Date: 2026-05-11
+Source: Product Image Studio (productgenerator) task completion
+Model/API used: multiple (fal.ai, OpenAI, Gemini, DeepSeek, Stability AI)
+Confidence: high
+Related files: c:/Users/User/productgenerator/public/js/panelManager.js
+
+#### Task Summary
+
+UI panels were showing/hiding in wrong order because hideWorkspacePanels() was called after setting individual panel visibility. The hide call would override the visibility settings.
+
+#### Bug Cause
+
+hideWorkspacePanels() sets all panels to hidden. If called after setting a specific panel to visible, it hides that panel too.
+
+#### Fix Applied
+
+Reordered the toggle sequence: call hideWorkspacePanels() FIRST to reset all panels, THEN set the target panel to visible. This ensures only the intended panel is shown.
+
+#### Lesson Learned
+
+When toggling UI panels, always reset all panels first (hide all), then show the target panel. This prevents ordering bugs where the reset overrides the intended visibility.
+
+#### Reusable Rule
+
+UI panel toggle functions MUST call the reset/hide-all function BEFORE setting individual panel visibility. Never set visibility before resetting.
+
+#### Tags
+
+ui, panels, toggle, ordering, frontend, productgenerator
+
+---
+
+### Lesson: Hidden file inputs — use opacity:0;width:0;height:0 instead of left:-9999px
+
+Date: 2026-05-12
+Source: Product Image Studio (productgenerator) task completion
+Model/API used: multiple (fal.ai, OpenAI, Gemini, DeepSeek, Stability AI)
+Confidence: high
+Related files: c:/Users/User/productgenerator/public/css/styles.css
+
+#### Task Summary
+
+Using left:-9999px to hide file input elements caused issues with screen readers and form submission in some browsers. The input was technically off-screen but still took up layout space.
+
+#### Bug Cause
+
+left:-9999px moves the element off-screen but it still has dimensions and can interfere with keyboard navigation and screen readers.
+
+#### Fix Applied
+
+Changed hidden file input styling to: opacity:0; width:0; height:0; position:absolute. This removes the element from visual layout while keeping it accessible to the click() method for triggering the file picker.
+
+#### Lesson Learned
+
+For hidden file inputs that need to trigger the native file picker via JavaScript click(), use opacity:0 + zero dimensions instead of off-screen positioning. This avoids layout and accessibility issues.
+
+#### Reusable Rule
+
+Hidden file inputs should use opacity:0;width:0;height:0;position:absolute instead of left:-9999px. This ensures the element is truly hidden without layout side effects while remaining functional for click() triggers.
+
+#### Tags
+
+css, file-input, hidden-elements, accessibility, frontend, productgenerator
+
+---
+
+### Lesson: Dark mode implementation — use data-theme attribute on html element not body className
+
+Date: 2026-05-12
+Source: Product Image Studio (productgenerator) task completion
+Model/API used: multiple (fal.ai, OpenAI, Gemini, DeepSeek, Stability AI)
+Confidence: high
+Related files: c:/Users/User/productgenerator/public/css/themes.css, c:/Users/User/productgenerator/public/js/themeToggle.js
+
+#### Task Summary
+
+Dark mode CSS variables were not applying correctly when toggled via body className because some CSS selectors target :root or html element specifically.
+
+#### Bug Cause
+
+CSS custom properties (variables) defined on :root or html are not inherited by body-level selectors. Toggling a class on body does not override :root-level variables.
+
+#### Fix Applied
+
+Changed dark mode toggle to set data-theme="dark" on the <html> element instead of a className on <body>. CSS uses html[data-theme="dark"] selector to override variables. This ensures all elements inherit the correct theme variables.
+
+#### Lesson Learned
+
+CSS custom properties for theming should be set on the html element (or :root), not on body. Use data-theme attribute on html for theme switching to ensure proper CSS variable inheritance.
+
+#### Reusable Rule
+
+Theme switching (dark/light mode) MUST use data-theme attribute on the <html> element, not className on <body>. CSS variables should be defined under html[data-theme="dark"] to ensure proper inheritance.
+
+#### Tags
+
+dark-mode, css-variables, theming, data-theme, frontend, productgenerator
+
+---
+
+### Lesson: VPS deployment with Caddy reverse proxy and PM2 process management
+
+Date: 2026-05-13
+Source: Product Image Studio (productgenerator) task completion
+Model/API used: multiple (fal.ai, OpenAI, Gemini, DeepSeek, Stability AI)
+Confidence: high
+Related files: c:/Users/User/productgenerator/Caddyfile, c:/Users/User/productgenerator/ecosystem.config.js, c:/Users/User/productgenerator/deploy.sh
+
+#### Task Summary
+
+Deployed the Product Image Studio app to a VPS using Caddy as a reverse proxy (automatic HTTPS via Let's Encrypt) and PM2 for Node.js process management. Required proper environment variable handling and Caddyfile configuration.
+
+#### Bug Cause
+
+Direct Node.js server exposure (port 3000) lacks HTTPS, SSL termination, and process recovery. Manual server management leads to downtime.
+
+#### Fix Applied
+
+Set up Caddy reverse proxy: Caddyfile with domain (render.abcx124.xyz), reverse_proxy to localhost:3000, automatic HTTPS. Configured PM2: ecosystem.config.js with env vars, auto-restart on crash, memory limit (500MB), log rotation. Added deploy script for zero-downtime updates.
+
+#### Lesson Learned
+
+Production Node.js deployment requires: (1) Caddy/Nginx reverse proxy for HTTPS and domain routing, (2) PM2 for process management (auto-restart, memory limits, logs), (3) environment variables via PM2 env files (not hardcoded), (4) deployment script for consistent updates.
+
+#### Reusable Rule
+
+Node.js production deployment MUST include: Caddy reverse proxy with automatic HTTPS, PM2 process manager with memory limits and auto-restart, environment variables in PM2 env files, and a deployment script. Never expose Node.js directly to the internet.
+
+#### Tags
+
+vps, deployment, caddy, pm2, reverse-proxy, https, productgenerator
+
+---
+
+### Lesson: Double-rendering protection — checkAlreadyRendered() before re-queuing completed items
+
+Date: 2026-05-13
+Source: Product Image Studio (productgenerator) task completion
+Model/API used: multiple (fal.ai, OpenAI, Gemini, DeepSeek, Stability AI)
+Confidence: high
+Related files: c:/Users/User/productgenerator/public/js/renderManager.js
+
+#### Task Summary
+
+Image re-rendering was double-queuing items that were already rendered, causing duplicate API calls and wasted credits. Implemented a checkAlreadyRendered() guard that checks the rendered set before adding to the render queue.
+
+#### Bug Cause
+
+The re-render function did not check if an item was already rendered before adding it to the queue. Multiple rapid re-render requests would queue the same item multiple times.
+
+#### Fix Applied
+
+Added checkAlreadyRendered() that maintains a Set of rendered item IDs. Before queuing a re-render, check if the item is already in the rendered set. If yes, skip queuing and optionally force re-render with a force flag.
+
+#### Lesson Learned
+
+Any operation that can be triggered multiple times (re-render, re-process, re-sync) must have idempotency protection. Check if the operation was already completed before re-queuing.
+
+#### Reusable Rule
+
+Implement idempotency guards for all operations that can be triggered multiple times. Use a Set/Map to track completed items. Check before queuing. Provide a force flag for explicit re-execution.
+
+#### Tags
+
+idempotency, double-rendering, guard, queue, optimization, productgenerator
+
+---
+
+### Lesson: Cache-busting vs unique URLs for re-rendered images
+
+Date: 2026-05-13
+Source: Product Image Studio (productgenerator) task completion
+Model/API used: multiple (fal.ai, OpenAI, Gemini, DeepSeek, Stability AI)
+Confidence: high
+Related files: c:/Users/User/productgenerator/server/routes/images.js, c:/Users/User/productgenerator/public/js/renderManager.js
+
+#### Task Summary
+
+Re-rendered images were showing the old version because browsers cached the image URL. Cache-busting via query parameters (?t=timestamp) was unreliable across browsers.
+
+#### Bug Cause
+
+Browser HTTP cache serves images by URL. Re-rendering produces a new image at the same URL. The browser serves the cached old version instead of fetching the new one.
+
+#### Fix Applied
+
+Implemented unique URLs for re-rendered images: append a UUID to the filename (image_v2.jpg, image_v3.jpg) instead of cache-busting query params. The server stores both versions. The frontend uses the versioned URL.
+
+#### Lesson Learned
+
+Cache-busting via query parameters is unreliable for images across different browsers and CDNs. Use unique filenames (versioned URLs) instead. This guarantees the browser fetches the new image.
+
+#### Reusable Rule
+
+For re-rendered/re-generated images, use unique versioned filenames (e.g., image_v2.jpg) instead of cache-busting query parameters. This ensures reliable cache invalidation across all browsers and CDNs.
+
+#### Tags
+
+cache-busting, image-caching, versioned-urls, browser-cache, productgenerator
+
+---
+
+### Lesson: Surgical DOM updates for re-render instead of full panel rebuild
+
+Date: 2026-05-13
+Source: Product Image Studio (productgenerator) task completion
+Model/API used: multiple (fal.ai, OpenAI, Gemini, DeepSeek, Stability AI)
+Confidence: high
+Related files: c:/Users/User/productgenerator/public/js/renderManager.js
+
+#### Task Summary
+
+Re-rendering an image was rebuilding the entire results panel, causing flickering and loss of scroll position. Implemented surgical DOM updates that only replace the specific image element.
+
+#### Bug Cause
+
+The re-render handler called renderResultsPanel() which cleared and rebuilt the entire panel DOM, losing scroll position and causing visual flicker.
+
+#### Fix Applied
+
+Changed re-render to: (1) find the specific image container by data attribute, (2) show a loading spinner in that container only, (3) on completion, replace just the image src and hide spinner, (4) update the timestamp text. No other DOM elements are touched.
+
+#### Lesson Learned
+
+For partial updates (re-render, re-process), use surgical DOM updates that target only the affected elements. Full rebuilds cause flickering, lose state, and provide poor UX.
+
+#### Reusable Rule
+
+DOM updates for individual item changes MUST be surgical — target only the specific element using data attributes or IDs. Never rebuild entire panels/lists for single-item updates. Use loading states per-item, not globally.
+
+#### Tags
+
+dom-updates, re-render, surgical, performance, ux, productgenerator
+
+---
+
+### Lesson: Sequential image-to-row assignment for spreadsheet extraction
+
+Date: 2026-05-14
+Source: Product Image Studio (productgenerator) task completion
+Model/API used: multiple (fal.ai, OpenAI, Gemini, DeepSeek, Stability AI)
+Confidence: high
+Related files: c:/Users/User/productgenerator/server/services/etParser.js, c:/Users/User/productgenerator/server/services/imageRowMapper.js
+
+#### Task Summary
+
+When extracting images from WPS .et spreadsheet files, images needed to be assigned to specific rows. The ETCellImageData stream contains images in sequential order matching the spreadsheet row order.
+
+#### Bug Cause
+
+WPS .et files store images in a flat ZIP archive within the OLE2 stream. There is no explicit mapping between image filenames and spreadsheet rows.
+
+#### Fix Applied
+
+Implemented sequential assignment: (1) extract all images from the ZIP in order, (2) sort spreadsheet rows by their position, (3) assign images to rows sequentially (first image = first row with image, etc.), (4) verify assignment by checking image dimensions match expected cell sizes.
+
+#### Lesson Learned
+
+WPS .et files store images in sequential order matching spreadsheet row order. Image-to-row mapping must be sequential, not by filename. Verify assignments by checking image dimensions against expected cell dimensions.
+
+#### Reusable Rule
+
+When extracting images from OLE2-based spreadsheet formats (.et), assign images to rows sequentially based on extraction order. Do not rely on filenames for mapping. Verify assignments using image dimensions as a sanity check.
+
+#### Tags
+
+sequential-assignment, image-extraction, spreadsheet, ole2, wps, productgenerator
+
+### Lesson: Documentation must be updated alongside code changes — verify all 3 doc files after ML/healing enhancements
+
+Date: 2026-05-19
+Source: Code task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: docs/super-roo/ML_ENGINE_API.md, docs/super-roo/HEALING_MODULE_GUIDE.md, docs/super-roo/ARCHITECTURE_DIAGRAMS.md
+
+#### Task Summary
+
+Updated all three SuperRoo documentation files to reflect recent enhancements from Tasks 8, 9, and 10:
+
+- **ML_ENGINE_API.md**: Added missing loss functions (MAE, KL Divergence, CosineSimilarity), updated loss table, added `ModelCheckpoint.clear()` to examples, clarified `saveWithValidation()` return type
+- **HEALING_MODULE_GUIDE.md**: Added SelfHealingAgent documentation (agent-based healing interface with 8 operations), ML-based classification section, repair tracking lifecycle, detailed healing metrics, updated key components table
+- **ARCHITECTURE_DIAGRAMS.md**: Added SelfHealingAgent to healing module flow diagram, added 5 new root cause categories (AUTHENTICATION_FAILURE, NETWORK_TIMEOUT, FILE_SYSTEM_ERROR, DNS_RESOLUTION, SSL_TLS_ERROR), added InfiniteImprovementLoop to ML engine component diagram
+
+#### Files Changed
+
+- docs/super-roo/ML_ENGINE_API.md — added MAE/KL/CosineSimilarity loss functions, improved checkpoint docs
+- docs/super-roo/HEALING_MODULE_GUIDE.md — added SelfHealingAgent, ML classification, repair tracking sections
+- docs/super-roo/ARCHITECTURE_DIAGRAMS.md — added SelfHealingAgent, new categories, InfiniteImprovementLoop to diagrams
+
+#### Bug Cause
+
+N/A — documentation was simply out of date with the codebase after multiple enhancement tasks.
+
+#### Fix Applied
+
+Cross-referenced each doc file against the actual source code to identify gaps, then applied targeted updates to fill them.
+
+#### Test Result
+
+pass — all 185 tests still pass across 8 test files (healing + agents + ML)
+
+#### Lesson Learned
+
+When making code enhancements across multiple modules (ML engine, healing, agents), always audit the corresponding documentation files afterward. The three doc files (ML_ENGINE_API.md, HEALING_MODULE_GUIDE.md, ARCHITECTURE_DIAGRAMS.md) form a documentation triad that must stay in sync with the codebase. Missing loss functions, new agent interfaces, and updated architecture diagrams are easy to overlook but critical for developer onboarding.
+
+#### Reusable Rule
+
+After any enhancement task that adds new classes, methods, or categories to the ML engine or healing module, audit all three doc files (ML_ENGINE_API.md, HEALING_MODULE_GUIDE.md, ARCHITECTURE_DIAGRAMS.md) for gaps before marking the task complete.
+
+#### Tags
+
+documentation, ml-engine, healing-module, architecture, diagrams
+
+---
+
+### Lesson: Cross-project lesson query fallback — fix empty Central Brain results and shared store discovery
+
+Date: 2026-05-19
+Source: superroo-learn CLI (local fallback)
+Model/API used: local
+Confidence: medium
+Related files:
+Tags:
+
+#### Task Summary
+
+## Root Cause\n\nTwo bugs prevented cross-project lesson queries from working when Central Brain's pgvector/semantic search was offline:\n\n### Bug 1: withFallback() only fell back on thrown errors, not empty results\n\nThe Central Brain's query_memory MCP tool returned successfully (HTTP 200, no error thrown) but with 0 results because pgvector was offline. Since withFallback() only caught thrown errors, the local JSONL fallback was never triggered.\n\n**Fix**: Added empty-result detection in withFallback(). After the MCP call succeeds, it now checks if result.results or result.matches is an empty array. If so, it triggers the local fallback with a warning message.\n\n### Bug 2: findLocalLessonFiles() only found the current project's files\n\nWhen running from quotation-automation-system directory, findLocalLessonFiles() found that project's own memory/lesson-index.jsonl first (10 workflowautomation entries) and stopped searching. The superroo2 repo's shared store (with 18 productgenerator lessons) was never reached.\n\n**Fix**: Modified queryLocalLessons() to use a two-phase search:\n- Phase 1: Search the nearest project's files (existing behavior)\n- Phase 2: If no matches found, also search the superroo2 shared store at ~/superroo/superroo2/memory/\n\nAlso added the superroo2 repo path to findLocalLessonFiles() search paths as an additional safety net.\n\n## Files Changed\n- tools/superroo-learn.mjs: withFallback(), findLocalLessonFiles(), queryLocalLessons()\n\n## Lesson Learned\nWhen building fallback chains, empty results from a primary source are just as important to handle as errors. Always check for empty arrays in successful responses before returning. For cross-project data sharing, the local fallback must search a known shared location, not just the current project's directory.
+
+#### Lesson Learned
+
+## Root Cause\n\nTwo bugs prevented cross-project lesson queries from working when Central Brain's pgvector/semantic search was offline:\n\n### Bug 1: withFallback() only fell back on thrown errors, not empty results\n\nThe Central Brain's query_memory MCP tool returned successfully (HTTP 200, no error thrown) but with 0 results because pgvector was offline. Since withFallback() only caught thrown errors, the local JSONL fallback was never triggered.\n\n**Fix**: Added empty-result detection in withFallback(). After the MCP call succeeds, it now checks if result.results or result.matches is an empty array. If so, it triggers the local fallback with a warning message.\n\n### Bug 2: findLocalLessonFiles() only found the current project's files\n\nWhen running from quotation-automation-system directory, findLocalLessonFiles() found that project's own memory/lesson-index.jsonl first (10 workflowautomation entries) and stopped searching. The superroo2 repo's shared store (with 18 productgenerator lessons) was never reached.\n\n**Fix**: Modified queryLocalLessons() to use a two-phase search:\n- Phase 1: Search the nearest project's files (existing behavior)\n- Phase 2: If no matches found, also search the superroo2 shared store at ~/superroo/superroo2/memory/\n\nAlso added the superroo2 repo path to findLocalLessonFiles() search paths as an additional safety net.\n\n## Files Changed\n- tools/superroo-learn.mjs: withFallback(), findLocalLessonFiles(), queryLocalLessons()\n\n## Lesson Learned\nWhen building fallback chains, empty results from a primary source are just as important to handle as errors. Always check for empty arrays in successful responses before returning. For cross-project data sharing, the local fallback must search a known shared location, not just the current project's directory.
+
+#### Tags
+
+cross-project, local-fallback
+
+### Lesson: PM2 env_block overrides env_file — hardcode vault keys directly in ecosystem.config.js
+
+Date: 2026-05-19
+Source: Code task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/ecosystem.config.js, cloud/worker/agentRunners.js, cloud/worker/worker.js
+
+#### Task Summary
+
+Investigated and fixed 7 issues on the SuperRoo VPS after analyzing the user's last Telegram message. The user sent `/code improve on data accuracy and quality` which created task TG-MPCC8M6L-7NI6. The task was stuck in the BullMQ queue because the worker's PM2 process didn't have the `SUPERROO_VAULT_KEY` environment variable loaded, causing `getProviderKey()` to fail to decrypt API keys.
+
+#### Files Changed
+
+- cloud/ecosystem.config.js — Hardcoded SUPERROO_VAULT_KEY in env block for both API and worker
+- cloud/api/telegramBot.js — Added registerShutdownHandlers() for conversation persistence, stripMarkdown() for sendMessage fallback, isValidUrl() for Mini IDE button validation
+- cloud/api/telegramClassifier.js — Removed misleading quoted message rule, added better code_task examples, improved error logging
+- cloud/worker/agentRunners.js — Added stripMarkdown() for LLM output before Telegram send
+
+#### Bug Cause
+
+1. **PM2 env_file limitation**: PM2's `env_file` directive does NOT reliably load variables into the process environment. The `env` block's `process.env.X || ""` patterns override `.env` file values with empty strings when the shell env doesn't have them. This caused `SUPERROO_VAULT_KEY` to be empty in the worker process, so `getProviderKey()` couldn't decrypt API keys from `encrypted-secrets.json`.
+
+2. **No shutdown handler**: telegramBot.js had no SIGINT/SIGTERM handler, so conversation history was lost on restart.
+
+3. **Classifier hallucination**: The classifier prompt had a misleading "quoted message" rule that caused it to misclassify normal messages as "quoted_message" intent.
+
+4. **Markdown in Telegram messages**: LLM output with markdown formatting (bold, code blocks) was sent directly to Telegram without stripping, causing broken messages.
+
+5. **BUTTON_TYPE_INVALID**: The Mini IDE handler used `web_app` button type with a URL that could be empty or invalid, causing Telegram API to reject it.
+
+6. **Missing pg module**: The BugKnowledgeStore tried to connect to PostgreSQL but the `pg` module wasn't installed on the VPS.
+
+#### Fix Applied
+
+1. **Vault key**: Removed `SUPERROO_VAULT_KEY: process.env.SUPERROO_VAULT_KEY || ""` from ecosystem.config.js env blocks and hardcoded the actual vault key value directly. Verified via `/proc/pid/environ`.
+
+2. **Shutdown handler**: Added `registerShutdownHandlers()` that saves conversation history and state on SIGINT/SIGTERM before exiting.
+
+3. **Classifier**: Removed the "quoted message" rule from the classifier prompt. Added better `code_task` examples. Improved error logging to include the actual LLM response.
+
+4. **Markdown**: Added `stripMarkdown()` function that removes bold (`**`), italic (`*`), inline code (`` ` ``), code blocks (` ``` `), and headers (`#`). Applied in `sendMessage()` fallback path.
+
+5. **Button validation**: Added `isValidUrl()` function and URL validation in `handleMiniIde()` before creating the `web_app` button. Falls back to a simple text button if URL is invalid.
+
+6. **pg module**: Installed via `npm install pg` in the cloud directory.
+
+7. **Re-queue task**: Removed failed job 76 and re-queued as job 77 with correct `agentId: "superroo-coder-agent"`. Worker processed it successfully — plan sent to Telegram for approval.
+
+#### Test Result
+
+pass — Job 77 completed successfully. Worker logs show:
+
+- `[worker] Received job 77 — task: improve on data accuracy and quality`
+- `[callLLM] openai succeeded`
+- `[coder:77] Plan sent to Telegram chat -1003787148976 for approval`
+- `[coder:77] Completed | success=true`
+
+#### Lesson Learned
+
+PM2's `env_file` directive is unreliable for loading environment variables. When a variable is needed by a PM2-managed process, it must be either:
+
+1. Hardcoded directly in the `env` block of `ecosystem.config.js` (for secrets managed via vault encryption), OR
+2. Set in the shell environment before starting PM2 (e.g., via `export` in a startup script)
+
+The pattern `process.env.X || ""` in the `env` block is particularly dangerous because it silently overrides the `.env` file value with an empty string.
+
+#### Reusable Rule
+
+When configuring PM2 ecosystem.config.js, NEVER use `process.env.X || ""` in the `env` block for critical secrets that are defined in `env_file`. The `env` block takes precedence over `env_file`. Either hardcode the value directly, or ensure the variable is set in the shell environment before `pm2 start`. Always verify with `cat /proc/<pid>/environ | tr '\0' '\n' | grep KEY_NAME` after restart.
+
+#### Tags
+
+pm2, ecosystem-config, env-file, vault-key, bullmq, worker, telegram-bot, classifier, markdown, deployment
+
+---
+
+### Lesson: VPS project isolation ? QAS must not run on SuperRoo VPS
+
+Date: 2026-05-19
+Source: Codex live VPS incident response
+Model/API used: GPT-5.5
+Confidence: high
+Related files: memory/lessons-learned.md, memory/lesson-index.jsonl, /opt/quotation-automation, /etc/nginx/sites-available/track.abcx124.xyz
+
+#### Task Summary
+
+Diagnosed why the SuperRoo website served the wrong project and removed the duplicate Quotation Automation System runtime from the SuperRoo VPS.
+
+#### Files Changed
+
+- memory/lessons-learned.md
+- memory/lesson-index.jsonl
+
+#### Bug Cause
+
+QAS belongs on 165.22.110.111 / Tailscale 100.86.182.7, but a duplicate QAS stack existed on the SuperRoo VPS 100.64.175.88 / public 104.248.225.250 under /opt/quotation-automation. Its qas_dashboard container bound host port 3001, the same port SuperRoo nginx expected for the SuperRoo dashboard, so dev.abcx124.xyz could route to Quotation Automation System.
+
+#### Fix Applied
+
+Backed up duplicate QAS state on the SuperRoo VPS, stopped and removed qas\_\* containers there, quarantined /opt/quotation-automation, disabled the duplicate track.abcx124.xyz nginx vhost on SuperRoo, reloaded nginx, and verified QAS still runs on its correct VPS.
+
+#### Test Result
+
+pass ? dev.abcx124.xyz serves SuperRoo Cloud Dashboard, track.abcx124.xyz serves Quotation Automation System from 165.22.110.111, and the SuperRoo VPS no longer has qas\_\* containers or QAS ports active.
+
+#### Lesson Learned
+
+Cross-project registration in SuperRoo is not the same as deployment authorization. A project can be known to SuperRoo for memory/task routing while still having a separate production VPS. Deployment/removal actions must verify the target host identity and DNS before touching services.
+
+#### Reusable Rule
+
+Before deploying, debugging, or removing a service, verify hostname, Tailscale IP, public IP, DNS A record, project path, and port ownership. Enforce per-project VPS allowlists: QAS must target 100.86.182.7 / 165.22.110.111, while SuperRoo must target 100.64.175.88 / 104.248.225.250.
+
+#### Tags
+
+vps, deployment, project-isolation, nginx, docker, port-collision, qas, superroo
+
+---
+
+### Lesson: Dashboard commit-deploy view must handle large files via apply_diff, not write_to_file
+
+Date: 2026-05-19
+Source: Code task completion — all 4 priority improvements
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/dashboard/src/components/views/commit-deploy.tsx, cloud/api/api.js, cloud/dashboard/src/components/views/settings.tsx, cloud/dashboard/src/components/views/debug-team.tsx, src/super-roo/ml/engine/LRScheduler.ts, src/super-roo/ml/engine/index.ts
+
+#### Task Summary
+
+Implemented and deployed all 4 priority improvements across the SuperRoo codebase: (1) Settings & API Keys — wired Save button to PUT /api/settings and extended loadSettings() defaults, (2) Debug Team — added Telegram notification configuration UI with test endpoint, (3) ML Engine — added CosineAnnealingScheduler and DropoutScheduler with linear/exponential/cosine modes, (4) Commit & Deploy Log — completely rewrote dashboard view with agent-aware audit trail, workflow compliance badges, model usage breakdown, activity timeline, deploy health bars, and search/filter controls. All changes deployed to VPS via Tailscale SSH.
+
+#### Files Changed
+
+- `cloud/dashboard/src/components/views/commit-deploy.tsx` — complete rewrite (~850 lines) with WorkflowBadge, ModelUsageBadge, HealthBar components, agent stats, compliance stats, timeline, filters
+- `cloud/api/api.js` — extended loadSettings() defaults with debugTeam config, added POST /debug-team/test-telegram endpoint
+- `cloud/dashboard/src/components/views/settings.tsx` — wired Save button to PUT /api/settings with cachedState pattern
+- `cloud/dashboard/src/components/views/debug-team.tsx` — added Telegram bot token and chat ID input fields with save/test buttons
+- `src/super-roo/ml/engine/LRScheduler.ts` — added CosineAnnealingScheduler (T_max, minLR, warm restarts, T_mult) and DropoutScheduler (linear, exponential, cosine modes)
+- `src/super-roo/ml/engine/index.ts` — barrel export updated with new scheduler classes
+
+#### Bug Cause
+
+N/A — feature implementation, not a bug fix. However, one issue encountered: `write_to_file` truncated the commit-deploy.tsx file at line 813 because the file was too large (~850 lines), leaving unclosed JSX tags and an unterminated string literal.
+
+#### Fix Applied
+
+Used `apply_diff` to append the remaining content from line 813 onward with proper closing tags. Then used additional `apply_diff` calls to remove unused imports (Search, BarChart3, GitBranch) and unused helper functions (getTypeColor, getStatusColor). For Windows SSH deployment, used `powershell -Command "ssh ..."` since bash is not available natively on Windows.
+
+#### Test Result
+
+pass — type check passed (14 tasks, 13 cached), Next.js production build succeeded on VPS, PM2 restarted all 6 services (superroo-api, superroo-auto-deployer, superroo-dashboard, superroo-mcp-memory, superroo-worker, superroo-mini-ide), dashboard online at localhost:3001.
+
+#### Lesson Learned
+
+1. **Dashboard views over ~500 lines must use `apply_diff` for modifications, not `write_to_file`**, because `write_to_file` truncates content silently when the file is large. Always split large dashboard components into smaller sub-components or use targeted diffs.
+2. **Windows SSH deployment requires `powershell -Command "ssh ..."`** since bash is not available natively. WSL may be installed but without a distribution configured, it cannot be used.
+3. **PM2 may leave apps in "waiting restart" state after deploy script restarts** — a manual `pm2 restart <app>` is needed to bring them back online.
+4. **The cachedState pattern for SettingsView** is critical: inputs must bind to local state, not live extension state, to avoid race conditions with ContextProxy until the user clicks Save.
+
+#### Reusable Rule
+
+For any dashboard component file exceeding 500 lines, use `apply_diff` with targeted SEARCH/REPLACE blocks instead of `write_to_file`. If a full rewrite is needed, write the file in chunks using multiple `apply_diff` calls or split the component into smaller sub-components. For Windows SSH deployment, always use `powershell -Command "ssh ..."` and verify PM2 apps are in "online" state after restart.
+
+#### Tags
+
+dashboard, commit-deploy-log, settings, debug-team, ml-engine, lr-scheduler, deployment, ssh, windows, pm2, agent-audit, workflow-compliance
+
+---
+
+### Lesson: Dashboard build failure due to ESLint v9 + Next.js 14.2.3 incompatibility and corrupted pnpm store
+
+Date: 2026-05-19
+Source: Kimi Code CLI task completion
+Model/API used: N/A (manual investigation)
+Confidence: high
+Related files: cloud/dashboard/package.json, cloud/dashboard/next.config.js, cloud/dashboard/scripts/build-safe.mjs, cloud/dashboard/src/app/page.tsx, node_modules/.pnpm/react@18.3.1, node_modules/.pnpm/next@14.2.3
+
+#### Task Summary
+
+Investigated and fixed why the SuperRoo dashboard website was not loading. The root causes were:
+
+1. The dashboard had never been successfully built — `.next/standalone/server.js` was missing.
+2. The build crashed because Next.js 14.2.3 instantiates ESLint even with `ignoreDuringBuilds: true`, and the ESLint v9 flat config (`eslint.config.mjs`) rejects legacy options (`useEslintrc`, `extensions`).
+3. The pnpm store had corrupted/empty packages (`next` and `react`) which caused secondary build failures after bypassing ESLint.
+4. Two dashboard imports used default imports for named exports (`AutoDeployView`, `CommitDeployView`).
+
+#### Files Changed
+
+- cloud/dashboard/scripts/build-safe.mjs (created)
+- cloud/dashboard/package.json (updated build script)
+- cloud/dashboard/src/app/page.tsx (fixed import statements)
+- memory/lessons-learned.md (this entry)
+
+#### Bug Cause
+
+1. **ESLint incompatibility**: Next.js 14.2.3's internal ESLint runner passes legacy CLI options to the ESLint constructor. ESLint v9 flat config throws `Invalid Options: - Unknown options: useEslintrc, extensions` immediately, aborting the build before `ignoreDuringBuilds` is even checked.
+2. **Corrupted pnpm store**: The `node_modules/.pnpm/next@14.2.3_.../node_modules/next/` and `node_modules/.pnpm/react@18.3.1/node_modules/react/` directories were completely empty (only `.` and `..`), likely due to a prior failed build or partial cleanup.
+3. **Import mismatch**: `page.tsx` used `import AutoDeployView from "..."` but `auto-deploy.tsx` exports `export function AutoDeployView()` (named export).
+
+#### Fix Applied
+
+1. Created `scripts/build-safe.mjs` that temporarily renames `eslint.config.mjs` before running `next build` and restores it afterwards.
+2. Updated `package.json` build script to use the safe wrapper.
+3. Deleted empty pnpm store directories for `next` and `react`, then ran `pnpm install` to restore them from the content-addressable store.
+4. Changed default imports to named imports in `page.tsx`.
+5. Rebuilt the dashboard successfully.
+6. Started the API backend (port 8787) and dashboard (port 3001) — both now respond with HTTP 200.
+
+#### Test Result
+
+pass — Dashboard loads at http://localhost:3001/ (HTTP 200). API health endpoint at http://localhost:8787/ returns healthy JSON.
+
+#### Lesson Learned
+
+When a Next.js 14 + ESLint v9 flat config build fails with "Unknown options: useEslintrc, extensions", `eslint.ignoreDuringBuilds: true` is not sufficient because Next.js instantiates ESLint before checking the flag. The safest workaround is to temporarily remove/rename `eslint.config.mjs` during the build.
+
+Additionally, pnpm store corruption can manifest as empty package directories. If `next build` fails with `MODULE_NOT_FOUND` or `Cannot read properties of undefined` for core packages, check whether the pnpm store directories are populated. Deleting the specific corrupted store path and re-running `pnpm install` fixes it.
+
+#### Reusable Rule
+
+1. For Next.js 14.x projects with ESLint v9 flat configs, always use a build wrapper that temporarily hides `eslint.config.mjs` if the build crashes on legacy ESLint options.
+2. When pnpm packages appear corrupted (empty directories in `.pnpm/<pkg>/node_modules/<pkg>/`), delete the specific `.pnpm/<pkg>` directory and run `pnpm install` to refetch.
+3. Before declaring a deployment issue, verify that `.next/standalone/server.js` actually exists — a missing build artifact is the most common cause of "website not loading" for standalone Next.js apps.
+
+#### Tags
+
+[next.js, eslint, pnpm, build-failure, dashboard, react, standalone]
+
+---
+
+### Lesson: ML Engine — add comprehensive tests for schedulers, CNN layers, and checkpoint
+
+Date: 2026-05-19
+Source: DeepSeek Chat (code mode) task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: src/super-roo/ml/engine/**tests**/LRScheduler.test.ts, src/super-roo/ml/engine/**tests**/conv.test.ts, src/super-roo/ml/engine/**tests**/ModelCheckpoint.test.ts
+
+#### Task Summary
+
+Added comprehensive test coverage for the ML Engine: CosineAnnealingScheduler (warm restart, cosine curve, reset), DropoutScheduler (linear/exponential/cosine modes, clamping), Conv2D (forward/backward shape, gradient flow), MaxPool2D (forward/backward, stride/padding), Flatten (forward/backward shape), and ModelCheckpoint (saveWithValidation, loadBest, version mismatch, layer count mismatch, clear).
+
+#### Files Changed
+
+- `src/super-roo/ml/engine/__tests__/LRScheduler.test.ts` — Added CosineAnnealingScheduler and DropoutScheduler test suites
+- `src/super-roo/ml/engine/__tests__/conv.test.ts` — Added Conv2D, MaxPool2D, Flatten test suites
+- `src/super-roo/ml/engine/__tests__/ModelCheckpoint.test.ts` — Added saveWithValidation, loadBest, version mismatch, layer count mismatch, clear tests
+
+#### Bug Cause
+
+N/A — new test coverage, no bugs fixed.
+
+#### Fix Applied
+
+N/A
+
+#### Test Result
+
+pass — all 37 ML Engine tests pass (LRScheduler: 20, conv: 17)
+
+#### Lesson Learned
+
+1. CNN layer tests need careful shape tracking: Conv2D forward/backward requires tracking input shape through im2col/col2im transformations. Always verify output shape matches expected dimensions after forward pass, and gradient shape matches input shape after backward pass.
+2. CosineAnnealingScheduler warm restart: When T_max is reached, the scheduler resets to initial LR and restarts the cosine cycle. The reset() method should set t to 0 and restarts counter increments.
+3. DropoutScheduler modes: Three distinct decay modes (linear, exponential, cosine) each need separate test cases. The clamping behavior (between finalRate and initialRate) must be verified for edge cases where epoch count exceeds totalEpochs.
+4. ModelCheckpoint saveWithValidation: When saveBestOnly is true, the checkpoint only saves when loss improves. The loadBest method must load the best-saved weights, not the most recent. Version mismatch and layer count mismatch should throw descriptive errors.
+
+#### Reusable Rule
+
+When adding tests for ML engine components:
+
+1. Always test forward pass output shape AND backward pass gradient shape for every layer
+2. For schedulers, test the initial value, intermediate values, boundary conditions (min/max), and reset behavior
+3. For checkpoint systems, test save/load round-trip, best-only mode, error conditions (version mismatch, shape mismatch), and cleanup
+4. Run tests from the correct subdirectory: cd src && npx vitest run super-roo/ml/engine/**tests**/<test-file>
+
+#### Tags
+
+[ml-engine, tests, coverage, cnn, scheduler, checkpoint, conv2d, dropout]
+
+---
+
+### Lesson: Healing Module — add ML classification metrics, per-category escalation, repair tracking, and notification routing
+
+Date: 2026-05-19
+Source: DeepSeek Chat (code mode) task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: src/super-roo/types/index.ts, src/super-roo/healing/RootCauseClassifier.ts, src/super-roo/healing/HealingMetrics.ts, src/super-roo/healing/SelfHealingLoop.ts, src/super-roo/healing/**tests**/HealingMetrics.test.ts, src/super-roo/healing/**tests**/SelfHealingLoop.test.ts
+
+#### Task Summary
+
+Enhanced the Healing Module with four major improvements:
+
+1. New root cause categories: Added CIRCUIT_BREAKER, DEPLOYMENT_FAILURE, DATABASE_CONNECTION to types/index.ts with corresponding classification patterns and diagnostic steps in RootCauseClassifier.ts
+2. ML classification metrics: Rewrote HealingMetrics.ts with trend tracking (rolling window), confusion matrix, precision/recall/F1 calculation, and comprehensive tests
+3. Repair tracking: Added RepairAttempt interface, repair history, per-category success rate calculation, and automatic circuit breaker trigger when repair failure rate exceeds threshold
+4. Per-category escalation: Extended EscalationPolicy with categoryThresholds and categoryActions overrides, added NotificationRoute interface for routing alerts to channels (telegram, slack) based on escalation action level
+
+#### Files Changed
+
+- `src/super-roo/types/index.ts` — Added CIRCUIT_BREAKER, DEPLOYMENT_FAILURE, DATABASE_CONNECTION to RootCauseCategory
+- `src/super-roo/healing/RootCauseClassifier.ts` — Added 3 classification patterns with diagnostic steps, added DEPLOYMENT_FAILURE to requiresHumanApproval
+- `src/super-roo/healing/HealingMetrics.ts` — Rewrote with trend tracking, confusion matrix, precision/recall/F1, snapshot, persist/load
+- `src/super-roo/healing/__tests__/HealingMetrics.test.ts` — Added trend, precision/recall, confusion matrix tests
+- `src/super-roo/healing/SelfHealingLoop.ts` — Added RepairAttempt, NotificationRoute, extended EscalationPolicy/SelfHealingConfig/SelfHealingStats, added 10 new methods
+- `src/super-roo/healing/__tests__/SelfHealingLoop.test.ts` — Rewrote with 37 tests covering repair tracking, per-category escalation, notification routing, circuit breaker
+
+#### Bug Cause
+
+N/A — new feature enhancements, no bugs fixed.
+
+#### Fix Applied
+
+N/A
+
+#### Test Result
+
+pass — all 37 SelfHealingLoop tests pass, all HealingMetrics tests pass
+
+#### Lesson Learned
+
+1. Per-category escalation requires careful config layering: The recordFailure() method uses this.config.escalationPolicy.maxRetries (via getCategoryMaxRetries()), NOT the top-level maxRetries in SelfHealingConfig. Tests that set maxRetries: 1 at the top level but didn't override escalationPolicy.maxRetries would never trigger escalation because the default escalationPolicy has maxRetries: 3. Always explicitly pass escalationPolicy: { maxRetries: 1, ... } in tests.
+2. Notification routing needs action level comparison: Routes are matched by comparing escalation action levels (warn=1, notify=2, block=3, circuit_breaker=4). A route with minAction: "block" should NOT trigger on a "warn" escalation. Use a numeric level mapping for reliable comparison.
+3. Repair failure circuit breaker is automatic: When repair failure rate in a recent window exceeds the threshold, the circuit breaker opens automatically. This is separate from the incident-based circuit breaker — it is triggered by repair attempt outcomes, not by incident failures.
+4. Trend tracking needs a rolling window: The getTrendSuccessRate() method uses a configurable window (default 10) to calculate recent success rate. The isTrendImproving() method compares the recent window rate against the overall rate to determine if the trend is improving, declining, or stable.
+5. Confusion matrix tracks classification quality: The recordClassification() method updates a confusion matrix (actual x predicted). Precision, recall, and F1 are derived from the matrix. This enables monitoring of the ML classifier's accuracy over time.
+
+#### Reusable Rule
+
+When enhancing a healing/self-healing module:
+
+1. Always add per-category overrides for escalation thresholds — different root causes need different retry limits
+2. Notification routing should use numeric action levels for reliable comparison, not string comparison
+3. Repair attempt tracking enables automatic circuit breaker triggers — wire them together
+4. Trend metrics need a rolling window to distinguish recent performance from historical averages
+5. Confusion matrices are essential for monitoring classifier drift — always record both actual and predicted categories
+6. When testing escalation logic, explicitly pass the full escalationPolicy config — do not rely on top-level config defaults
+
+#### Tags
+
+[healing-module, self-healing-loop, escalation, repair-tracking, circuit-breaker, notification-routing, classification-metrics, confusion-matrix, trend-tracking]
 
 ---

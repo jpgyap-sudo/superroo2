@@ -36,16 +36,48 @@
  */
 
 import * as fs from "node:fs/promises"
+import * as fsSync from "node:fs"
 import * as path from "node:path"
 import { fileURLToPath } from "node:url"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
+const ROOT = path.resolve(__dirname, "..")
+
+function loadEnvFile(filePath = path.join(ROOT, ".env")) {
+	if (!fsSync.existsSync(filePath)) {
+		return
+	}
+
+	const lines = fsSync.readFileSync(filePath, "utf8").split(/\r?\n/)
+	for (const line of lines) {
+		const trimmed = line.trim()
+		if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) {
+			continue
+		}
+
+		const index = trimmed.indexOf("=")
+		const key = trimmed.slice(0, index).trim()
+		let value = trimmed.slice(index + 1).trim()
+		if (
+			(value.startsWith('"') && value.endsWith('"')) ||
+			(value.startsWith("'") && value.endsWith("'"))
+		) {
+			value = value.slice(1, -1)
+		}
+
+		if (key && process.env[key] === undefined) {
+			process.env[key] = value
+		}
+	}
+}
+
+loadEnvFile()
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || ""
-const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat-v4"
+const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat"
 const DEEPSEEK_API_URL =
 	process.env.DEEPSEEK_API_URL || "https://api.deepseek.com/v1/chat/completions"
 const MCP_SERVER_NAME = "deepseek-coder"
@@ -601,6 +633,7 @@ function main() {
 	}
 
 	let buffer = ""
+	const pendingRequests = new Set()
 
 	process.stdin.setEncoding("utf8")
 	process.stdin.on("data", (chunk) => {
@@ -616,9 +649,14 @@ function main() {
 
 			try {
 				const request = JSON.parse(trimmed)
-				handleRequest(request).catch((err) => {
-					console.error(`[deepseek-coder-mcp] Error handling request:`, err)
-				})
+				const pending = handleRequest(request)
+					.catch((err) => {
+						console.error(`[deepseek-coder-mcp] Error handling request:`, err)
+					})
+					.finally(() => {
+						pendingRequests.delete(pending)
+					})
+				pendingRequests.add(pending)
 			} catch (err) {
 				console.error(`[deepseek-coder-mcp] Failed to parse message:`, err.message)
 				console.error(`[deepseek-coder-mcp] Raw:`, trimmed.slice(0, 200))
@@ -626,8 +664,9 @@ function main() {
 		}
 	})
 
-	process.stdin.on("end", () => {
+	process.stdin.on("end", async () => {
 		console.error("[deepseek-coder-mcp] stdin closed, shutting down")
+		await Promise.allSettled([...pendingRequests])
 		process.exit(0)
 	})
 

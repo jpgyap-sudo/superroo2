@@ -1,6 +1,36 @@
 {
 	"tasks": [
 		{
+			"id": "codex_task_ollama_024_compat_20260519",
+			"title": "Adjust Ollama 0.24 compatibility",
+			"summary": "Updated Ollama defaults for the live VPS 0.24.0 model set, added modern /api/embed handling with legacy /api/embeddings fallback, fixed the Ollama MCP ESM readline startup bug, and made agent context summarization bounded so it completes instead of timing out.",
+			"status": "completed",
+			"project": "superroo2",
+			"agent": "Codex",
+			"filesChanged": [
+				"src/super-roo/ollama/OllamaClient.ts",
+				"scripts/ollama-mcp.mjs",
+				"scripts/ml/build-agent-context.mjs",
+				"scripts/ml/ollama-curl-helper.cmd",
+				"cloud/api/api.js",
+				"cloud/orchestrator/stores/BugKnowledgeStore.js",
+				"scripts/pull-ollama-models.sh",
+				"scripts/run-migration-post-processing.sh",
+				"docs/super-roo/ollama-activation.md",
+				"docs/super-roo/CENTRAL_BRAIN.md",
+				"memory/lessons-learned.md",
+				"memory/lesson-index.jsonl"
+			],
+			"featuresAffected": ["ollama", "learning-layer", "central-brain", "agent-context"],
+			"notes": [
+				"Live VPS Ollama reports version 0.24.0 with qwen2.5:0.5b, qwen2.5:1.5b, and nomic-embed-text:latest.",
+				"Local Windows PATH does not expose the ollama CLI, so verification used Tailscale HTTP probes."
+			],
+			"startedAt": "2026-05-19T01:26:50.430Z",
+			"updatedAt": "2026-05-19T01:34:30.000Z",
+			"completedAt": "2026-05-19T01:34:30.000Z"
+		},
+		{
 			"id": "codex_task_workflow_compliance_dashboard_20260518",
 			"title": "Improve workflow compliance dashboard",
 			"summary": "Added compliance tracking diagnostics, service health visibility, and deploy verification improvements; restored the missing VPS API/dashboard processes and verified live recovery.",

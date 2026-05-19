@@ -385,9 +385,8 @@ function buildClassifierPrompt() {
 		"Allowed kind values: chat, debug_plan, read_logs, run_tests, create_branch, create_pr, restart_worker, deploy, delete_data, shell, upgrade_self, commit_status, feature_query, code_task.\n" +
 		"Prefer safe engineering actions. For destructive or broad commands choose deploy/delete_data/shell ONLY when the user EXPLICITLY asks to run a terminal command, execute a script, or perform a system operation.\n" +
 		"NEVER use shell/deploy/delete_data for informational questions. Questions like 'is there any api', 'what apis are exposed', 'what services run', 'what project are we in', 'are there any endpoints' → use feature_query or chat.\n" +
-		"IMPORTANT: If the message starts with '[Quoted message:' it means the user is REPLYING to a previous bot message. Treat this as a follow-up question (kind: chat) unless the reply explicitly asks for a new action.\n" +
 		"SPECIAL INTENTS:\n" +
-		"- code_task: Use when the user wants to ADD, IMPLEMENT, CREATE, BUILD, WRITE, MAKE, DEVELOP, REFACTOR, UPDATE, MODIFY, or CHANGE code. Examples: 'add a login page', 'implement auth', 'create a button', 'build the checkout flow', 'refactor the API', 'write a function to X'. This is the PRIMARY coding intent.\n" +
+		"- code_task: Use when the user wants to ADD, IMPLEMENT, CREATE, BUILD, WRITE, MAKE, DEVELOP, REFACTOR, UPDATE, MODIFY, or CHANGE code. Examples: 'add a login page', 'implement auth', 'create a button', 'build the checkout flow', 'refactor the API', 'write a function to X', 'improve on data accuracy and quality'. This is the PRIMARY coding intent.\n" +
 		"- feature_query: Use for ANY question about what the app does, what APIs/routes/services exist, what features are available, how the system works. This includes 'is there any api on my app', 'what endpoints does it have', 'what does this project do'.\n" +
 		"- upgrade_self: When the user asks to upgrade, improve, or make the bot/assistant smarter.\n" +
 		"- commit_status: When the user asks about commit history, deploy status, latest commits/deploys.\n" +
@@ -432,7 +431,22 @@ async function classifyIntent(text, providers) {
 					signal: AbortSignal.timeout(CLASSIFIER_TIMEOUT_MS),
 				})
 				if (!res.ok) {
-					console.error("[classifier] LLM error from " + provider.providerId + ": " + res.status)
+					var errBody = ""
+					try {
+						errBody = await res.text()
+					} catch (_) {}
+					console.error(
+						"[classifier] LLM error from " +
+							provider.providerId +
+							": " +
+							res.status +
+							" " +
+							errBody.slice(0, 200),
+					)
+					// Skip providers that return 4xx (auth/config errors) — they won't work on retry
+					if (res.status >= 400 && res.status < 500) {
+						continue
+					}
 					continue
 				}
 				var data = await res.json()

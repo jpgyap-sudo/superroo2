@@ -12,6 +12,7 @@ import {
 	Shield,
 	BrainCircuit,
 	Terminal,
+	Server,
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -30,6 +31,7 @@ import { ApiKeysProvidersTab } from "./tabs/settings/ApiKeysProvidersTab"
 import { AdvancedVpsSettingsTab } from "./tabs/settings/AdvancedVpsSettingsTab"
 import { ModelRouterView } from "./tabs/ModelRouterView"
 import { IdeTerminalView } from "./tabs/IdeTerminalView"
+import { VpsHealthTab } from "./tabs/VpsHealthTab"
 
 export interface SuperRooDashboardProps {
 	/** Optional: inject the host's VsCode wrapper. If unset, the context auto-detects (and falls back to mock data). */
@@ -46,6 +48,7 @@ type TabId =
 	| "features"
 	| "bugs"
 	| "logs"
+	| "vps-health"
 	| "settings"
 	| "api-keys"
 	| "model-router"
@@ -60,6 +63,7 @@ const TABS: Array<{ id: TabId; label: string; icon: React.ComponentType<{ classN
 	{ id: "features", label: "Features", icon: Layers },
 	{ id: "bugs", label: "Bugs", icon: Bug },
 	{ id: "logs", label: "Logs", icon: ScrollText },
+	{ id: "vps-health", label: "VPS Health", icon: Server },
 	{ id: "settings", label: "Settings", icon: SettingsIcon },
 	// Settings sub-tabs
 	{ id: "api-keys", label: "API Keys", icon: Key },
@@ -108,6 +112,7 @@ export function SuperRooDashboard({ vscode, forceMock, initialTab = "dashboard",
 					{active === "features" && <FeaturesTab />}
 					{active === "bugs" && <BugsTab />}
 					{active === "logs" && <LogsTab />}
+					{active === "vps-health" && <VpsHealthTab />}
 					{active === "settings" && <SettingsTab />}
 					{active === "api-keys" && <ApiKeysProvidersTab />}
 					{active === "model-router" && <ModelRouterView />}
