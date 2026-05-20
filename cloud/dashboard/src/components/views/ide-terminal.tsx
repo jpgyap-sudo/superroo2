@@ -196,6 +196,47 @@ export default function IdeTerminalView() {
 	const hook = useIdeTerminal()
 	const extensionState = useExtensionState()
 
+	// Gap #8: Global keyboard shortcuts
+	useEffect(() => {
+		function handleGlobalKeyDown(e: KeyboardEvent) {
+			// Ctrl+` or Ctrl+Shift+P: Toggle terminal panel
+			if ((e.ctrlKey || e.metaKey) && e.key === "`") {
+				e.preventDefault()
+				dispatch({ type: "SET_SHOW_TERMINAL", payload: !showTerminal })
+				return
+			}
+			// Ctrl+B: Toggle file panel (sidebar)
+			if ((e.ctrlKey || e.metaKey) && e.key === "b") {
+				e.preventDefault()
+				dispatch({ type: "SET_SHOW_FILE_PANEL", payload: !showFilePanel })
+				return
+			}
+			// Ctrl+Shift+P: Toggle AI chat panel
+			if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "p" || e.key === "P")) {
+				e.preventDefault()
+				dispatch({ type: "SET_SHOW_AI_PANEL", payload: !showAiPanel })
+				return
+			}
+			// Escape: Close modals / panels
+			if (e.key === "Escape") {
+				if (showDiffView) {
+					dispatch({ type: "SET_SHOW_DIFF_VIEW", payload: false })
+					return
+				}
+				if (showImportGithub) {
+					dispatch({ type: "SET_SHOW_IMPORT_GITHUB", payload: false })
+					return
+				}
+				if (showOpenWorkspace) {
+					dispatch({ type: "SET_SHOW_OPEN_WORKSPACE", payload: false })
+					return
+				}
+			}
+		}
+		window.addEventListener("keydown", handleGlobalKeyDown)
+		return () => window.removeEventListener("keydown", handleGlobalKeyDown)
+	}, [showTerminal, showFilePanel, showAiPanel, showDiffView, showImportGithub, showOpenWorkspace, dispatch])
+
 	// ── Loading state ────────────────────────────────────────────────────
 	if (loading) {
 		return (
@@ -696,25 +737,57 @@ export default function IdeTerminalView() {
 										onSuggestionClick={(suggestion: string) => {
 											dispatch({ type: "SET_AI_INPUT", payload: suggestion })
 										}}
+										// Gap #2, #13: Connection status & rate limit props
+										wsConnected={hook.wsConnected}
+										wsReconnecting={hook.wsReconnecting}
+										pendingAiCount={hook.pendingAiCount}
+										aiRateLimitStatus={
+											hook.aiRateLimitStatus
+												? {
+														limited: true,
+														retryAfter: hook.aiRateLimitStatus.retryAfterMs,
+														message: `Rate limited — ${hook.aiRateLimitStatus.tokens} tokens remaining`,
+													}
+												: null
+										}
+										// Gap #4: File save error handling
 										onApplyCode={(code: string, language: string) => {
-											// Set content in editor state
-											hook.setCurrentFileContent(code)
-											// Save to disk
-											if (hook.currentFilePath) {
-												hook.handleFileSave(code)
-												// Show visual feedback in chat
-												const feedbackMsg = `✅ Applied code to \`${hook.currentFilePath}\``
+											try {
+												// Set content in editor state
+												hook.setCurrentFileContent(code)
+												// Save to disk
+												if (hook.currentFilePath) {
+													hook.handleFileSave(code)
+													// Show visual feedback in chat
+													const feedbackMsg = `✅ Applied code to \`${hook.currentFilePath}\``
+													dispatch({
+														type: "ADD_AI_MESSAGE",
+														payload: {
+															id: `apply-${Date.now()}`,
+															role: "assistant",
+															author: "System",
+															time: new Date().toLocaleTimeString([], {
+																hour: "2-digit",
+																minute: "2-digit",
+															}),
+															content: feedbackMsg,
+														},
+													})
+												}
+											} catch (err) {
+												// Gap #4: Show error notification on save failure
+												const errorMsg = `❌ Failed to save file: ${err instanceof Error ? err.message : String(err)}`
 												dispatch({
 													type: "ADD_AI_MESSAGE",
 													payload: {
-														id: `apply-${Date.now()}`,
+														id: `apply-error-${Date.now()}`,
 														role: "assistant",
 														author: "System",
 														time: new Date().toLocaleTimeString([], {
 															hour: "2-digit",
 															minute: "2-digit",
 														}),
-														content: feedbackMsg,
+														content: errorMsg,
 													},
 												})
 											}

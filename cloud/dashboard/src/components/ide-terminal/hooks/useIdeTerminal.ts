@@ -340,6 +340,27 @@ export function useIdeTerminal() {
 	const [ptyOutputBuffer, setPtyOutputBuffer] = useState<string>("")
 	const ptyOutputBufferRef = useRef("")
 
+	// ── Debounced terminal output dispatch (Gap #7) ──────────────────────
+	const terminalOutputTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+	const terminalOutputBatchRef = useRef<string[]>([])
+	const flushTerminalOutput = useCallback(() => {
+		if (terminalOutputBatchRef.current.length > 0) {
+			const batch = terminalOutputBatchRef.current
+			terminalOutputBatchRef.current = []
+			dispatch({ type: "APPEND_TERMINAL_OUTPUT", payload: batch })
+		}
+		terminalOutputTimerRef.current = null
+	}, [dispatch])
+	const debouncedAppendTerminalOutput = useCallback(
+		(data: string) => {
+			terminalOutputBatchRef.current.push(data)
+			if (!terminalOutputTimerRef.current) {
+				terminalOutputTimerRef.current = setTimeout(flushTerminalOutput, 50) // 50ms debounce
+			}
+		},
+		[flushTerminalOutput],
+	)
+
 	// ── WebSocket ────────────────────────────────────────────────────────
 	const {
 		wsRef,
@@ -347,6 +368,9 @@ export function useIdeTerminal() {
 		wsReconnecting,
 		sendMessage: wsSend,
 		canSendAi,
+		queueAiMessage,
+		pendingAiCount,
+		aiRateLimitStatus,
 	} = useWebSocket({
 		dispatch,
 		onSuggestions: (suggestions) => {
@@ -360,8 +384,8 @@ export function useIdeTerminal() {
 			if (sessionId === ptySessionId) {
 				ptyOutputBufferRef.current += data
 				setPtyOutputBuffer(ptyOutputBufferRef.current)
-				// Also append to terminal output for display
-				dispatch({ type: "APPEND_TERMINAL_OUTPUT", payload: [data] })
+				// Debounced append to terminal output for display (Gap #7)
+				debouncedAppendTerminalOutput(data)
 			}
 		},
 		onPtyExit: (sessionId, exitCode, signal) => {
@@ -762,8 +786,23 @@ export function useIdeTerminal() {
 	}, [dispatch])
 
 	// ── File selection helper ────────────────────────────────────────────
+	const MAX_FILE_SIZE_MB = 10
 	async function handleFilesSelectedFromList(fileList: File[]) {
 		for (const file of fileList) {
+			// Gap #11: File size validation
+			if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+				dispatch({
+					type: "ADD_TERMINAL_NOTIFICATION",
+					payload: {
+						id: `file-size-${Date.now()}`,
+						message: `File "${file.name}" exceeds ${MAX_FILE_SIZE_MB}MB limit (${(file.size / (1024 * 1024)).toFixed(1)}MB). Skipped.`,
+						type: "error",
+						dismissed: false,
+						timestamp: new Date().toISOString(),
+					},
+				})
+				continue
+			}
 			if (file.type.startsWith("image/")) {
 				const reader = new FileReader()
 				reader.onload = () => {
@@ -1026,6 +1065,28 @@ export function useIdeTerminal() {
 		[currentFilePath, openFiles, dispatch],
 	)
 
+	// ── Auto-save for open files (Gap #9) ────────────────────────────────
+	const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+	useEffect(() => {
+		const modifiedFile = openFiles.find((f) => f.modified)
+		if (!modifiedFile || !modifiedFile.path) return
+		if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
+		autoSaveTimerRef.current = setTimeout(async () => {
+			try {
+				await saveFileContent(modifiedFile.path, modifiedFile.content)
+				dispatch({
+					type: "SET_OPEN_FILES",
+					payload: openFiles.map((f) => (f.path === modifiedFile.path ? { ...f, modified: false } : f)),
+				})
+			} catch {
+				// Auto-save failed silently — user can manually save
+			}
+		}, 3000) // 3s debounce after last modification
+		return () => {
+			if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
+		}
+	}, [openFiles, dispatch])
+
 	// ── PTY Terminal Operations ──────────────────────────────────────────
 
 	/** Create a new PTY session */
@@ -1255,6 +1316,33 @@ export function useIdeTerminal() {
 		}, 5000)
 		return () => clearInterval(interval)
 	}, [dispatch])
+
+	// ── Command history persistence (Gap #16) ────────────────────────────
+	const COMMAND_HISTORY_KEY = "superroo-command-history"
+	useEffect(() => {
+		if (recentCommands.length === 0) return
+		try {
+			localStorage.setItem(COMMAND_HISTORY_KEY, JSON.stringify(recentCommands))
+		} catch {
+			// Storage unavailable — silently skip
+		}
+	}, [recentCommands])
+
+	// Restore command history on mount
+	useEffect(() => {
+		try {
+			const stored = localStorage.getItem(COMMAND_HISTORY_KEY)
+			if (stored) {
+				const parsed = JSON.parse(stored)
+				if (Array.isArray(parsed) && parsed.length > 0) {
+					dispatch({ type: "SET_RECENT_COMMANDS", payload: parsed })
+				}
+			}
+		} catch {
+			// Ignore
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [])
 
 	// ── Terminal command handler (with PTY support) ───────────────────────
 
@@ -1588,6 +1676,9 @@ export function useIdeTerminal() {
 		wsConnected,
 		wsReconnecting,
 		sendMessage: wsSend,
+		queueAiMessage,
+		pendingAiCount,
+		aiRateLimitStatus,
 
 		// Handlers
 		handleAiInputChange,

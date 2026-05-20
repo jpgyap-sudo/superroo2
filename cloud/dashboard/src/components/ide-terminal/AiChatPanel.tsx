@@ -27,6 +27,8 @@ import {
 	Search,
 	X,
 	ArrowDown,
+	AlertCircle,
+	Clock,
 } from "lucide-react"
 import type { ChatMessage, ChatAttachment, WorkspaceTask } from "@/lib/ide-store"
 import type { BrainTab } from "./types"
@@ -64,6 +66,14 @@ interface AiChatPanelProps {
 	textareaRef: React.RefObject<HTMLTextAreaElement | null>
 	slashCommandFilter: string
 	onClearChat?: () => void
+
+	// Gap #2: Connection status
+	wsConnected?: boolean
+	wsReconnecting?: boolean
+
+	// Gap #13: Rate limit feedback
+	pendingAiCount?: number
+	aiRateLimitStatus?: { limited: boolean; retryAfter?: number; message?: string } | null
 }
 
 function SearchBar({
@@ -227,6 +237,10 @@ export default function AiChatPanel({
 	textareaRef,
 	slashCommandFilter,
 	onClearChat,
+	wsConnected,
+	wsReconnecting,
+	pendingAiCount = 0,
+	aiRateLimitStatus,
 }: AiChatPanelProps) {
 	const [showTaskPicker, setShowTaskPicker] = useState(false)
 	const [showSearch, setShowSearch] = useState(false)
@@ -488,6 +502,28 @@ export default function AiChatPanel({
 						{tab.label}
 					</button>
 				))}
+				{/* Gap #2: Connection status indicator */}
+				{wsConnected !== undefined && (
+					<div
+						className="flex items-center gap-1 px-2 text-[10px]"
+						title={wsConnected ? "Connected" : wsReconnecting ? "Reconnecting..." : "Disconnected"}>
+						<span
+							className={`w-1.5 h-1.5 rounded-full ${
+								wsConnected
+									? "bg-[#3fb950]"
+									: wsReconnecting
+										? "bg-[#d29922] animate-pulse"
+										: "bg-[#f85149]"
+							}`}
+						/>
+						<span
+							className={
+								wsConnected ? "text-[#3fb950]" : wsReconnecting ? "text-[#d29922]" : "text-[#f85149]"
+							}>
+							{wsConnected ? "Live" : wsReconnecting ? "..." : "Off"}
+						</span>
+					</div>
+				)}
 				<div className="flex-1" />
 				<button
 					className={
@@ -568,6 +604,13 @@ export default function AiChatPanel({
 								</button>
 							))}
 						</div>
+					</div>
+				) : searchQuery.trim() && matchCount === 0 ? (
+					/* Gap #10: Search empty state */
+					<div className="flex flex-col items-center justify-center h-full text-center px-4">
+						<Search className="w-8 h-8 text-[#30363d] mb-2" />
+						<p className="text-[11px] text-[#484f58]">No results found for "{searchQuery}"</p>
+						<p className="text-[10px] text-[#484f58] mt-1">Try a different search term</p>
 					</div>
 				) : (
 					<div className="p-2 space-y-2">
@@ -668,17 +711,37 @@ export default function AiChatPanel({
 
 			{/* Attachments preview */}
 			{aiAttachments.length > 0 && (
-				<div className="flex flex-wrap gap-1 px-2 py-1 border-t border-[#1e2535] bg-[#161b22]">
-					{aiAttachments.map((att, i) => (
-						<span
-							key={i}
-							className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 bg-[#1e2535] text-[#8b949e] rounded">
-							{att.type === "image" ? "🖼" : "📎"} {att.filename}
-							<button className="hover:text-[#f85149]" onClick={() => onRemoveAttachment(i)}>
-								<X className="w-2.5 h-2.5" />
-							</button>
-						</span>
-					))}
+				<div className="flex flex-wrap gap-2 px-2 py-1.5 border-t border-[#1e2535] bg-[#161b22]">
+					{aiAttachments.map((att, i) => {
+						/* Gap #14: Image preview thumbnail (content may be on extended type) */
+						const attAny = att as any
+						const hasImageContent =
+							att.type === "image" &&
+							attAny.content &&
+							typeof attAny.content === "string" &&
+							attAny.content.startsWith("data:image")
+						return (
+							<div
+								key={i}
+								className="relative group flex items-center gap-1 text-[10px] px-1.5 py-0.5 bg-[#1e2535] text-[#8b949e] rounded">
+								{hasImageContent ? (
+									<img
+										src={attAny.content}
+										alt={att.filename}
+										className="w-6 h-6 object-cover rounded"
+									/>
+								) : att.type === "image" ? (
+									"🖼"
+								) : (
+									"📎"
+								)}
+								<span className="truncate max-w-[80px]">{att.filename}</span>
+								<button className="hover:text-[#f85149] shrink-0" onClick={() => onRemoveAttachment(i)}>
+									<X className="w-2.5 h-2.5" />
+								</button>
+							</div>
+						)
+					})}
 				</div>
 			)}
 
@@ -744,6 +807,24 @@ export default function AiChatPanel({
 						</button>
 					)}
 				</div>
+				{/* Gap #13: Rate limit feedback */}
+				{aiRateLimitStatus?.limited && (
+					<div className="flex items-center gap-1.5 px-2 py-1 bg-[#f8514911] border border-[#f8514933] rounded text-[10px] text-[#f85149]">
+						<AlertCircle className="w-3 h-3 shrink-0" />
+						<span>
+							{aiRateLimitStatus.message || "Rate limit reached"}
+							{aiRateLimitStatus.retryAfter
+								? ` — retry in ${Math.ceil(aiRateLimitStatus.retryAfter / 1000)}s`
+								: ""}
+						</span>
+					</div>
+				)}
+				{pendingAiCount > 1 && !aiRateLimitStatus?.limited && (
+					<div className="flex items-center gap-1.5 px-2 py-1 bg-[#d2992211] border border-[#d2992233] rounded text-[10px] text-[#d29922]">
+						<Clock className="w-3 h-3 shrink-0" />
+						<span>{pendingAiCount} messages queued</span>
+					</div>
+				)}
 			</div>
 		</div>
 	)

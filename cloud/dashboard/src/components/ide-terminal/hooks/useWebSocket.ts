@@ -40,6 +40,12 @@ interface UseWebSocketOptions {
 	) => void
 }
 
+interface QueuedAiMessage {
+	type: "ai:chat"
+	content: string
+	attachments?: Array<{ name: string; content: string; type: string }>
+}
+
 interface UseWebSocketReturn {
 	wsRef: React.MutableRefObject<WebSocket | null>
 	wsConnected: boolean
@@ -47,6 +53,10 @@ interface UseWebSocketReturn {
 	sendMessage: (payload: object) => boolean
 	canSendAi: () => boolean
 	aiRateLimitStatus: { retryAfterMs: number; tokens: number } | null
+	/** Queue an AI message for replay when connection restores */
+	queueAiMessage: (msg: QueuedAiMessage) => void
+	/** Number of queued AI messages pending replay */
+	pendingAiCount: number
 }
 
 export function useWebSocket({
@@ -67,6 +77,8 @@ export function useWebSocket({
 	const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 	const reconnectAttemptRef = useRef(0)
 	const pendingInputQueueRef = useRef<string[]>([])
+	const pendingAiQueueRef = useRef<QueuedAiMessage[]>([])
+	const [pendingAiCount, setPendingAiCount] = useState(0)
 	const ptySessionIdRef = useRef<string | null>(null)
 
 	// ── Adaptive AI rate limiting (token bucket) ────────────────────────
@@ -166,12 +178,21 @@ export function useWebSocket({
 					ws.send(JSON.stringify({ type: "pty:attach", sessionId: ptySessionIdRef.current }))
 				}
 
-				// Flush any pending input
+				// Flush any pending PTY input
 				if (pendingInputQueueRef.current.length > 0) {
 					for (const data of pendingInputQueueRef.current) {
 						ws.send(JSON.stringify({ type: "pty:input", sessionId: ptySessionIdRef.current, data }))
 					}
 					pendingInputQueueRef.current = []
+				}
+
+				// Flush any queued AI messages
+				if (pendingAiQueueRef.current.length > 0) {
+					for (const msg of pendingAiQueueRef.current) {
+						ws.send(JSON.stringify(msg))
+					}
+					pendingAiQueueRef.current = []
+					setPendingAiCount(0)
 				}
 
 				// Start ping interval
@@ -354,5 +375,19 @@ export function useWebSocket({
 		return false
 	}, [])
 
-	return { wsRef, wsConnected, wsReconnecting, sendMessage, canSendAi, aiRateLimitStatus }
+	const queueAiMessage = useCallback((msg: QueuedAiMessage) => {
+		pendingAiQueueRef.current.push(msg)
+		setPendingAiCount(pendingAiQueueRef.current.length)
+	}, [])
+
+	return {
+		wsRef,
+		wsConnected,
+		wsReconnecting,
+		sendMessage,
+		canSendAi,
+		aiRateLimitStatus,
+		queueAiMessage,
+		pendingAiCount,
+	}
 }

@@ -1,5 +1,7 @@
 "use client"
 
+const TERMINAL_STORAGE_KEY = "superroo-terminal-output"
+
 import { createContext, useContext, useReducer, useEffect, useCallback, type ReactNode, type Dispatch } from "react"
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -776,6 +778,19 @@ export function IdeProvider({ children }: { children: ReactNode }) {
 		} catch {
 			dispatch({ type: "HYDRATE", payload: { _hydrated: true } })
 		}
+
+		// Restore terminal output from separate storage
+		try {
+			const terminalStored = localStorage.getItem(TERMINAL_STORAGE_KEY)
+			if (terminalStored) {
+				const parsed = JSON.parse(terminalStored)
+				if (Array.isArray(parsed) && parsed.length > 0) {
+					dispatch({ type: "SET_OUTPUT_BLOCKS", payload: parsed })
+				}
+			}
+		} catch {
+			// Terminal output unavailable — silently skip
+		}
 	}, [])
 
 	// Persist to localStorage on every state change (debounced via animation frame)
@@ -790,6 +805,21 @@ export function IdeProvider({ children }: { children: ReactNode }) {
 		})
 		return () => cancelAnimationFrame(timer)
 	}, [state])
+
+	// Persist terminal output separately (debounced, trimmed to scrollback limit)
+	useEffect(() => {
+		if (!state._hydrated) return
+		if (state.outputBlocks.length === 0) return
+		const timer = setTimeout(() => {
+			try {
+				const trimmed = state.outputBlocks.slice(-getScrollbackLimit())
+				localStorage.setItem(TERMINAL_STORAGE_KEY, JSON.stringify(trimmed))
+			} catch {
+				// Storage full — silently fail
+			}
+		}, 2000)
+		return () => clearTimeout(timer)
+	}, [state.outputBlocks, state._hydrated])
 
 	return <IdeContext.Provider value={{ state, dispatch }}>{children}</IdeContext.Provider>
 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useCallback, useEffect } from "react"
+import { useState, useRef, useCallback, useEffect, useMemo } from "react"
 import {
 	Terminal,
 	Copy,
@@ -132,8 +132,134 @@ const COMMON_COMMANDS = [
 	"curl -s http://localhost:3001/api/health",
 ]
 
+// Gap #15: ANSI escape code regex — matches color codes, cursor movements, clear sequences
+const ANSI_PATTERN = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g
+
+// Gap #15: ANSI color name map for CSS class generation
+const ANSI_COLOR_NAMES: Record<number, string> = {
+	30: "black",
+	31: "red",
+	32: "green",
+	33: "yellow",
+	34: "blue",
+	35: "magenta",
+	36: "cyan",
+	37: "white",
+	90: "bright-black",
+	91: "bright-red",
+	92: "bright-green",
+	93: "bright-yellow",
+	94: "bright-blue",
+	95: "bright-magenta",
+	96: "bright-cyan",
+	97: "bright-white",
+}
+
+// Gap #15: Strip ANSI codes from a string, returning plain text
+function stripAnsi(text: string): string {
+	return text.replace(ANSI_PATTERN, "")
+}
+
+// Gap #15: Parse ANSI codes into React nodes with inline styling
+function renderAnsiText(text: string, key: number): React.ReactNode {
+	interface AnsiSegment {
+		text: string
+		fg?: string
+		bg?: string
+		bold?: boolean
+		dim?: boolean
+		italic?: boolean
+		underline?: boolean
+	}
+	const segments: AnsiSegment[] = []
+	let current: AnsiSegment = { text: "" }
+	let i = 0
+
+	while (i < text.length) {
+		ANSI_PATTERN.lastIndex = i
+		const match = ANSI_PATTERN.exec(text)
+		if (!match) {
+			current.text += text.slice(i)
+			break
+		}
+		if (match.index > i) {
+			current.text += text.slice(i, match.index)
+		}
+		// Flush current segment before processing code
+		if (current.text) {
+			segments.push({ ...current })
+			current = { text: "" }
+		}
+		const code = match[0]
+		i = match.index + code.length
+
+		// Parse CSI sequences like \x1b[31m, \x1b[1;31m, \x1b[0m
+		const csiMatch = code.match(/^[\u001b\u009b]\[([0-9;]*)m$/)
+		if (csiMatch) {
+			const params = csiMatch[1] ? csiMatch[1].split(";") : ["0"]
+			for (const param of params) {
+				const n = parseInt(param, 10)
+				if (n === 0) {
+					current = { text: "" } // reset
+				} else if (n === 1) {
+					current.bold = true
+				} else if (n === 2) {
+					current.dim = true
+				} else if (n === 3) {
+					current.italic = true
+				} else if (n === 4) {
+					current.underline = true
+				} else if (n >= 30 && n <= 37) {
+					current.fg = ANSI_COLOR_NAMES[n]
+				} else if (n >= 90 && n <= 97) {
+					current.fg = ANSI_COLOR_NAMES[n]
+				} else if (n >= 40 && n <= 47) {
+					current.bg = ANSI_COLOR_NAMES[n - 10]
+				} else if (n >= 100 && n <= 107) {
+					current.bg = ANSI_COLOR_NAMES[n - 10]
+				}
+			}
+		}
+		// Non-SGR sequences (cursor movement, clear screen) are simply stripped
+	}
+	if (current.text) {
+		segments.push({ ...current })
+	}
+
+	if (segments.length === 0) return <span key={key}>{text}</span>
+	if (
+		segments.length === 1 &&
+		!segments[0].fg &&
+		!segments[0].bg &&
+		!segments[0].bold &&
+		!segments[0].italic &&
+		!segments[0].underline
+	) {
+		return <span key={key}>{segments[0].text}</span>
+	}
+
+	return (
+		<span key={key}>
+			{segments.map((seg, si) => {
+				const style: React.CSSProperties = {}
+				if (seg.fg) style.color = `var(--ansi-${seg.fg})`
+				if (seg.bg) style.backgroundColor = `var(--ansi-${seg.bg})`
+				if (seg.bold) style.fontWeight = "bold"
+				if (seg.dim) style.opacity = 0.7
+				if (seg.italic) style.fontStyle = "italic"
+				if (seg.underline) style.textDecoration = "underline"
+				return (
+					<span key={si} style={style}>
+						{seg.text}
+					</span>
+				)
+			})}
+		</span>
+	)
+}
+
 function parseOutputLine(line: string, index: number): OutputBlock {
-	const trimmed = line.trim()
+	const trimmed = stripAnsi(line).trim()
 	const ts = new Date().toISOString()
 	if (/error|failed|exception|traceback|errno/i.test(trimmed)) {
 		return { id: `block-${index}`, type: "error", content: line, timestamp: ts, collapsed: false }
@@ -221,6 +347,48 @@ export default function TerminalPanel({
 	const [snippetCommand, setSnippetCommand] = useState("")
 	const [shareSessionIdInput, setShareSessionIdInput] = useState("")
 	const searchInputRef = useRef<HTMLInputElement>(null)
+
+	// Gap #12: Virtualization — track visible range
+	const VIRTUAL_OVERSCAN = 10
+	const ITEM_HEIGHT = 22 // approximate px per output block row
+	const scrollContainerRef = useRef<HTMLDivElement | null>(null)
+	const [scrollTop, setScrollTop] = useState(0)
+	const [containerHeight, setContainerHeight] = useState(300)
+	const visibleBlockCount = useMemo(() => {
+		return Math.ceil(containerHeight / ITEM_HEIGHT) + VIRTUAL_OVERSCAN * 2
+	}, [containerHeight])
+	const totalHeight = useMemo(() => outputBlocks.length * ITEM_HEIGHT, [outputBlocks.length])
+	const startIndex = useMemo(() => {
+		return Math.max(0, Math.floor(scrollTop / ITEM_HEIGHT) - VIRTUAL_OVERSCAN)
+	}, [scrollTop])
+	const endIndex = useMemo(() => {
+		return Math.min(outputBlocks.length, startIndex + visibleBlockCount)
+	}, [startIndex, visibleBlockCount, outputBlocks.length])
+	const visibleBlocks = useMemo(() => outputBlocks.slice(startIndex, endIndex), [outputBlocks, startIndex, endIndex])
+
+	const handleVirtualScroll = useCallback(
+		(e: React.UIEvent<HTMLDivElement>) => {
+			const el = e.currentTarget
+			setScrollTop(el.scrollTop)
+			if (containerHeight !== el.clientHeight) {
+				setContainerHeight(el.clientHeight)
+			}
+		},
+		[containerHeight],
+	)
+
+	// Observe container resize for virtualization
+	useEffect(() => {
+		const el = scrollContainerRef.current
+		if (!el) return
+		const observer = new ResizeObserver((entries) => {
+			for (const entry of entries) {
+				setContainerHeight(entry.contentRect.height)
+			}
+		})
+		observer.observe(el)
+		return () => observer.disconnect()
+	}, [])
 
 	// Filter common commands
 	useEffect(() => {
@@ -551,77 +719,93 @@ export default function TerminalPanel({
 				</div>
 			)}
 
-			{/* Terminal output */}
-			<div className="flex-1 overflow-y-auto p-2 font-mono text-[12px] leading-relaxed min-h-[100px] max-h-[300px]">
+			{/* Terminal output — Gap #12: Virtualized rendering, Gap #15: ANSI color support */}
+			<div
+				ref={scrollContainerRef}
+				className="flex-1 overflow-y-auto p-2 font-mono text-[12px] leading-relaxed min-h-[100px] max-h-[300px]"
+				onScroll={handleVirtualScroll}>
 				{outputBlocks.length === 0 ? (
 					<div className="text-[#484f58] text-center py-8">
 						<Terminal className="w-8 h-8 mx-auto mb-2 opacity-30" />
 						<p className="text-[11px]">Type a command to start</p>
 					</div>
 				) : (
-					outputBlocks.map((block, idx) => {
-						const isSearchMatch = terminalSearchQuery
-							? block.content.toLowerCase().includes(terminalSearchQuery.toLowerCase())
-							: false
-						const isSearchActive =
-							terminalSearchActiveIndex !== undefined &&
-							terminalSearchResults?.[terminalSearchActiveIndex] === idx
+					<div style={{ height: totalHeight, position: "relative" }}>
+						{visibleBlocks.map((block, vi) => {
+							const realIdx = startIndex + vi
+							const isSearchMatch = terminalSearchQuery
+								? block.content.toLowerCase().includes(terminalSearchQuery.toLowerCase())
+								: false
+							const isSearchActive =
+								terminalSearchActiveIndex !== undefined &&
+								terminalSearchResults?.[terminalSearchActiveIndex] === realIdx
 
-						return (
-							<div
-								key={block.id || idx}
-								className={`group ${
-									isSearchMatch ? "ring-1 ring-[#58a6ff]/30 rounded" : ""
-								} ${isSearchActive ? "bg-[#58a6ff]/10" : ""}`}>
-								<div className="flex items-start gap-1">
-									<button
-										className="mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-										onClick={() => onToggleBlockCollapse(block.id)}>
-										{block.collapsed ? (
-											<ChevronRight className="w-3 h-3 text-[#484f58]" />
-										) : (
-											<ChevronDown className="w-3 h-3 text-[#484f58]" />
-										)}
-									</button>
-									<div
-										className={`flex-1 ${block.collapsed ? "line-clamp-1" : ""} ${getStatusColor(block.type)}`}>
-										{block.content}
-										{fixableErrors?.has(block.id) && !block.collapsed && (
-											<div className="flex flex-wrap gap-1 mt-1">
-												{fixableErrors.get(block.id)?.map((err, errIdx) => (
-													<button
-														key={errIdx}
-														className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] rounded bg-[var(--terminal-accent)]/20 text-[var(--terminal-accent)] hover:bg-[var(--terminal-accent)]/30 transition-colors"
-														title={err.fixSuggestion || "Fix this error"}
-														onClick={() => onTriggerInlineFix?.(block.id, err.lineText)}>
-														🔧 Fix {err.errorType}
-													</button>
-												))}
-											</div>
-										)}
-									</div>
-									<div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-										{/* #10: Quick snippet */}
+							return (
+								<div
+									key={block.id || realIdx}
+									style={{
+										position: "absolute",
+										top: realIdx * ITEM_HEIGHT,
+										left: 0,
+										right: 0,
+										height: ITEM_HEIGHT,
+									}}
+									className={`group ${
+										isSearchMatch ? "ring-1 ring-[#58a6ff]/30 rounded" : ""
+									} ${isSearchActive ? "bg-[#58a6ff]/10" : ""}`}>
+									<div className="flex items-start gap-1">
 										<button
-											className="p-0.5 hover:bg-[#1e2535] rounded"
-											onClick={() => {
-												setSnippetCommand(block.content)
-												setShowSnippetInput(true)
-											}}
-											title="Save as snippet">
-											<BookmarkPlus className="w-2.5 h-2.5 text-[#484f58] hover:text-[#8b949e]" />
+											className="mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+											onClick={() => onToggleBlockCollapse(block.id)}>
+											{block.collapsed ? (
+												<ChevronRight className="w-3 h-3 text-[#484f58]" />
+											) : (
+												<ChevronDown className="w-3 h-3 text-[#484f58]" />
+											)}
 										</button>
-										<button
-											className="p-0.5 hover:bg-[#1e2535] rounded"
-											onClick={() => onCopyTerminal(idx, block.content)}
-											title="Copy">
-											<Copy className="w-2.5 h-2.5 text-[#484f58] hover:text-[#8b949e]" />
-										</button>
+										<div
+											className={`flex-1 truncate ${block.collapsed ? "line-clamp-1" : ""} ${getStatusColor(block.type)}`}>
+											{/* Gap #15: Render ANSI-colored text */}
+											{renderAnsiText(block.content, 0)}
+											{fixableErrors?.has(block.id) && !block.collapsed && (
+												<div className="flex flex-wrap gap-1 mt-1">
+													{fixableErrors.get(block.id)?.map((err, errIdx) => (
+														<button
+															key={errIdx}
+															className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] rounded bg-[var(--terminal-accent)]/20 text-[var(--terminal-accent)] hover:bg-[var(--terminal-accent)]/30 transition-colors"
+															title={err.fixSuggestion || "Fix this error"}
+															onClick={() =>
+																onTriggerInlineFix?.(block.id, err.lineText)
+															}>
+															🔧 Fix {err.errorType}
+														</button>
+													))}
+												</div>
+											)}
+										</div>
+										<div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+											{/* #10: Quick snippet */}
+											<button
+												className="p-0.5 hover:bg-[#1e2535] rounded"
+												onClick={() => {
+													setSnippetCommand(block.content)
+													setShowSnippetInput(true)
+												}}
+												title="Save as snippet">
+												<BookmarkPlus className="w-2.5 h-2.5 text-[#484f58] hover:text-[#8b949e]" />
+											</button>
+											<button
+												className="p-0.5 hover:bg-[#1e2535] rounded"
+												onClick={() => onCopyTerminal(realIdx, block.content)}
+												title="Copy">
+												<Copy className="w-2.5 h-2.5 text-[#484f58] hover:text-[#8b949e]" />
+											</button>
+										</div>
 									</div>
 								</div>
-							</div>
-						)
-					})
+							)
+						})}
+					</div>
 				)}
 			</div>
 
