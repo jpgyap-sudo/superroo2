@@ -3589,8 +3589,8 @@ const server = http.createServer(async (req, res) => {
 					let totalQueries = 0
 					let ollamaReady = false
 					try {
-						const stats = orchestrator.hermesClaw.getStats()
-						totalQueries = stats.totalQueries || stats.queries || 0
+						const stats = await orchestrator.hermesClaw.getStats()
+						totalQueries = stats.operationCount || 0
 						ollamaReady = stats.ollamaReady || false
 					} catch {
 						// stats not available
@@ -7254,7 +7254,7 @@ const server = http.createServer(async (req, res) => {
 				return
 			}
 			try {
-				const stats = orchestrator.hermesClaw.getStats()
+				const stats = await orchestrator.hermesClaw.getStats()
 				sendJson(res, 200, {
 					ok: true,
 					stats,
@@ -8825,7 +8825,7 @@ const server = http.createServer(async (req, res) => {
 				return
 			}
 			try {
-				const stats = orchestrator.hermesClaw.getStats()
+				const stats = await orchestrator.hermesClaw.getStats()
 				sendJson(res, 200, { success: true, stats })
 			} catch (err) {
 				sendJson(res, 500, { success: false, error: err.message })
@@ -8843,7 +8843,7 @@ const server = http.createServer(async (req, res) => {
 				return
 			}
 			try {
-				const stats = orchestrator.hermesClaw.getStats()
+				const stats = await orchestrator.hermesClaw.getStats()
 				sendJson(res, 200, { success: true, stats })
 			} catch (err) {
 				sendJson(res, 500, { success: false, error: err.message })
