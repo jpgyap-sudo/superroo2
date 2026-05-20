@@ -662,11 +662,17 @@ export function GitHubView() {
 					<StatusCard
 						title="Last Commit"
 						value={
-							repoStatus.lastCommit.message.length > 20
-								? `${repoStatus.lastCommit.message.slice(0, 20)}...`
-								: repoStatus.lastCommit.message
+							repoStatus.lastCommit?.message
+								? repoStatus.lastCommit.message.length > 20
+									? `${repoStatus.lastCommit.message.slice(0, 20)}...`
+									: repoStatus.lastCommit.message
+								: "—"
 						}
-						detail={`by ${repoStatus.lastCommit.author} • ${repoStatus.lastCommit.time}`}
+						detail={
+							repoStatus.lastCommit
+								? `by ${repoStatus.lastCommit.author} • ${repoStatus.lastCommit.time}`
+								: "No commits yet"
+						}
 						icon={<GitCommit className="w-3.5 h-3.5" />}
 						tone="blue"
 					/>
@@ -708,7 +714,11 @@ export function GitHubView() {
 				{/* Current Task */}
 				<div className="mb-6">
 					<SectionHeader title="Current Autonomous Task" icon={<Play className="w-4 h-4" />} />
-					<CurrentTaskPanel task={autonomousTask} />
+					{autonomousTask ? (
+						<CurrentTaskPanel task={autonomousTask} />
+					) : (
+						<p className="text-sm text-vscode-descriptionForeground">No active autonomous task</p>
+					)}
 				</div>
 
 				{/* Recent Commits & PRs — two-column */}

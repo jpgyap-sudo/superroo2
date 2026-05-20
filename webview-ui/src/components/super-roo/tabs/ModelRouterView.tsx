@@ -92,7 +92,13 @@ export function ModelRouterView() {
 				<ProviderStatusStrip providers={providers} />
 
 				{/* Routing Matrix */}
-				<RouteTable routes={routes} providers={providers} />
+				<RouteTable
+					routes={routes}
+					providers={providers}
+					onAddRoute={() => console.log("[ModelRouter] Add route clicked")}
+					onEditRoute={(id) => console.log("[ModelRouter] Edit route", id)}
+					onShuffleRoute={(id) => console.log("[ModelRouter] Shuffle route", id)}
+				/>
 
 				{/* Grid panels */}
 				<div className="grid gap-5 xl:grid-cols-2">
@@ -108,7 +114,6 @@ export function ModelRouterView() {
 				{/* Footer */}
 				<footer className="flex justify-between text-xs text-vscode-descriptionForeground">
 					<span>All routing configurations are automatically saved and synced.</span>
-					<span>Last saved 1m ago ✓</span>
 				</footer>
 			</div>
 		</div>

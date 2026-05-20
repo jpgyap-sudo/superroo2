@@ -67,7 +67,7 @@ export function MarketplaceView({ stateManager, onDone, targetTab }: Marketplace
 		const unsubscribe = manager.onStateChange((newState) => {
 			// Mark as received initial state when we get any state update
 			// This prevents infinite loops and ensures proper state handling
-			if (!hasReceivedInitialState && (newState.allItems.length > 0 || newState.displayItems !== undefined)) {
+			if (!hasReceivedInitialState) {
 				setHasReceivedInitialState(true)
 			}
 		})

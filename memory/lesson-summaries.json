@@ -1,16 +1,16 @@
 {
-	"generatedAt": "2026-05-20T06:52:38.752Z",
+	"generatedAt": "2026-05-20T10:30:20.102Z",
 	"deepseekModel": "deepseek-chat",
 	"ollamaUrl": "http://100.64.175.88:11434",
 	"sourceFile": "memory/lessons-learned.md",
 	"count": 1,
 	"summaries": [
 		{
-			"title": "Bound unbounded Maps in long-running webviews with LRUCache",
+			"title": "Telegram diff deep links",
 			"date": "2026-05-20",
-			"model": "Kimi Code CLI",
-			"confidence": "high",
-			"summary": "In long-running webviews with `retainContextWhenHidden: true`, unbounded data structures like plain `Map` objects cause memory leaks and crashes. The fix replaces unbounded maps with `LRUCache` (max 50, 5min TTL) and applies dedupe guards, debounce/throttle, retry caps, and strict cleanup effects to prevent resource accumulation.",
+			"model": "local",
+			"confidence": "medium",
+			"summary": "To ensure Telegram View Diff is reliable, never depend solely on a volatile callback preview. Instead, store the git diff in pending coder job state, expose it via `/api/telegram/tasks/:id/diff`, include diff metadata in `/api/telegram/tasks`, and have Telegram buttons open a dashboard deep link (`/?page=telegram&task=<id>&panel=diff`) with an inline preview as a fallback.",
 			"hasEmbeddings": true
 		}
 	]

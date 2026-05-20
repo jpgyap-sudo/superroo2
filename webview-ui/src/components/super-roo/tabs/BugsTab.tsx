@@ -50,7 +50,7 @@ const SEVERITY_COLOR: Record<BugSeverity, string> = {
 	low: "bg-gray-500/20 text-gray-300 border-gray-500/40",
 }
 
-// ── Mock chart data (derived from bugs) ────────────────────────────────────────
+// ── Chart data (derived from bugs) ─────────────────────────────────────────────
 
 function buildChartData(bugs: ReturnType<typeof useSr>["bugs"]) {
 	const now = Date.now()
@@ -63,20 +63,18 @@ function buildChartData(bugs: ReturnType<typeof useSr>["bugs"]) {
 		const inSlot = bugs.filter((b) => b.createdAt >= slotStart && b.createdAt < slotEnd)
 		return {
 			time: `${(i * 2).toString().padStart(2, "0")}:00`,
-			total: inSlot.length + Math.round(Math.sin(i) * 2 + 3),
-			active:
-				inSlot.filter((b) => b.status === "open" || b.status === "investigating").length +
-				Math.round(Math.sin(i + 1) * 1.5 + 1),
-			resolved: inSlot.filter((b) => b.status === "fixed").length + Math.round(Math.cos(i) * 1 + 1),
+			total: inSlot.length,
+			active: inSlot.filter((b) => b.status === "open" || b.status === "investigating").length,
+			resolved: inSlot.filter((b) => b.status === "fixed").length,
 		}
 	})
 
 	// Error types pie
 	const severityCounts = {
-		critical: bugs.filter((b) => b.severity === "critical").length || 2,
-		high: bugs.filter((b) => b.severity === "high").length || 4,
-		medium: bugs.filter((b) => b.severity === "medium").length || 3,
-		low: bugs.filter((b) => b.severity === "low").length || 1,
+		critical: bugs.filter((b) => b.severity === "critical").length,
+		high: bugs.filter((b) => b.severity === "high").length,
+		medium: bugs.filter((b) => b.severity === "medium").length,
+		low: bugs.filter((b) => b.severity === "low").length,
 	}
 	const errorTypes = [
 		{ name: "Critical", value: severityCounts.critical },
@@ -92,12 +90,6 @@ function buildChartData(bugs: ReturnType<typeof useSr>["bugs"]) {
 			const short = f.split("/").pop() || f
 			fileCounts.set(short, (fileCounts.get(short) || 0) + 1)
 		}
-	}
-	if (fileCounts.size === 0) {
-		fileCounts.set("auth/login.ts", 3)
-		fileCounts.set("api/handler.ts", 2)
-		fileCounts.set("worker/index.ts", 2)
-		fileCounts.set("db/query.ts", 1)
 	}
 	const services = Array.from(fileCounts.entries())
 		.sort((a, b) => b[1] - a[1])
@@ -139,9 +131,9 @@ function SystemStatusCard() {
 			<div className="text-[10px] font-semibold uppercase tracking-widest text-vscode-descriptionForeground">
 				System Status
 			</div>
-			<div className="mt-2 flex items-center gap-2 text-lg font-bold text-green-400">
-				<CheckCircle2 size={20} />
-				All healthy
+			<div className="mt-2 flex items-center gap-2 text-lg font-bold text-vscode-descriptionForeground">
+				<Server size={20} />
+				No status data
 			</div>
 			<button type="button" className="mt-2 text-xs text-blue-400 hover:text-blue-300 transition-colors">
 				View health →
@@ -458,22 +450,7 @@ function AiAssistantPanel() {
 
 			<div className="mt-4 flex-1">
 				<span className="text-xs font-semibold">Recent Activity</span>
-				<div className="mt-2 space-y-2">
-					{[
-						{ label: "Auto-triage completed", color: "bg-green-400", time: "2m ago" },
-						{ label: "Incident created", color: "bg-blue-400", time: "5m ago" },
-						{ label: "Error detected in logs", color: "bg-amber-400", time: "7m ago" },
-						{ label: "Job failed", color: "bg-red-400", time: "15m ago" },
-					].map((a) => (
-						<div key={a.label} className="flex items-center justify-between text-xs">
-							<span className="flex items-center gap-1.5">
-								<span className={`inline-block size-1.5 rounded-full ${a.color}`} />
-								{a.label}
-							</span>
-							<span className="text-[10px] text-vscode-descriptionForeground">{a.time}</span>
-						</div>
-					))}
-				</div>
+				<div className="mt-2 text-xs text-vscode-descriptionForeground italic">No recent activity.</div>
 			</div>
 		</div>
 	)
@@ -539,21 +516,25 @@ function ChartsSection({ timeline, errorTypes, services }: ReturnType<typeof bui
 				<span className="text-[10px] font-semibold uppercase tracking-widest text-vscode-descriptionForeground">
 					Affected Files
 				</span>
-				<ResponsiveContainer width="100%" height={120}>
-					<BarChart data={services} layout="vertical">
-						<XAxis type="number" hide />
-						<YAxis dataKey="name" type="category" width={60} tick={{ fontSize: 10, fill: "#8ea0bd" }} />
-						<Tooltip
-							contentStyle={{
-								background: "#111827",
-								border: "1px solid #243044",
-								borderRadius: "8px",
-								fontSize: "11px",
-							}}
-						/>
-						<Bar dataKey="count" fill="#3b82f6" radius={[0, 3, 3, 0]} />
-					</BarChart>
-				</ResponsiveContainer>
+				{services.length > 0 ? (
+					<ResponsiveContainer width="100%" height={120}>
+						<BarChart data={services} layout="vertical">
+							<XAxis type="number" hide />
+							<YAxis dataKey="name" type="category" width={60} tick={{ fontSize: 10, fill: "#8ea0bd" }} />
+							<Tooltip
+								contentStyle={{
+									background: "#111827",
+									border: "1px solid #243044",
+									borderRadius: "8px",
+									fontSize: "11px",
+								}}
+							/>
+							<Bar dataKey="count" fill="#3b82f6" radius={[0, 3, 3, 0]} />
+						</BarChart>
+					</ResponsiveContainer>
+				) : (
+					<div className="mt-2 text-xs text-vscode-descriptionForeground italic">No files identified.</div>
+				)}
 			</div>
 
 			{/* Auto-resolved */}
@@ -561,23 +542,7 @@ function ChartsSection({ timeline, errorTypes, services }: ReturnType<typeof bui
 				<span className="text-[10px] font-semibold uppercase tracking-widest text-vscode-descriptionForeground">
 					Auto-resolved
 				</span>
-				<div className="mt-2 space-y-2">
-					{[
-						{ title: "Session token race condition", time: "2h ago" },
-						{ title: "Memory leak in worker pool", time: "4h ago" },
-						{ title: "API timeout on retry", time: "6h ago" },
-					].map((item) => (
-						<div key={item.title} className="flex items-center justify-between text-xs">
-							<span className="flex items-center gap-1.5">
-								<CheckCircle2 className="size-3 text-green-400 shrink-0" />
-								<span className="truncate">{item.title}</span>
-							</span>
-							<span className="text-[10px] text-vscode-descriptionForeground shrink-0 ml-2">
-								{item.time}
-							</span>
-						</div>
-					))}
-				</div>
+				<div className="mt-2 text-xs text-vscode-descriptionForeground italic">No auto-resolved incidents.</div>
 			</div>
 		</div>
 	)
@@ -592,75 +557,15 @@ function BottomSection() {
 			<div className="col-span-2 rounded-xl border border-vscode-panel-border bg-gradient-to-b from-vscode-sideBar-background to-[#0d1320] p-4">
 				<div className="flex items-center gap-2 mb-3">
 					<span className="text-xs font-semibold">Failed Deployments</span>
-					<span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded font-medium">2</span>
+					<span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded font-medium">0</span>
 				</div>
-				<table className="w-full text-xs">
-					<thead>
-						<tr className="text-vscode-descriptionForeground text-left">
-							<th className="pb-2 pr-2 font-medium">Deployment</th>
-							<th className="pb-2 pr-2 font-medium">Project</th>
-							<th className="pb-2 pr-2 font-medium">Commit</th>
-							<th className="pb-2 pr-2 font-medium">Environment</th>
-							<th className="pb-2 pr-2 font-medium">Reason</th>
-							<th className="pb-2 font-medium">Actions</th>
-						</tr>
-					</thead>
-					<tbody>
-						<tr className="border-t border-vscode-panel-border">
-							<td className="py-2.5 pr-2 font-mono text-[10px]">deploy_01JX...</td>
-							<td className="py-2.5 pr-2">superroo-web</td>
-							<td className="py-2.5 pr-2 font-mono text-[10px]">a1b2c3d</td>
-							<td className="py-2.5 pr-2">production</td>
-							<td className="py-2.5 pr-2 text-red-300 flex items-center gap-1">
-								<span className="inline-block size-1.5 rounded-full bg-red-400" />
-								Health check failed
-							</td>
-							<td className="py-2.5">
-								<button
-									type="button"
-									className="border border-vscode-panel-border rounded px-2 py-1 text-[10px] hover:bg-vscode-list-hoverBackground transition-colors">
-									View Details
-								</button>
-							</td>
-						</tr>
-						<tr className="border-t border-vscode-panel-border">
-							<td className="py-2.5 pr-2 font-mono text-[10px]">deploy_01JX...</td>
-							<td className="py-2.5 pr-2">api-service</td>
-							<td className="py-2.5 pr-2 font-mono text-[10px]">d4e5f6g</td>
-							<td className="py-2.5 pr-2">staging</td>
-							<td className="py-2.5 pr-2 text-red-300 flex items-center gap-1">
-								<span className="inline-block size-1.5 rounded-full bg-red-400" />
-								Docker build failed
-							</td>
-							<td className="py-2.5">
-								<button
-									type="button"
-									className="border border-vscode-panel-border rounded px-2 py-1 text-[10px] hover:bg-vscode-list-hoverBackground transition-colors">
-									View Details
-								</button>
-							</td>
-						</tr>
-					</tbody>
-				</table>
+				<div className="text-xs text-vscode-descriptionForeground italic">No deployments failed.</div>
 			</div>
 
 			{/* GitHub Correlations */}
 			<div className="rounded-xl border border-vscode-panel-border bg-gradient-to-b from-vscode-sideBar-background to-[#0d1320] p-4">
 				<span className="text-xs font-semibold">GitHub Correlations</span>
-				<div className="mt-3 space-y-3">
-					{[
-						{ pr: "#482 Fix: Redis connection pool handling", status: "Opened" },
-						{ pr: "#481 Improve agent initialization retry logic", status: "Merged" },
-						{ pr: "#479 Fix memory leak in worker", status: "Merged" },
-					].map((item) => (
-						<div key={item.pr} className="text-xs">
-							<div className="font-medium">{item.pr}</div>
-							<div className="text-[10px] text-vscode-descriptionForeground mt-0.5">
-								{item.status} by @devteam
-							</div>
-						</div>
-					))}
-				</div>
+				<div className="mt-3 text-xs text-vscode-descriptionForeground italic">No correlated PRs.</div>
 			</div>
 		</div>
 	)

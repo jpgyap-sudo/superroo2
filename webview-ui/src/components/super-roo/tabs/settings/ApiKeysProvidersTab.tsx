@@ -91,13 +91,15 @@ export function ApiKeysProvidersTab() {
 		send({ type: "superRoo:saveProviderKey", providerId, apiKey, test: true })
 		setKeyInputs((prev) => ({ ...prev, [providerId]: "" }))
 		setEditingKey(null)
-		setSavingId(null)
+		// Clear saving state after a timeout; ideally the host would send a confirmation
+		setTimeout(() => setSavingId(null), 5000)
 	}
 
 	async function handleTestKey(providerId: string) {
 		setTestingId(providerId)
 		send({ type: "superRoo:testProviderKey", providerId })
-		setTestingId(null)
+		// Clear testing state after a timeout; ideally the host would send a confirmation
+		setTimeout(() => setTestingId(null), 5000)
 	}
 
 	async function handleRemoveKey(providerId: string) {

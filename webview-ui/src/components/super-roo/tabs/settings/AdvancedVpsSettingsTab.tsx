@@ -1,3 +1,70 @@
+{
+	/* NOTE: Guardrails are local-only until backend save is wired */
+}
+{
+	;(() => {
+		const [guardrails, setGuardrails] = useState({
+			maxConcurrentJobs: 3,
+			cpuHighPercent: 80,
+			ramHighPercent: 85,
+			onHighCpu: "throttle",
+			onHighRam: "throttle",
+		})
+		return (
+			<div className="grid grid-cols-2 gap-4">
+				<label className="block">
+					<span className="text-xs text-vscode-descriptionForeground">Max Concurrent Jobs</span>
+					<input
+						type="number"
+						value={guardrails.maxConcurrentJobs}
+						onChange={(e) => setGuardrails((g) => ({ ...g, maxConcurrentJobs: Number(e.target.value) }))}
+						className="mt-1 w-full px-2 py-1 rounded text-xs bg-vscode-input-background border border-vscode-panel-border text-vscode-input-foreground focus:outline-none focus:border-vscode-focusBorder"
+					/>
+				</label>
+				<label className="block">
+					<span className="text-xs text-vscode-descriptionForeground">CPU High %</span>
+					<input
+						type="number"
+						value={guardrails.cpuHighPercent}
+						onChange={(e) => setGuardrails((g) => ({ ...g, cpuHighPercent: Number(e.target.value) }))}
+						className="mt-1 w-full px-2 py-1 rounded text-xs bg-vscode-input-background border border-vscode-panel-border text-vscode-input-foreground focus:outline-none focus:border-vscode-focusBorder"
+					/>
+				</label>
+				<label className="block">
+					<span className="text-xs text-vscode-descriptionForeground">RAM High %</span>
+					<input
+						type="number"
+						value={guardrails.ramHighPercent}
+						onChange={(e) => setGuardrails((g) => ({ ...g, ramHighPercent: Number(e.target.value) }))}
+						className="mt-1 w-full px-2 py-1 rounded text-xs bg-vscode-input-background border border-vscode-panel-border text-vscode-input-foreground focus:outline-none focus:border-vscode-focusBorder"
+					/>
+				</label>
+				<label className="block">
+					<span className="text-xs text-vscode-descriptionForeground">On High CPU</span>
+					<select
+						value={guardrails.onHighCpu}
+						onChange={(e) => setGuardrails((g) => ({ ...g, onHighCpu: e.target.value }))}
+						className="mt-1 w-full px-2 py-1 rounded text-xs bg-vscode-input-background border border-vscode-panel-border text-vscode-input-foreground focus:outline-none focus:border-vscode-focusBorder">
+						<option value="warn">Warn</option>
+						<option value="throttle">Throttle</option>
+						<option value="block">Block</option>
+					</select>
+				</label>
+				<label className="block">
+					<span className="text-xs text-vscode-descriptionForeground">On High RAM</span>
+					<select
+						value={guardrails.onHighRam}
+						onChange={(e) => setGuardrails((g) => ({ ...g, onHighRam: e.target.value }))}
+						className="mt-1 w-full px-2 py-1 rounded text-xs bg-vscode-input-background border border-vscode-panel-border text-vscode-input-foreground focus:outline-none focus:border-vscode-focusBorder">
+						<option value="warn">Warn</option>
+						<option value="throttle">Throttle</option>
+						<option value="block">Block</option>
+					</select>
+				</label>
+			</div>
+		)
+	})()
+}
 import { useState, useEffect } from "react"
 import {
 	Shield,

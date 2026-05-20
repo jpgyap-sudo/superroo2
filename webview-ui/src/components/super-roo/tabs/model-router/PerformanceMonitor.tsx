@@ -1,3 +1,4 @@
+import { vscode } from "@src/utils/vscode"
 import type { UsageSummaryEntry } from "../../lib/modelRouterApi"
 
 export function PerformanceMonitor({ usage = [] }: { usage: UsageSummaryEntry[] }) {
@@ -10,9 +11,11 @@ export function PerformanceMonitor({ usage = [] }: { usage: UsageSummaryEntry[] 
 						Real-time model performance from the last 7 days.
 					</p>
 				</div>
-				<a className="text-sm text-vscode-textLink-foreground" href="/logs">
+				<button
+					onClick={() => vscode.postMessage({ type: "switchTab", tab: "settings" })}
+					className="text-sm text-vscode-textLink-foreground hover:text-vscode-textLink-activeForeground">
 					View All Metrics →
-				</a>
+				</button>
 			</div>
 			<table className="w-full text-left text-sm">
 				<thead className="text-xs uppercase text-vscode-descriptionForeground">

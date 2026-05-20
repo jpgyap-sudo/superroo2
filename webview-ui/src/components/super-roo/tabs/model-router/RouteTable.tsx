@@ -15,7 +15,9 @@ const taskLabel: Record<string, string> = {
 
 function ModelSelect({ value, providers }: { value: string; providers: ProviderMetadata[] }) {
 	return (
-		<select className="w-full rounded-lg border border-vscode-panel-border bg-vscode-editor-background px-3 py-2 text-sm text-vscode-foreground">
+		<select
+			value={value}
+			className="w-full rounded-lg border border-vscode-panel-border bg-vscode-editor-background px-3 py-2 text-sm text-vscode-foreground">
 			{providers.flatMap((p) =>
 				p.models.map((m) => (
 					<option
@@ -30,7 +32,19 @@ function ModelSelect({ value, providers }: { value: string; providers: ProviderM
 	)
 }
 
-export function RouteTable({ routes, providers }: { routes: ModelRoute[]; providers: ProviderMetadata[] }) {
+export function RouteTable({
+	routes,
+	providers,
+	onAddRoute,
+	onEditRoute,
+	onShuffleRoute,
+}: {
+	routes: ModelRoute[]
+	providers: ProviderMetadata[]
+	onAddRoute?: () => void
+	onEditRoute?: (id: string) => void
+	onShuffleRoute?: (id: string) => void
+}) {
 	return (
 		<section className="rounded-2xl border border-vscode-panel-border bg-vscode-sideBar-background shadow-xl">
 			<div className="flex items-center justify-between border-b border-vscode-panel-border p-5">
@@ -40,7 +54,9 @@ export function RouteTable({ routes, providers }: { routes: ModelRoute[]; provid
 						Define which model handles each task type.
 					</p>
 				</div>
-				<button className="inline-flex items-center gap-2 rounded-lg bg-vscode-button-background px-4 py-2 text-sm font-medium text-vscode-button-foreground hover:opacity-90">
+				<button
+					onClick={onAddRoute}
+					className="inline-flex items-center gap-2 rounded-lg bg-vscode-button-background px-4 py-2 text-sm font-medium text-vscode-button-foreground hover:opacity-90">
 					<Plus size={16} /> Add Route
 				</button>
 			</div>
@@ -70,25 +86,44 @@ export function RouteTable({ routes, providers }: { routes: ModelRoute[]; provid
 								</td>
 								<td className="px-4 py-3">
 									<ModelSelect
-										value={`${r.fallbackProvider1}:${r.fallbackModel1}`}
+										value={
+											r.fallbackProvider1 && r.fallbackModel1
+												? `${r.fallbackProvider1}:${r.fallbackModel1}`
+												: ""
+										}
 										providers={providers}
 									/>
 								</td>
 								<td className="px-4 py-3">
 									<ModelSelect
-										value={`${r.fallbackProvider2}:${r.fallbackModel2}`}
+										value={
+											r.fallbackProvider2 && r.fallbackModel2
+												? `${r.fallbackProvider2}:${r.fallbackModel2}`
+												: ""
+										}
 										providers={providers}
 									/>
 								</td>
 								<td className="px-4 py-3">
-									<span className="inline-flex h-6 w-11 items-center rounded-full bg-green-500 p-1">
-										<span className="h-4 w-4 translate-x-5 rounded-full bg-white" />
+									<span
+										className={`inline-flex h-6 w-11 items-center rounded-full p-1 ${r.enabled ? "bg-green-500" : "bg-gray-500"}`}>
+										<span
+											className={`h-4 w-4 rounded-full bg-white ${r.enabled ? "translate-x-5" : "translate-x-0"}`}
+										/>
 									</span>
 								</td>
 								<td className="px-4 py-3">
 									<div className="flex gap-3 text-vscode-descriptionForeground">
-										<Pencil size={16} className="cursor-pointer hover:text-vscode-foreground" />
-										<Shuffle size={16} className="cursor-pointer hover:text-vscode-foreground" />
+										<Pencil
+											size={16}
+											className="cursor-pointer hover:text-vscode-foreground"
+											onClick={() => onEditRoute?.(r.id)}
+										/>
+										<Shuffle
+											size={16}
+											className="cursor-pointer hover:text-vscode-foreground"
+											onClick={() => onShuffleRoute?.(r.id)}
+										/>
 									</div>
 								</td>
 							</tr>

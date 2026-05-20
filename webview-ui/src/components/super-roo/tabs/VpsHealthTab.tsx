@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Activity, AlertCircle, BarChart3, CheckCircle2, Filter, RefreshCw, Search, Server } from "lucide-react"
 
 import { useSr } from "../hooks/SrContext"
 import { formatRelative } from "../parts/Pills"
-import type { VpsAggregatedLogEntry, VpsAggregatedStats } from "../types"
 
 const LEVEL_COLORS: Record<string, string> = {
 	info: "text-blue-400",
@@ -19,12 +18,11 @@ const LEVEL_BG: Record<string, string> = {
 	debug: "bg-gray-500/10 border-gray-500/30",
 }
 
+const REQUEST_TIMEOUT_MS = 10000
+
 export function VpsHealthTab() {
-	const { send } = useSr()
-	const [logs, setLogs] = useState<VpsAggregatedLogEntry[]>([])
-	const [stats, setStats] = useState<VpsAggregatedStats | null>(null)
-	const [total, setTotal] = useState(0)
-	const [loading, setLoading] = useState(true)
+	const { send, vpsStats, vpsLogs, vpsTotal } = useSr()
+	const [loading, setLoading] = useState(false)
 	const [error, setError] = useState<string | null>(null)
 	const [levelFilter, setLevelFilter] = useState("")
 	const [sourceFilter, setSourceFilter] = useState("")
@@ -32,10 +30,12 @@ export function VpsHealthTab() {
 	const [limit, setLimit] = useState(50)
 	const [offset, setOffset] = useState(0)
 	const [view, setView] = useState<"overview" | "logs">("overview")
+	const expectingRef = useRef(false)
 
-	const fetchData = useCallback(async () => {
+	const fetchData = useCallback(() => {
 		setLoading(true)
 		setError(null)
+		expectingRef.current = true
 
 		// Fetch stats
 		send({ type: "superRoo:getVpsAggregatedStats" })
@@ -48,42 +48,33 @@ export function VpsHealthTab() {
 			level: levelFilter || undefined,
 			source: sourceFilter || undefined,
 			search: search || undefined,
-		} as any)
+		})
 	}, [send, limit, offset, levelFilter, sourceFilter, search])
 
-	// Listen for responses
-	useEffect(() => {
-		const handler = (event: MessageEvent) => {
-			const msg = event.data
-			if (!msg || typeof msg.type !== "string") return
-
-			if (msg.type === "superRoo:vpsAggregatedLogs") {
-				setLogs(msg.rows || [])
-				setTotal(msg.total || 0)
-				setLoading(false)
-			} else if (msg.type === "superRoo:vpsAggregatedStats") {
-				setStats({
-					total: msg.total,
-					last24h: msg.last24h,
-					errors24h: msg.errors24h,
-					levelDistribution: msg.levelDistribution || [],
-					sourceDistribution: msg.sourceDistribution || [],
-				})
-			} else if (msg.type === "superRoo:error" && msg.message?.includes("VPS")) {
-				setError(msg.message)
-				setLoading(false)
-			}
-		}
-
-		window.addEventListener("message", handler)
-		return () => window.removeEventListener("message", handler)
-	}, [])
-
+	// Initial fetch
 	useEffect(() => {
 		fetchData()
 	}, [fetchData])
 
-	const totalPages = Math.ceil(total / limit)
+	// Clear loading when data arrives from context
+	useEffect(() => {
+		if (!expectingRef.current) return
+		expectingRef.current = false
+		setLoading(false)
+	}, [vpsLogs, vpsStats])
+
+	// Timeout: if the extension host never replies, clear loading and show error
+	useEffect(() => {
+		if (!loading) return
+		const id = setTimeout(() => {
+			expectingRef.current = false
+			setLoading(false)
+			setError("Request timed out. The extension host did not respond.")
+		}, REQUEST_TIMEOUT_MS)
+		return () => clearTimeout(id)
+	}, [loading])
+
+	const totalPages = Math.ceil(vpsTotal / limit)
 	const currentPage = Math.floor(offset / limit) + 1
 
 	return (
@@ -135,95 +126,110 @@ export function VpsHealthTab() {
 				</div>
 			)}
 
-			{view === "overview" && stats && (
+			{view === "overview" && (
 				<>
-					{/* Stat cards */}
-					<div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-						<StatCard
-							icon={<Activity className="size-4 text-blue-400" />}
-							label="Total Entries"
-							value={stats.total.toLocaleString()}
-						/>
-						<StatCard
-							icon={<CheckCircle2 className="size-4 text-green-400" />}
-							label="Last 24h"
-							value={stats.last24h.toLocaleString()}
-						/>
-						<StatCard
-							icon={<AlertCircle className="size-4 text-red-400" />}
-							label="Errors (24h)"
-							value={stats.errors24h.toLocaleString()}
-						/>
-						<StatCard
-							icon={<BarChart3 className="size-4 text-purple-400" />}
-							label="Sources"
-							value={stats.sourceDistribution.length}
-						/>
-					</div>
-
-					{/* Level distribution */}
-					<section className="rounded border border-vscode-panel-border">
-						<header className="px-3 py-2 border-b border-vscode-panel-border flex items-center gap-2">
-							<Filter className="size-4" />
-							<h3 className="text-sm font-medium">Level Distribution</h3>
-						</header>
-						<div className="p-3 space-y-2">
-							{stats.levelDistribution.map((d) => {
-								const pct = stats.total > 0 ? ((d.count / stats.total) * 100).toFixed(1) : "0"
-								return (
-									<div key={d.level} className="flex items-center gap-2 text-xs">
-										<span className={`w-12 font-medium ${LEVEL_COLORS[d.level] || ""}`}>
-											{d.level.toUpperCase()}
-										</span>
-										<div className="flex-1 h-4 rounded bg-vscode-input-background overflow-hidden">
-											<div
-												className={`h-full rounded transition-all ${
-													d.level === "error"
-														? "bg-red-500/60"
-														: d.level === "warn"
-															? "bg-yellow-500/60"
-															: d.level === "debug"
-																? "bg-gray-500/40"
-																: "bg-blue-500/40"
-												}`}
-												style={{ width: `${pct}%` }}
-											/>
-										</div>
-										<span className="w-24 text-right text-vscode-descriptionForeground">
-											{d.count.toLocaleString()} ({pct}%)
-										</span>
-									</div>
-								)
-							})}
+					{loading && !vpsStats ? (
+						<div className="p-4 text-sm text-vscode-descriptionForeground text-center">
+							<RefreshCw className="size-4 inline animate-spin mr-2" />
+							Loading VPS health overview…
 						</div>
-					</section>
-
-					{/* Source distribution */}
-					<section className="rounded border border-vscode-panel-border">
-						<header className="px-3 py-2 border-b border-vscode-panel-border flex items-center gap-2">
-							<Server className="size-4" />
-							<h3 className="text-sm font-medium">Source Distribution</h3>
-						</header>
-						<div className="p-3 space-y-2">
-							{stats.sourceDistribution.slice(0, 10).map((d) => {
-								const pct = stats.total > 0 ? ((d.count / stats.total) * 100).toFixed(1) : "0"
-								return (
-									<div key={d.source} className="flex items-center gap-2 text-xs">
-										<span className="w-28 truncate font-medium">{d.source}</span>
-										<div className="flex-1 h-4 rounded bg-vscode-input-background overflow-hidden">
-											<div
-												className="h-full rounded bg-cyan-500/40 transition-all"
-												style={{ width: `${pct}%` }}
-											/>
-										</div>
-										<span className="w-24 text-right text-vscode-descriptionForeground">
-											{d.count.toLocaleString()} ({pct}%)
-										</span>
-									</div>
-								)
-							})}
+					) : !vpsStats ? (
+						<div className="p-4 text-sm text-vscode-descriptionForeground text-center">
+							No VPS health data available.
 						</div>
-					</section>
+					) : (
+						<>
+							{/* Stat cards */}
+							<div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+								<StatCard
+									icon={<Activity className="size-4 text-blue-400" />}
+									label="Total Entries"
+									value={vpsStats.total.toLocaleString()}
+								/>
+								<StatCard
+									icon={<CheckCircle2 className="size-4 text-green-400" />}
+									label="Last 24h"
+									value={vpsStats.last24h.toLocaleString()}
+								/>
+								<StatCard
+									icon={<AlertCircle className="size-4 text-red-400" />}
+									label="Errors (24h)"
+									value={vpsStats.errors24h.toLocaleString()}
+								/>
+								<StatCard
+									icon={<BarChart3 className="size-4 text-purple-400" />}
+									label="Sources"
+									value={vpsStats.sourceDistribution.length}
+								/>
+							</div>
+
+							{/* Level distribution */}
+							<section className="rounded border border-vscode-panel-border">
+								<header className="px-3 py-2 border-b border-vscode-panel-border flex items-center gap-2">
+									<Filter className="size-4" />
+									<h3 className="text-sm font-medium">Level Distribution</h3>
+								</header>
+								<div className="p-3 space-y-2">
+									{vpsStats.levelDistribution.map((d) => {
+										const pct =
+											vpsStats.total > 0 ? ((d.count / vpsStats.total) * 100).toFixed(1) : "0"
+										return (
+											<div key={d.level} className="flex items-center gap-2 text-xs">
+												<span className={`w-12 font-medium ${LEVEL_COLORS[d.level] || ""}`}>
+													{d.level.toUpperCase()}
+												</span>
+												<div className="flex-1 h-4 rounded bg-vscode-input-background overflow-hidden">
+													<div
+														className={`h-full rounded transition-all ${
+															d.level === "error"
+																? "bg-red-500/60"
+																: d.level === "warn"
+																	? "bg-yellow-500/60"
+																	: d.level === "debug"
+																		? "bg-gray-500/40"
+																		: "bg-blue-500/40"
+														}`}
+														style={{ width: `${pct}%` }}
+													/>
+												</div>
+												<span className="w-24 text-right text-vscode-descriptionForeground">
+													{d.count.toLocaleString()} ({pct}%)
+												</span>
+											</div>
+										)
+									})}
+								</div>
+							</section>
+
+							{/* Source distribution */}
+							<section className="rounded border border-vscode-panel-border">
+								<header className="px-3 py-2 border-b border-vscode-panel-border flex items-center gap-2">
+									<Server className="size-4" />
+									<h3 className="text-sm font-medium">Source Distribution</h3>
+								</header>
+								<div className="p-3 space-y-2">
+									{vpsStats.sourceDistribution.slice(0, 10).map((d) => {
+										const pct =
+											vpsStats.total > 0 ? ((d.count / vpsStats.total) * 100).toFixed(1) : "0"
+										return (
+											<div key={d.source} className="flex items-center gap-2 text-xs">
+												<span className="w-28 truncate font-medium">{d.source}</span>
+												<div className="flex-1 h-4 rounded bg-vscode-input-background overflow-hidden">
+													<div
+														className="h-full rounded bg-cyan-500/40 transition-all"
+														style={{ width: `${pct}%` }}
+													/>
+												</div>
+												<span className="w-24 text-right text-vscode-descriptionForeground">
+													{d.count.toLocaleString()} ({pct}%)
+												</span>
+											</div>
+										)
+									})}
+								</div>
+							</section>
+						</>
+					)}
 				</>
 			)}
 
@@ -253,7 +259,7 @@ export function VpsHealthTab() {
 							}}
 							className="bg-vscode-input-background text-vscode-input-foreground border border-vscode-input-border rounded px-2 py-1">
 							<option value="">All sources</option>
-							{stats?.sourceDistribution.map((d) => (
+							{vpsStats?.sourceDistribution.map((d) => (
 								<option key={d.source} value={d.source}>
 									{d.source}
 								</option>
@@ -286,10 +292,10 @@ export function VpsHealthTab() {
 					</div>
 
 					{/* Pagination */}
-					{total > 0 && (
+					{vpsTotal > 0 && (
 						<div className="flex items-center justify-between text-xs text-vscode-descriptionForeground">
 							<span>
-								{total.toLocaleString()} total — Page {currentPage} of {totalPages || 1}
+								{vpsTotal.toLocaleString()} total — Page {currentPage} of {totalPages || 1}
 							</span>
 							<div className="flex gap-1">
 								<button
@@ -301,7 +307,7 @@ export function VpsHealthTab() {
 								</button>
 								<button
 									type="button"
-									disabled={offset + limit >= total}
+									disabled={offset + limit >= vpsTotal}
 									onClick={() => setOffset(offset + limit)}
 									className="px-2 py-1 rounded border border-vscode-panel-border hover:bg-vscode-list-hoverBackground disabled:opacity-40">
 									Next
@@ -312,19 +318,19 @@ export function VpsHealthTab() {
 
 					{/* Log table */}
 					<div className="flex-1 min-h-0 overflow-auto border border-vscode-panel-border rounded font-mono text-xs">
-						{loading && logs.length === 0 ? (
+						{loading && vpsLogs.length === 0 ? (
 							<div className="p-4 text-sm text-vscode-descriptionForeground text-center">
 								<RefreshCw className="size-4 inline animate-spin mr-2" />
 								Loading VPS logs…
 							</div>
-						) : logs.length === 0 ? (
+						) : vpsLogs.length === 0 ? (
 							<div className="p-4 text-sm text-vscode-descriptionForeground text-center">
 								No logs match the current filters.
 							</div>
 						) : (
 							<table className="w-full">
 								<tbody>
-									{logs.map((e) => (
+									{vpsLogs.map((e) => (
 										<tr key={e.id} className="border-b border-vscode-panel-border last:border-b-0">
 											<td className="px-2 py-1 text-vscode-descriptionForeground whitespace-nowrap align-top">
 												{e.timestamp ? formatRelative(new Date(e.timestamp).getTime()) : "—"}

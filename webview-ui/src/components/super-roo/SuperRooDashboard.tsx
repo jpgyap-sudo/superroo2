@@ -17,6 +17,7 @@ import {
 
 import { cn } from "@/lib/utils"
 
+import ErrorBoundary from "@src/components/ErrorBoundary"
 import { SrProvider, type SrContextValue } from "./hooks/SrContext"
 import type { VsCodeLike } from "./messaging/client"
 import { BugsTab } from "./tabs/BugsTab"
@@ -68,11 +69,13 @@ const TABS: Array<{ id: TabId; label: string; icon: React.ComponentType<{ classN
 	// Settings sub-tabs
 	{ id: "api-keys", label: "API Keys", icon: Key },
 	{ id: "model-router", label: "AI Model Router", icon: BrainCircuit },
-	{ id: "ide-terminal", label: "IDE Terminal", icon: Terminal },
+	// NOTE: ide-terminal is hidden until backend wiring is complete
+	// { id: "ide-terminal", label: "IDE Terminal", icon: Terminal },
 	{ id: "advanced-vps", label: "VPS Settings", icon: Shield },
 	// Product Memory tabs
-	{ id: "product-features", label: "Product Features", icon: ListChecks },
-	{ id: "product-updates", label: "Updates", icon: History },
+	// NOTE: product-features and product-updates are hidden until backend wiring is complete
+	// { id: "product-features", label: "Product Features", icon: ListChecks },
+	// { id: "product-updates", label: "Updates", icon: History },
 	{ id: "memory-log", label: "Memory Log", icon: FileJson },
 ]
 
@@ -108,19 +111,71 @@ export function SuperRooDashboard({ vscode, forceMock, initialTab = "dashboard",
 					})}
 				</nav>
 				<div className="flex-1 min-h-0 overflow-auto" role="tabpanel">
-					{active === "dashboard" && <DashboardTab />}
-					{active === "features" && <FeaturesTab />}
-					{active === "bugs" && <BugsTab />}
-					{active === "logs" && <LogsTab />}
-					{active === "vps-health" && <VpsHealthTab />}
-					{active === "settings" && <SettingsTab />}
-					{active === "api-keys" && <ApiKeysProvidersTab />}
-					{active === "model-router" && <ModelRouterView />}
-					{active === "ide-terminal" && <IdeTerminalView />}
-					{active === "advanced-vps" && <AdvancedVpsSettingsTab />}
-					{active === "product-features" && <ProductFeaturesTab />}
-					{active === "product-updates" && <ProductUpdatesTab />}
-					{active === "memory-log" && <MemoryLogTab />}
+					{active === "dashboard" && (
+						<ErrorBoundary>
+							<DashboardTab />
+						</ErrorBoundary>
+					)}
+					{active === "features" && (
+						<ErrorBoundary>
+							<FeaturesTab />
+						</ErrorBoundary>
+					)}
+					{active === "bugs" && (
+						<ErrorBoundary>
+							<BugsTab />
+						</ErrorBoundary>
+					)}
+					{active === "logs" && (
+						<ErrorBoundary>
+							<LogsTab />
+						</ErrorBoundary>
+					)}
+					{active === "vps-health" && (
+						<ErrorBoundary>
+							<VpsHealthTab />
+						</ErrorBoundary>
+					)}
+					{active === "settings" && (
+						<ErrorBoundary>
+							<SettingsTab />
+						</ErrorBoundary>
+					)}
+					{active === "api-keys" && (
+						<ErrorBoundary>
+							<ApiKeysProvidersTab />
+						</ErrorBoundary>
+					)}
+					{active === "model-router" && (
+						<ErrorBoundary>
+							<ModelRouterView />
+						</ErrorBoundary>
+					)}
+					{active === "ide-terminal" && (
+						<ErrorBoundary>
+							<IdeTerminalView />
+						</ErrorBoundary>
+					)}
+					{active === "advanced-vps" && (
+						<ErrorBoundary>
+							<AdvancedVpsSettingsTab />
+						</ErrorBoundary>
+					)}
+					{active === "product-features" && (
+						<ErrorBoundary>
+							<ProductFeaturesTab />
+						</ErrorBoundary>
+					)}
+					{active === "product-updates" && (
+						<ErrorBoundary>
+							<ProductUpdatesTab />
+						</ErrorBoundary>
+					)}
+					{active === "memory-log" && (
+						<ErrorBoundary>
+							<MemoryLogTab />
+						</ErrorBoundary>
+					)}
 				</div>
 			</div>
 		</SrProvider>

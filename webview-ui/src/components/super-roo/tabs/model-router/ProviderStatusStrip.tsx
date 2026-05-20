@@ -1,4 +1,5 @@
 import { KeyRound, AlertTriangle, CheckCircle2 } from "lucide-react"
+import { vscode } from "@src/utils/vscode"
 import type { ProviderMetadata } from "../../lib/modelRouterApi"
 
 export function ProviderStatusStrip({ providers }: { providers: ProviderMetadata[] }) {
@@ -11,11 +12,11 @@ export function ProviderStatusStrip({ providers }: { providers: ProviderMetadata
 						Synced from API Keys tab. Raw keys are never exposed here.
 					</p>
 				</div>
-				<a
-					href="/api-keys"
+				<button
+					onClick={() => vscode.postMessage({ type: "switchTab", tab: "settings" })}
 					className="text-sm text-vscode-textLink-foreground hover:text-vscode-textLink-activeForeground">
 					View API Keys →
-				</a>
+				</button>
 			</div>
 			<div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-6">
 				{providers.map((p) => {
@@ -41,9 +42,11 @@ export function ProviderStatusStrip({ providers }: { providers: ProviderMetadata
 								{p.models.length} models
 							</div>
 							{!tested && (
-								<a className="mt-2 block text-xs text-vscode-textLink-foreground" href="/api-keys">
+								<button
+									onClick={() => vscode.postMessage({ type: "switchTab", tab: "settings" })}
+									className="mt-2 block text-xs text-vscode-textLink-foreground hover:text-vscode-textLink-activeForeground">
 									Add/Test key
-								</a>
+								</button>
 							)}
 						</div>
 					)

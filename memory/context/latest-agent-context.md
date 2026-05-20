@@ -1,52 +1,54 @@
 # Latest Agent Context
 
-Generated: 2026-05-20T01:20:28.482Z
-Task: Improve Compliance tab with learning-layer health, lesson quality, hook verification, bridge checks, and malformed workflow record handling
+Generated: 2026-05-20T10:13:10.921Z
+Task: Fix Telegram View Diff to open dashboard and persist/show real diffs
 
 ## Relevant Lessons
-1. **Feat: comprehensive improvements across ML Engine, Healing Module, VPS stability, docs, and Central Brain sync**
-   - Rule: After extending a shared union type, search for ALL Record<UnionType, ...> maps and switch statements that exhaustively match on that type, and update them before committing. Run tsc --noEmit to catch these errors early.
-   - Why: Comprehensive improvements across ML Engine (CosineAnnealingScheduler, DropoutScheduler, Conv2D, MaxPool2D, Flatten, ModelCheckpoint tests), Healing Module (repair tracking, per-category escalation, notification routing, circuit breaker), VPS stability (Docker/PM2 port conflict resolution), Central Brain sync (200/239 lessons), and documentation updates.
-2. **Repo-wide Ollama audit - replaced stale model refs and fetch() calls with curl helper**
-   - Rule: After changing a model name or connectivity pattern, run findstr /sni old-model-name * across the entire repo and update every match. Also search for the old API pattern (e.g., fetch.*ollama.*api/generate) to catch scripts that need the curl helper.
-   - Why: Systematic repo-wide audit found 9 files with stale Ollama model references or fetch() calls to Tailscale IPs. Fixed all to use curl-based helper and qwen2.5:0.5b model.
-3. **Comprehensive Gap Analysis and Full-Stack Improvement Execution**
-   - Rule: Before implementing any improvement from a gap analysis document, verify the actual source code to confirm the gap still exists. For Vitest ESM mocking of default imports, always include "default: { ... }" alongside named exports in the mock factory.
-   - Why: When doing a comprehensive codebase gap analysis, always verify which gaps have already been filled by checking the actual source code rather than relying on the gap analysis document. Many items from NEXT_IMPROVEMENTS.md had already been implemented in a previous pass. For ESM module mocking in Vitest, default imports (import fs from "fs/promises") require the "default:" key in the mock factory, not just named exports. The createPopulatedRetriever() pattern using type assertion to bypass load() is more reliable than mocking filesystem operations for filtering/sorting/formatting tests.
-4. **Complete Codex's Unfinished Learning Layer Release + Security Hardening**
-   - Rule: When converting a hardcoded string to a runtime variable in JavaScript, always use a regex search for the exact old string value across the entire file to catch all string literal usages that need template literal interpolation.
-   - Why: When env-var-izing hardcoded URLs, always search for ALL usages of the old value — including string concatenation and template literals. A variable declaration change without updating all consumers creates silent bugs that manifest as broken links in production.
-5. **Cross-Project Learning Layer — Sync Script, Retry Queue, and Systemd Timer**
-   - Rule: When deploying systemd timers for cron-like tasks: use `OnCalendar=hourly`, `Persistent=true` to catch missed runs, `RandomizedDelaySec=5min` to spread load, and always run an initial sync after enabling to verify the service works end-to-end.
-   - Why: When building infrastructure for cross-project learning, always verify the fallback paths work on all target OSes (Windows paths differ from Unix paths). The 3-layer fallback architecture (local JSONL → Central Brain MCP → markdown) provides graceful degradation — no single point of failure. Systemd timers with RandomizedDelaySec prevent thundering herd on Central Brain.
 
+1. **Repair malformed JSX at the first broken boundary before chasing follow-on parser errors**
+    - Rule: For JSX parse cascades, inspect the first reported malformed element and nearby unmatched closing tags before making broad edits elsewhere in the file.
+    - Why: A malformed rollback button and mismatched closing tag caused a JSX parser cascade; fixing the earliest broken boundary restored the file and exposed the next real compiler issue.
+2. **Audit views should preserve rich history fields instead of flattening them away**
+    - Rule: When presenting canonical history records, normalize naming differences but preserve semantically important fields like start/end time, duration, environment, and failure cause instead of flattening them into decorative summaries.
+    - Why: The Commit & Deploy Log adapter discarded fields that already existed in the canonical log; preserving them restored real audit value without inventing new data.
+3. **Production deploys must keep source and dependency manifests in sync**
+    - Rule: When production source files change together with dependencies, deploy the matching `package.json` and verify generated runtime artifacts exist before declaring recovery complete.
+    - Why: Hotfixes can restore one failing layer while leaving another stale layer broken. For production recovery, validate the runtime artifact set as well as the source change, especially when a deploy spans both app code and dependency manifests.
+4. **Intent-to-Agent Routing Fix**
+    - Rule: Always verify intent-to-agent routing with real user queries. Add classifier feedback loops to detect and correct routing errors.
+    - Why: Intent classification must be continuously validated against actual outcomes. Routing mismatches cause user frustration and wasted compute cycles.
+5. **Complete Codex's Unfinished Learning Layer Release + Security Hardening**
+    - Rule: When converting a hardcoded string to a runtime variable in JavaScript, always use a regex search for the exact old string value across the entire file to catch all string literal usages that need template literal interpolation.
+    - Why: When env-var-izing hardcoded URLs, always search for ALL usages of the old value — including string concatenation and template literals. A variable declaration change without updating all consumers creates silent bugs that manifest as broken links in production.
 
 ## Active Codex Tasks
+
 - Release learning layer workflow (codex_task_learning_layer_release_20260517)
 
 ## Architecture Reminder
-The SuperRoo system is organized into **18 core modules** spanning orchestration, agent execution, safety, persistence, self-healing, machine learning, product memory, commit/deploy tracking, parallel execution, and infrastructure. Each module has a status, owner, connections to other modules, and specific product features it enables.
-         │     └── Infinite Improvement Loop (continuous learning)
-### 10. Machine Learning Engine
-- **Features**: Neural network training, Code pattern learning, Debug pattern learning, Test pattern learning, Infinite improvement loop
-    - **Learners** ([`src/super-roo/ml/learning/`](../src/super-roo/ml/learning/)) - CodeLearner, DebugLearner, TestLearner
+
+         │     ├── Repair Plan Builder (structured fix generation)
+
+- **Features**: Priority queuing, Job retry & backoff, Concurrency control
+- **Features**: Feature lifecycle tracking (planned → building → testing → working → deprecated), Health monitoring (unknown → healthy → degraded → failing), Bug-to-feature mapping - **Repair Plan Builder** ([`src/super-roo/healing/RepairPlanBuilder.ts`](../src/super-roo/healing/RepairPlanBuilder.ts)) - Structured fix generation - **API Keys View** ([`cloud/dashboard/src/components/views/api-keys.tsx`](../cloud/dashboard/src/components/views/api-keys.tsx)) - Provider key management UI with save/test/delete
+  Incident Detection → Healing Bus → Root Cause Classifier → Repair Plan Builder → Self-Healing Loop → Fix → Verify
 
 ### DeepSeek Architecture Summary
 
-The Compliance tab improvement affects the **Machine Learning Engine** module, specifically its **Learners** (`CodeLearner`, `DebugLearner`, `TestLearner`) in `src/super-roo/ml/learning/`. These learners connect to the **Infinite Improvement Loop** for continuous learning, which must be integrated with hook verification and bridge checks. Architecture constraints include ensuring malformed workflow records are handled without breaking the learning pipeline and that lesson quality metrics align with the existing neural network training features.
-
+The **Repair Plan Builder** module (`src/super-roo/healing/RepairPlanBuilder.ts`) is the core component for structured fix generation, connected to the Self-Healing Loop pipeline (Incident Detection → Healing Bus → Root Cause Classifier → Repair Plan Builder → Fix → Verify). The **API Keys View** (`cloud/dashboard/src/components/views/api-keys.tsx`) provides the UI for managing provider keys with save/test/delete operations. Architecture constraints include priority queuing, job retry/backoff, concurrency control, and feature lifecycle tracking (planned → building → testing → working → deprecated) with health monitoring and bug-to-feature mapping.
 
 ## Task Signals
-Inferred tags: learning
+
+Inferred tags: ui
 
 ## Feature Knowledge
+
 # feature-knowledge.md
 
 Initialized by SuperRoo workflow check.
 
-
-
 ## Recent Bug Memory
+
 # bugs-fixed.md
 
 Initialized by SuperRoo workflow check.
@@ -90,10 +92,10 @@ Implemented `safeJsonParse<T>(json, fallback)` helper function that:
 
 ### DeepSeek Bug Memory Summary
 
-Multiple registry modules (BugRegistry, TaskQueue, FeatureRegistry, MemoryStore) crashed on corrupted database rows due to unsafe `JSON.parse()` calls. The fix introduced a `safeJsonParse` helper across all affected files, with enhanced usage in HealingBus. This pattern is directly relevant to your compliance tab work, especially for malformed workflow record handling and lesson quality checks.
-
+The recurring bug pattern is unsafe `JSON.parse()` calls in multiple registry modules (`BugRegistry.ts`, `TaskQueue.ts`, `FeatureRegistry.ts`, `MemoryStore.ts`) that crash on corrupted database rows. The root cause is lack of fallback handling for malformed JSON data. The fix introduces a `safeJsonParse` helper across all affected files to gracefully handle parsing failures, which is directly relevant to ensuring the Telegram View Diff feature can reliably parse and display real diffs without crashes.
 
 ## Model Decisions
+
 # model-decisions.md
 
 Initialized by SuperRoo workflow check.
@@ -137,12 +139,4 @@ Created routing table with primary and fallback providers:
 
 ### DeepSeek Model Decision Summary
 
-For the Compliance tab improvements, the key decision was to use **kimi-k2.5** as the model for task-based routing in the model router service, chosen for its optimal balance of cost, quality, and speed. This model is mapped to specific task types (like lesson quality and hook verification) via `modelRouterService.ts`, ensuring efficient handling of compliance checks without over-provisioning resources.
-
-
-
-### DeepSeek File Summaries
-
-- **.claude\settings.json**: This file is a Claude Code configuration (`settings.json`) that defines allowed permissions for tool execution. It exports no code—its sole purpose is to whitelist specific Bash commands (e.g., `ssh`, `git`, `curl`, `scp`, `rsync`) and Vercel MCP tools for deployment and log retrieval. For your compliance task, note that this file restricts which shell commands and external integrations are permitted, so any new compliance logic (e.g., hook verification, bridge checks) must operate within these allowed actions or require a permissions update.
-- **.codex\config.toml**: This file exports a TOML configuration for the SuperRoo Codex project, defining approval policy, sandbox mode, model assignments (planner=codex, coder=deepseek, reviewer=codex, memory=ollama), and a default agent flow. Its main purpose is to configure Codex to work with the MCP Codex Bridge for invoking DeepSeek and Ollama tools via CLI commands, enabling lesson retrieval, context building, and memory operations. Key patterns include using `node scripts/mcp-codex-bridge.mjs` for all tool calls, pre-task context building via `scripts/ml/build-agent-context.mjs`, and lesson retrieval via `LessonRetriever` with task type, file path, and tag queries—relevant for improving compliance tab features like learning-layer health and lesson quality.
-
+For the "Fix Telegram View Diff" task, use **kimi-k2.5** (high confidence) for model routing logic, as it was chosen for optimal cost/quality/speed tradeoffs in task-based routing. This model powers the `modelRouterService.ts` file, which maps task types to provider/model pairs and is directly relevant to persisting and showing real diffs in the dashboard.

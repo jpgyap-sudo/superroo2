@@ -1420,3 +1420,53 @@ Telegram View Diff must never depend only on a volatile callback preview. Store/
 cross-project, local-fallback
 
 ---
+
+### Auto-Extracted Lesson: Add missing await on 4 HermesClaw.getStats() calls and fix stat field name in...
+
+Date: 2026-05-20
+Source: Git commit b8beeb3e
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/api/api.js
+
+#### Task Summary
+
+fix: add missing await on 4 HermesClaw.getStats() calls and fix stat field name in health check
+
+#### Files Changed
+
+- `cloud/api/api.js`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit b8beeb3e.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit b8beeb3e by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+api, bugfix
+
+---

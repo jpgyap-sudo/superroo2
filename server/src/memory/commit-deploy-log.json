@@ -1,6 +1,44 @@
 {
 	"commits": [
 		{
+			"id": "commit_28d5be6f-6fa9-4bac-a0d5-2d384b57b754",
+			"commitSha": "19f7bbb77f238cd78d1b5b18da277ba4145ca0d7",
+			"agent": "Codex",
+			"type": "bugfix",
+			"title": "fix(telegram): open coding diffs in dashboard",
+			"description": "Telegram View Diff now opens a dashboard deep link, exposes real task diff data, and stores git diffs from Telegram coding jobs.",
+			"filesChanged": [
+				"cloud/api/api.js",
+				"cloud/api/telegramBot.js",
+				"cloud/api/telegramNotifier.js",
+				"cloud/dashboard/src/components/views/telegram.tsx",
+				"cloud/worker/agentRunners.js",
+				"memory/lesson-index.jsonl",
+				"memory/lessons-learned.md"
+			],
+			"featuresAffected": ["telegram-coding", "dashboard-diff-viewer", "learning-layer"],
+			"bugsFixed": [],
+			"timestamp": "2026-05-20T10:28:40.253Z",
+			"modelsUsed": [
+				{
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat"
+				},
+				{
+					"phase": "review",
+					"provider": "openai",
+					"model": "codex"
+				}
+			],
+			"workflowCompliance": {
+				"isCompliant": true,
+				"deepseekUsed": true,
+				"lessonsRetrieved": true,
+				"testsRun": true
+			}
+		},
+		{
 			"agent": "Kimi Code CLI",
 			"type": "feature",
 			"title": "Docker hybrid migration: API/Dashboard/Mini-IDE containerized, TS errors fixed",

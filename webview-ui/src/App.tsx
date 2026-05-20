@@ -267,36 +267,54 @@ const App = () => {
 	// Do not conditionally load ChatView, it's expensive and there's state we
 	// don't want to lose (user input, disableInput, askResponse promise, etc.)
 	return showWelcome ? (
-		<WelcomeView />
+		<ErrorBoundary>
+			<WelcomeView />
+		</ErrorBoundary>
 	) : (
 		<>
-			{tab === "history" && <HistoryView onDone={() => switchTab("chat")} />}
+			{tab === "history" && (
+				<ErrorBoundary>
+					<HistoryView onDone={() => switchTab("chat")} />
+				</ErrorBoundary>
+			)}
 			{tab === "settings" && (
-				<SettingsView ref={settingsRef} onDone={() => setTab("chat")} targetSection={currentSection} />
+				<ErrorBoundary>
+					<SettingsView ref={settingsRef} onDone={() => setTab("chat")} targetSection={currentSection} />
+				</ErrorBoundary>
 			)}
 			{tab === "marketplace" && (
-				<MarketplaceView
-					stateManager={marketplaceStateManager}
-					onDone={() => switchTab("chat")}
-					targetTab={currentMarketplaceTab as "mcp" | "mode" | undefined}
-				/>
+				<ErrorBoundary>
+					<MarketplaceView
+						stateManager={marketplaceStateManager}
+						onDone={() => switchTab("chat")}
+						targetTab={currentMarketplaceTab as "mcp" | "mode" | undefined}
+					/>
+				</ErrorBoundary>
 			)}
 			{tab === "cloud" && (
-				<CloudView
-					userInfo={cloudUserInfo}
-					isAuthenticated={cloudIsAuthenticated}
-					cloudApiUrl={cloudApiUrl}
-					organizations={cloudOrganizations}
-				/>
+				<ErrorBoundary>
+					<CloudView
+						userInfo={cloudUserInfo}
+						isAuthenticated={cloudIsAuthenticated}
+						cloudApiUrl={cloudApiUrl}
+						organizations={cloudOrganizations}
+					/>
+				</ErrorBoundary>
 			)}
-			{tab === "github" && <GitHubView />}
+			{tab === "github" && (
+				<ErrorBoundary>
+					<GitHubView />
+				</ErrorBoundary>
+			)}
 			{tab === "superroo" && (
-				<SuperRooDashboard
-					vscode={{
-						postMessage: (msg: unknown) =>
-							vscode.postMessage(msg as import("@superroo/types").WebviewMessage),
-					}}
-				/>
+				<ErrorBoundary>
+					<SuperRooDashboard
+						vscode={{
+							postMessage: (msg: unknown) =>
+								vscode.postMessage(msg as import("@superroo/types").WebviewMessage),
+						}}
+					/>
+				</ErrorBoundary>
 			)}
 			<ChatView
 				ref={chatViewRef}

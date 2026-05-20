@@ -20,7 +20,15 @@ import type { ReactNode } from "react"
 import { SrMessageClient, type VsCodeLike } from "../messaging/client"
 import type { SrExtensionMessage, SrWebviewMessage } from "../messaging/protocol"
 import { mockBugs, mockEvents, mockFeatures, mockSnapshot, mockTasks } from "../messaging/mockData"
-import type { SrBug, SrDashboardSnapshot, SrEvent, SrFeature, SrTask } from "../types"
+import type {
+	SrBug,
+	SrDashboardSnapshot,
+	SrEvent,
+	SrFeature,
+	SrTask,
+	VpsAggregatedLogEntry,
+	VpsAggregatedStats,
+} from "../types"
 
 const MAX_LIVE_EVENTS = 500
 
@@ -65,6 +73,10 @@ export interface SrContextValue {
 	approvalResult: SrApprovalResult | null
 	memoryFiles: Record<string, string>
 	mockMode: boolean
+	// VPS Health state
+	vpsStats: VpsAggregatedStats | null
+	vpsLogs: VpsAggregatedLogEntry[]
+	vpsTotal: number
 	send: (msg: SrWebviewMessage) => void
 	requestRefresh: () => void
 }
@@ -111,6 +123,10 @@ export function SrProvider({ children, vscode, forceMock }: ProviderProps) {
 	const [routes, setRoutes] = useState<SrAgentRoute[]>([])
 	const [approvalResult, setApprovalResult] = useState<SrApprovalResult | null>(null)
 	const [memoryFiles, setMemoryFiles] = useState<Record<string, string>>({})
+	// VPS Health state
+	const [vpsStats, setVpsStats] = useState<VpsAggregatedStats | null>(null)
+	const [vpsLogs, setVpsLogs] = useState<VpsAggregatedLogEntry[]>([])
+	const [vpsTotal, setVpsTotal] = useState(0)
 
 	const clientRef = useRef<SrMessageClient | null>(realClient)
 
@@ -199,6 +215,20 @@ export function SrProvider({ children, vscode, forceMock }: ProviderProps) {
 						[msg.fileName]: msg.error ?? msg.content ?? "",
 					}))
 					return
+				// VPS Health responses
+				case "superRoo:vpsAggregatedLogs":
+					setVpsLogs(msg.rows)
+					setVpsTotal(msg.total)
+					return
+				case "superRoo:vpsAggregatedStats":
+					setVpsStats({
+						total: msg.total,
+						last24h: msg.last24h,
+						errors24h: msg.errors24h,
+						levelDistribution: msg.levelDistribution,
+						sourceDistribution: msg.sourceDistribution,
+					})
+					return
 			}
 		})
 		// Initial load: ask the host for everything.
@@ -246,6 +276,9 @@ export function SrProvider({ children, vscode, forceMock }: ProviderProps) {
 			approvalResult,
 			memoryFiles,
 			mockMode,
+			vpsStats,
+			vpsLogs,
+			vpsTotal,
 			send,
 			requestRefresh,
 		}),
@@ -261,6 +294,9 @@ export function SrProvider({ children, vscode, forceMock }: ProviderProps) {
 			approvalResult,
 			memoryFiles,
 			mockMode,
+			vpsStats,
+			vpsLogs,
+			vpsTotal,
 			send,
 			requestRefresh,
 		],

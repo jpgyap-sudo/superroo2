@@ -65,9 +65,18 @@ export const FollowUpSuggest = ({
 				})
 			}, COUNTDOWN_INTERVAL_MS)
 
+			// Pause countdown when tab/window is hidden to prevent auto-approve while away
+			const handleVisibilityChange = () => {
+				if (document.hidden) {
+					clearInterval(intervalId)
+				}
+			}
+			document.addEventListener("visibilitychange", handleVisibilityChange)
+
 			// Clean up interval on unmount and notify parent component
 			return () => {
 				clearInterval(intervalId)
+				document.removeEventListener("visibilitychange", handleVisibilityChange)
 				// Notify parent component that this component is unmounting
 				// so it can clear any related timeouts
 				onCancelAutoApproval?.()

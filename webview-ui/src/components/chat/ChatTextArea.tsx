@@ -139,6 +139,14 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 		const [fileSearchResults, setFileSearchResults] = useState<SearchResult[]>([])
 		const [searchLoading, setSearchLoading] = useState(false)
 		const [searchRequestId, setSearchRequestId] = useState<string>("")
+		const inputValueRef = useRef(inputValue)
+		const searchRequestIdRef = useRef(searchRequestId)
+		useEffect(() => {
+			inputValueRef.current = inputValue
+		}, [inputValue])
+		useEffect(() => {
+			searchRequestIdRef.current = searchRequestId
+		}, [searchRequestId])
 
 		// Close dropdown when clicking outside.
 		useEffect(() => {
@@ -150,6 +158,13 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 
 			document.addEventListener("mousedown", handleClickOutside)
 			return () => document.removeEventListener("mousedown", handleClickOutside)
+		}, [showDropdown])
+
+		// Clear stale git commits when dropdown closes to prevent unbounded growth
+		useEffect(() => {
+			if (!showDropdown) {
+				setGitCommits([])
+			}
 		}, [showDropdown])
 
 		// Handle enhanced prompt response and search results.
@@ -184,7 +199,7 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 					if (message.text && textAreaRef.current) {
 						// Insert the command text at the current cursor position
 						const textarea = textAreaRef.current
-						const currentValue = inputValue
+						const currentValue = inputValueRef.current
 						const cursorPos = textarea.selectionStart || 0
 
 						// Check if we need to add a space before the command
@@ -222,7 +237,7 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 					setGitCommits(commits)
 				} else if (message.type === "fileSearchResults") {
 					setSearchLoading(false)
-					if (message.requestId === searchRequestId) {
+					if (message.requestId === searchRequestIdRef.current) {
 						setFileSearchResults(message.results || [])
 					}
 				}
@@ -230,7 +245,7 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 
 			window.addEventListener("message", messageHandler)
 			return () => window.removeEventListener("message", messageHandler)
-		}, [setInputValue, searchRequestId, inputValue])
+		}, [setInputValue])
 
 		const [isDraggingOver, setIsDraggingOver] = useState(false)
 		const [textAreaBaseHeight, setTextAreaBaseHeight] = useState<number | undefined>(undefined)
