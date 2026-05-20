@@ -122,7 +122,7 @@ function parseQuery(url) {
  *   offset  — Pagination offset
  *   search  — Search string in message
  */
-function handleGetLogs(req, res, url) {
+async function handleGetLogs(req, res, url) {
 	const params = parseQuery(url)
 	const source = params.source || null
 	const level = params.level || null
@@ -133,8 +133,9 @@ function handleGetLogs(req, res, url) {
 	const search = params.search || null
 
 	const entries = []
+	const readline = require("readline")
 
-	// Read all JSONL files in the logs directory
+	// Read JSONL files in the logs directory
 	try {
 		if (!fs.existsSync(LOGS_DIR)) {
 			return sendJson(res, 200, { entries: [], total: 0, filtered: 0, hasMore: false })
@@ -151,10 +152,16 @@ function handleGetLogs(req, res, url) {
 
 			const filePath = path.join(LOGS_DIR, file)
 			try {
-				const content = fs.readFileSync(filePath, "utf-8")
-				const lines = content.split("\n").filter((l) => l.trim().length > 0)
+				const stream = fs.createReadStream(filePath, { encoding: "utf-8" })
+				const rl = readline.createInterface({ input: stream, crlfDelay: Infinity })
 
-				for (const line of lines) {
+				for await (const line of rl) {
+					if (!line.trim()) continue
+					if (entries.length >= offset + limit) {
+						rl.close()
+						break
+					}
+
 					try {
 						const entry = JSON.parse(line)
 
@@ -562,7 +569,7 @@ function handleGetErrorRateBuckets(req, res) {
 
 // -- Aggregated Logs (pgvector) ---------------------------------------------------
 
-const DB_CONTAINER = "d2081035b419"
+const DB_CONTAINER = process.env.PGVECTOR_CONTAINER || process.env.DB_CONTAINER || "superroo-postgres"
 
 /**
  * GET /api/monitoring/aggregated-logs
@@ -753,7 +760,7 @@ async function handleMonitoringRoute(method, url, req, res) {
 
 	// GET /api/monitoring/logs or /monitoring/logs
 	if (method === "GET" && (pathname === "/api/monitoring/logs" || normalizedPath === "/monitoring/logs")) {
-		handleGetLogs(req, res, url)
+		await handleGetLogs(req, res, url)
 		return true
 	}
 

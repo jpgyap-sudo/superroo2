@@ -1,5 +1,13 @@
 import { PostHog } from "posthog-node"
-import * as vscode from "vscode"
+
+// Conditional vscode import — safe for cloud/test environments without VS Code host
+let vscode: typeof import("vscode") | undefined
+try {
+	// eslint-disable-next-line @typescript-eslint/no-require-imports
+	vscode = require("vscode")
+} catch {
+	vscode = undefined
+}
 
 import {
 	type TelemetryProperties,
@@ -23,7 +31,7 @@ import { BaseTelemetryClient } from "./BaseTelemetryClient"
  */
 export class PostHogTelemetryClient extends BaseTelemetryClient {
 	private client: PostHog
-	private distinctId: string = vscode.env.machineId
+	private distinctId: string = vscode?.env.machineId || `cloud-${process.pid}-${Date.now()}`
 	// Git repository properties that should be filtered out
 	private readonly gitPropertyNames = ["repositoryUrl", "repositoryName", "defaultBranch"]
 
@@ -148,7 +156,8 @@ export class PostHogTelemetryClient extends BaseTelemetryClient {
 		this.telemetryEnabled = false
 
 		// First check global telemetry level - telemetry should only be enabled when level is "all".
-		const telemetryLevel = vscode.workspace.getConfiguration("telemetry").get<string>("telemetryLevel", "all")
+		const telemetryLevel =
+			vscode?.workspace.getConfiguration("telemetry").get<string>("telemetryLevel", "all") ?? "all"
 		const globalTelemetryEnabled = telemetryLevel === "all"
 
 		// We only enable telemetry if global vscode telemetry is enabled.

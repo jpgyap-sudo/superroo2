@@ -1,6 +1,5 @@
 [Unit]
 Description=SuperRoo Lesson Sync to Central Brain
-Description=Syncs locally-stored lessons to the Central Brain daemon
 After=network-online.target superroo-daemon.service
 Wants=network-online.target superroo-daemon.service
 
@@ -8,11 +7,11 @@ Wants=network-online.target superroo-daemon.service
 Type=oneshot
 User=superroo
 Group=superroo
-WorkingDirectory=/opt/superroo
+WorkingDirectory=/opt/superroo2
 EnvironmentFile=/etc/superroo/superroo.env
-ExecStart=/usr/bin/env node /opt/superroo/scripts/sync-lessons-to-central-brain.mjs
+ExecStart=/usr/bin/env node /opt/superroo2/scripts/sync-lessons-to-central-brain.mjs
 # Also process the retry queue to push any previously-failed MCP stores
-ExecStartPost=/usr/bin/env node /opt/superroo/tools/superroo-learn.mjs retry
+ExecStartPost=/usr/bin/env node /opt/superroo2/tools/superroo-learn.mjs retry
 # Timeout after 5 minutes (plenty for batch sync)
 TimeoutStartSec=300
 
@@ -20,7 +19,7 @@ TimeoutStartSec=300
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
-ReadWritePaths=/opt/superroo /var/lib/superroo /tmp
+ReadWritePaths=/opt/superroo2 /var/lib/superroo /tmp
 
 [Install]
 WantedBy=multi-user.target

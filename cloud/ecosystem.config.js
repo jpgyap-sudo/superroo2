@@ -66,14 +66,14 @@ module.exports = {
 				REDIS_URL: "redis://127.0.0.1:6379",
 				SUPERROO_QUEUE_NAME: "superroo-jobs",
 				API_PORT: "8787",
-				// Telegram Bot
-				TELEGRAM_BOT_TOKEN: "8645986629:AAGFH6aC6y_F39dLfAB2q95-1s-kKALm0RQ",
-				BOSS_TELEGRAM_CHAT_ID: "8485794779",
-				SUPERROO_VAULT_KEY: "D16PFwmjzXtmpEfFSYrAepsaveOB+fLuneeuQrvTYVw=",
-				SMTP_HOST: "smtp.gmail.com",
-				SMTP_PORT: "587",
-				SMTP_USER: "marketing.homeu1@gmail.com",
-				SMTP_FROM: "marketing.homeu1@gmail.com",
+				// Telegram Bot — loaded from env; never commit secrets to this file
+				TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN || "",
+				BOSS_TELEGRAM_CHAT_ID: process.env.BOSS_TELEGRAM_CHAT_ID || "8485794779",
+				SUPERROO_VAULT_KEY: process.env.SUPERROO_VAULT_KEY || "",
+				SMTP_HOST: process.env.SMTP_HOST || "smtp.gmail.com",
+				SMTP_PORT: process.env.SMTP_PORT || "587",
+				SMTP_USER: process.env.SMTP_USER || "",
+				SMTP_FROM: process.env.SMTP_FROM || "",
 				// Ollama (Local AI) — FREE, runs on VPS
 				OLLAMA_BASE_URL: "http://127.0.0.1:11434",
 				OLLAMA_CHAT_MODEL: "qwen2.5:0.5b",
@@ -82,7 +82,7 @@ module.exports = {
 				OLLAMA_NUM_CTX: 2048,
 				OLLAMA_TIMEOUT_MS: 120000,
 				// PostgreSQL (BugKnowledgeStore)
-				PGPASSWORD: "superroo_secret_2026",
+				PGPASSWORD: process.env.PGPASSWORD || "",
 				PGUSER: "superroo",
 				PGDATABASE: "superroo",
 				PGHOST: "127.0.0.1",
@@ -130,7 +130,7 @@ module.exports = {
 				// Worker resilience config
 				WORKER_MAX_REDIS_FAILURES: "5",
 				WORKER_HEALTH_CHECK_INTERVAL_MS: "30000",
-				SUPERROO_VAULT_KEY: "D16PFwmjzXtmpEfFSYrAepsaveOB+fLuneeuQrvTYVw=",
+				SUPERROO_VAULT_KEY: process.env.SUPERROO_VAULT_KEY || "",
 				OLLAMA_BASE_URL: "http://127.0.0.1:11434",
 				OLLAMA_CHAT_MODEL: "qwen2.5:0.5b",
 				// Telegram notification config

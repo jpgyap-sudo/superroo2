@@ -413,7 +413,6 @@ function parseArgs() {
 		stats: false,
 		report: false,
 		deepseekOnly: false,
-		fix: false,
 	}
 
 	for (let i = 0; i < args.length; i++) {
@@ -435,9 +434,6 @@ function parseArgs() {
 				break
 			case "--deepseek-only":
 				options.deepseekOnly = true
-				break
-			case "--fix":
-				options.fix = true
 				break
 			case "--mcp-check":
 				options.mcpCheck = true
@@ -473,7 +469,6 @@ Options:
   --stats              Show workflow statistics (default)
   --report             Generate detailed compliance report
   --deepseek-only      Show only tasks that skipped DeepSeek
-  --fix                Attempt to fix non-compliant records
   --mcp-check          Check MCP server configuration and connectivity
   --all                Run all checks (commits + MCP)
   --help, -h           Show this help message

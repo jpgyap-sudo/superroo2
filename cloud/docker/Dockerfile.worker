@@ -26,10 +26,8 @@ ENV REDIS_URL=redis://redis:6379
 ENV API_BASE_URL=http://superroo-api:8787
 ENV WORKSPACE_ROOT=/srv/superroo/workspaces
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8788/health || exit 1
-
-# Worker exposes metrics port
-EXPOSE 8788
+# NOTE: Worker is a BullMQ consumer with no HTTP server.
+# Health monitoring is done via PM2 (ecosystem.config.js).
+# Do NOT add a Docker HEALTHCHECK here — it would fail continuously.
 
 CMD ["node", "cloud/worker/worker.js"]
