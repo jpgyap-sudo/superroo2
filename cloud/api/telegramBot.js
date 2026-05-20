@@ -1249,6 +1249,119 @@ async function sendInlineKeyboard(botToken, chatId, text, buttons, opts) {
 	await sendMessage(botToken, chatId, text, Object.assign({}, opts, { reply_markup: JSON.stringify(reply_markup) }))
 }
 
+// ─── Multi-Select Inline Keyboard (GAP 4.5) ──────────────────────────────────
+// In-memory store of multi-select sessions keyed by chatId + messageId.
+// Each entry: { items: [{ id, label, selected }], callbackPrefix, onDone }
+var _multiSelectSessions = new Map()
+
+/**
+ * Sends a message with a multi-select inline keyboard (checkboxes).
+ * Users can toggle items on/off, then click "Done" to confirm.
+ *
+ * @param {string} botToken
+ * @param {number|string} chatId
+ * @param {string} text - Header text for the message
+ * @param {Array} items - Array of { id: string, label: string }
+ * @param {string} sessionKey - Unique key for this multi-select session
+ * @param {function} onDone - Callback(items) when user clicks Done
+ */
+async function sendMultiSelectKeyboard(botToken, chatId, text, items, sessionKey, onDone) {
+	var sessionId = chatId + ":" + sessionKey
+	var session = _multiSelectSessions.get(sessionId) || { items: [], onDone: onDone }
+	if (session.items.length === 0) {
+		session.items = items.map(function (item) {
+			return { id: item.id, label: item.label, selected: false }
+		})
+		session.onDone = onDone
+	}
+	_multiSelectSessions.set(sessionId, session)
+
+	var keyboard = []
+	// Each item gets a checkbox row
+	for (var i = 0; i < session.items.length; i++) {
+		var item = session.items[i]
+		var checkbox = item.selected ? "✅" : "⬜"
+		keyboard.push([
+			{
+				text: checkbox + " " + item.label,
+				callback_data: "ms:toggle:" + sessionKey + ":" + i,
+			},
+		])
+	}
+	// Done button
+	keyboard.push([
+		{
+			text: "✅ Done",
+			callback_data: "ms:done:" + sessionKey,
+		},
+	])
+	// Cancel button
+	keyboard.push([
+		{
+			text: "❌ Cancel",
+			callback_data: "ms:cancel:" + sessionKey,
+		},
+	])
+
+	await sendInlineKeyboard(botToken, chatId, text, keyboard)
+}
+
+/**
+ * Handles multi-select callback queries (ms:toggle, ms:done, ms:cancel).
+ * Returns true if the callback was handled, false otherwise.
+ */
+async function handleMultiSelectCallback(botToken, cq, cqChatId, cqMessageId, cqData) {
+	var parts = cqData.split(":")
+	if (parts.length < 3 || parts[0] !== "ms") return false
+
+	var action = parts[1] // toggle, done, cancel
+	var sessionKey = parts.slice(2).join(":")
+	var sessionId = cqChatId + ":" + sessionKey
+	var session = _multiSelectSessions.get(sessionId)
+	if (!session) {
+		await answerCallbackQuery(botToken, cq.id, "Session expired. Please try again.")
+		return true
+	}
+
+	if (action === "toggle") {
+		var itemIdx = parseInt(parts[parts.length - 1], 10)
+		if (!isNaN(itemIdx) && session.items[itemIdx]) {
+			session.items[itemIdx].selected = !session.items[itemIdx].selected
+		}
+		// Re-render the keyboard
+		var selectedCount = session.items.filter(function (it) {
+			return it.selected
+		}).length
+		var headerText = "Select items (" + selectedCount + "/" + session.items.length + " selected):"
+		await editMessageText(botToken, cqChatId, cqMessageId, headerText)
+		// Re-send with updated keyboard
+		await sendMultiSelectKeyboard(botToken, cqChatId, headerText, session.items, sessionKey, session.onDone)
+		await answerCallbackQuery(botToken, cq.id, "")
+		return true
+	}
+
+	if (action === "done") {
+		var selected = session.items.filter(function (it) {
+			return it.selected
+		})
+		_multiSelectSessions.delete(sessionId)
+		if (typeof session.onDone === "function") {
+			await session.onDone(selected)
+		}
+		await answerCallbackQuery(botToken, cq.id, "Selection confirmed: " + selected.length + " item(s)")
+		return true
+	}
+
+	if (action === "cancel") {
+		_multiSelectSessions.delete(sessionId)
+		await editMessageText(botToken, cqChatId, cqMessageId, "❌ Selection cancelled.")
+		await answerCallbackQuery(botToken, cq.id, "Cancelled")
+		return true
+	}
+
+	return false
+}
+
 /**
  * Sends a persistent reply keyboard (bottom button row) for click-first GUI.
  * @param {string} botToken
@@ -5635,6 +5748,8 @@ const KNOWN_COMMANDS = [
 	"/aceteam",
 	"/ask",
 	"/shell",
+	"/schedule",
+	"/scheduled",
 ]
 
 /** Brain subcommands for correction */
@@ -6571,6 +6686,217 @@ async function handleFocus(botToken, chatId, args) {
 			filePath +
 			"` to read it.",
 	)
+}
+
+// ─── Scheduled Jobs (GAP 4.4) ────────────────────────────────────────────────
+// In-memory store of scheduled jobs keyed by job ID.
+// Each entry: { chatId, command, args, executeAt, timer, description }
+var _scheduledJobs = new Map()
+var _scheduledJobCounter = 0
+
+/**
+ * Parses a natural language time expression and returns delay in milliseconds.
+ * Supports: "in X minutes/hours/seconds", "in Xm/Xh/Xs", "at HH:MM" (24h).
+ * Returns null if unparseable.
+ */
+function _parseTimeExpression(text) {
+	if (!text) return null
+	var lower = text.toLowerCase().trim()
+
+	// "in X minutes" / "in X min" / "in Xm"
+	var inMatch = lower.match(/^in\s+(\d+)\s*(minutes?|min|m|hours?|hr|h|seconds?|sec|s)?$/i)
+	if (inMatch) {
+		var num = parseInt(inMatch[1], 10)
+		var unit = (inMatch[2] || "m").toLowerCase().charAt(0)
+		if (unit === "h") return num * 3600000
+		if (unit === "s") return num * 1000
+		return num * 60000 // default minutes
+	}
+
+	// "at HH:MM" — schedule for today at that time (or tomorrow if past)
+	var atMatch = lower.match(/^at\s+(\d{1,2}):(\d{2})\s*(am|pm)?$/i)
+	if (atMatch) {
+		var hours = parseInt(atMatch[1], 10)
+		var minutes = parseInt(atMatch[2], 10)
+		var ampm = (atMatch[3] || "").toLowerCase()
+		if (ampm === "pm" && hours < 12) hours += 12
+		if (ampm === "am" && hours === 12) hours = 0
+		var now = new Date()
+		var target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes, 0, 0)
+		if (target <= now) target.setDate(target.getDate() + 1) // tomorrow if past
+		return target.getTime() - now.getTime()
+	}
+
+	return null
+}
+
+/**
+ * Handles /schedule <time> <command> — schedules a command for later execution.
+ * Examples:
+ *   /schedule in 30m /deploy staging
+ *   /schedule at 3pm /status
+ *   /schedule in 2h remind me to check logs
+ */
+async function handleSchedule(botToken, chatId, args, queue) {
+	if (!args || args.length < 2) {
+		await sendMessage(
+			botToken,
+			chatId,
+			"*Schedule a Command* ⏰\n\n" +
+				"Usage:\n" +
+				"  `/schedule in 30m /deploy staging`\n" +
+				"  `/schedule at 3pm /status`\n" +
+				"  `/schedule in 2h remind me to check logs`\n\n" +
+				"Time formats: `in Xm`, `in Xh`, `in X minutes`, `at HH:MM`\n\n" +
+				"Use `/scheduled` to list all pending jobs.\n" +
+				"Use `/cancel <job-id>` to cancel a scheduled job.",
+		)
+		return
+	}
+
+	// Extract time expression — could be "in 30m" or "at 3pm"
+	var timeExpr = ""
+	var cmdStartIdx = 0
+	if (args[0].toLowerCase() === "in" && args.length >= 3) {
+		// "in 30m /deploy ..." or "in 30 minutes /deploy ..."
+		timeExpr = args[0] + " " + args[1]
+		cmdStartIdx = 2
+	} else if (args[0].toLowerCase() === "at" && args.length >= 3) {
+		// "at 3pm /deploy ..."
+		timeExpr = args[0] + " " + args[1]
+		cmdStartIdx = 2
+	} else {
+		await sendMessage(botToken, chatId, "❌ Could not parse time. Use `in Xm` or `at HH:MM`.")
+		return
+	}
+
+	var delayMs = _parseTimeExpression(timeExpr)
+	if (delayMs === null || delayMs < 10000) {
+		await sendMessage(botToken, chatId, "❌ Invalid time. Minimum delay is 10 seconds. Use `in Xm` or `at HH:MM`.")
+		return
+	}
+
+	var cmdText = args.slice(cmdStartIdx).join(" ")
+	if (!cmdText) {
+		await sendMessage(botToken, chatId, "❌ No command specified after time expression.")
+		return
+	}
+
+	_scheduledJobCounter++
+	var jobId = "sched-" + _scheduledJobCounter + "-" + Date.now()
+	var executeAt = Date.now() + delayMs
+
+	var timer = setTimeout(async function () {
+		try {
+			await sendMessage(botToken, chatId, "⏰ *Scheduled Command Executing*\n\n`" + cmdText + "`")
+			// Route the scheduled command through the normal command flow
+			// by simulating a message with the scheduled text
+			var fakeMsg = {
+				message_id: Date.now(),
+				chat: { id: chatId },
+				from: { id: chatId, username: BOSS_USERNAME },
+				text: cmdText,
+				date: Math.floor(Date.now() / 1000),
+			}
+			// We can't call handleUpdate directly (needs queue/providers/orchestratorBridge),
+			// so we process it via the queue if available, or just send a reminder
+			if (queue && typeof queue.add === "function") {
+				await queue.add("telegram-scheduled-" + jobId, {
+					task: cmdText,
+					chatId: chatId,
+					scheduled: true,
+				})
+				await sendMessage(
+					botToken,
+					chatId,
+					"✅ Scheduled command `" + cmdText + "` has been queued for execution.",
+				)
+			} else {
+				await sendMessage(
+					botToken,
+					chatId,
+					"⚠️ Could not execute scheduled command — queue not available.\n\nPlease run manually: `" +
+						cmdText +
+						"`",
+				)
+			}
+		} catch (err) {
+			console.error("[telegram] Scheduled job execution failed:", err.message)
+		}
+		_scheduledJobs.delete(jobId)
+	}, delayMs)
+
+	_scheduledJobs.set(jobId, {
+		chatId: chatId,
+		command: cmdText,
+		executeAt: executeAt,
+		timer: timer,
+		description: cmdText.slice(0, 80),
+	})
+
+	var minutes = Math.round(delayMs / 60000)
+	await sendMessage(
+		botToken,
+		chatId,
+		"⏰ *Command Scheduled*\n\n" +
+			"`" +
+			cmdText +
+			"` will execute in *" +
+			minutes +
+			" minute(s)*.\n" +
+			"Job ID: `" +
+			jobId +
+			"`\n\n" +
+			"Use `/cancel " +
+			jobId +
+			"` to cancel.",
+	)
+}
+
+/**
+ * Handles /scheduled — lists all pending scheduled jobs.
+ */
+async function handleScheduledList(botToken, chatId) {
+	if (_scheduledJobs.size === 0) {
+		await sendMessage(botToken, chatId, "📭 No scheduled jobs.")
+		return
+	}
+
+	var lines = ["*Pending Scheduled Jobs* ⏰"]
+	var idx = 1
+	_scheduledJobs.forEach(function (job, jobId) {
+		var remaining = Math.round((job.executeAt - Date.now()) / 60000)
+		lines.push(
+			"\n" +
+				idx +
+				". `" +
+				jobId +
+				"`\n" +
+				"   Command: `" +
+				job.command +
+				"`\n" +
+				"   In: *" +
+				remaining +
+				" min*",
+		)
+		idx++
+	})
+
+	await sendMessage(botToken, chatId, lines.join("\n"))
+}
+
+/**
+ * Cancels a scheduled job by ID.
+ */
+async function handleScheduleCancel(botToken, chatId, jobId) {
+	var job = _scheduledJobs.get(jobId)
+	if (!job) {
+		await sendMessage(botToken, chatId, "❌ No scheduled job found with ID: `" + jobId + "`")
+		return
+	}
+	clearTimeout(job.timer)
+	_scheduledJobs.delete(jobId)
+	await sendMessage(botToken, chatId, "✅ Cancelled scheduled job `" + jobId + "`")
 }
 
 /**
@@ -8827,6 +9153,12 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 				},
 			)
 
+			// Check for multi-select callbacks (GAP 4.5)
+			if (cqData.startsWith("ms:")) {
+				var msHandled = await handleMultiSelectCallback(botToken, cq, cqChatId, cqMessageId, cqData)
+				if (msHandled) return
+			}
+
 			// Unhandled callback data — dispatch via registry; if no handler matched, log warning
 			var handled = await dispatchCallback(
 				botToken,
@@ -9281,6 +9613,12 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 		} else if (command === "/shell") {
 			logTelegramUsage("/shell", chatId, telegramUserId, { args: cmdArgs.join(" ") })
 			await handleShell(botToken, chatId, cmdArgs)
+		} else if (command === "/schedule") {
+			logTelegramUsage("/schedule", chatId, telegramUserId, { args: cmdArgs.join(" ") })
+			await handleSchedule(botToken, chatId, cmdArgs, queue)
+		} else if (command === "/scheduled") {
+			logTelegramUsage("/scheduled", chatId, telegramUserId)
+			await handleScheduledList(botToken, chatId)
 		} else {
 			// ─── Check for Email OTP Login Flow ────────────────────────────
 			// If the user is in the middle of an email OTP login, intercept
@@ -9446,4 +9784,33 @@ module.exports = {
 	_commandHistory,
 	// Response cache (GAP 3.4)
 	getResponseCacheStats,
+	// Scheduled jobs (GAP 4.4)
+	handleSchedule,
+	handleScheduledList,
+	handleScheduleCancel,
+	_scheduledJobs,
+	_parseTimeExpression,
+	// Multi-select keyboards (GAP 4.5)
+	sendMultiSelectKeyboard,
+	handleMultiSelectCallback,
+	_multiSelectSessions,
+	// Paginated messages (GAP 4.3)
+	sendPaginatedMessage,
+	handlePageNavigation,
+	// Callback registry (GAP 3.1)
+	registerCallback,
+	dispatchCallback,
+	callbackRegistry,
+	// Smart context (GAP 2.2)
+	getSmartContext,
+	updateSmartContext,
+	// Conversation topic (GAP 2.5)
+	detectConversationTopic,
+	buildSmartContextPrompt,
+	// Summary compression (GAP 2.1)
+	buildCompressedConversationSummary,
+	// Rate limiting (GAP 6.2)
+	checkRateLimit,
+	// Known commands
+	KNOWN_COMMANDS,
 }

@@ -21,10 +21,13 @@ const path = require("path")
 const LEARNER_STATE_FILE = path.join(__dirname, "..", "data", "telegram-learner-state.json")
 const CONVERSATION_LOG_FILE = path.join(__dirname, "..", "data", "telegram-conversations.jsonl")
 const PATTERNS_FILE = path.join(__dirname, "..", "data", "telegram-patterns.json")
+const CROSS_USER_PATTERNS_FILE = path.join(__dirname, "..", "data", "telegram-cross-user-patterns.json")
 
 const MAX_CONVERSATIONS_IN_MEMORY = 1000
 const MIN_PATTERN_CONFIDENCE = 0.4
 const LEARNING_RATE = 0.1
+const CROSS_USER_MERGE_INTERVAL_MS = 10 * 60 * 1000
+const MIN_USERS_FOR_CROSS_PATTERN = 3
 
 // ─── State ──────────────────────────────────────────────────────────────────
 
@@ -41,6 +44,8 @@ let learnerState = {
 
 let conversationBuffer = [] // Recent conversations for pattern analysis
 let knownPatterns = {} // Detected conversation patterns
+let crossUserPatterns = {} // Anonymized patterns aggregated across all users
+let userIntentProfiles = {} // { chatId: { intents: { intent: count }, lastActive: timestamp } }
 
 // ─── Initialization ─────────────────────────────────────────────────────────
 
@@ -54,11 +59,7 @@ function ensureDataDir() {
 function backfillConversations(limit = MAX_CONVERSATIONS_IN_MEMORY) {
 	if (!fs.existsSync(CONVERSATION_LOG_FILE)) return
 	try {
-		const lines = fs
-			.readFileSync(CONVERSATION_LOG_FILE, "utf8")
-			.split("\n")
-			.filter(Boolean)
-			.slice(-limit)
+		const lines = fs.readFileSync(CONVERSATION_LOG_FILE, "utf8").split("\n").filter(Boolean).slice(-limit)
 		for (const line of lines) {
 			try {
 				const entry = JSON.parse(line)
@@ -73,9 +74,7 @@ function backfillConversations(limit = MAX_CONVERSATIONS_IN_MEMORY) {
 				// Skip malformed lines
 			}
 		}
-		console.log(
-			"[telegram-learner] Backfilled " + conversationBuffer.length + " conversations from log",
-		)
+		console.log("[telegram-learner] Backfilled " + conversationBuffer.length + " conversations from log")
 	} catch (err) {
 		console.error("[telegram-learner] Failed to backfill conversations:", err.message)
 	}
@@ -112,6 +111,9 @@ function loadState() {
 	// Backfill conversation buffer from JSONL log so patterns survive PM2 restarts
 	backfillConversations()
 
+	// Load cross-user patterns (GAP 5.5)
+	loadCrossUserPatterns()
+
 	// Run an immediate pattern detection if we have enough backfilled data
 	if (conversationBuffer.length >= 5) {
 		detectPatterns()
@@ -134,6 +136,188 @@ function savePatterns() {
 		fs.writeFileSync(PATTERNS_FILE, JSON.stringify(knownPatterns, null, 2), "utf8")
 	} catch (err) {
 		console.error("[telegram-learner] Failed to save patterns:", err.message)
+	}
+}
+
+function saveCrossUserPatterns() {
+	ensureDataDir()
+	try {
+		fs.writeFileSync(CROSS_USER_PATTERNS_FILE, JSON.stringify(crossUserPatterns, null, 2), "utf8")
+	} catch (err) {
+		console.error("[telegram-learner] Failed to save cross-user patterns:", err.message)
+	}
+}
+
+function loadCrossUserPatterns() {
+	ensureDataDir()
+	try {
+		if (fs.existsSync(CROSS_USER_PATTERNS_FILE)) {
+			const raw = fs.readFileSync(CROSS_USER_PATTERNS_FILE, "utf8")
+			crossUserPatterns = JSON.parse(raw)
+			console.log("[telegram-learner] Loaded " + Object.keys(crossUserPatterns).length + " cross-user patterns")
+		}
+	} catch (err) {
+		console.error("[telegram-learner] Failed to load cross-user patterns:", err.message)
+	}
+}
+
+/**
+ * Merge per-user patterns into an anonymized cross-user pattern store.
+ * This aggregates patterns across all users so the bot can learn from
+ * the collective behavior without exposing individual user data.
+ *
+ * Each cross-user pattern stores:
+ *  - intent: the detected intent
+ *  - keyword: the common keyword
+ *  - confidence: aggregated confidence score
+ *  - userCount: how many distinct users exhibited this pattern
+ *  - totalOccurrences: total occurrences across all users
+ *  - lastSeen: timestamp of the most recent occurrence
+ */
+function mergeCrossUserPatterns() {
+	var userKeys = Object.keys(userIntentProfiles)
+	if (userKeys.length < MIN_USERS_FOR_CROSS_PATTERN) return
+
+	// Build an aggregated view: for each (intent, keyword) pair, track which users have it
+	var aggregated = {}
+	for (var patternKey in knownPatterns) {
+		if (!Object.prototype.hasOwnProperty.call(knownPatterns, patternKey)) continue
+		var pattern = knownPatterns[patternKey]
+		if (pattern.confidence < MIN_PATTERN_CONFIDENCE) continue
+
+		if (!aggregated[patternKey]) {
+			aggregated[patternKey] = {
+				intent: pattern.intent,
+				keyword: pattern.keyword,
+				confidence: 0,
+				userCount: 0,
+				totalOccurrences: 0,
+				firstSeen: pattern.firstSeen,
+				lastSeen: pattern.firstSeen,
+				users: {},
+			}
+		}
+		aggregated[patternKey].totalOccurrences += pattern.occurrences || 1
+		if (pattern.lastSeen && pattern.lastSeen > aggregated[patternKey].lastSeen) {
+			aggregated[patternKey].lastSeen = pattern.lastSeen
+		}
+	}
+
+	// Now count how many distinct users have each pattern by scanning conversation buffer
+	var userPatterns = {}
+	for (var i = 0; i < conversationBuffer.length; i++) {
+		var conv = conversationBuffer[i]
+		if (!conv.chatId) continue
+		var cid = String(conv.chatId)
+		if (!userPatterns[cid]) userPatterns[cid] = {}
+		var words = (conv.message || "").toLowerCase().split(/\s+/)
+		for (var w = 0; w < words.length; w++) {
+			var word = words[w]
+			if (word.length < 3) continue
+			var pk = conv.intent + ":" + word
+			if (!userPatterns[cid][pk]) userPatterns[cid][pk] = 0
+			userPatterns[cid][pk]++
+		}
+	}
+
+	// For each aggregated pattern, count how many users have it
+	for (var pk in aggregated) {
+		if (!Object.prototype.hasOwnProperty.call(aggregated, pk)) continue
+		var userSet = new Set()
+		for (var cid in userPatterns) {
+			if (userPatterns[cid][pk]) {
+				userSet.add(cid)
+			}
+		}
+		aggregated[pk].userCount = userSet.size
+		// Only keep patterns seen by at least MIN_USERS_FOR_CROSS_PATTERN users
+		if (aggregated[pk].userCount < MIN_USERS_FOR_CROSS_PATTERN) {
+			delete aggregated[pk]
+			continue
+		}
+		// Boost confidence based on user count
+		var userRatio = Math.min(1, aggregated[pk].userCount / userKeys.length)
+		aggregated[pk].confidence = Math.min(1, (aggregated[pk].totalOccurrences / userKeys.length) * userRatio)
+		// Remove the users map (anonymize)
+		delete aggregated[pk].users
+	}
+
+	crossUserPatterns = aggregated
+	saveCrossUserPatterns()
+	console.log(
+		"[telegram-learner] Merged cross-user patterns: " +
+			Object.keys(crossUserPatterns).length +
+			" patterns from " +
+			userKeys.length +
+			" users",
+	)
+}
+
+/**
+ * Get cross-user patterns for a given intent.
+ *
+ * @param {string} intent - Optional intent filter
+ * @param {number} minConfidence - Minimum confidence threshold (default: 0.5)
+ * @returns {Array<{intent: string, keyword: string, confidence: number, userCount: number, totalOccurrences: number}>}
+ */
+function getCrossUserPatterns(intent, minConfidence) {
+	minConfidence = minConfidence !== undefined ? minConfidence : 0.5
+	var result = []
+	for (var patternKey in crossUserPatterns) {
+		if (!Object.prototype.hasOwnProperty.call(crossUserPatterns, patternKey)) continue
+		var p = crossUserPatterns[patternKey]
+		if (p.confidence < minConfidence) continue
+		if (intent && p.intent !== intent) continue
+		result.push({
+			intent: p.intent,
+			keyword: p.keyword,
+			confidence: p.confidence,
+			userCount: p.userCount,
+			totalOccurrences: p.totalOccurrences,
+		})
+	}
+	return result.sort(function (a, b) {
+		return b.confidence - a.confidence
+	})
+}
+
+/**
+ * Get aggregated cross-user insights for the dashboard.
+ *
+ * @returns {object} Cross-user learning statistics
+ */
+function getCrossUserInsights() {
+	var totalUsers = Object.keys(userIntentProfiles).length
+	var totalPatterns = Object.keys(crossUserPatterns).length
+	var topIntents = {}
+	for (var pk in crossUserPatterns) {
+		if (!Object.prototype.hasOwnProperty.call(crossUserPatterns, pk)) continue
+		var p = crossUserPatterns[pk]
+		if (!topIntents[p.intent]) topIntents[p.intent] = { patternCount: 0, avgConfidence: 0, totalUsers: 0 }
+		topIntents[p.intent].patternCount++
+		topIntents[p.intent].avgConfidence =
+			(topIntents[p.intent].avgConfidence * (topIntents[p.intent].patternCount - 1) + p.confidence) /
+			topIntents[p.intent].patternCount
+		topIntents[p.intent].totalUsers = Math.max(topIntents[p.intent].totalUsers, p.userCount)
+	}
+
+	return {
+		totalUsersTracked: totalUsers,
+		totalCrossUserPatterns: totalPatterns,
+		topIntents: Object.entries(topIntents)
+			.sort(function (a, b) {
+				return b[1].patternCount - a[1].patternCount
+			})
+			.slice(0, 10)
+			.map(function (entry) {
+				return {
+					intent: entry[0],
+					patternCount: entry[1].patternCount,
+					avgConfidence: entry[1].avgConfidence,
+					totalUsers: entry[1].totalUsers,
+				}
+			}),
+		lastMergeAt: new Date().toISOString(),
 	}
 }
 
@@ -202,6 +386,19 @@ function recordInteraction(interaction) {
 
 	if (conversationBuffer.length > MAX_CONVERSATIONS_IN_MEMORY) {
 		conversationBuffer.shift()
+	}
+
+	// Update per-user intent profile for cross-user pattern learning (GAP 5.5)
+	var cid = String(interaction.chatId || "")
+	if (cid) {
+		if (!userIntentProfiles[cid]) {
+			userIntentProfiles[cid] = { intents: {}, lastActive: new Date().toISOString() }
+		}
+		if (!userIntentProfiles[cid].intents[intent]) {
+			userIntentProfiles[cid].intents[intent] = 0
+		}
+		userIntentProfiles[cid].intents[intent]++
+		userIntentProfiles[cid].lastActive = new Date().toISOString()
 	}
 
 	saveState()
@@ -295,13 +492,13 @@ function assessUserSatisfaction(followUpMessage) {
 }
 
 /**
-	* LLM-based satisfaction assessment for more accurate scoring.
-	* Uses Ollama (free, local) to rate satisfaction on a 1-5 scale.
-	* Falls back to keyword-based assessment if Ollama is unavailable.
-	* @param {string} followUpMessage - The user's follow-up message
-	* @param {string} [previousResponse] - The bot's previous response for context
-	* @returns {Promise<{score: number|null, label: string}>} { score: 1-5, label: "satisfied"|"neutral"|"unsatisfied" }
-	*/
+ * LLM-based satisfaction assessment for more accurate scoring.
+ * Uses Ollama (free, local) to rate satisfaction on a 1-5 scale.
+ * Falls back to keyword-based assessment if Ollama is unavailable.
+ * @param {string} followUpMessage - The user's follow-up message
+ * @param {string} [previousResponse] - The bot's previous response for context
+ * @returns {Promise<{score: number|null, label: string}>} { score: 1-5, label: "satisfied"|"neutral"|"unsatisfied" }
+ */
 async function assessSatisfactionLLM(followUpMessage, previousResponse) {
 	if (!followUpMessage) return { score: null, label: "neutral" }
 
@@ -378,9 +575,9 @@ async function assessSatisfactionLLM(followUpMessage, previousResponse) {
 }
 
 /**
-	* Detect conversation patterns from the buffer.
-	* This runs periodically to find common patterns in user interactions.
-	*/
+ * Detect conversation patterns from the buffer.
+ * This runs periodically to find common patterns in user interactions.
+ */
 function detectPatterns() {
 	if (conversationBuffer.length < 5) return
 
@@ -618,6 +815,8 @@ function startPeriodicTraining(intervalMs = 5 * 60 * 1000) {
 		console.log(
 			"[telegram-learner] Pattern detection completed. Known patterns: " + Object.keys(knownPatterns).length,
 		)
+		// Merge cross-user patterns periodically (GAP 5.5)
+		mergeCrossUserPatterns()
 	}, intervalMs)
 	trainingInterval.unref()
 }
@@ -652,4 +851,9 @@ module.exports = {
 	loadState,
 	saveState,
 	startPeriodicTraining,
+	// GAP 5.5 — Cross-user pattern learning
+	mergeCrossUserPatterns,
+	getCrossUserPatterns,
+	getCrossUserInsights,
+	loadCrossUserPatterns,
 }
