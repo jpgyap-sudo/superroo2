@@ -43,6 +43,9 @@ const COMMIT_DEPLOY_LOG_PATH = path.resolve(
 /** Path to the health check log file */
 const HEALTH_LOG_PATH = path.resolve(__dirname, "..", "..", "data", "health-timeline.json")
 
+/** Redis URL for dead-letter queue inspection */
+const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379"
+
 // -- Helpers ----------------------------------------------------------------------
 
 /**
@@ -821,4 +824,246 @@ async function handleMonitoringRoute(method, url, req, res) {
 	return false
 }
 
-module.exports = { handleMonitoringRoute }
+// -- In-memory API Telemetry ------------------------------------------------------
+
+const apiTelemetry = {
+	requests: new Map(), // route -> { count, errors, totalLatencyMs }
+	since: Date.now(),
+}
+
+function recordApiTelemetry(route, latencyMs, error = false) {
+	const key = route || "unknown"
+	const existing = apiTelemetry.requests.get(key) || { count: 0, errors: 0, totalLatencyMs: 0 }
+	existing.count++
+	existing.totalLatencyMs += latencyMs
+	if (error) existing.errors++
+	apiTelemetry.requests.set(key, existing)
+}
+
+// -- Prometheus Metrics -------------------------------------------------------------
+
+function getPrometheusMetrics() {
+	const lines = []
+	const now = Date.now()
+	const uptime = Math.floor((now - apiTelemetry.since) / 1000)
+
+	// System metrics
+	lines.push("# HELP superroo_uptime_seconds API uptime in seconds")
+	lines.push("# TYPE superroo_uptime_seconds gauge")
+	lines.push(`superroo_uptime_seconds ${uptime}`)
+
+	lines.push("# HELP superroo_nodejs_memory_bytes Node.js memory usage")
+	lines.push("# TYPE superroo_nodejs_memory_bytes gauge")
+	const mem = process.memoryUsage()
+	lines.push(`superroo_nodejs_memory_bytes{type="rss"} ${mem.rss}`)
+	lines.push(`superroo_nodejs_memory_bytes{type="heapUsed"} ${mem.heapUsed}`)
+	lines.push(`superroo_nodejs_memory_bytes{type="heapTotal"} ${mem.heapTotal}`)
+	lines.push(`superroo_nodejs_memory_bytes{type="external"} ${mem.external}`)
+
+	// API request metrics
+	lines.push("# HELP superroo_api_requests_total Total API requests")
+	lines.push("# TYPE superroo_api_requests_total counter")
+	lines.push("# HELP superroo_api_errors_total Total API errors")
+	lines.push("# TYPE superroo_api_errors_total counter")
+	lines.push("# HELP superroo_api_latency_ms_sum Sum of API latency in ms")
+	lines.push("# TYPE superroo_api_latency_ms_sum counter")
+
+	for (const [route, data] of apiTelemetry.requests) {
+		const label = `route="${route.replace(/"/g, '\\"')}"`
+		lines.push(`superroo_api_requests_total{${label}} ${data.count}`)
+		lines.push(`superroo_api_errors_total{${label}} ${data.errors}`)
+		lines.push(`superroo_api_latency_ms_sum{${label}} ${data.totalLatencyMs}`)
+	}
+
+	// Service health (from cached PM2 state if available)
+	lines.push("# HELP superroo_service_up Service health (1=up, 0=down)")
+	lines.push("# TYPE superroo_service_up gauge")
+	lines.push('superroo_service_up{name="api"} 1')
+
+	return lines.join("\n") + "\n"
+}
+
+function handleGetPrometheusMetrics(res) {
+	res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" })
+	res.end(getPrometheusMetrics())
+}
+
+// -- Alerting Webhook ---------------------------------------------------------------
+
+let alertWebhookUrl = process.env.ALERT_WEBHOOK_URL || ""
+let alertThreshold = parseInt(process.env.ALERT_ERROR_THRESHOLD || "10", 10)
+let lastAlertSent = 0
+let alertCooldownMs = parseInt(process.env.ALERT_COOLDOWN_MS || "300000", 10) // 5min default
+
+async function sendAlertWebhook(message) {
+	if (!alertWebhookUrl) return
+	const now = Date.now()
+	if (now - lastAlertSent < alertCooldownMs) return
+	try {
+		await fetch(alertWebhookUrl, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ text: message, timestamp: new Date().toISOString(), source: "superroo-monitoring" }),
+			signal: AbortSignal.timeout(10000),
+		})
+		lastAlertSent = now
+	} catch (err) {
+		console.error("[monitoring] Alert webhook failed:", err.message)
+	}
+}
+
+function handleGetAlertConfig(res) {
+	sendJson(res, 200, {
+		webhookUrl: alertWebhookUrl ? "***configured***" : null,
+		threshold: alertThreshold,
+		cooldownMs: alertCooldownMs,
+		lastAlertSent: lastAlertSent ? new Date(lastAlertSent).toISOString() : null,
+	})
+}
+
+async function handlePostAlertConfig(req, res, body) {
+	if (body.webhookUrl !== undefined) alertWebhookUrl = String(body.webhookUrl)
+	if (body.threshold !== undefined) alertThreshold = parseInt(body.threshold, 10) || alertThreshold
+	if (body.cooldownMs !== undefined) alertCooldownMs = parseInt(body.cooldownMs, 10) || alertCooldownMs
+	sendJson(res, 200, {
+		ok: true,
+		webhookUrl: alertWebhookUrl ? "***configured***" : null,
+		threshold: alertThreshold,
+		cooldownMs: alertCooldownMs,
+	})
+}
+
+// -- Dead Letter Queue Inspection ---------------------------------------------------
+
+async function handleGetDeadLetterQueue(res) {
+	try {
+		const { Queue } = require("bullmq")
+		const IORedis = require("ioredis")
+		const redis = new IORedis(REDIS_URL || "redis://127.0.0.1:6379", { maxRetriesPerRequest: null })
+		const dlqName = (process.env.SUPERROO_QUEUE_NAME || "superroo-jobs") + "-dlq"
+		const dlq = new Queue(dlqName, { connection: redis })
+
+		const failedJobs = await dlq.getJobs(["failed", "waiting", "delayed"], 0, 49, true)
+		const cleaned = failedJobs.map((j) => ({
+			id: j.id,
+			name: j.name,
+			failedReason: j.failedReason || null,
+			attemptsMade: j.attemptsMade,
+			timestamp: j.timestamp ? new Date(j.timestamp).toISOString() : null,
+			data: j.data || null,
+		}))
+
+		await dlq.close()
+		await redis.quit()
+
+		sendJson(res, 200, { queue: dlqName, count: cleaned.length, jobs: cleaned })
+	} catch (err) {
+		console.error("[monitoring] DLQ inspection failed:", err.message)
+		sendJson(res, 500, { error: "Failed to inspect dead-letter queue", detail: err.message })
+	}
+}
+
+// -- Router (extended) --------------------------------------------------------------
+
+async function handleMonitoringRoute(method, url, req, res) {
+	const parsedUrl = new URL(url, "http://localhost")
+	const pathname = parsedUrl.pathname
+	const normalizedPath = pathname.startsWith("/api") ? pathname.slice(4) || "/" : pathname
+
+	// GET /metrics or /api/metrics — Prometheus scrape endpoint
+	if (method === "GET" && (pathname === "/api/metrics" || normalizedPath === "/metrics")) {
+		handleGetPrometheusMetrics(res)
+		return true
+	}
+
+	// GET /api/monitoring/logs or /monitoring/logs
+	if (method === "GET" && (pathname === "/api/monitoring/logs" || normalizedPath === "/monitoring/logs")) {
+		await handleGetLogs(req, res, url)
+		return true
+	}
+
+	// GET /api/monitoring/stats or /monitoring/stats
+	if (method === "GET" && (pathname === "/api/monitoring/stats" || normalizedPath === "/monitoring/stats")) {
+		await handleGetStats(req, res)
+		return true
+	}
+
+	// GET /api/monitoring/health-timeline or /monitoring/health-timeline
+	if (
+		method === "GET" &&
+		(pathname === "/api/monitoring/health-timeline" || normalizedPath === "/monitoring/health-timeline")
+	) {
+		handleGetHealthTimeline(req, res)
+		return true
+	}
+
+	// POST /api/monitoring/health-timeline/record or /monitoring/health-timeline/record
+	if (
+		method === "POST" &&
+		(pathname === "/api/monitoring/health-timeline/record" ||
+			normalizedPath === "/monitoring/health-timeline/record")
+	) {
+		const body = req.body || {}
+		await handleRecordHealthCheck(req, res, body)
+		return true
+	}
+
+	// GET /api/monitoring/error-rate-buckets or /monitoring/error-rate-buckets
+	if (
+		method === "GET" &&
+		(pathname === "/api/monitoring/error-rate-buckets" || normalizedPath === "/monitoring/error-rate-buckets")
+	) {
+		handleGetErrorRateBuckets(req, res)
+		return true
+	}
+
+	// GET /api/monitoring/aggregated-logs or /monitoring/aggregated-logs
+	if (
+		method === "GET" &&
+		(pathname === "/api/monitoring/aggregated-logs" || normalizedPath === "/monitoring/aggregated-logs")
+	) {
+		await handleGetAggregatedLogs(req, res, url)
+		return true
+	}
+
+	// GET /api/monitoring/aggregated-stats or /monitoring/aggregated-stats
+	if (
+		method === "GET" &&
+		(pathname === "/api/monitoring/aggregated-stats" || normalizedPath === "/monitoring/aggregated-stats")
+	) {
+		await handleGetAggregatedStats(req, res)
+		return true
+	}
+
+	// GET /api/monitoring/dead-letter-queue or /monitoring/dead-letter-queue
+	if (
+		method === "GET" &&
+		(pathname === "/api/monitoring/dead-letter-queue" || normalizedPath === "/monitoring/dead-letter-queue")
+	) {
+		await handleGetDeadLetterQueue(res)
+		return true
+	}
+
+	// GET /api/monitoring/alert-webhook or /monitoring/alert-webhook
+	if (
+		method === "GET" &&
+		(pathname === "/api/monitoring/alert-webhook" || normalizedPath === "/monitoring/alert-webhook")
+	) {
+		handleGetAlertConfig(res)
+		return true
+	}
+
+	// POST /api/monitoring/alert-webhook or /monitoring/alert-webhook
+	if (
+		method === "POST" &&
+		(pathname === "/api/monitoring/alert-webhook" || normalizedPath === "/monitoring/alert-webhook")
+	) {
+		const body = req.body || {}
+		await handlePostAlertConfig(req, res, body)
+		return true
+	}
+
+	return false
+}
+
+module.exports = { handleMonitoringRoute, recordApiTelemetry }

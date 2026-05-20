@@ -926,6 +926,9 @@ async function handleAuthRoute(method, url, req, res) {
 	// Don't intercept Monitoring routes — they are handled by api.js directly
 	if (normalizedPath.startsWith("/monitoring/")) return false
 
+	// Don't intercept Prometheus metrics scrape endpoint
+	if (normalizedPath === "/metrics") return false
+
 	// Don't intercept Workflow Compliance routes — they are handled by api.js directly
 	if (normalizedPath.startsWith("/workflow-compliance/")) return false
 

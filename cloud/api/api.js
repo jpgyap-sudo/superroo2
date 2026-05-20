@@ -3418,12 +3418,21 @@ async function handleWsChatMessage(ws, sessionId, msg, workspaceDir) {
 const server = http.createServer(async (req, res) => {
 	const url = req.url || ""
 	const method = req.method || "GET"
+	const reqStartTime = Date.now()
 
 	// Normalize URL: handle both direct access and proxied access
 	// - Direct: nginx proxies /api/health -> /health (strips /api)
 	// - Via Next.js rewrite: /api/health stays as /api/health
 	// Normalize by stripping /api prefix if present
 	const normalizedUrl = url.startsWith("/api") ? url.slice(4) || "/" : url
+
+	// Record API telemetry on response finish
+	res.on("finish", () => {
+		const latency = Date.now() - reqStartTime
+		const route = normalizedUrl.split("?")[0]
+		const error = res.statusCode >= 400
+		monitoring.recordApiTelemetry(route, latency, error)
+	})
 
 	// ── Rate Limiting ────────────────────────────────────────────────────
 	// Skip rate limiting for health checks (always allow)
@@ -11192,6 +11201,40 @@ const server = http.createServer(async (req, res) => {
 
 		// ── Autonomous Loop Endpoints ──────────────────────────────────────────
 
+		// GET /autonomous/status — Get autonomous loop status (no jobId, for dashboard)
+		if (method === "GET" && (url === "/autonomous/status" || normalizedUrl === "/autonomous/status")) {
+			try {
+				if (!autonomousLoop) {
+					sendJson(res, 200, {
+						success: true,
+						running: false,
+						currentStep: null,
+						stepResults: [],
+						cycleCount: 0,
+						lastRunAt: null,
+					})
+					return
+				}
+				const status = autonomousLoop.getStatus()
+				sendJson(res, 200, {
+					success: true,
+					running: status.running,
+					currentStep: status.currentStepName || null,
+					stepResults: (status.stepResults || []).map((r) => ({
+						step: r.name?.toLowerCase().replace(/\s+/g, "-") || `step-${r.step}`,
+						status: r.status === "completed" ? "passed" : r.status === "error" ? "failed" : r.status,
+						duration: r.duration || 0,
+						details: r.details || r.error || "",
+					})),
+					cycleCount: Math.floor((status.stepResults?.length || 0) / 10),
+					lastRunAt: status.startedAt ? new Date(status.startedAt).toISOString() : null,
+				})
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
 		// POST /autonomous/start — Start the autonomous coding & debugging improvement loop
 		if (method === "POST" && (url === "/autonomous/start" || normalizedUrl === "/autonomous/start")) {
 			try {
@@ -11236,6 +11279,21 @@ const server = http.createServer(async (req, res) => {
 				}
 				const status = autonomousLoop.getStatus()
 				sendJson(res, 200, { success: true, status })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /autonomous/stop — Stop the autonomous loop (no jobId, for dashboard)
+		if (method === "POST" && (url === "/autonomous/stop" || normalizedUrl === "/autonomous/stop")) {
+			try {
+				if (!autonomousLoop) {
+					sendJson(res, 404, { success: false, error: "No autonomous loop is running" })
+					return
+				}
+				const result = await autonomousLoop.stop()
+				sendJson(res, 200, { success: true, ...result })
 			} catch (err) {
 				sendJson(res, 500, { success: false, error: err.message })
 			}
