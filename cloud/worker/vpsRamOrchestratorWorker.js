@@ -163,7 +163,7 @@ class AlertManager {
 	async sendAlert(event) {
 		if (!this.config.enableAlerts) return
 
-		const alertKey = `${event.oldState}->${event.newState}`
+		const alertKey = `${event.prevState || event.oldState}->${event.newState}`
 		const now = Date.now()
 		const lastTime = this._lastAlertTime[alertKey] || 0
 
@@ -178,9 +178,15 @@ class AlertManager {
 			type: "ram_state_change",
 			service: "vps-ram-orchestrator",
 			timestamp: now,
-			oldState: event.oldState,
+			oldState: event.prevState || event.oldState,
 			newState: event.newState,
-			snapshot: event.snapshot || null,
+			snapshot: {
+				ramPercent: event.ramPercent,
+				freeMb: event.freeMb,
+				totalMb: event.totalMb,
+				usedMb: event.usedMb,
+			},
+			swap: event.swap || null,
 			swapUsage: getSwapUsage(),
 			hostname: require("os").hostname(),
 		}
@@ -207,9 +213,9 @@ class AlertManager {
 		// Log the alert
 		const level = event.newState === "danger" ? "error" : event.newState === "critical" ? "warn" : "info"
 		this.logger[level](
-			`[AlertManager] RAM state changed: ${event.oldState} -> ${event.newState}` +
-				` (RAM: ${event.snapshot?.ramPercent || "?"}%, ` +
-				`Free: ${event.snapshot?.freeMb || "?"}MB)`,
+			`[AlertManager] RAM state changed: ${event.prevState || event.oldState || "?"} -> ${event.newState}` +
+				` (RAM: ${event.ramPercent ?? "?"}%, ` +
+				`Free: ${event.freeMb ?? "?"}MB)`,
 		)
 	}
 
@@ -269,7 +275,7 @@ class AlertManager {
 			let message = [
 				`${emoji} *RAM State Change*`,
 				``,
-				`**State**: ${payload.oldState} → ${payload.newState}`,
+				`**State**: ${payload.oldState || "?"} → ${payload.newState}`,
 				`**RAM**: ${payload.snapshot?.ramPercent || "?"}%`,
 				`**Free**: ${payload.snapshot?.freeMb || "?"}MB / ${payload.snapshot?.totalMb || "?"}MB`,
 				`**Host**: ${payload.hostname}`,
@@ -913,7 +919,7 @@ async function main() {
 
 			// Wire heartbeat → history store (GAP 7)
 			ramMonitor.on("heartbeat", (event) => {
-				historyStore?.recordSample(event.snapshot)
+				historyStore?.recordSample(event)
 			})
 
 			// Wire scale events → auto-scaler (GAP 8)
