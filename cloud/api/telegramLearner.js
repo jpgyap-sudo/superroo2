@@ -835,6 +835,54 @@ startPeriodicTraining()
 
 console.log("[telegram-learner] Initialized. Loaded " + learnerState.totalConversations + " past conversations.")
 
+// ─── Central Brain Sync ─────────────────────────────────────────────────────
+/**
+ * Sync a lesson to the Central Brain learning layer.
+ * Non-blocking — fire-and-forget with timeout.
+ * Falls back to local JSONL append if Central Brain is unreachable.
+ * @param {object} lesson — { title, content, tags, source, project }
+ */
+async function syncToCentralBrain(lesson) {
+	try {
+		var apiUrl = process.env.SUPERROO_API_URL || "http://127.0.0.1:8787"
+		var controller = new AbortController()
+		var timeoutId = setTimeout(function () {
+			controller.abort()
+		}, 5000)
+		var response = await fetch(apiUrl + "/api/orchestrator/hermes/codex_task_upsert", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: "[Telegram] " + (lesson.title || "Untitled"),
+				summary: lesson.content || "",
+				status: "completed",
+				filesChanged: lesson.files || [],
+				featuresAffected: lesson.tags || ["telegram"],
+				notes: "Source: " + (lesson.source || "telegram") + " | Project: " + (lesson.project || "superroo2"),
+			}),
+			signal: controller.signal,
+		})
+		clearTimeout(timeoutId)
+		if (!response.ok) {
+			throw new Error("HTTP " + response.status)
+		}
+		console.log("[telegram-learner] Synced lesson to Central Brain: " + lesson.title)
+	} catch (err) {
+		console.log("[telegram-learner] Central Brain sync failed (will retry later): " + err.message)
+		// Fallback: append to local learning-events JSONL
+		try {
+			var fallbackPath = path.join(__dirname, "..", "..", "memory", "learning-events.jsonl")
+			var entry =
+				JSON.stringify({
+					type: "telegram-lesson",
+					date: new Date().toISOString(),
+					...lesson,
+				}) + "\n"
+			fs.appendFileSync(fallbackPath, entry)
+		} catch (_) {}
+	}
+}
+
 // ─── Exports ────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -856,4 +904,6 @@ module.exports = {
 	getCrossUserPatterns,
 	getCrossUserInsights,
 	loadCrossUserPatterns,
+	// Central Brain sync
+	syncToCentralBrain,
 }

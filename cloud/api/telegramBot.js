@@ -9327,6 +9327,20 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 									telegramNotifier.removePendingCoderJob(coderTaskId)
 									stopAutoTypingInterval(coderTaskId)
 									logTelegramUsage("callback:coder:done", cqChatId, cqUserId, { taskId: coderTaskId })
+									// Sync completion lesson to Central Brain
+									try {
+										var pendingJob = telegramNotifier.getPendingCoderJob(coderTaskId)
+										telegramLearner.syncToCentralBrain({
+											title: "Coder task completed via Telegram",
+											content:
+												"Task " +
+												coderTaskId +
+												" completed. Instruction: " +
+												(pendingJob ? pendingJob.instruction : "unknown").substring(0, 200),
+											tags: ["telegram", "coder", "completion"],
+											files: pendingJob ? pendingJob.files || [] : [],
+										})
+									} catch (_) {}
 								} else if (coderResult.action === "diff") {
 									// View diff — already handled by handleCoderCallback (edits message)
 									logTelegramUsage("callback:coder:diff", cqChatId, cqUserId, { taskId: coderTaskId })
