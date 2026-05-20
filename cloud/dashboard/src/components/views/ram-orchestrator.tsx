@@ -247,10 +247,10 @@ export function RamOrchestratorView() {
 	const fetchData = useCallback(async () => {
 		try {
 			const [statusRes, deferredRes, historyRes, alertsRes] = await Promise.all([
-				fetch(`${API_BASE}/status`),
-				fetch(`${API_BASE}/deferred`),
-				fetch(`${API_BASE}/history?count=60`),
-				fetch(`${API_BASE}/alerts?limit=20`),
+				fetch(`${API_BASE}/status`, { signal: AbortSignal.timeout(5000) }),
+				fetch(`${API_BASE}/deferred`, { signal: AbortSignal.timeout(5000) }),
+				fetch(`${API_BASE}/history?count=60`, { signal: AbortSignal.timeout(5000) }),
+				fetch(`${API_BASE}/alerts?limit=20`, { signal: AbortSignal.timeout(5000) }),
 			])
 
 			if (statusRes.ok) {
@@ -297,6 +297,7 @@ export function RamOrchestratorView() {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ workerId, reason: "manual from dashboard" }),
+				signal: AbortSignal.timeout(5000),
 			})
 			const data = await res.json()
 			if (res.ok && data.paused) {
@@ -317,6 +318,7 @@ export function RamOrchestratorView() {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ workerId }),
+				signal: AbortSignal.timeout(5000),
 			})
 			const data = await res.json()
 			if (res.ok && data.resumed) {

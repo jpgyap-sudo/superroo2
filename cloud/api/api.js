@@ -5526,6 +5526,28 @@ const server = http.createServer(async (req, res) => {
 			}
 		}
 
+		// ── RAM Orchestrator proxy routes ─────────────────────────────────────
+
+		// Proxy dashboard requests to the RAM orchestrator worker (port 3456)
+		if (normalizedUrl.startsWith("/ram-orchestrator/")) {
+			const orchPath = normalizedUrl.slice("/ram-orchestrator".length) || "/"
+			try {
+				const orchRes = await fetch(`http://127.0.0.1:3456${orchPath}`, {
+					method,
+					headers: { "Content-Type": "application/json" },
+					signal: AbortSignal.timeout(5000),
+				})
+				const body = await orchRes.text()
+				res.writeHead(orchRes.status, {
+					"Content-Type": orchRes.headers.get("content-type") || "application/json",
+				})
+				res.end(body)
+			} catch (err) {
+				sendJson(res, 502, { error: "RAM orchestrator unreachable", detail: err.message })
+			}
+			return
+		}
+
 		// ── Workflow Compliance routes ─────────────────────────────────────────
 
 		// Workflow Compliance — exposes workflow tracking, DeepSeek delegation stats,

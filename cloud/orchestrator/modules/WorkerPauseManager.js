@@ -63,11 +63,7 @@ const DEFAULT_WORKER_CRITICALITY = Object.freeze({
 const RAM_STATE_PAUSE_MAP = Object.freeze({
 	warning: [WORKER_CRITICALITY.BACKGROUND],
 	critical: [WORKER_CRITICALITY.BACKGROUND, WORKER_CRITICALITY.NORMAL],
-	danger: [
-		WORKER_CRITICALITY.BACKGROUND,
-		WORKER_CRITICALITY.NORMAL,
-		WORKER_CRITICALITY.CRITICAL,
-	],
+	danger: [WORKER_CRITICALITY.BACKGROUND, WORKER_CRITICALITY.NORMAL, WORKER_CRITICALITY.CRITICAL],
 })
 
 // ── Worker Pause Manager ───────────────────────────────────────────────────────
@@ -367,10 +363,7 @@ class WorkerPauseManager extends EventEmitter {
 				// Pause workers at the affected criticality levels
 				let pausedCount = 0
 				for (const criticality of criticalitiesToPause) {
-					const count = await this.pauseWorkersAtOrBelow(
-						criticality,
-						`RAM ${newState} (${ramPercent}%)`,
-					)
+					const count = await this.pauseWorkersAtOrBelow(criticality, `RAM ${newState} (${ramPercent}%)`)
 					pausedCount += count
 				}
 
@@ -437,7 +430,7 @@ class WorkerPauseManager extends EventEmitter {
 
 		return {
 			totalWorkers: Object.keys(this._workerCriticality).length,
-			pausedWorkers: this._pausedWorkers.size,
+			pausedWorkers: this.getPausedWorkers(),
 			runningTasks: this._runningTasks.size,
 			workersByCriticality,
 			pausedByCriticality,

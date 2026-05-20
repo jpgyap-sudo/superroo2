@@ -68,10 +68,7 @@ const IORedis = require("ioredis")
 
 const { RAMMonitor, getRamUsagePercent, getSwapUsage } = require("../orchestrator/modules/RAMMonitor")
 const { RAMScheduler } = require("../orchestrator/modules/RAMScheduler")
-const {
-	WorkerPauseManager,
-	WORKER_CRITICALITY,
-} = require("../orchestrator/modules/WorkerPauseManager")
+const { WorkerPauseManager, WORKER_CRITICALITY } = require("../orchestrator/modules/WorkerPauseManager")
 const { AgentRegistry } = require("../orchestrator/modules/AgentRegistry")
 const { ParallelExecutor } = require("../orchestrator/modules/ParallelExecutor")
 const TaskQueueBullMQ = require("../orchestrator/modules/TaskQueueBullMQ")
@@ -89,9 +86,7 @@ const CONFIG = {
 	cooldownMs: parseInt(process.env.RAM_COOLDOWN_MS || "60000", 10),
 	apiPort: parseInt(process.env.RAM_API_PORT || "3456", 10),
 	deferMax: parseInt(process.env.RAM_DEFER_MAX || "100", 10),
-	dbPath:
-		process.env.ORCHESTRATOR_DB_PATH ||
-		path.join(__dirname, "..", "orchestrator", "data", "orchestrator.db"),
+	dbPath: process.env.ORCHESTRATOR_DB_PATH || path.join(__dirname, "..", "orchestrator", "data", "orchestrator.db"),
 	redisUrl: process.env.REDIS_URL || "redis://127.0.0.1:6379",
 	logLevel: process.env.LOG_LEVEL || "info",
 	// ── Alerting config (GAP 3+4) ──────────────────────────────────────────────
@@ -158,9 +153,7 @@ class AlertManager {
 		this.config = config
 		this.logger = logger
 		this._lastAlertTime = {} // state -> timestamp
-		this._alertHistoryPath = path.join(
-			__dirname, "..", "orchestrator", "data", "ram-alert-history.jsonl"
-		)
+		this._alertHistoryPath = path.join(__dirname, "..", "orchestrator", "data", "ram-alert-history.jsonl")
 	}
 
 	/**
@@ -212,12 +205,11 @@ class AlertManager {
 		}
 
 		// Log the alert
-		const level = event.newState === "danger" ? "error" :
-			event.newState === "critical" ? "warn" : "info"
+		const level = event.newState === "danger" ? "error" : event.newState === "critical" ? "warn" : "info"
 		this.logger[level](
 			`[AlertManager] RAM state changed: ${event.oldState} -> ${event.newState}` +
-			` (RAM: ${event.snapshot?.ramPercent || "?"}%, ` +
-			`Free: ${event.snapshot?.freeMb || "?"}MB)`
+				` (RAM: ${event.snapshot?.ramPercent || "?"}%, ` +
+				`Free: ${event.snapshot?.freeMb || "?"}MB)`,
 		)
 	}
 
@@ -248,7 +240,10 @@ class AlertManager {
 					resolve(res.statusCode >= 200 && res.statusCode < 300)
 				})
 				req.on("error", () => resolve(false))
-				req.on("timeout", () => { req.destroy(); resolve(false) })
+				req.on("timeout", () => {
+					req.destroy()
+					resolve(false)
+				})
 				req.write(body)
 				req.end()
 			})
@@ -262,11 +257,16 @@ class AlertManager {
 	 */
 	async _sendTelegram(payload) {
 		try {
-			const emoji = payload.newState === "danger" ? "🚨" :
-				payload.newState === "critical" ? "⚠️" :
-				payload.newState === "warning" ? "⚡" : "✅"
+			const emoji =
+				payload.newState === "danger"
+					? "🚨"
+					: payload.newState === "critical"
+						? "⚠️"
+						: payload.newState === "warning"
+							? "⚡"
+							: "✅"
 
-			const message = [
+			let message = [
 				`${emoji} *RAM State Change*`,
 				``,
 				`**State**: ${payload.oldState} → ${payload.newState}`,
@@ -277,7 +277,7 @@ class AlertManager {
 			].join("\n")
 
 			if (payload.swapUsage) {
-				message.push(`\n**Swap**: ${payload.swapUsage.percent}% used`)
+				message += `\n**Swap**: ${payload.swapUsage.percent}% used`
 			}
 
 			const url = `https://api.telegram.org/bot${this.config.telegramBotToken}/sendMessage`
@@ -290,20 +290,26 @@ class AlertManager {
 
 			const urlObj = new URL(url)
 			return new Promise((resolve) => {
-				const req = https.request({
-					hostname: urlObj.hostname,
-					path: urlObj.pathname,
-					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-						"Content-Length": Buffer.byteLength(body),
+				const req = https.request(
+					{
+						hostname: urlObj.hostname,
+						path: urlObj.pathname,
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							"Content-Length": Buffer.byteLength(body),
+						},
+						timeout: 10000,
 					},
-					timeout: 10000,
-				}, (res) => {
-					resolve(res.statusCode === 200)
-				})
+					(res) => {
+						resolve(res.statusCode === 200)
+					},
+				)
 				req.on("error", () => resolve(false))
-				req.on("timeout", () => { req.destroy(); resolve(false) })
+				req.on("timeout", () => {
+					req.destroy()
+					resolve(false)
+				})
 				req.write(body)
 				req.end()
 			})
@@ -325,9 +331,7 @@ class HistoryStore {
 		this.config = config
 		this.logger = logger
 		this._samples = []
-		this._historyPath = path.join(
-			__dirname, "..", "orchestrator", "data", "ram-history.jsonl"
-		)
+		this._historyPath = path.join(__dirname, "..", "orchestrator", "data", "ram-history.jsonl")
 		this._maxSamples = config.historyMaxSamples
 	}
 
@@ -349,6 +353,19 @@ class HistoryStore {
 			const dir = path.dirname(this._historyPath)
 			if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
 			fs.appendFileSync(this._historyPath, JSON.stringify(sample) + "\n")
+
+			// Rotate file if it exceeds 10MB to prevent unbounded growth
+			const MAX_FILE_SIZE = 10 * 1024 * 1024
+			const stats = fs.statSync(this._historyPath)
+			if (stats.size > MAX_FILE_SIZE) {
+				const data = fs.readFileSync(this._historyPath, "utf8")
+				const lines = data.trim().split("\n").filter(Boolean)
+				const trimmed = lines.slice(-this._maxSamples).join("\n") + "\n"
+				fs.writeFileSync(this._historyPath, trimmed)
+				this.logger.info(
+					`[HistoryStore] Rotated history file to ${lines.slice(-this._maxSamples).length} samples`,
+				)
+			}
 		} catch (err) {
 			this.logger.error(`[HistoryStore] Failed to persist sample: ${err.message}`)
 		}
@@ -379,7 +396,9 @@ class HistoryStore {
 			for (const line of lines.slice(-this._maxSamples)) {
 				try {
 					this._samples.push(JSON.parse(line))
-				} catch { /* skip malformed lines */ }
+				} catch {
+					/* skip malformed lines */
+				}
 			}
 			this.logger.info(`[HistoryStore] Loaded ${this._samples.length} historical samples`)
 		} catch (err) {
@@ -412,7 +431,7 @@ class AutoScaler {
 		}
 
 		this.logger.warn(
-			`[AutoScaler] Scale-up: RAM at ${event.ramPercent}% for ${event.consecutiveSamples} consecutive samples`
+			`[AutoScaler] Scale-up: RAM at ${event.ramPercent}% for ${event.consecutiveSamples} consecutive samples`,
 		)
 
 		switch (this.config.autoScaleUpAction) {
@@ -423,7 +442,7 @@ class AutoScaler {
 				if (workerPauseManager) {
 					await workerPauseManager.pauseWorkersAtOrBelow(
 						WORKER_CRITICALITY.NORMAL,
-						"auto-scale: RAM critically high"
+						"auto-scale: RAM critically high",
 					)
 					this.logger.warn("[AutoScaler] Paused normal and background workers")
 				}
@@ -454,7 +473,7 @@ class AutoScaler {
 		}
 
 		this.logger.info(
-			`[AutoScaler] Scale-down: RAM at ${event.ramPercent}% for ${event.consecutiveSamples} consecutive samples`
+			`[AutoScaler] Scale-down: RAM at ${event.ramPercent}% for ${event.consecutiveSamples} consecutive samples`,
 		)
 
 		switch (this.config.autoScaleDownAction) {
@@ -465,7 +484,7 @@ class AutoScaler {
 				if (workerPauseManager) {
 					await workerPauseManager.resumeWorkersAtOrAbove(
 						WORKER_CRITICALITY.NORMAL,
-						"auto-scale: RAM recovered"
+						"auto-scale: RAM recovered",
 					)
 					this.logger.info("[AutoScaler] Resumed normal and background workers")
 				}
@@ -573,9 +592,9 @@ async function createBullWorker() {
 
 	worker.on("failed", (job, err) => {
 		if (workerPauseManager) {
-			workerPauseManager.trackTaskEnd(job.data?.runnerType || "unknown")
+			workerPauseManager.trackTaskEnd(job?.data?.runnerType || "unknown")
 		}
-		logger.error(`[BullWorker] Job ${job.id} failed: ${err.message}`)
+		logger.error(`[BullWorker] Job ${job?.id || "unknown"} failed: ${err.message}`)
 	})
 
 	worker.on("drained", () => {
@@ -685,6 +704,11 @@ function startHealthAPI() {
 				)
 			} else if (pathname === "/pause" && req.method === "POST") {
 				// Manually pause a specific worker
+				if (!workerPauseManager) {
+					res.writeHead(503, { "Content-Type": "application/json" })
+					res.end(JSON.stringify({ error: "WorkerPauseManager not initialized" }))
+					return
+				}
 				let body = ""
 				req.on("data", (chunk) => (body += chunk))
 				req.on("end", async () => {
@@ -706,6 +730,11 @@ function startHealthAPI() {
 				})
 			} else if (pathname === "/resume" && req.method === "POST") {
 				// Manually resume a specific worker
+				if (!workerPauseManager) {
+					res.writeHead(503, { "Content-Type": "application/json" })
+					res.end(JSON.stringify({ error: "WorkerPauseManager not initialized" }))
+					return
+				}
 				let body = ""
 				req.on("data", (chunk) => (body += chunk))
 				req.on("end", async () => {
@@ -749,9 +778,7 @@ function startHealthAPI() {
 				res.end(JSON.stringify({ count: samples.length, samples }))
 			} else if (pathname === "/alerts") {
 				// Get recent alerts
-				const alertHistoryPath = path.join(
-					__dirname, "..", "orchestrator", "data", "ram-alert-history.jsonl"
-				)
+				const alertHistoryPath = path.join(__dirname, "..", "orchestrator", "data", "ram-alert-history.jsonl")
 				const limit = parseInt(url.searchParams.get("limit") || "20", 10)
 				const alerts = []
 				try {
@@ -759,10 +786,16 @@ function startHealthAPI() {
 						const data = fs.readFileSync(alertHistoryPath, "utf8")
 						const lines = data.trim().split("\n").filter(Boolean).slice(-limit)
 						for (const line of lines) {
-							try { alerts.push(JSON.parse(line)) } catch { /* skip */ }
+							try {
+								alerts.push(JSON.parse(line))
+							} catch {
+								/* skip */
+							}
 						}
 					}
-				} catch { /* ignore */ }
+				} catch {
+					/* ignore */
+				}
 				res.writeHead(200, { "Content-Type": "application/json" })
 				res.end(JSON.stringify({ count: alerts.length, alerts }))
 			} else {
@@ -782,6 +815,10 @@ function startHealthAPI() {
 
 	httpServer.on("error", (err) => {
 		logger.error(`[HealthAPI] Server error: ${err.message}`)
+		if (err.code === "EADDRINUSE") {
+			logger.error(`[HealthAPI] Port ${CONFIG.apiPort} is already in use. Exiting so PM2 can restart.`)
+			shutdown("EADDRINUSE").then(() => process.exit(1))
+		}
 	})
 }
 
@@ -910,10 +947,9 @@ async function main() {
 
 			// Wire BullMQ queue into TaskQueueBullMQ
 			const { Queue } = require("bullmq")
-			const bullQueue = new Queue(
-				process.env.ORCHESTRATOR_QUEUE_NAME || "superroo-orchestrator",
-				{ connection: redisConnection },
-			)
+			const bullQueue = new Queue(process.env.ORCHESTRATOR_QUEUE_NAME || "superroo-orchestrator", {
+				connection: redisConnection,
+			})
 			taskQueue.setBullQueue(bullQueue)
 			logger.info("[Init] BullMQ queue connected to TaskQueueBullMQ")
 
@@ -931,12 +967,16 @@ async function main() {
 		// 14. Log startup summary
 		logger.info("=".repeat(60))
 		logger.info("VPS RAM Orchestrator Worker — Started successfully")
-		logger.info(`RAM thresholds: WARN=${CONFIG.warningPercent}% CRIT=${CONFIG.criticalPercent}% DANGER=${CONFIG.dangerPercent}% RECOVERY=${CONFIG.recoveryPercent}%`)
+		logger.info(
+			`RAM thresholds: WARN=${CONFIG.warningPercent}% CRIT=${CONFIG.criticalPercent}% DANGER=${CONFIG.dangerPercent}% RECOVERY=${CONFIG.recoveryPercent}%`,
+		)
 		logger.info(`Health API: http://127.0.0.1:${CONFIG.apiPort}`)
 		logger.info(`Poll interval: ${CONFIG.pollIntervalMs}ms`)
 		logger.info(`Grace period: ${CONFIG.gracePeriodMs}ms | Cooldown: ${CONFIG.cooldownMs}ms`)
 		if (CONFIG.enableAlerts) {
-			logger.info(`Alerts: enabled (webhook: ${CONFIG.alertWebhookUrl ? "yes" : "no"}, telegram: ${CONFIG.telegramBotToken ? "yes" : "no"})`)
+			logger.info(
+				`Alerts: enabled (webhook: ${CONFIG.alertWebhookUrl ? "yes" : "no"}, telegram: ${CONFIG.telegramBotToken ? "yes" : "no"})`,
+			)
 		}
 		if (CONFIG.enableHistoryPersistence) {
 			logger.info(`History persistence: enabled (max ${CONFIG.historyMaxSamples} samples)`)

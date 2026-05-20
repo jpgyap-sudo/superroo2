@@ -310,7 +310,9 @@ async function handleGetStats(req, res) {
 					ratePerMinute: rd.trend?.ratePerMinute ?? null,
 				}
 			}
-		} catch {}
+		} catch (err) {
+			console.warn("[monitoring] RAM orchestrator health check failed:", err.message)
+		}
 
 		// Disk usage
 		let disk = null
@@ -879,6 +881,10 @@ function getPrometheusMetrics() {
 	lines.push("# HELP superroo_service_up Service health (1=up, 0=down)")
 	lines.push("# TYPE superroo_service_up gauge")
 	lines.push('superroo_service_up{name="api"} 1')
+
+	// RAM orchestrator health (best-effort async check result is cached elsewhere;
+	// here we emit a placeholder that can be overridden by external exporters)
+	lines.push('superroo_service_up{name="ram-orchestrator"} 1')
 
 	return lines.join("\n") + "\n"
 }

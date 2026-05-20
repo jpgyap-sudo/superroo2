@@ -167,10 +167,12 @@ class RAMMonitor extends EventEmitter {
 	 * @returns {{ ramPercent: number, freeMb: number, totalMb: number, usedMb: number, timestamp: number }}
 	 */
 	getLatestSnapshot() {
-		const totalMb = Math.round(os.totalmem() / (1024 * 1024))
-		const freeMb = Math.round(os.freemem() / (1024 * 1024))
+		const totalBytes = os.totalmem()
+		const freeBytes = os.freemem()
+		const totalMb = Math.round(totalBytes / (1024 * 1024))
+		const freeMb = Math.round(freeBytes / (1024 * 1024))
 		const usedMb = totalMb - freeMb
-		const ramPercent = Math.round((usedMb / totalMb) * 100)
+		const ramPercent = Math.round(((totalBytes - freeBytes) / totalBytes) * 100)
 
 		// Include swap data if available (GAP 6)
 		let swap = null
@@ -302,9 +304,9 @@ class RAMMonitor extends EventEmitter {
 		} else if (ramPercent <= this.recoveryPercent) {
 			newState = "normal"
 		} else {
-			// Between recovery and warning — stay in previous state if it was warning,
-			// otherwise transition to normal
-			newState = prevState === "warning" ? "warning" : "normal"
+			// Between recovery and warning — maintain current state (hysteresis)
+			// to prevent flapping. Only transition to normal when below recoveryPercent.
+			newState = prevState || "normal"
 		}
 
 		// Swap-based state escalation (GAP 6)
