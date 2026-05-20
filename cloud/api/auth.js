@@ -929,6 +929,9 @@ async function handleAuthRoute(method, url, req, res) {
 	// Don't intercept Memory Explorer route — public lesson data for the dashboard
 	if (normalizedPath.startsWith("/memory-explorer")) return false
 
+	// Don't intercept Hermes Claw routes — handled by api.js directly (dashboard stats, skills, resources)
+	if (normalizedPath.startsWith("/orchestrator/hermes/")) return false
+
 	// Don't intercept lessons sync — called by local dev machine sync script
 	if (normalizedPath === "/lessons/sync") return false
 
