@@ -100,6 +100,13 @@ export default defineConfig(({ mode }) => {
 				"@": resolve(__dirname, "./src"),
 				"@src": resolve(__dirname, "./src"),
 				"@roo": resolve(__dirname, "../src/shared"),
+				// Force vscode-jsonrpc to the 8.2.0 version that allows deep imports.
+				// pnpm hoists 9.0.0-next.11 (used by vscode-langservers-extracted) which
+				// has a restrictive exports field breaking langium/mermaid bundling.
+				"vscode-jsonrpc": resolve(
+					__dirname,
+					"../node_modules/.pnpm/vscode-jsonrpc@8.2.0/node_modules/vscode-jsonrpc",
+				),
 			},
 		},
 		build: {
