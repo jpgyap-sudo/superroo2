@@ -955,9 +955,10 @@ async function sendCoderAutoProgress(botToken, chatId, taskId, fromPhase, toPhas
 	}
 
 	const sent = await sendMessage(botToken, chatId, text)
-	// Store message ID for next auto-delete (sendMessage returns the response or we track via Telegram API)
-	// Since sendMessage doesn't return message_id directly, we skip tracking for now
-	// and rely on periodic cleanup or user /cancel instead
+	// Store message ID for next auto-delete
+	if (sent && sent.result && sent.result.message_id) {
+		lastProgressMessageIds.set(taskId, sent.result.message_id)
+	}
 	return sent
 }
 

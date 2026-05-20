@@ -95,6 +95,37 @@
 			"id": "commit_1779259787541",
 			"modelsUsed": [],
 			"workflowCompliance": null
+		},
+		{
+			"commitSha": "9cc50a8a7daf39eedcb8a8dbb90b8baa79a74d94",
+			"agent": "Kimi Code CLI",
+			"type": "bugfix",
+			"title": "fix(webview): comprehensive tab error fixes and gap closures (P0–P2)",
+			"filesChanged": [
+				"webview-ui/src/App.tsx",
+				"webview-ui/src/components/chat/ChatTextArea.tsx",
+				"webview-ui/src/components/chat/ChatView.tsx",
+				"webview-ui/src/components/chat/FollowUpSuggest.tsx",
+				"webview-ui/src/components/github/GitHubView.tsx",
+				"webview-ui/src/components/marketplace/MarketplaceView.tsx",
+				"webview-ui/src/components/super-roo/SuperRooDashboard.tsx",
+				"webview-ui/src/components/super-roo/hooks/SrContext.tsx",
+				"webview-ui/src/components/super-roo/tabs/BugsTab.tsx",
+				"webview-ui/src/components/super-roo/tabs/ModelRouterView.tsx",
+				"webview-ui/src/components/super-roo/tabs/VpsHealthTab.tsx",
+				"webview-ui/src/components/super-roo/tabs/model-router/AgentSync.tsx",
+				"webview-ui/src/components/super-roo/tabs/model-router/CostOptimizer.tsx",
+				"webview-ui/src/components/super-roo/tabs/model-router/PerformanceMonitor.tsx",
+				"webview-ui/src/components/super-roo/tabs/model-router/ProviderStatusStrip.tsx",
+				"webview-ui/src/components/super-roo/tabs/model-router/RouteTable.tsx",
+				"webview-ui/src/components/super-roo/tabs/settings/AdvancedVpsSettingsTab.tsx",
+				"webview-ui/src/components/super-roo/tabs/settings/ApiKeysProvidersTab.tsx"
+			],
+			"featuresAffected": ["webview-all-tabs"],
+			"timestamp": "2026-05-20T10:34:57.215Z",
+			"id": "commit_1779273297215",
+			"modelsUsed": [],
+			"workflowCompliance": null
 		}
 	],
 	"deploys": [

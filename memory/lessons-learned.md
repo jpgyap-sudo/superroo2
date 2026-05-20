@@ -1470,3 +1470,171 @@ To be determined — this commit was auto-flagged as potentially containing a le
 api, bugfix
 
 ---
+
+### Auto-Extracted Lesson: (webview): comprehensive tab error fixes and gap closures (P0–P2)
+
+Date: 2026-05-20
+Source: Git commit 9cc50a8a
+Model/API used: unknown
+Confidence: medium
+Related files: memory/.stop-hook-last-run, memory/.sync-state.json, memory/context/latest-agent-context.md, memory/lesson-index.jsonl, memory/lesson-summaries.json
+
+#### Task Summary
+
+fix(webview): comprehensive tab error fixes and gap closures (P0–P2)
+
+#### Files Changed
+
+- `memory/.stop-hook-last-run`
+- `memory/.sync-state.json`
+- `memory/context/latest-agent-context.md`
+- `memory/lesson-index.jsonl`
+- `memory/lesson-summaries.json`
+- `memory/lessons-learned.md`
+- `server/src/memory/commit-deploy-log.json`
+- `webview-ui/src/App.tsx`
+- `webview-ui/src/components/chat/ChatTextArea.tsx`
+- `webview-ui/src/components/chat/ChatView.tsx`
+- `webview-ui/src/components/chat/FollowUpSuggest.tsx`
+- `webview-ui/src/components/github/GitHubView.tsx`
+- `webview-ui/src/components/marketplace/MarketplaceView.tsx`
+- `webview-ui/src/components/super-roo/SuperRooDashboard.tsx`
+- `webview-ui/src/components/super-roo/hooks/SrContext.tsx`
+- `webview-ui/src/components/super-roo/tabs/BugsTab.tsx`
+- `webview-ui/src/components/super-roo/tabs/ModelRouterView.tsx`
+- `webview-ui/src/components/super-roo/tabs/VpsHealthTab.tsx`
+- `webview-ui/src/components/super-roo/tabs/model-router/AgentSync.tsx`
+- `webview-ui/src/components/super-roo/tabs/model-router/CostOptimizer.tsx`
+- `webview-ui/src/components/super-roo/tabs/model-router/PerformanceMonitor.tsx`
+- `webview-ui/src/components/super-roo/tabs/model-router/ProviderStatusStrip.tsx`
+- `webview-ui/src/components/super-roo/tabs/model-router/RouteTable.tsx`
+- `webview-ui/src/components/super-roo/tabs/settings/AdvancedVpsSettingsTab.tsx`
+- `webview-ui/src/components/super-roo/tabs/settings/ApiKeysProvidersTab.tsx`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 9cc50a8a.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 9cc50a8a by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+testing, ui, deployment, bugfix, refactor, performance
+
+---
+
+### Lesson: Always await async method calls — missing `await` on HermesClaw.getStats() caused silent Promise-object bugs
+
+Date: 2026-05-20
+Source: Code task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/api/api.js, cloud/orchestrator/modules/HermesClaw.js
+
+#### Task Summary
+
+Fixed 4 missing `await` calls on `orchestrator.hermesClaw.getStats()` in cloud/api/api.js. The method is `async` (returns a Promise), but was called without `await` at 4 locations, causing the routes to receive Promise objects instead of actual stats objects. Also fixed a stat field name mismatch in the health check route that read `stats.totalQueries` and `stats.ollamaReady` — neither of which exist in HermesClaw's response (which returns `operationCount`, `totalDurationMs`, `averageDurationMs`, `memoryEntries`, `knowledgeStore`).
+
+#### Files Changed
+
+- cloud/api/api.js — added `await` to 4 `getStats()` calls (lines 3592, 7257, 8826, 8844); fixed field name `totalQueries` → `operationCount` in health check route (line 3592-3594)
+
+#### Bug Cause
+
+1. `orchestrator.hermesClaw.getStats()` is declared as `async getStats()` in HermesClaw.js, meaning it returns a Promise. Calling it without `await` returns the Promise object itself, not the resolved stats.
+2. The health check route at line 3592-3594 read `stats.totalQueries`, `stats.queries`, and `stats.ollamaReady` — none of which exist in the HermesClaw response. The actual field is `stats.operationCount`.
+
+#### Fix Applied
+
+1. Added `await` before all 4 `orchestrator.hermesClaw.getStats()` calls
+2. Changed `stats.totalQueries || stats.queries || 0` to `stats.operationCount || 0` in the health check route
+3. Removed the `stats.ollamaReady` reference (not a field returned by HermesClaw)
+
+#### Test Result
+
+unknown (deployed to VPS, API restarted with 13s uptime)
+
+#### Lesson Learned
+
+When calling an `async` method, always verify `await` is present — especially in route handlers where the missing `await` silently returns a Promise object that evaluates as truthy but has none of the expected properties. Also, when reading stats from an API response, verify field names against the actual method implementation, not assumptions.
+
+#### Reusable Rule
+
+After adding a new API route that calls an async method, grep for the method name to ensure all call sites have `await`. Use: `grep -n "hermesClaw.getStats()" cloud/api/api.js` and verify each occurrence has `await` before it.
+
+#### Tags
+
+bugfix, async, await, api, hermes-claw, stats, deployment
+
+---
+
+### Auto-Extracted Lesson: Hermes Claw dashboard — correct field names, auto-load skills/resources, surf...
+
+Date: 2026-05-20
+Source: Git commit 8fc2f21e
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/dashboard/src/components/views/hermes-claw.tsx, cloud/dashboard/src/components/views/product-memory.tsx
+
+#### Task Summary
+
+fix: Hermes Claw dashboard — correct field names, auto-load skills/resources, surface pgvector stats and avg duration
+
+#### Files Changed
+
+- `cloud/dashboard/src/components/views/hermes-claw.tsx`
+- `cloud/dashboard/src/components/views/product-memory.tsx`
+
+#### Bug Cause
+
+Frontend TypeScript interfaces (`HermesStats`) defined field names that did not match the actual API response from `HermesClaw.getStats()`. The interface had `totalQueries`, `totalSkillsCreated`, `totalLessonsStored`, `totalBugFixes`, `ollamaReady`, `modelLoaded` — none of which exist in the API. The API returns `operationCount`, `totalDurationMs`, `averageDurationMs`, `memoryEntries`, `knowledgeStore`. Additionally, `fetchStats` stored the full response wrapper `data` (i.e. `{ success: true, stats: {...} }`) instead of `data.stats`, causing all stat cards to render nothing.
+
+#### Fix Applied
+
+1. Changed `HermesStats` interface to match actual API response fields: `operationCount`, `totalDurationMs`, `averageDurationMs`, `memoryEntries`, `knowledgeStore?`
+2. Added `KnowledgeStoreStats` interface for pgvector data (`bugCount`, `lessonCount`, etc.)
+3. Fixed `fetchStats` to store `data.stats` instead of `data`
+4. Added `fetchSkills()` and `fetchResources()` calls in the mount `useEffect` so panels auto-load
+5. Added `averageDurationMs` display in stat cards and footer summary
+6. Surfaced `knowledgeStore.bugCount` and `knowledgeStore.lessonCount` in stat cards and footer
+7. Applied same fixes to `product-memory.tsx` (wrong interface + wrong object store)
+
+#### Test Result
+
+TypeScript compiles cleanly (`npx tsc --noEmit` exit code 0). Deployed to VPS and PM2 restarted successfully.
+
+#### Lesson Learned
+
+When building frontend dashboards that consume API data, always verify the TypeScript interface against the actual API response shape. A mismatch between interface field names and API response keys causes silent failures — all stat cards render as empty/zero. Also, always check that `fetch` response destructuring extracts the correct nested object (e.g. `data.stats` not `data`).
+
+#### Reusable Rule
+
+**Always verify frontend TypeScript interfaces against the actual API response before wiring stat cards.** When a dashboard view shows empty stat cards, check: (1) does the interface match the API response fields? (2) is the fetch response correctly destructured (e.g. `data.stats` vs `data`)? (3) does the mount `useEffect` call all data-fetching functions? (4) are all API-returned fields surfaced in the UI?
+
+#### Tags
+
+bugfix, frontend, typescript, interface-mismatch, api, dashboard, hermes-claw, pgvector
+
+---

@@ -1,16 +1,16 @@
 {
-	"generatedAt": "2026-05-20T10:30:20.102Z",
+	"generatedAt": "2026-05-20T11:04:30.484Z",
 	"deepseekModel": "deepseek-chat",
 	"ollamaUrl": "http://100.64.175.88:11434",
 	"sourceFile": "memory/lessons-learned.md",
 	"count": 1,
 	"summaries": [
 		{
-			"title": "Telegram diff deep links",
+			"title": "Always await async method calls — missing `await` on HermesClaw.getStats() caused silent Promise-object bugs",
 			"date": "2026-05-20",
-			"model": "local",
-			"confidence": "medium",
-			"summary": "To ensure Telegram View Diff is reliable, never depend solely on a volatile callback preview. Instead, store the git diff in pending coder job state, expose it via `/api/telegram/tasks/:id/diff`, include diff metadata in `/api/telegram/tasks`, and have Telegram buttons open a dashboard deep link (`/?page=telegram&task=<id>&panel=diff`) with an inline preview as a fallback.",
+			"model": "deepseek-chat",
+			"confidence": "high",
+			"summary": "Missing `await` on async method calls silently returns Promise objects instead of resolved data, causing bugs that are hard to detect. Always verify `await` is present on all call sites of async functions, especially in route handlers, and confirm field names match the actual API response.",
 			"hasEmbeddings": true
 		}
 	]
