@@ -1,16 +1,16 @@
 {
-	"generatedAt": "2026-05-20T06:48:24.993Z",
+	"generatedAt": "2026-05-20T06:52:38.752Z",
 	"deepseekModel": "deepseek-chat",
 	"ollamaUrl": "http://100.64.175.88:11434",
 	"sourceFile": "memory/lessons-learned.md",
 	"count": 1,
 	"summaries": [
 		{
-			"title": "E2E health scan after multi-file feature implementation — verify all test scripts run from correct working directory",
+			"title": "Bound unbounded Maps in long-running webviews with LRUCache",
 			"date": "2026-05-20",
-			"model": "deepseek-chat",
+			"model": "Kimi Code CLI",
 			"confidence": "high",
-			"summary": "After implementing multi-file features, run all test scripts from their correct working directory to catch pre-existing path issues. A test script using `readFileSync(\"./cloud/api/telegramBot.js\")` failed because it ran from the `cloud/` subdirectory, making the effective path `cloud/cloud/api/telegramBot.js`; the fix was changing it to `./api/telegramBot.js`. Always verify that relative paths in `readFileSync` and `require` resolve correctly for the intended working directory.",
+			"summary": "In long-running webviews with `retainContextWhenHidden: true`, unbounded data structures like plain `Map` objects cause memory leaks and crashes. The fix replaces unbounded maps with `LRUCache` (max 50, 5min TTL) and applies dedupe guards, debounce/throttle, retry caps, and strict cleanup effects to prevent resource accumulation.",
 			"hasEmbeddings": true
 		}
 	]

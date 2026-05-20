@@ -697,10 +697,32 @@ export default function IdeTerminalView() {
 											dispatch({ type: "SET_AI_INPUT", payload: suggestion })
 										}}
 										onApplyCode={(code: string, language: string) => {
+											// Set content in editor state
 											hook.setCurrentFileContent(code)
+											// Save to disk
+											if (hook.currentFilePath) {
+												hook.handleFileSave(code)
+												// Show visual feedback in chat
+												const feedbackMsg = `✅ Applied code to \`${hook.currentFilePath}\``
+												dispatch({
+													type: "ADD_AI_MESSAGE",
+													payload: {
+														id: `apply-${Date.now()}`,
+														role: "assistant",
+														author: "System",
+														time: new Date().toLocaleTimeString([], {
+															hour: "2-digit",
+															minute: "2-digit",
+														}),
+														content: feedbackMsg,
+													},
+												})
+											}
 										}}
 										onRunInTerminal={(code: string) => {
+											// Set terminal input AND auto-execute
 											dispatch({ type: "SET_TERMINAL_INPUT", payload: code })
+											hook.handleTerminalCommand(code)
 										}}
 										onFileLinkClick={(path: string) => {
 											hook.handleFileSelect(path)
