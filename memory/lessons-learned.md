@@ -683,9 +683,11 @@ Confidence: medium
 Related files: cloud/dashboard/src/app/page.tsx, cloud/dashboard/src/components/sidebar.tsx, cloud/dashboard/src/components/views/ram-orchestrator.tsx, cloud/ecosystem.config.js, cloud/orchestrator/modules/CPUGuard.js
 
 #### Task Summary
+
 fix: close all 10 RAM orchestrator gaps — dashboard view, alerting/Telegram, DeployOrchestrator RAM check, CPUGuard shared RAM, cluster mode, history persistence, auto-scaling, swap monitoring
 
 #### Files Changed
+
 - `cloud/dashboard/src/app/page.tsx`
 - `cloud/dashboard/src/components/sidebar.tsx`
 - `cloud/dashboard/src/components/views/ram-orchestrator.tsx`
@@ -698,25 +700,175 @@ fix: close all 10 RAM orchestrator gaps — dashboard view, alerting/Telegram, D
 - `memory/lesson-summaries.json`
 
 #### Bug Cause
+
 <!-- TODO: Document what caused the issue -->
+
 Unknown — extracted from commit bfc63b1b.
 
 #### Fix Applied
+
 <!-- TODO: Document the solution -->
+
 See commit bfc63b1b by JPG Yap.
 
 #### Test Result
+
 Unknown — no test files detected.
 
 #### Lesson Learned
+
 <!-- TODO: Extract reusable lesson -->
+
 To be determined — this commit was auto-flagged as potentially containing a lesson.
 
 #### Reusable Rule
+
 <!-- TODO: Define a specific rule for future agents -->
+
 **TODO: Add a specific, actionable rule based on this commit.**
 
 #### Tags
+
 bugfix
+
+---
+
+### Auto-Extracted Lesson: Remove duplicate module.exports in RAMMonitor.js that was overwriting getSwap...
+
+Date: 2026-05-20
+Source: Git commit bc55e422
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/orchestrator/modules/RAMMonitor.js, memory/lesson-index.jsonl, memory/lesson-summaries.json, memory/lessons-learned.md
+
+#### Task Summary
+
+fix: remove duplicate module.exports in RAMMonitor.js that was overwriting getSwapUsage and getRamUsagePercent exports
+
+#### Files Changed
+
+- `cloud/orchestrator/modules/RAMMonitor.js`
+- `memory/lesson-index.jsonl`
+- `memory/lesson-summaries.json`
+- `memory/lessons-learned.md`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit bc55e422.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit bc55e422 by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+bugfix
+
+---
+
+### Lesson: Docker depends_on API container causes cascade failure when port is host-bound via PM2
+
+Date: 2026-05-20
+Source: Code agent task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/docker/docker-compose.yml
+
+#### Task Summary
+
+The website (superroo.cloud) was not loading after RAM orchestrator gap fixes were deployed. Investigation revealed the dashboard Docker container was running an old build. After rebuilding the dashboard image, `docker compose up -d` tried to recreate the API container too (due to `depends_on`), which failed because port 8787 was already bound by the PM2 `superroo-api` process on the host.
+
+#### Files Changed
+
+- `cloud/docker/docker-compose.yml`
+
+#### Bug Cause
+
+The `superroo-dashboard` and `superroo-mini-ide` services had `depends_on: superroo-api: condition: service_healthy`. When `docker compose up -d superroo-dashboard` was run, Docker Compose tried to recreate the API container, which failed because port 8787 was already bound by the PM2 `superroo-api` process. The API container entered a "Created" (not running) state, which prevented the dashboard from starting (it waited for the API to be healthy).
+
+#### Fix Applied
+
+1. Removed `depends_on` from `superroo-dashboard`, `superroo-mini-ide`, `superroo-worker`, and `superroo-auto-deployer` — the API is already running via PM2 on the host
+2. Commented out the port binding `8787:8787` on the API container to avoid conflict with the PM2 process
+3. Ran `docker compose down superroo-api superroo-dashboard && docker compose up -d superroo-dashboard` to recreate only the dashboard container
+
+#### Test Result
+
+pass — dashboard returns HTTP 200, API returns HTTP 200, RAM orchestrator health endpoint returns normal state
+
+#### Lesson Learned
+
+When running a hybrid Docker + PM2 setup, Docker Compose `depends_on` with `condition: service_healthy` creates a hard dependency that can cascade-fail if the depended-on container can't start due to port conflicts with host processes. Services that can reach the host process directly (via `localhost:PORT`) should not have Docker-level dependencies on containers that are redundant with host processes.
+
+#### Reusable Rule
+
+When a Docker Compose service depends on another service that is already running via PM2 on the host, do NOT use `depends_on` in docker-compose.yml. Instead, remove the dependency and let the service connect directly to the host process via `localhost:PORT`. Also, avoid binding the same host port in both Docker and PM2 — comment out the Docker port binding and let PM2 handle it.
+
+#### Tags
+
+docker, docker-compose, deployment, port-conflict, pm2
+
+---
+
+### Lesson: MCP server `local_json_fallback` silently drops lesson data — `withFallback()` must detect it
+
+Date: 2026-05-20
+Source: Code mode task completion
+Model/API used: DeepSeek Chat
+Confidence: high
+Related files: C:\Users\User\.superroo\bin\superroo-learn.mjs, server/src/memory/McpMemoryServer.ts
+
+#### Task Summary
+
+The Quotation Automation System project's memory lessons were not being sent to the Central Brain. The `superroo-learn` CLI reported "✅ Lesson stored to Central Brain" but the lessons were silently dropped.
+
+#### Files Changed
+
+- `C:\Users\User\.superroo\bin\superroo-learn.mjs` — `withFallback()` function (line 450) and `cmdExtractCommit()` (line 956)
+
+#### Bug Cause
+
+The MCP server at port 3419 proxies `hermes_learn` to the Central Brain daemon (port 3417) and REST API (port 8787), but BOTH were unreachable from the local machine. The MCP server's `_proxyWithFallback` fell through to `_handleLocalFallback`, which returns `{success:true, source:"local_json_fallback"}` — the lesson data was DROPPED (the local JSON fallback handler for `hermes_learn` doesn't actually store the lesson, it just returns empty results). The `withFallback()` function in `superroo-learn.mjs` only caught thrown errors, not `success:true` responses with `source:"local_json_fallback"`.
+
+#### Fix Applied
+
+1. Added detection in `withFallback()`: if MCP result has `source === "local_json_fallback"`, throw an error to trigger the fallback chain to local storage + retry queue
+2. Added missing `retryContext` parameter to `cmdExtractCommit()` so git hook lessons are queued for retry when MCP fails
+
+#### Test Result
+
+pass — `superroo-learn store` now correctly stores locally and queues for retry when Central Brain daemon is offline
+
+#### Lesson Learned
+
+When building fallback chains, never trust `success: true` from an upstream component — always inspect the `source` field to verify the data was actually persisted. The MCP server's `_handleLocalFallback` returns `success: true` even though it doesn't store the data, which is a design flaw that silently loses lessons.
+
+#### Reusable Rule
+
+Any `withFallback()` pattern that proxies through an intermediate server must check the `source` field of the response, not just catch errors. If the source is `local_json_fallback`, treat it as a failure and fall through to real local storage + retry queue.
+
+#### Tags
+
+learning-layer, central-brain, mcp, fallback, lesson-storage, cross-project
 
 ---
