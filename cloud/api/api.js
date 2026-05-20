@@ -614,11 +614,10 @@ async function initOrchestrator() {
 		orchestrator.registerSelfHealingLoop(selfHealingLoop)
 
 		orchestrator.registerParallelExecutor(
-			new ParallelExecutor(orchestrator.eventLog, orchestrator.safetyManager, {
+			new ParallelExecutor({
 				maxConcurrency: 2,
-				maxTokenBudget: 100,
-				enablePreemption: false,
-				taskTimeoutMs: 600000,
+				maxTokens: 100,
+				agentRegistry: orchestrator.agentRegistry || null,
 			}),
 		)
 
@@ -5520,7 +5519,8 @@ const server = http.createServer(async (req, res) => {
 
 		// Monitoring — exposes log aggregation, system stats, and health timeline
 		// Provides log viewer, system stats, and health check history endpoints
-		if (normalizedUrl.startsWith("/monitoring/")) {
+		// Also handles /metrics for Prometheus scraping
+		if (normalizedUrl.startsWith("/monitoring/") || normalizedUrl === "/metrics") {
 			if (await monitoring.handleMonitoringRoute(method, url, req, res)) {
 				return
 			}
