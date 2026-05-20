@@ -577,7 +577,7 @@ export function RamOrchestratorView() {
 									</div>
 									<div className="flex items-center gap-2">
 										<BarChart3 className="h-3 w-3" />
-										<span>Samples: {hist?.sampleCount ?? 0}</span>
+										<span>Samples: {hist?.count ?? 0}</span>
 									</div>
 								</div>
 								<div className="mt-2 flex flex-wrap gap-2">
