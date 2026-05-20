@@ -212,6 +212,54 @@ const pendingOtpSecrets = new Map()
 /** Map<chatId, { email, otp, createdAt, messageIds }> — Email OTP login states */
 const pendingEmailOtps = new Map()
 
+/** Map<taskId, intervalId> — Active typing intervals for auto-mode jobs */
+const activeTypingIntervals = new Map()
+
+/**
+ * Starts a persistent typing indicator for an auto-mode job.
+ * Sends sendChatAction("typing") every 5 seconds until stopped or timeout.
+ * Auto-stops after 10 minutes to prevent infinite intervals.
+ * @param {string} botToken
+ * @param {number|string} chatId
+ * @param {string} taskId
+ */
+function startAutoTypingInterval(botToken, chatId, taskId) {
+	stopAutoTypingInterval(taskId)
+	var count = 0
+	var maxCount = 120 // 120 * 5s = 600s = 10 minutes
+	var interval = setInterval(function () {
+		count++
+		if (count >= maxCount) {
+			stopAutoTypingInterval(taskId)
+			return
+		}
+		sendChatAction(botToken, chatId, "typing").catch(function () {})
+	}, 5000)
+	activeTypingIntervals.set(taskId, interval)
+}
+
+/**
+ * Stops the persistent typing indicator for a task.
+ * @param {string} taskId
+ */
+function stopAutoTypingInterval(taskId) {
+	var existing = activeTypingIntervals.get(taskId)
+	if (existing) {
+		clearInterval(existing)
+		activeTypingIntervals.delete(taskId)
+	}
+}
+
+/**
+ * Stops all active typing indicators.
+ */
+function stopAllAutoTypingIntervals() {
+	for (var entry of activeTypingIntervals) {
+		clearInterval(entry[1])
+	}
+	activeTypingIntervals.clear()
+}
+
 /** OTP expiry: 10 minutes */
 const EMAIL_OTP_TTL_MS = 10 * 60 * 1000
 
@@ -646,6 +694,41 @@ async function sendInlineKeyboard(botToken, chatId, text, buttons, opts) {
 		}),
 	}
 	await sendMessage(botToken, chatId, text, Object.assign({}, opts, { reply_markup: JSON.stringify(reply_markup) }))
+}
+
+/**
+ * Sends a persistent reply keyboard (bottom button row) for click-first GUI.
+ * @param {string} botToken
+ * @param {number|string} chatId
+ * @param {string} text
+ * @param {Array} buttons - Array of string rows, e.g. [["💻 Code", "🔍 Debug"], ["🧪 Test", "🚀 Deploy"]]
+ * @param {object} [opts]
+ */
+async function sendReplyKeyboard(botToken, chatId, text, buttons, opts) {
+	opts = opts || {}
+	const reply_markup = {
+		keyboard: buttons.map(function (row) {
+			return row.map(function (label) {
+				return { text: label }
+			})
+		}),
+		resize_keyboard: opts.resize_keyboard !== false,
+		one_time_keyboard: opts.one_time_keyboard === true,
+	}
+	await sendMessage(botToken, chatId, text, Object.assign({}, opts, { reply_markup: JSON.stringify(reply_markup) }))
+}
+
+/**
+ * Removes the reply keyboard from a chat.
+ * @param {string} botToken
+ * @param {number|string} chatId
+ * @param {string} [text="Done"]
+ */
+async function removeReplyKeyboard(botToken, chatId, text) {
+	text = text || "Done"
+	await sendMessage(botToken, chatId, text, {
+		reply_markup: JSON.stringify({ remove_keyboard: true }),
+	})
 }
 
 /**
@@ -1178,6 +1261,24 @@ function buildConversationSummary(chatId, maxMessages) {
 				)
 			}
 		}
+	}
+
+	// Add learned patterns from telegramLearner for richer context
+	try {
+		var userPatterns = telegramLearner.getUserPatterns(String(chatId))
+		if (userPatterns && userPatterns.length > 0) {
+			var topPatterns = userPatterns.slice(0, 3)
+			lines.push(
+				"[Learned Patterns] User frequently does: " +
+					topPatterns
+						.map(function (p) {
+							return p.intent + " (" + p.count + " times, keywords: " + p.topKeywords.join(", ") + ")"
+						})
+						.join("; "),
+			)
+		}
+	} catch (e) {
+		// Non-fatal
 	}
 
 	// Add conversation messages
@@ -2160,9 +2261,9 @@ async function handleCode(botToken, chatId, args, queue, orchestratorBridge, opt
 	// Send rich notification with action buttons
 	await telegramNotifier.sendTaskStarted(botToken, chatId, taskId, instruction, "superroo-coder-agent")
 
-	// Start typing indicator for streaming feel during long operations
+	// Start persistent typing indicator for auto mode multi-phase jobs
 	if (isAuto) {
-		sendChatAction(botToken, chatId, "typing").catch(function () {})
+		startAutoTypingInterval(botToken, chatId, taskId)
 	}
 }
 
@@ -4149,6 +4250,25 @@ function buildSmartContextPrompt(chatId) {
 	if (ctx.lastIntent) parts.push("Last intent: " + ctx.lastIntent)
 	if (ctx.lastFixApplied) parts.push("Last fix applied: " + ctx.lastFixApplied.slice(0, 200))
 	if (ctx.messageCount > 1) parts.push("Message count in this session: " + ctx.messageCount)
+
+	// Inject learned patterns from telegramLearner
+	try {
+		var userPatterns = telegramLearner.getUserPatterns(String(chatId))
+		if (userPatterns && userPatterns.length > 0) {
+			var topPatterns = userPatterns.slice(0, 3)
+			parts.push(
+				"User's common intents: " +
+					topPatterns
+						.map(function (p) {
+							return p.intent + " (" + p.count + "x)"
+						})
+						.join(", "),
+			)
+		}
+	} catch (e) {
+		// Non-fatal
+	}
+
 	if (parts.length > 0) {
 		return "\n\n*Smart Context:*\n" + parts.join("\n")
 	}
@@ -5538,7 +5658,9 @@ async function handleNaturalLanguageInstruction(
 		} else {
 			// ─── OpenClaw: LLM-Powered Intent Classification ──────────────────
 			// Use the classifier to detect intent with LLM, fallback to keyword matching.
-			classified = await telegramClassifier.classifyIntent(text, providers || [])
+			// Pass conversation context so the classifier can disambiguate follow-ups.
+			var conversationSummary = buildConversationSummary(chatId, 8)
+			classified = await telegramClassifier.classifyIntent(text, providers || [], conversationSummary)
 		}
 		var intentKind = classified.kind
 		var confidence = classified.confidence
@@ -7214,6 +7336,7 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 						} else if (coderResult.action === "rejected" || coderResult.action === "cancelled") {
 							// User rejected or cancelled — clean up
 							telegramNotifier.removePendingCoderJob(coderTaskId)
+							stopAutoTypingInterval(coderTaskId)
 							logTelegramUsage("callback:coder:" + coderResult.action, cqChatId, cqUserId, {
 								taskId: coderTaskId,
 							})
@@ -7248,6 +7371,7 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 						} else if (coderResult.action === "done") {
 							// User confirmed done — clean up
 							telegramNotifier.removePendingCoderJob(coderTaskId)
+							stopAutoTypingInterval(coderTaskId)
 							logTelegramUsage("callback:coder:done", cqChatId, cqUserId, { taskId: coderTaskId })
 						} else if (coderResult.action === "diff") {
 							// View diff — already handled by handleCoderCallback (edits message)
@@ -7255,6 +7379,60 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 						} else if (coderResult.action === "back") {
 							// Go back — already handled by handleCoderCallback (edits message)
 							logTelegramUsage("callback:coder:back", cqChatId, cqUserId, { taskId: coderTaskId })
+						} else if (coderResult.action === "similar") {
+							// Suggest a similar task based on the completed task's instruction
+							logTelegramUsage("callback:coder:similar", cqChatId, cqUserId, { taskId: coderTaskId })
+							var pendingJob = telegramNotifier.getPendingCoderJob(coderTaskId)
+							var baseInstruction = pendingJob ? pendingJob.instruction : ""
+							var similarSuggestions = [
+								"Add tests for the changes",
+								"Add error handling",
+								"Add logging",
+								"Improve performance",
+								"Add documentation",
+								"Refactor for readability",
+							]
+							var suggestionText = similarSuggestions
+								.map(function (s, i) {
+									return i + 1 + ". " + s + " related to: " + baseInstruction.slice(0, 80)
+								})
+								.join("\n")
+							await sendMessage(
+								botToken,
+								cqChatId,
+								"*📋 Similar Tasks*\n\nBased on your last task, here are related improvements you might want:\n\n" +
+									suggestionText +
+									"\n\n_Reply with the number or describe what you'd like to do next._",
+							)
+						} else if (coderResult.action === "audit") {
+							// Audit the changes from the completed task
+							logTelegramUsage("callback:coder:audit", cqChatId, cqUserId, { taskId: coderTaskId })
+							var pendingJob = telegramNotifier.getPendingCoderJob(coderTaskId)
+							var auditText = "*🔍 Audit Report*\n\n"
+							if (pendingJob) {
+								auditText += "*Task:* `" + coderTaskId + "`\n"
+								auditText += "*Instruction:* " + pendingJob.instruction.slice(0, 200) + "\n\n"
+								if (pendingJob.plan && pendingJob.plan.changes) {
+									auditText += "*Files Changed:*\n"
+									for (var ci = 0; ci < pendingJob.plan.changes.length; ci++) {
+										var ch = pendingJob.plan.changes[ci]
+										auditText += "• `" + ch.file + "` — " + (ch.action || "modify") + "\n"
+									}
+								}
+								if (pendingJob.branch) {
+									auditText += "\n*Branch:* `" + pendingJob.branch + "`\n"
+								}
+								if (pendingJob.workspaceDir) {
+									auditText += "*Workspace:* `" + pendingJob.workspaceDir + "`\n"
+								}
+							} else {
+								auditText += "_Task details no longer available in memory._"
+							}
+							auditText +=
+								"\n\n_Tip: Use `/diff " +
+								coderTaskId +
+								"` to view the full diff, or `/logs` to check deployment logs._"
+							await sendMessage(botToken, cqChatId, auditText)
 						}
 					}
 				} catch (err) {
@@ -7506,6 +7684,23 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 		}
 	}
 
+	// ─── Reply Keyboard Button Mapping ───────────────────────────────────────
+	// Convert persistent reply keyboard button taps to slash commands
+	var replyKeyboardMap = {
+		"💻 Code": "/code",
+		"🔍 Debug": "/debug",
+		"🧪 Test": "/tests",
+		"🚀 Deploy": "/deploy",
+		"📋 Recent": "/recent",
+		"📊 Status": "/status",
+		"🧠 Brain": "/brain",
+		"📋 Menu": "/menu",
+	}
+	if (replyKeyboardMap[text]) {
+		text = replyKeyboardMap[text]
+		console.log("[telegram] Reply keyboard mapped '" + text + "' to command")
+	}
+
 	// Parse command and arguments
 	var args = text.split(/\s+/)
 	var command = args[0] ? args[0].toLowerCase() : ""
@@ -7620,6 +7815,13 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 					'• *"Show me my projects"* — I\'ll list your projects\n\n' +
 					"Just talk to me like a smart assistant! 🚀",
 			)
+			// Send persistent reply keyboard for click-first GUI
+			await sendReplyKeyboard(botToken, chatId, "Use the buttons below for quick actions 👇", [
+				["💻 Code", "🔍 Debug"],
+				["🧪 Test", "🚀 Deploy"],
+				["📋 Recent", "📊 Status"],
+				["🧠 Brain", "📋 Menu"],
+			])
 		} else if (command === "/login") {
 			logTelegramUsage("/login", chatId, telegramUserId)
 			await handleLogin(botToken, chatId, telegramUserId, isGroup)

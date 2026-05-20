@@ -31,16 +31,16 @@ const LEARNING_RATE = 0.1
 let learnerState = {
 	totalConversations: 0,
 	totalInteractions: 0,
-	intentCounts: {},        // { intent_name: count }
-	intentAccuracy: {},      // { intent_name: { correct, total, accuracy } }
-	responseQuality: {},     // { intent_name: { scores: [], average } }
-	patternConfidence: {},   // { pattern_key: confidence_score }
+	intentCounts: {}, // { intent_name: count }
+	intentAccuracy: {}, // { intent_name: { correct, total, accuracy } }
+	responseQuality: {}, // { intent_name: { scores: [], average } }
+	patternConfidence: {}, // { pattern_key: confidence_score }
 	lastTrainingAt: null,
 	modelVersion: 1,
 }
 
-let conversationBuffer = []   // Recent conversations for pattern analysis
-let knownPatterns = {}        // Detected conversation patterns
+let conversationBuffer = [] // Recent conversations for pattern analysis
+let knownPatterns = {} // Detected conversation patterns
 
 // ─── Initialization ─────────────────────────────────────────────────────────
 
@@ -57,7 +57,13 @@ function loadState() {
 		if (fs.existsSync(LEARNER_STATE_FILE)) {
 			const raw = fs.readFileSync(LEARNER_STATE_FILE, "utf8")
 			learnerState = JSON.parse(raw)
-			console.log("[telegram-learner] Loaded state: " + learnerState.totalConversations + " conversations, " + learnerState.totalInteractions + " interactions")
+			console.log(
+				"[telegram-learner] Loaded state: " +
+					learnerState.totalConversations +
+					" conversations, " +
+					learnerState.totalInteractions +
+					" interactions",
+			)
 		}
 	} catch (err) {
 		console.error("[telegram-learner] Failed to load state:", err.message)
@@ -149,6 +155,7 @@ function recordInteraction(interaction) {
 
 	// Add to conversation buffer for pattern analysis
 	conversationBuffer.push({
+		chatId: interaction.chatId,
 		message: interaction.message,
 		intent: intent,
 		response: interaction.response,
@@ -168,16 +175,17 @@ function recordInteraction(interaction) {
 function logConversation(interaction) {
 	ensureDataDir()
 	try {
-		const line = JSON.stringify({
-			ts: new Date().toISOString(),
-			userId: interaction.userId,
-			chatId: interaction.chatId,
-			message: interaction.message,
-			intent: interaction.intent,
-			responseLength: (interaction.response || "").length,
-			responseTimeMs: interaction.responseTimeMs,
-			userSatisfied: interaction.userSatisfied,
-		}) + "\n"
+		const line =
+			JSON.stringify({
+				ts: new Date().toISOString(),
+				userId: interaction.userId,
+				chatId: interaction.chatId,
+				message: interaction.message,
+				intent: interaction.intent,
+				responseLength: (interaction.response || "").length,
+				responseTimeMs: interaction.responseTimeMs,
+				userSatisfied: interaction.userSatisfied,
+			}) + "\n"
 		fs.appendFileSync(CONVERSATION_LOG_FILE, line, "utf8")
 	} catch (err) {
 		console.error("[telegram-learner] Failed to log conversation:", err.message)
@@ -199,9 +207,24 @@ function assessUserSatisfaction(followUpMessage) {
 
 	// Positive signals
 	const positiveWords = [
-		"thanks", "thank", "great", "awesome", "perfect", "good", "nice",
-		"works", "working", "correct", "right", "yes", "ok", "okay",
-		"understood", "got it", "clear", "helpful",
+		"thanks",
+		"thank",
+		"great",
+		"awesome",
+		"perfect",
+		"good",
+		"nice",
+		"works",
+		"working",
+		"correct",
+		"right",
+		"yes",
+		"ok",
+		"okay",
+		"understood",
+		"got it",
+		"clear",
+		"helpful",
 	]
 	for (const word of positiveWords) {
 		if (lower.includes(word)) return true
@@ -209,9 +232,22 @@ function assessUserSatisfaction(followUpMessage) {
 
 	// Negative signals
 	const negativeWords = [
-		"no", "not", "wrong", "incorrect", "bad", "terrible", "awful",
-		"doesn't work", "not working", "error", "fail", "failed",
-		"what", "huh", "confused", "don't understand",
+		"no",
+		"not",
+		"wrong",
+		"incorrect",
+		"bad",
+		"terrible",
+		"awful",
+		"doesn't work",
+		"not working",
+		"error",
+		"fail",
+		"failed",
+		"what",
+		"huh",
+		"confused",
+		"don't understand",
 	]
 	for (const word of negativeWords) {
 		if (lower.includes(word)) return false
@@ -265,7 +301,8 @@ function detectPatterns() {
 				} else {
 					// Update confidence with exponential moving average
 					const oldConf = knownPatterns[patternKey].confidence
-					knownPatterns[patternKey].confidence = oldConf + LEARNING_RATE * (freq / conversations.length - oldConf)
+					knownPatterns[patternKey].confidence =
+						oldConf + LEARNING_RATE * (freq / conversations.length - oldConf)
 					knownPatterns[patternKey].occurrences += freq
 				}
 			}
@@ -296,10 +333,7 @@ function suggestIntent(message) {
 			if (!suggestions[pattern.intent]) {
 				suggestions[pattern.intent] = 0
 			}
-			suggestions[pattern.intent] = Math.max(
-				suggestions[pattern.intent],
-				pattern.confidence,
-			)
+			suggestions[pattern.intent] = Math.max(suggestions[pattern.intent], pattern.confidence)
 		}
 	}
 
@@ -318,15 +352,115 @@ function getStats() {
 		totalInteractions: learnerState.totalInteractions,
 		intentCounts: learnerState.intentCounts,
 		responseQuality: Object.fromEntries(
-			Object.entries(learnerState.responseQuality).map(([k, v]) => [k, {
-				average: v.average,
-				sampleSize: v.scores.length,
-			}]),
+			Object.entries(learnerState.responseQuality).map(([k, v]) => [
+				k,
+				{
+					average: v.average,
+					sampleSize: v.scores.length,
+				},
+			]),
 		),
 		knownPatterns: Object.keys(knownPatterns).length,
 		modelVersion: learnerState.modelVersion,
 		lastTrainingAt: learnerState.lastTrainingAt,
 	}
+}
+
+/**
+ * Get user's frequent intent patterns from conversation history.
+ *
+ * @param {string} chatId - Telegram chat ID
+ * @returns {Array<{intent: string, count: number, topKeywords: string[]}>}
+ */
+function getUserPatterns(chatId) {
+	if (conversationBuffer.length === 0) return []
+
+	// Filter to this user's conversations (fallback to all if chatId not stored in older entries)
+	var userConvs = conversationBuffer.filter(function (c) {
+		return c.chatId === chatId || c.chatId === undefined
+	})
+	if (userConvs.length === 0) return []
+
+	// Count by intent
+	var intentCounts = {}
+	var intentKeywords = {}
+	for (var i = 0; i < userConvs.length; i++) {
+		var conv = userConvs[i]
+		var intent = conv.intent || "unknown"
+		if (!intentCounts[intent]) {
+			intentCounts[intent] = 0
+			intentKeywords[intent] = {}
+		}
+		intentCounts[intent]++
+
+		// Extract keywords
+		var words = (conv.message || "").toLowerCase().split(/\s+/)
+		for (var w = 0; w < words.length; w++) {
+			var word = words[w].replace(/[^a-z0-9]/g, "")
+			if (word.length < 4) continue
+			if (!intentKeywords[intent][word]) intentKeywords[intent][word] = 0
+			intentKeywords[intent][word]++
+		}
+	}
+
+	// Build result sorted by count
+	var result = []
+	for (var intent in intentCounts) {
+		if (!Object.prototype.hasOwnProperty.call(intentCounts, intent)) continue
+		// Get top 3 keywords for this intent
+		var keywords = Object.entries(intentKeywords[intent] || {})
+			.sort(function (a, b) {
+				return b[1] - a[1]
+			})
+			.slice(0, 3)
+			.map(function (entry) {
+				return entry[0]
+			})
+		result.push({
+			intent: intent,
+			count: intentCounts[intent],
+			topKeywords: keywords,
+		})
+	}
+	return result.sort(function (a, b) {
+		return b.count - a.count
+	})
+}
+
+/**
+ * Suggest next actions based on the user's current intent and past workflow.
+ *
+ * @param {string} chatId - Telegram chat ID
+ * @param {string} currentIntent - The current intent being handled
+ * @returns {Array<string>} Suggested next actions
+ */
+function getSuggestedNextActions(chatId, currentIntent) {
+	var patterns = getUserPatterns(chatId)
+	if (patterns.length === 0) return []
+
+	// Common workflow sequences
+	var workflowSequences = {
+		code_task: ["run_tests", "deploy", "read_logs"],
+		debug_plan: ["code_task", "run_tests", "read_logs"],
+		read_logs: ["debug_plan", "code_task"],
+		run_tests: ["code_task", "deploy", "debug_plan"],
+		deploy: ["read_logs", "run_tests", "commit_status"],
+		create_branch: ["code_task", "create_pr"],
+		create_pr: ["deploy", "run_tests"],
+	}
+
+	var suggestions = workflowSequences[currentIntent] || []
+	// Filter to intents the user has actually used before (or common ones)
+	var userIntentSet = new Set(
+		patterns.map(function (p) {
+			return p.intent
+		}),
+	)
+	return suggestions
+		.filter(function (s) {
+			return userIntentSet.has(s) || ["run_tests", "deploy", "read_logs"].indexOf(s) >= 0
+		})
+		.slice(0, 3)
 }
 
 /**
@@ -360,7 +494,9 @@ function startPeriodicTraining(intervalMs = 5 * 60 * 1000) {
 	if (trainingInterval) clearInterval(trainingInterval)
 	trainingInterval = setInterval(() => {
 		detectPatterns()
-		console.log("[telegram-learner] Pattern detection completed. Known patterns: " + Object.keys(knownPatterns).length)
+		console.log(
+			"[telegram-learner] Pattern detection completed. Known patterns: " + Object.keys(knownPatterns).length,
+		)
 	}, intervalMs)
 	trainingInterval.unref()
 }
@@ -388,6 +524,8 @@ module.exports = {
 	suggestIntent,
 	updateIntentAccuracy,
 	getStats,
+	getUserPatterns,
+	getSuggestedNextActions,
 	detectPatterns,
 	loadState,
 	saveState,

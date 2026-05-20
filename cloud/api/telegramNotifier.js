@@ -628,7 +628,7 @@ async function sendCoderPlan(botToken, chatId, taskId, instruction, planData) {
 	// Auto mode indicator — show when --auto flag was used
 	const autoMode = planData.auto === true
 	const autoNote = autoMode
-		? "\n\n⚡ *Auto Mode Active* — Plan will be automatically applied → committed → deployed after approval."
+		? "\n\n🤖 *Auto Mode Active* — Plan → Apply → Commit → Test → Deploy will run automatically. No approval needed."
 		: ""
 
 	const text =
@@ -638,18 +638,24 @@ async function sendCoderPlan(botToken, chatId, taskId, instruction, planData) {
 		`*Proposed Changes (${changesList.length}):*\n` +
 		(fileSummary || "  _(no file changes)_") +
 		autoNote +
-		`\n\n_Review the plan and approve to start coding, or ask for clarification._`
+		(autoMode ? "" : `\n\n_Review the plan and approve to start coding, or ask for clarification._`)
 
-	const buttons = [
-		[
-			{ text: "▶️ Proceed", callback_data: `coder:proceed:${taskId}` },
-			{ text: "❌ Reject", callback_data: `coder:reject:${taskId}` },
-		],
-		[
-			{ text: "✅ Approve & Code", callback_data: `coder:approve:${taskId}` },
-			{ text: "💬 Clarify", callback_data: `coder:clarify:${taskId}` },
-		],
-	]
+	// In auto mode, skip approval buttons — the worker chains automatically
+	const buttons = autoMode
+		? [
+				[{ text: "⏳ Auto-Processing...", callback_data: `notify:status:${taskId}` }],
+				[{ text: "🛑 Cancel Auto Mode", callback_data: `coder:reject:${taskId}` }],
+			]
+		: [
+				[
+					{ text: "▶️ Proceed", callback_data: `coder:proceed:${taskId}` },
+					{ text: "❌ Reject", callback_data: `coder:reject:${taskId}` },
+				],
+				[
+					{ text: "✅ Approve & Code", callback_data: `coder:approve:${taskId}` },
+					{ text: "💬 Clarify", callback_data: `coder:clarify:${taskId}` },
+				],
+			]
 
 	return await sendInlineKeyboard(botToken, chatId, text, buttons)
 }
@@ -741,6 +747,10 @@ async function sendCoderDeployed(botToken, chatId, taskId, instruction, deployRe
 			{ text: "🔄 Run Again", callback_data: `coder:retry:${taskId}` },
 			{ text: "➕ New Task", callback_data: `menu:code` },
 		])
+		buttons.push([
+			{ text: "📋 Similar Task", callback_data: `coder:similar:${taskId}` },
+			{ text: "🔍 Audit Changes", callback_data: `coder:audit:${taskId}` },
+		])
 	} else {
 		buttons.push([
 			{ text: "🔄 Retry", callback_data: `coder:deploy:${taskId}` },
@@ -798,6 +808,26 @@ async function sendCoderRetryableFailure(botToken, chatId, taskId, instruction, 
 async function sendCoderProgress(botToken, chatId, taskId, message) {
 	const text =
 		`*⏳ Coder Progress: ${taskId}*\n\n` + `${message}\n\n` + `_I'll notify you when the current phase completes._`
+
+	return await sendMessage(botToken, chatId, text)
+}
+
+// ---------------------------------------------------------------------------
+// Auto Mode Progress — sends phase-transition updates during auto chaining
+// ---------------------------------------------------------------------------
+async function sendCoderAutoProgress(botToken, chatId, taskId, fromPhase, toPhase) {
+	const phaseEmojis = {
+		plan: "🔍",
+		apply: "✏️",
+		commit: "💾",
+		test: "🧪",
+		deploy: "🚀",
+	}
+	const text =
+		`*🤖 Auto Mode: ${taskId}*\n\n` +
+		`${phaseEmojis[fromPhase] || "✅"} *${fromPhase}* complete\n` +
+		`→ ${phaseEmojis[toPhase] || "⏳"} Starting *${toPhase}*...\n\n` +
+		`_All phases run automatically. You'll get a final summary when done._`
 
 	return await sendMessage(botToken, chatId, text)
 }
@@ -1043,6 +1073,14 @@ async function handleCoderCallback(botToken, callbackQuery) {
 				}
 			}
 			return { action: "back", taskId }
+		}
+
+		case "similar": {
+			return { action: "similar", taskId }
+		}
+
+		case "audit": {
+			return { action: "audit", taskId }
 		}
 
 		default:
@@ -1311,6 +1349,7 @@ module.exports = {
 	sendCoderClarification,
 	sendCoderRetryableFailure,
 	sendCoderProgress,
+	sendCoderAutoProgress,
 	sendCoderTestResult,
 
 	// Callback handlers

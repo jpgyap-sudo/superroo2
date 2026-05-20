@@ -252,6 +252,14 @@ async function runCoder(job) {
 		if (nextPhase) {
 			log("coder", jobId, `Auto mode: chaining to next phase "${nextPhase}"`)
 			try {
+				// Send phase-transition progress message to Telegram
+				if (telegram.botToken && telegram.chatId) {
+					const notifier = require("../api/telegramNotifier")
+					await notifier
+						.sendCoderAutoProgress(telegram.botToken, telegram.chatId, taskId, effectivePhase, nextPhase)
+						.catch(() => {})
+				}
+
 				const BullMQ = require("bullmq")
 				const connection = {
 					host: process.env.REDIS_HOST || "127.0.0.1",

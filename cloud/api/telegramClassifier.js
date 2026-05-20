@@ -376,10 +376,11 @@ function keywordFallback(text) {
  * Builds the system prompt for the LLM intent classifier.
  * Instructs the model to return structured JSON with kind/project/target/message/confidence.
  *
+ * @param {string} [conversationContext] - Optional recent conversation history for context-aware classification
  * @returns {string} System prompt
  */
-function buildClassifierPrompt() {
-	return (
+function buildClassifierPrompt(conversationContext) {
+	var prompt =
 		"You are SuperRoo Telegram Assistant, a senior engineer dispatcher.\n" +
 		"Convert the user's Telegram message into one JSON object only.\n" +
 		"Allowed kind values: chat, debug_plan, read_logs, run_tests, create_branch, create_pr, restart_worker, deploy, delete_data, shell, upgrade_self, commit_status, feature_query, code_task.\n" +
@@ -390,10 +391,22 @@ function buildClassifierPrompt() {
 		"- feature_query: Use for ANY question about what the app does, what APIs/routes/services exist, what features are available, how the system works. This includes 'is there any api on my app', 'what endpoints does it have', 'what does this project do'.\n" +
 		"- upgrade_self: When the user asks to upgrade, improve, or make the bot/assistant smarter.\n" +
 		"- commit_status: When the user asks about commit history, deploy status, latest commits/deploys.\n" +
-		"- chat: For clarifying questions, follow-ups, 'what app are we talking about', 'what project', conversational messages. NOT for coding instructions.\n" +
+		"- chat: For clarifying questions, follow-ups, 'what app are we talking about', 'what project', conversational messages. NOT for coding instructions.\n"
+
+	if (conversationContext) {
+		prompt +=
+			"\n=== Recent Conversation Context ===\n" +
+			conversationContext +
+			"\n=== End Context ===\n\n" +
+			"Use the conversation context above to disambiguate vague messages. " +
+			"If the user says 'proceed', 'continue', 'do it', 'go ahead', or refers to 'this'/'that', " +
+			"use the context to determine what they mean.\n"
+	}
+
+	prompt +=
 		"Return compact JSON with: kind, project, target, message, confidence.\n" +
 		"confidence is a number between 0 and 1 indicating how sure you are."
-	)
+	return prompt
 }
 
 /**
@@ -402,9 +415,10 @@ function buildClassifierPrompt() {
  *
  * @param {string} text - The user's message
  * @param {Array} providers - Array of AI provider configs (same format as askAI uses)
+ * @param {string} [conversationContext] - Optional recent conversation history for context-aware classification
  * @returns {Promise<ClassifiedIntent>} Classified intent
  */
-async function classifyIntent(text, providers) {
+async function classifyIntent(text, providers, conversationContext) {
 	// Try LLM classification first
 	if (providers && providers.length > 0) {
 		for (var i = 0; i < providers.length; i++) {
@@ -421,7 +435,7 @@ async function classifyIntent(text, providers) {
 					body: JSON.stringify({
 						model: provider.model,
 						messages: [
-							{ role: "system", content: buildClassifierPrompt() },
+							{ role: "system", content: buildClassifierPrompt(conversationContext) },
 							{ role: "user", content: text },
 						],
 						max_tokens: 256,
