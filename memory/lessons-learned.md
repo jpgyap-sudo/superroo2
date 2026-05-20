@@ -673,3 +673,50 @@ To be determined — this commit was auto-flagged as potentially containing a le
 testing, ml-engine, api, deployment
 
 ---
+
+### Auto-Extracted Lesson: Close all 10 RAM orchestrator gaps — dashboard view, alerting/Telegram, Deplo...
+
+Date: 2026-05-20
+Source: Git commit bfc63b1b
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/dashboard/src/app/page.tsx, cloud/dashboard/src/components/sidebar.tsx, cloud/dashboard/src/components/views/ram-orchestrator.tsx, cloud/ecosystem.config.js, cloud/orchestrator/modules/CPUGuard.js
+
+#### Task Summary
+fix: close all 10 RAM orchestrator gaps — dashboard view, alerting/Telegram, DeployOrchestrator RAM check, CPUGuard shared RAM, cluster mode, history persistence, auto-scaling, swap monitoring
+
+#### Files Changed
+- `cloud/dashboard/src/app/page.tsx`
+- `cloud/dashboard/src/components/sidebar.tsx`
+- `cloud/dashboard/src/components/views/ram-orchestrator.tsx`
+- `cloud/ecosystem.config.js`
+- `cloud/orchestrator/modules/CPUGuard.js`
+- `cloud/orchestrator/modules/DeployOrchestrator.js`
+- `cloud/orchestrator/modules/RAMMonitor.js`
+- `cloud/worker/orchestratorWorker.js`
+- `cloud/worker/vpsRamOrchestratorWorker.js`
+- `memory/lesson-summaries.json`
+
+#### Bug Cause
+<!-- TODO: Document what caused the issue -->
+Unknown — extracted from commit bfc63b1b.
+
+#### Fix Applied
+<!-- TODO: Document the solution -->
+See commit bfc63b1b by JPG Yap.
+
+#### Test Result
+Unknown — no test files detected.
+
+#### Lesson Learned
+<!-- TODO: Extract reusable lesson -->
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+<!-- TODO: Define a specific rule for future agents -->
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+bugfix
+
+---

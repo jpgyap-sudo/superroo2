@@ -404,7 +404,5 @@ class RAMMonitor extends EventEmitter {
 	}
 }
 
-// Export shared RAM measurement function for CPUGuard (GAP 9)
+// Export shared RAM measurement functions for CPUGuard (GAP 9) and vpsRamOrchestratorWorker
 module.exports = { RAMMonitor, DEFAULT_THRESHOLDS, getRamUsagePercent, getSwapUsage }
-
-module.exports = { RAMMonitor, DEFAULT_THRESHOLDS }

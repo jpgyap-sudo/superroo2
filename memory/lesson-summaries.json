@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-20T02:44:24.792Z",
+  "generatedAt": "2026-05-20T02:55:46.667Z",
   "deepseekModel": "deepseek-chat",
   "ollamaUrl": "http://100.64.175.88:11434",
   "sourceFile": "memory/lessons-learned.md",
@@ -10,7 +10,7 @@
       "date": "2026-05-20",
       "model": "deepseek-chat",
       "confidence": "high",
-      "summary": "The VPS RAM Orchestrator Worker implements multi-layer RAM pressure management by separating sensing (RAMMonitor), policy (RAMScheduler), and actuation (WorkerPauseManager) into independent modules. A 4-state state machine with hysteresis prevents oscillation, while worker criticality levels enable graceful degradation by pausing non-essential workers based on RAM pressure severity. This modular architecture allows each layer to be tested and replaced independently.",
+      "summary": "The VPS RAM Orchestrator Worker implements multi-layer RAM pressure management by separating sensing (RAMMonitor), policy (RAMScheduler), and actuation (WorkerPauseManager) into distinct modules. A 4-state state machine with hysteresis prevents oscillation, while worker criticality levels enable graceful degradation by pausing only non-essential workers under increasing RAM pressure. This modular architecture allows independent testing and replacement of each layer.",
       "hasEmbeddings": true
     }
   ]
