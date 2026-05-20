@@ -51,6 +51,36 @@ function ensureDataDir() {
 	}
 }
 
+function backfillConversations(limit = MAX_CONVERSATIONS_IN_MEMORY) {
+	if (!fs.existsSync(CONVERSATION_LOG_FILE)) return
+	try {
+		const lines = fs
+			.readFileSync(CONVERSATION_LOG_FILE, "utf8")
+			.split("\n")
+			.filter(Boolean)
+			.slice(-limit)
+		for (const line of lines) {
+			try {
+				const entry = JSON.parse(line)
+				conversationBuffer.push({
+					chatId: entry.chatId,
+					message: entry.message,
+					intent: entry.intent || "unknown",
+					response: "",
+					timestamp: entry.ts,
+				})
+			} catch (_) {
+				// Skip malformed lines
+			}
+		}
+		console.log(
+			"[telegram-learner] Backfilled " + conversationBuffer.length + " conversations from log",
+		)
+	} catch (err) {
+		console.error("[telegram-learner] Failed to backfill conversations:", err.message)
+	}
+}
+
 function loadState() {
 	ensureDataDir()
 	try {
@@ -77,6 +107,14 @@ function loadState() {
 		}
 	} catch (err) {
 		console.error("[telegram-learner] Failed to load patterns:", err.message)
+	}
+
+	// Backfill conversation buffer from JSONL log so patterns survive PM2 restarts
+	backfillConversations()
+
+	// Run an immediate pattern detection if we have enough backfilled data
+	if (conversationBuffer.length >= 5) {
+		detectPatterns()
 	}
 }
 
@@ -257,9 +295,92 @@ function assessUserSatisfaction(followUpMessage) {
 }
 
 /**
- * Detect conversation patterns from the buffer.
- * This runs periodically to find common patterns in user interactions.
- */
+	* LLM-based satisfaction assessment for more accurate scoring.
+	* Uses Ollama (free, local) to rate satisfaction on a 1-5 scale.
+	* Falls back to keyword-based assessment if Ollama is unavailable.
+	* @param {string} followUpMessage - The user's follow-up message
+	* @param {string} [previousResponse] - The bot's previous response for context
+	* @returns {Promise<{score: number|null, label: string}>} { score: 1-5, label: "satisfied"|"neutral"|"unsatisfied" }
+	*/
+async function assessSatisfactionLLM(followUpMessage, previousResponse) {
+	if (!followUpMessage) return { score: null, label: "neutral" }
+
+	try {
+		var prompt = "Rate the user's satisfaction with the previous response on a scale of 1-5.\n"
+		prompt += "1 = very unsatisfied, 2 = unsatisfied, 3 = neutral, 4 = satisfied, 5 = very satisfied.\n"
+		if (previousResponse) {
+			prompt += "Previous response: " + previousResponse.slice(0, 300) + "\n"
+		}
+		prompt += "User's follow-up message: " + followUpMessage.slice(0, 300) + "\n"
+		prompt += "Respond with ONLY a number (1-5) and nothing else."
+
+		var http = require("http")
+		var ollamaBaseUrl = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434"
+		var ollamaModel = process.env.OLLAMA_MODEL || "llama3.2"
+
+		var result = await new Promise(function (resolve, reject) {
+			var postData = JSON.stringify({
+				model: ollamaModel,
+				messages: [{ role: "user", content: prompt }],
+				stream: false,
+				options: { num_predict: 10, temperature: 0.1 },
+			})
+			var parsedUrl = new URL(ollamaBaseUrl + "/api/chat")
+			var req = http.request(
+				{
+					hostname: parsedUrl.hostname,
+					port: parsedUrl.port || 11434,
+					path: "/api/chat",
+					method: "POST",
+					headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(postData) },
+				},
+				function (res) {
+					var body = ""
+					res.on("data", function (chunk) {
+						body += chunk
+					})
+					res.on("end", function () {
+						try {
+							var parsed = JSON.parse(body)
+							var content = (parsed.message && parsed.message.content) || ""
+							var match = content.trim().match(/^[1-5]$/)
+							if (match) {
+								resolve(parseInt(match[0], 10))
+							} else {
+								resolve(null)
+							}
+						} catch (e) {
+							resolve(null)
+						}
+					})
+				},
+			)
+			req.on("error", function () {
+				resolve(null)
+			})
+			req.write(postData)
+			req.end()
+		})
+
+		if (result !== null) {
+			var label = result >= 4 ? "satisfied" : result <= 2 ? "unsatisfied" : "neutral"
+			return { score: result, label: label }
+		}
+	} catch (e) {
+		// Fall through to keyword-based
+	}
+
+	// Fallback: use keyword-based assessment
+	var keywordResult = assessUserSatisfaction(followUpMessage)
+	if (keywordResult === true) return { score: 4, label: "satisfied" }
+	if (keywordResult === false) return { score: 2, label: "unsatisfied" }
+	return { score: 3, label: "neutral" }
+}
+
+/**
+	* Detect conversation patterns from the buffer.
+	* This runs periodically to find common patterns in user interactions.
+	*/
 function detectPatterns() {
 	if (conversationBuffer.length < 5) return
 
@@ -521,6 +642,7 @@ module.exports = {
 	recordInteraction,
 	recordConversation,
 	assessUserSatisfaction,
+	assessSatisfactionLLM,
 	suggestIntent,
 	updateIntentAccuracy,
 	getStats,

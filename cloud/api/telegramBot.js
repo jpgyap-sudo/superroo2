@@ -73,12 +73,149 @@ const TELEGRAM_MAX_MESSAGE_LENGTH = 4096
 
 // ─── Per-Chat Rate Limiting ────────────────────────────────────────────────
 
-/** Max commands per minute per chat */
+/** Max commands per minute per chat (free tier) */
 const RATE_LIMIT_MAX = 10
+/** Max commands per minute per chat (premium tier — authenticated users) */
+const PREMIUM_RATE_LIMIT_MAX = 30
 /** Window size in milliseconds */
 const RATE_LIMIT_WINDOW_MS = 60 * 1000
 
 var rateLimitMap = new Map()
+
+// ─── Webhook Update Deduplication ──────────────────────────────────────────
+// Telegram delivers updates with at-least-once semantics. Track processed
+// update_ids to prevent duplicate command execution (e.g., double deploy).
+// Bounded to the last 1000 IDs to prevent memory leaks.
+
+/** Set<number> — processed update_ids */
+const processedUpdateIds = new Set()
+/** Max number of update_ids to track */
+const PROCESSED_UPDATE_IDS_MAX = 1000
+
+// ─── Webhook Health Check ──────────────────────────────────────────────────
+
+/** Health check state — tracks webhook health over time */
+const webhookHealth = {
+	lastCheck: null,
+	lastOk: null,
+	lastError: null,
+	consecutiveFailures: 0,
+	totalChecks: 0,
+	totalFailures: 0,
+	uptimePercent: 100,
+	/** Array<{timestamp, ok, error, latencyMs}> */
+	checkHistory: [],
+}
+const WEBHOOK_HEALTH_HISTORY_MAX = 100
+let _webhookHealthInterval = null
+
+/**
+ * Starts a periodic webhook health check that calls getWebhookInfo every N ms.
+ * Results are stored in webhookHealth for dashboard display.
+ * @param {string} botToken
+ * @param {number} intervalMs - Check interval in ms (default: 5 min)
+ */
+function startWebhookHealthCheck(botToken, intervalMs) {
+	if (intervalMs === undefined || intervalMs === null) intervalMs = 5 * 60 * 1000
+	if (_webhookHealthInterval) {
+		clearInterval(_webhookHealthInterval)
+	}
+	console.log("[telegram] Starting webhook health check every " + (intervalMs / 1000) + "s")
+	// Run immediately
+	runWebhookHealthCheck(botToken)
+	_webhookHealthInterval = setInterval(function () {
+		runWebhookHealthCheck(botToken)
+	}, intervalMs)
+}
+
+/**
+ * Runs a single webhook health check.
+ * @param {string} botToken
+ */
+async function runWebhookHealthCheck(botToken) {
+	var start = Date.now()
+	try {
+		var info = await getWebhookInfo(botToken)
+		var latency = Date.now() - start
+		var ok = info.ok === true && info.result && info.result.url
+		webhookHealth.lastCheck = Date.now()
+		webhookHealth.totalChecks++
+		if (ok) {
+			webhookHealth.lastOk = Date.now()
+			webhookHealth.consecutiveFailures = 0
+		} else {
+			webhookHealth.lastError = (info.result && info.result.last_error_date) || info.description || "unknown"
+			webhookHealth.consecutiveFailures++
+			webhookHealth.totalFailures++
+		}
+		webhookHealth.uptimePercent = Math.round(
+			((webhookHealth.totalChecks - webhookHealth.totalFailures) / webhookHealth.totalChecks) * 100,
+		)
+		webhookHealth.checkHistory.push({
+			timestamp: Date.now(),
+			ok: ok,
+			error: ok ? null : webhookHealth.lastError,
+			latencyMs: latency,
+		})
+		if (webhookHealth.checkHistory.length > WEBHOOK_HEALTH_HISTORY_MAX) {
+			webhookHealth.checkHistory.shift()
+		}
+		// Log warning if 3+ consecutive failures
+		if (webhookHealth.consecutiveFailures >= 3 && webhookHealth.consecutiveFailures % 3 === 0) {
+			console.warn(
+				"[telegram] Webhook health: " + webhookHealth.consecutiveFailures +
+				" consecutive failures (last: " + webhookHealth.lastError + ")",
+			)
+		}
+	} catch (err) {
+		webhookHealth.lastCheck = Date.now()
+		webhookHealth.lastError = err.message
+		webhookHealth.consecutiveFailures++
+		webhookHealth.totalFailures++
+		webhookHealth.totalChecks++
+		webhookHealth.uptimePercent = Math.round(
+			((webhookHealth.totalChecks - webhookHealth.totalFailures) / webhookHealth.totalChecks) * 100,
+		)
+		webhookHealth.checkHistory.push({
+			timestamp: Date.now(),
+			ok: false,
+			error: err.message,
+			latencyMs: Date.now() - start,
+		})
+		if (webhookHealth.checkHistory.length > WEBHOOK_HEALTH_HISTORY_MAX) {
+			webhookHealth.checkHistory.shift()
+		}
+		console.error("[telegram] Webhook health check error:", err.message)
+	}
+}
+
+/**
+ * Stops the periodic webhook health check.
+ */
+function stopWebhookHealthCheck() {
+	if (_webhookHealthInterval) {
+		clearInterval(_webhookHealthInterval)
+		_webhookHealthInterval = null
+		console.log("[telegram] Webhook health check stopped")
+	}
+}
+
+/**
+ * Returns the current webhook health state.
+ * @returns {Object}
+ */
+function getWebhookHealth() {
+	return {
+		lastCheck: webhookHealth.lastCheck,
+		lastOk: webhookHealth.lastOk,
+		lastError: webhookHealth.lastError,
+		consecutiveFailures: webhookHealth.consecutiveFailures,
+		totalChecks: webhookHealth.totalChecks,
+		totalFailures: webhookHealth.totalFailures,
+		uptimePercent: webhookHealth.uptimePercent,
+		recentHistory: webhookHealth.checkHistory.slice(-20),
+	}
+}
 
 /**
  * Token-based command lookup for Telegram callback_data (max 64 bytes).
@@ -117,18 +254,19 @@ function resolveCallbackCommand(token) {
 	return entry.command
 }
 
-function checkRateLimit(chatId) {
+function checkRateLimit(chatId, isPremium) {
 	var now = Date.now()
+	var maxCommands = isPremium ? PREMIUM_RATE_LIMIT_MAX : RATE_LIMIT_MAX
 	var entry = rateLimitMap.get(chatId)
 	if (!entry) {
-		rateLimitMap.set(chatId, { count: 1, windowStart: now })
+		rateLimitMap.set(chatId, { count: 1, windowStart: now, tier: isPremium ? "premium" : "free" })
 		return { allowed: true }
 	}
 	if (now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
-		rateLimitMap.set(chatId, { count: 1, windowStart: now })
+		rateLimitMap.set(chatId, { count: 1, windowStart: now, tier: isPremium ? "premium" : "free" })
 		return { allowed: true }
 	}
-	if (entry.count >= RATE_LIMIT_MAX) {
+	if (entry.count >= maxCommands) {
 		return { allowed: false, retryAfter: Math.ceil((entry.windowStart + RATE_LIMIT_WINDOW_MS - now) / 1000) }
 	}
 	entry.count++
@@ -195,6 +333,138 @@ function logTelegramUsage(command, chatId, userId, details) {
 	console.log("[ace-usage] " + JSON.stringify(usageEntry))
 }
 
+/**
+	* Command latency tracking for monitoring slow commands.
+	* Records min, max, avg, count, and p95 latency per command.
+	*/
+const commandLatency = {}
+const COMMAND_LATENCY_HISTORY_MAX = 1000
+
+/**
+	* Record the execution latency of a command for monitoring.
+	* @param {string} command - The command name (e.g., "/code", "callback:brain_exec")
+	* @param {number} durationMs - Execution duration in milliseconds
+	*/
+function logCommandLatency(command, durationMs) {
+	if (!commandLatency[command]) {
+		commandLatency[command] = {
+			min: durationMs,
+			max: durationMs,
+			total: durationMs,
+			count: 1,
+			p95: durationMs,
+			recent: [durationMs],
+		}
+	} else {
+		var stats = commandLatency[command]
+		if (durationMs < stats.min) stats.min = durationMs
+		if (durationMs > stats.max) stats.max = durationMs
+		stats.total += durationMs
+		stats.count++
+		stats.recent.push(durationMs)
+		if (stats.recent.length > 100) {
+			stats.recent = stats.recent.slice(-100)
+		}
+		// Compute p95 from recent samples
+		var sorted = stats.recent.slice().sort(function (a, b) { return a - b })
+		var p95Index = Math.ceil(sorted.length * 0.95) - 1
+		stats.p95 = sorted[Math.max(0, p95Index)]
+	}
+}
+
+/**
+	* Get a snapshot of command latency statistics.
+	* @param {string} [command] - Optional command filter
+	* @returns {object} Latency stats
+	*/
+function getCommandLatency(command) {
+	if (command) {
+		var s = commandLatency[command]
+		if (!s) return null
+		return {
+			command: command,
+			min: s.min,
+			max: s.max,
+			avg: Math.round(s.total / s.count),
+			count: s.count,
+			p95: s.p95,
+		}
+	}
+	var result = {}
+	for (var cmd in commandLatency) {
+		var s = commandLatency[cmd]
+		result[cmd] = {
+			min: s.min,
+			max: s.max,
+			avg: Math.round(s.total / s.count),
+			count: s.count,
+			p95: s.p95,
+		}
+	}
+	return result
+}
+
+/**
+	* Provider fallback metrics for monitoring AI provider reliability.
+	* Tracks attempts, successes, failures, and fallback chain behavior.
+	*/
+const providerMetrics = {
+	attempts: {},
+	successes: {},
+	failures: {},
+	fallbackChain: {
+		ollamaFirst: 0,
+		ollamaFirstOk: 0,
+		cloudAttempted: 0,
+		cloudOk: 0,
+		ollamaRagFallback: 0,
+		ollamaRagOk: 0,
+		allFailed: 0,
+	},
+}
+
+/**
+	* Record a provider attempt for monitoring.
+	* @param {string} providerId - Provider identifier (e.g., "deepseek", "ollama")
+	* @param {boolean} success - Whether the call succeeded
+	* @param {number} [durationMs] - Optional response time in milliseconds
+	*/
+function logProviderAttempt(providerId, success, durationMs) {
+	if (!providerMetrics.attempts[providerId]) {
+		providerMetrics.attempts[providerId] = 0
+		providerMetrics.successes[providerId] = 0
+		providerMetrics.failures[providerId] = 0
+	}
+	providerMetrics.attempts[providerId]++
+	if (success) {
+		providerMetrics.successes[providerId]++
+	} else {
+		providerMetrics.failures[providerId]++
+	}
+}
+
+/**
+	* Get provider metrics snapshot.
+	* @returns {object} Provider metrics with success rates
+	*/
+function getProviderMetrics() {
+	var result = {
+		providers: {},
+		fallbackChain: { ...providerMetrics.fallbackChain },
+	}
+	for (var pid in providerMetrics.attempts) {
+		var att = providerMetrics.attempts[pid]
+		var ok = providerMetrics.successes[pid]
+		result.providers[pid] = {
+			attempts: att,
+			successes: ok,
+			failures: providerMetrics.failures[pid],
+			successRate: att > 0 ? Math.round((ok / att) * 100) + "%" : "0%",
+		}
+	}
+	return result
+}
+
 // ─── In-memory state ───────────────────────────────────────────────────────
 
 /** Map<chatId, { sessionId, authenticatedAt, otpVerified, otpSecret? }> */
@@ -214,6 +484,57 @@ const pendingEmailOtps = new Map()
 
 /** Map<taskId, intervalId> — Active typing intervals for auto-mode jobs */
 const activeTypingIntervals = new Map()
+
+// ─── Command History (GAP 4.2) ─────────────────────────────────────────────
+// Per-chat ring buffer of recent commands for up/down arrow recall.
+// Each entry: { command, args, text, timestamp, result }
+
+/** Map<chatId, Array<{command, args, text, timestamp}>> */
+const _commandHistory = new Map()
+const COMMAND_HISTORY_MAX = 20
+
+/**
+ * Record a command in the per-chat history ring buffer.
+ * @param {number|string} chatId
+ * @param {string} command - The slash command or "natural_language"
+ * @param {string} text - The full user message text
+ * @param {Array} [cmdArgs] - Parsed arguments
+ */
+function recordCommand(chatId, command, text, cmdArgs) {
+	if (!chatId) return
+	if (!_commandHistory.has(chatId)) {
+		_commandHistory.set(chatId, [])
+	}
+	var history = _commandHistory.get(chatId)
+	// Don't record duplicate consecutive commands (e.g., rapid /again taps)
+	var last = history.length > 0 ? history[history.length - 1] : null
+	if (last && last.command === command && last.text === text) {
+		return
+	}
+	history.push({
+		command: command,
+		text: text.slice(0, 200),
+		args: cmdArgs ? cmdArgs.slice(0, 10) : [],
+		timestamp: Date.now(),
+	})
+	// Bounded ring buffer — remove oldest when over limit
+	if (history.length > COMMAND_HISTORY_MAX) {
+		history.shift()
+	}
+}
+
+/**
+ * Get command history for a chat.
+ * @param {number|string} chatId
+ * @param {number} [limit=10] - Max entries to return
+ * @returns {Array<{command, text, timestamp}>}
+ */
+function getCommandHistory(chatId, limit) {
+	if (limit === undefined || limit === null) limit = 10
+	var history = _commandHistory.get(chatId)
+	if (!history || history.length === 0) return []
+	return history.slice(-limit).reverse()
+}
 
 /**
  * Starts a persistent typing indicator for an auto-mode job.
@@ -631,6 +952,111 @@ async function sendMessage(botToken, chatId, text, opts) {
 	}
 }
 
+// ─── Paginated Message (GAP 4.3) ───────────────────────────────────────────
+// When a response is too long, split it into pages with ◀️ ▶️ navigation.
+// Each page is an editable message; the user can flip through pages via
+// inline keyboard buttons without cluttering the chat with multiple messages.
+
+/** Map<chatId, Array<{messageId, page, totalPages, text}>> — active paginated messages */
+const _paginatedMessages = new Map()
+
+/**
+ * Sends a long message as a paginated, editable message with ◀️ ▶️ navigation.
+ * Falls back to regular sendMessage if the text fits in one chunk.
+ * @param {string} botToken
+ * @param {number|string} chatId
+ * @param {string} text - The full response text
+ * @param {object} [opts] - Optional sendMessage options
+ * @returns {Promise<number|null>} The message_id of the first page, or null
+ */
+async function sendPaginatedMessage(botToken, chatId, text, opts) {
+	opts = opts || {}
+	var chunks = splitLongMessage(text, TELEGRAM_MAX_MESSAGE_LENGTH - 200) // leave room for page indicator
+	if (chunks.length <= 1) {
+		// Single chunk — send normally
+		await sendMessage(botToken, chatId, text, opts)
+		return null
+	}
+
+	// Store all chunks for later editing
+	var pageKey = chatId + "_" + Date.now()
+	var totalPages = chunks.length
+
+	// Send the first page with navigation buttons
+	var pageText = chunks[0] + "\n\n_— Page 1/" + totalPages + " —_"
+	var navButtons = []
+	if (totalPages > 1) {
+		var navRow = []
+		if (totalPages > 1) {
+			navRow.push({ text: "▶️", callback_data: "page:" + pageKey + ":2" })
+		}
+		navButtons.push(navRow)
+	}
+
+	// Store paginated state
+	if (!_paginatedMessages.has(chatId)) {
+		_paginatedMessages.set(chatId, new Map())
+	}
+	_paginatedMessages.get(chatId).set(pageKey, {
+		chunks: chunks,
+		totalPages: totalPages,
+		createdAt: Date.now(),
+	})
+
+	var result = await sendMessage(botToken, chatId, pageText, {
+		...opts,
+		reply_markup: { inline_keyboard: navButtons },
+	})
+
+	// Clean up old paginated messages after 10 minutes
+	setTimeout(function () {
+		var chatPages = _paginatedMessages.get(chatId)
+		if (chatPages) {
+			chatPages.delete(pageKey)
+			if (chatPages.size === 0) _paginatedMessages.delete(chatId)
+		}
+	}, 10 * 60 * 1000).unref()
+
+	return result
+}
+
+/**
+ * Handle a pagination callback (page:key:pageNum).
+ * Edits the message to show the requested page.
+ */
+async function handlePageNavigation(botToken, cq, cqChatId, cqMessageId, cqData) {
+	var parts = cqData.split(":")
+	if (parts.length < 3) return false
+	var pageKey = parts[1]
+	var targetPage = parseInt(parts[2], 10)
+	if (isNaN(targetPage)) return false
+
+	var chatPages = _paginatedMessages.get(cqChatId)
+	if (!chatPages) return false
+	var pageData = chatPages.get(pageKey)
+	if (!pageData) return false
+
+	var totalPages = pageData.totalPages
+	if (targetPage < 1 || targetPage > totalPages) return false
+
+	var chunk = pageData.chunks[targetPage - 1]
+	var pageText = chunk + "\n\n_— Page " + targetPage + "/" + totalPages + " —_"
+
+	// Build navigation buttons
+	var navRow = []
+	if (targetPage > 1) {
+		navRow.push({ text: "◀️", callback_data: "page:" + pageKey + ":" + (targetPage - 1) })
+	}
+	if (targetPage < totalPages) {
+		navRow.push({ text: "▶️", callback_data: "page:" + pageKey + ":" + (targetPage + 1) })
+	}
+
+	await editMessageText(botToken, cqChatId, cqMessageId, pageText, {
+		reply_markup: { inline_keyboard: [navRow] },
+	})
+	return true
+}
+
 /**
  * Deletes a message from a chat.
  * Used for auto-deleting sensitive messages (OTP codes, login details).
@@ -791,13 +1217,20 @@ async function editMessageText(botToken, chatId, messageId, text, opts) {
 async function setWebhook(botToken, webhookUrl) {
 	const url = TELEGRAM_API_BASE + botToken + "/setWebhook"
 	try {
+		// Generate a webhook secret token if TELEGRAM_WEBHOOK_SECRET is configured
+		const secretToken = process.env.TELEGRAM_WEBHOOK_SECRET || undefined
+		const body = {
+			url: webhookUrl,
+			allowed_updates: ["message", "callback_query"],
+		}
+		if (secretToken) {
+			body.secret_token = secretToken
+			console.log("[telegram] Webhook secret_token configured")
+		}
 		const res = await fetch(url, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				url: webhookUrl,
-				allowed_updates: ["message", "callback_query"],
-			}),
+			body: JSON.stringify(body),
 		})
 		const data = await res.json()
 		if (data.ok) {
@@ -1130,11 +1563,28 @@ async function persistState() {
 	try {
 		const dir = path.dirname(TELEGRAM_BOT_STATE_FILE)
 		await fs.mkdir(dir, { recursive: true })
+		// Serialize smart context — convert Maps inside workflowHistory to plain objects
+		var smartContextPlain = {}
+		for (var [chatId, ctx] of _smartContext) {
+			smartContextPlain[chatId] = {
+				lastCommand: ctx.lastCommand,
+				lastError: ctx.lastError,
+				lastProject: ctx.lastProject,
+				lastIntent: ctx.lastIntent,
+				messageCount: ctx.messageCount,
+				lastBrainResult: ctx.lastBrainResult,
+				lastCommandOutput: ctx.lastCommandOutput,
+				lastFixApplied: ctx.lastFixApplied,
+				workflowHistory: ctx.workflowHistory || [],
+			}
+		}
 		const state = {
 			activeSessions: Object.fromEntries(activeSessions),
 			pendingOtpSecrets: Object.fromEntries(pendingOtpSecrets),
 			pendingEmailOtps: Object.fromEntries(pendingEmailOtps),
 			userTasks: Object.fromEntries(userTasks),
+			smartContext: smartContextPlain,
+			userContext: Object.fromEntries(_userContext),
 		}
 		await fs.writeFile(TELEGRAM_BOT_STATE_FILE, JSON.stringify(state), "utf-8")
 	} catch (err) {
@@ -1197,6 +1647,59 @@ async function loadState() {
 				if (Array.isArray(v)) userTasks.set(k, v)
 			}
 		}
+		// Restore smart context with TTL check (expire entries older than 24h)
+		if (parsed.smartContext) {
+			var smartContextTtl = 24 * 60 * 60 * 1000
+			var now = Date.now()
+			var restoredCount = 0
+			var expiredCount = 0
+			for (var [chatId, ctx] of Object.entries(parsed.smartContext)) {
+				// Check if context has a timestamp; if not, keep it (legacy entry)
+				if (ctx._timestamp && now - ctx._timestamp > smartContextTtl) {
+					expiredCount++
+					continue
+				}
+				_smartContext.set(chatId, {
+					lastCommand: ctx.lastCommand || null,
+					lastError: ctx.lastError || null,
+					lastProject: ctx.lastProject || null,
+					lastIntent: ctx.lastIntent || null,
+					messageCount: ctx.messageCount || 0,
+					lastBrainResult: ctx.lastBrainResult || null,
+					lastCommandOutput: ctx.lastCommandOutput || null,
+					lastFixApplied: ctx.lastFixApplied || null,
+					workflowHistory: Array.isArray(ctx.workflowHistory) ? ctx.workflowHistory : [],
+				})
+				restoredCount++
+			}
+			if (restoredCount > 0 || expiredCount > 0) {
+				console.log(
+					"[telegram] Restored " + restoredCount + " smart context entries" +
+					(expiredCount > 0 ? ", expired " + expiredCount : ""),
+				)
+			}
+		}
+		// Restore user context (cross-session memory)
+		if (parsed.userContext) {
+			var userCtxTtl = 7 * 24 * 60 * 60 * 1000 // 7 days TTL for user context
+			var now = Date.now()
+			var restoredUserCtx = 0
+			var expiredUserCtx = 0
+			for (var [uid, uctx] of Object.entries(parsed.userContext)) {
+				if (uctx._timestamp && now - uctx._timestamp > userCtxTtl) {
+					expiredUserCtx++
+					continue
+				}
+				_userContext.set(uid, uctx)
+				restoredUserCtx++
+			}
+			if (restoredUserCtx > 0 || expiredUserCtx > 0) {
+				console.log(
+					"[telegram] Restored " + restoredUserCtx + " user context entries" +
+					(expiredUserCtx > 0 ? ", expired " + expiredUserCtx : ""),
+				)
+			}
+		}
 		console.log(
 			"[telegram] Loaded state: " +
 				activeSessions.size +
@@ -1206,7 +1709,9 @@ async function loadState() {
 				pendingEmailOtps.size +
 				" email OTPs, " +
 				userTasks.size +
-				" user task lists",
+				" user task lists, " +
+				_userContext.size +
+				" user context entries",
 		)
 	} catch {
 		console.log("[telegram] No state file found, starting fresh")
@@ -1292,10 +1797,64 @@ function buildConversationSummary(chatId, maxMessages) {
 }
 
 /**
- * ─── Chat Logging ───────────────────────────────────────────────────────────
- * Writes every conversation exchange to a daily log file for agent monitoring.
- * The log is structured as JSONL (one JSON object per line) for easy parsing.
- * An external monitoring agent reads these logs daily to identify improvement
+	* Builds an LLM-compressed conversation summary when history exceeds threshold.
+	* Uses Ollama (free, local) to generate a 3-5 sentence compressed summary of
+	* key decisions, open questions, and resolved items. Falls back to the regular
+	* buildConversationSummary() if Ollama is unavailable.
+	*/
+async function buildCompressedConversationSummary(chatId, providers) {
+	var history = conversationHistory.get(chatId)
+	if (!history || history.length === 0) return ""
+
+	// For short conversations, use the regular summary
+	if (history.length <= 15) {
+		return buildConversationSummary(chatId, 15)
+	}
+
+	// For long conversations, try LLM compression
+	var recentMessages = history.slice(-20)
+	var rawText = recentMessages
+		.map(function (m) {
+			return (m.role === "user" ? "User" : "Assistant") + ": " + m.content.slice(0, 500)
+		})
+		.join("\n")
+
+	try {
+		var compressed = await _callOllamaChat(
+			[
+				{
+					role: "system",
+					content:
+						"Summarize this conversation in 3-5 sentences. Focus on: key decisions made, open questions, " +
+						"what the user is trying to accomplish, and any errors or blockers. Be concise and factual.",
+				},
+				{ role: "user", content: rawText },
+			],
+			{ num_predict: 512, temperature: 0.3 },
+		)
+		if (compressed && compressed.trim()) {
+			return (
+				"=== Compressed Conversation Summary ===\n" +
+				compressed.trim() +
+				"\n\n(Summary generated from last " +
+				recentMessages.length +
+				" messages)" +
+				"\n=== End of Summary ==="
+			)
+		}
+	} catch (e) {
+		// Fall through to regular summary
+	}
+
+	// Fallback: use regular summary
+	return buildConversationSummary(chatId, 15)
+}
+
+/**
+	* ─── Chat Logging ───────────────────────────────────────────────────────────
+	* Writes every conversation exchange to a daily log file for agent monitoring.
+	* The log is structured as JSONL (one JSON object per line) for easy parsing.
+	* An external monitoring agent reads these logs daily to identify improvement
  * opportunities and trigger code/skill upgrades.
  */
 
@@ -1548,6 +2107,11 @@ async function askAI(message, providers, chatId, options) {
 	// ── Step 1: Build dynamic system prompt with smart context ──────────
 	var systemPrompt = buildSystemPrompt()
 
+	// Detect conversation topic before building context
+	if (chatId !== undefined && chatId !== null) {
+		detectConversationTopic(chatId)
+	}
+
 	// Append smart context (workspace state, recent errors, active tasks)
 	if (chatId !== undefined && chatId !== null) {
 		var smartCtx = buildSmartContextPrompt(chatId)
@@ -1606,17 +2170,24 @@ async function askAI(message, providers, chatId, options) {
 	// Uses shared _callOllamaChat helper which uses http.request instead of fetch
 	// because Node.js 20's built-in fetch (undici) has a default headersTimeout of ~20s,
 	// but Ollama can take ~30s on cold start.
+	var ollamaStart = Date.now()
 	var ollamaReply = await _callOllamaChat(messages, { num_predict: 4096 })
 	if (ollamaReply) {
 		console.log("[telegram] askAI handled by Ollama (FREE)")
+		providerMetrics.fallbackChain.ollamaFirst++
+		providerMetrics.fallbackChain.ollamaFirstOk++
+		logProviderAttempt("ollama", true, Date.now() - ollamaStart)
 		return ollamaReply
 	}
 	console.log("[telegram] Ollama unavailable, falling back to cloud API")
+	providerMetrics.fallbackChain.ollamaFirst++
+	logProviderAttempt("ollama", false, Date.now() - ollamaStart)
 
 	// ── Step 6: Try each cloud provider in order ────────────────────────
 	for (var i = 0; i < providers.length; i++) {
 		var provider = providers[i]
 		if (!provider.apiKey) continue
+		var cloudStart = Date.now()
 		try {
 			var url = provider.apiBaseUrl.replace(/\/+$/, "") + "/chat/completions"
 			var res = await fetch(url, {
@@ -1646,12 +2217,18 @@ async function askAI(message, providers, chatId, options) {
 						" " +
 						errBody.slice(0, 100),
 				)
+				providerMetrics.fallbackChain.cloudAttempted++
+				logProviderAttempt(provider.providerId || "cloud_" + i, false, Date.now() - cloudStart)
 				continue
 			}
 			var data = await res.json()
 			var reply = data.choices[0].message.content || "(no response)"
 
-			// ── Step 6: Append proactive suggestions ──────────────────────
+			providerMetrics.fallbackChain.cloudAttempted++
+			providerMetrics.fallbackChain.cloudOk++
+			logProviderAttempt(provider.providerId || "cloud_" + i, true, Date.now() - cloudStart)
+
+			// ── Step 6b: Append proactive suggestions ─────────────────────
 			// Ask the AI to generate follow-up suggestions as part of the response
 			if (includeSuggestions && chatId !== undefined && chatId !== null) {
 				var suggestionPrompt = [
@@ -1754,6 +2331,8 @@ async function askAI(message, providers, chatId, options) {
 			var errorDetail =
 				err.name === "TimeoutError" || err.name === "AbortError" ? "timeout after 120s" : err.message
 			console.error("[telegram] askAI network error with " + provider.providerId + ":", errorDetail)
+			providerMetrics.fallbackChain.cloudAttempted++
+			logProviderAttempt(provider.providerId || "cloud_" + i, false, Date.now() - cloudStart)
 			continue
 		}
 	}
@@ -1781,6 +2360,7 @@ async function askAI(message, providers, chatId, options) {
 		console.log("[telegram] RAG context unavailable for Ollama fallback (non-fatal): " + err.message)
 	}
 
+	var ollamaRagStart = Date.now()
 	var ollamaReply = await _callOllamaChat(messages, { num_predict: 2048 })
 
 	if (ollamaReply) {
@@ -1793,11 +2373,17 @@ async function askAI(message, providers, chatId, options) {
 		logChatExchange(chatId, "assistant", ollamaReply, { provider: "ollama" }).catch(function () {})
 
 		console.log("[telegram] Ollama offline fallback succeeded for chat " + chatId)
+		providerMetrics.fallbackChain.ollamaRagFallback++
+		providerMetrics.fallbackChain.ollamaRagOk++
+		logProviderAttempt("ollama_rag", true, Date.now() - ollamaRagStart)
 		return ollamaReply + "\n\n_(responded via local Ollama — cloud AI providers were unavailable)_"
 	} else {
 		console.error("[telegram] Ollama fallback returned no response")
+		providerMetrics.fallbackChain.ollamaRagFallback++
+		logProviderAttempt("ollama_rag", false, Date.now() - ollamaRagStart)
 	}
 
+	providerMetrics.fallbackChain.allFailed++
 	var triedProviders = providers
 		.filter(function (p) {
 			return p.apiKey
@@ -4198,6 +4784,111 @@ async function handleMcp(botToken, chatId, args, providers) {
 /** Map<chatId, { lastCommand, lastError, lastProject, lastIntent, messageCount, lastBrainResult }> */
 const _smartContext = new Map()
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// Cross-Session User Memory — persists across sessions (survives session expiry)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Map<telegramUserId, { preferredProject, preferredAgent, recentIntents[], lastInteraction, ... }> */
+const _userContext = new Map()
+
+/**
+ * Gets or initializes user-level context (persists across sessions).
+ * Keyed by telegramUserId (not chatId) so it survives session expiry.
+ * @param {number|string} telegramUserId
+ * @returns {Object} User context object
+ */
+function getUserContext(telegramUserId) {
+	if (!telegramUserId) return null
+	var uid = String(telegramUserId)
+	if (!_userContext.has(uid)) {
+		_userContext.set(uid, {
+			preferredProject: null,
+			preferredAgent: null,
+			recentIntents: [],
+			recentProjects: [],
+			lastInteraction: null,
+			totalInteractions: 0,
+			firstSeen: Date.now(),
+			lastSeen: Date.now(),
+			commonErrors: [],
+			preferredModel: null,
+			_timestamp: Date.now(),
+		})
+	}
+	return _userContext.get(uid)
+}
+
+/**
+ * Updates user-level context with new information.
+ * @param {number|string} telegramUserId
+ * @param {Object} updates - Partial updates to merge
+ */
+function updateUserContext(telegramUserId, updates) {
+	var ctx = getUserContext(telegramUserId)
+	if (!ctx) return
+	ctx.lastSeen = Date.now()
+	ctx.totalInteractions++
+	for (var key in updates) {
+		if (Object.prototype.hasOwnProperty.call(updates, key)) {
+			ctx[key] = updates[key]
+		}
+	}
+}
+
+/**
+ * Records an intent in the user's recent intents list (bounded to 20).
+ * @param {number|string} telegramUserId
+ * @param {string} intent
+ */
+function recordUserIntent(telegramUserId, intent) {
+	var ctx = getUserContext(telegramUserId)
+	if (!ctx) return
+	ctx.recentIntents.push({ intent: intent, timestamp: Date.now() })
+	if (ctx.recentIntents.length > 20) {
+		ctx.recentIntents = ctx.recentIntents.slice(-20)
+	}
+}
+
+/**
+ * Records a project in the user's recent projects list (bounded to 10).
+ * @param {number|string} telegramUserId
+ * @param {string} projectName
+ */
+function recordUserProject(telegramUserId, projectName) {
+	var ctx = getUserContext(telegramUserId)
+	if (!ctx) return
+	// Move to front if already exists
+	var idx = ctx.recentProjects.indexOf(projectName)
+	if (idx !== -1) {
+		ctx.recentProjects.splice(idx, 1)
+	}
+	ctx.recentProjects.unshift(projectName)
+	if (ctx.recentProjects.length > 10) {
+		ctx.recentProjects = ctx.recentProjects.slice(0, 10)
+	}
+}
+
+/**
+ * Records a common error pattern for a user (bounded to 10).
+ * @param {number|string} telegramUserId
+ * @param {string} errorMessage
+ */
+function recordUserError(telegramUserId, errorMessage) {
+	if (!errorMessage) return
+	var ctx = getUserContext(telegramUserId)
+	if (!ctx) return
+	var existing = ctx.commonErrors.find(function (e) { return e.message === errorMessage })
+	if (existing) {
+		existing.count++
+		existing.lastSeen = Date.now()
+	} else {
+		ctx.commonErrors.push({ message: errorMessage, count: 1, firstSeen: Date.now(), lastSeen: Date.now() })
+		if (ctx.commonErrors.length > 10) {
+			ctx.commonErrors = ctx.commonErrors.slice(-10)
+		}
+	}
+}
+
 /**
  * Gets or initializes smart context for a chat.
  * @param {number|string} chatId
@@ -4215,6 +4906,8 @@ function getSmartContext(chatId) {
 			lastCommandOutput: null,
 			lastFixApplied: null,
 			workflowHistory: [],
+			conversationTopic: null,
+			_timestamp: Date.now(),
 		})
 	}
 	return _smartContext.get(chatId)
@@ -4236,11 +4929,67 @@ function updateSmartContext(chatId, updates) {
 }
 
 /**
- * Builds a context-aware system prompt for the AI that includes smart context.
+ * Detects the conversation topic from recent messages using keyword clustering.
+ * Updates smart context with the detected topic every 3 messages.
  * @param {number|string} chatId
+ */
+function detectConversationTopic(chatId) {
+	var ctx = getSmartContext(chatId)
+	var history = conversationHistory.get(chatId)
+	if (!history || history.length < 3) return
+
+	// Only re-detect every 3 messages to avoid churn
+	if (ctx.messageCount % 3 !== 0 && ctx.conversationTopic) return
+
+	var recentText = history
+		.slice(-6)
+		.map(function (m) { return m.content })
+		.join(" ")
+		.toLowerCase()
+
+	var topicKeywords = {
+		deployment: ["deploy", "deployment", "release", "rollback", "staging", "production", "ship", "publish"],
+		development: ["code", "feature", "implement", "refactor", "write", "add", "create", "build", "fix"],
+		debugging: ["bug", "error", "crash", "fail", "broken", "wrong", "issue", "problem", "log", "trace"],
+		testing: ["test", "spec", "assert", "coverage", "qa", "quality", "ci", "pipeline"],
+		infrastructure: ["docker", "server", "vps", "database", "redis", "queue", "worker", "config", "setup"],
+		monitoring: ["monitor", "alert", "health", "status", "metric", "dashboard", "uptime"],
+		learning: ["how", "what", "why", "explain", "tutorial", "guide", "learn", "understand", "documentation"],
+	}
+
+	var scores = {}
+	for (var topic in topicKeywords) {
+		var keywords = topicKeywords[topic]
+		scores[topic] = 0
+		for (var k = 0; k < keywords.length; k++) {
+			var regex = new RegExp("\\b" + keywords[k] + "\\w*", "gi")
+			var matches = recentText.match(regex)
+			if (matches) scores[topic] += matches.length
+		}
+	}
+
+	var bestTopic = null
+	var bestScore = 0
+	for (var t in scores) {
+		if (scores[t] > bestScore) {
+			bestScore = scores[t]
+			bestTopic = t
+		}
+	}
+
+	if (bestTopic && bestScore >= 2) {
+		ctx.conversationTopic = bestTopic
+	}
+}
+
+/**
+ * Builds a context-aware system prompt for the AI that includes smart context
+ * and cross-session user memory.
+ * @param {number|string} chatId
+ * @param {number|string} [telegramUserId] - Optional user ID for cross-session context
  * @returns {string} Context snippet to append to system prompt
  */
-function buildSmartContextPrompt(chatId) {
+function buildSmartContextPrompt(chatId, telegramUserId) {
 	var ctx = getSmartContext(chatId)
 	var parts = []
 	if (ctx.activeFile) parts.push("Active file (user is editing): " + ctx.activeFile)
@@ -4250,6 +4999,47 @@ function buildSmartContextPrompt(chatId) {
 	if (ctx.lastIntent) parts.push("Last intent: " + ctx.lastIntent)
 	if (ctx.lastFixApplied) parts.push("Last fix applied: " + ctx.lastFixApplied.slice(0, 200))
 	if (ctx.messageCount > 1) parts.push("Message count in this session: " + ctx.messageCount)
+
+	// Inject cross-session user memory (persists across sessions)
+	if (telegramUserId) {
+		try {
+			var uctx = getUserContext(telegramUserId)
+			if (uctx) {
+				var userParts = []
+				if (uctx.preferredProject) userParts.push("preferred project: " + uctx.preferredProject)
+				if (uctx.preferredAgent) userParts.push("preferred agent: " + uctx.preferredAgent)
+				if (uctx.recentProjects && uctx.recentProjects.length > 0) {
+					userParts.push("recent projects: " + uctx.recentProjects.slice(0, 3).join(", "))
+				}
+				if (uctx.recentIntents && uctx.recentIntents.length > 0) {
+					// Count intent frequency
+					var intentCounts = {}
+					for (var ri = 0; ri < uctx.recentIntents.length; ri++) {
+						var intentName = uctx.recentIntents[ri].intent
+						intentCounts[intentName] = (intentCounts[intentName] || 0) + 1
+					}
+					var topIntents = Object.entries(intentCounts)
+						.sort(function (a, b) { return b[1] - a[1] })
+						.slice(0, 3)
+						.map(function (e) { return e[0] + " (" + e[1] + "x)" })
+					userParts.push("frequent intents: " + topIntents.join(", "))
+				}
+				if (uctx.totalInteractions > 0) {
+					userParts.push("total interactions: " + uctx.totalInteractions)
+				}
+				if (userParts.length > 0) {
+					parts.push("User profile (cross-session): " + userParts.join(" | "))
+				}
+			}
+		} catch (e) {
+			// Non-fatal
+		}
+	}
+
+	// Inject detected conversation topic (GAP 2.5)
+	if (ctx.conversationTopic) {
+		parts.push("Conversation topic: " + ctx.conversationTopic)
+	}
 
 	// Inject learned patterns from telegramLearner
 	try {
@@ -4593,6 +5383,31 @@ async function sendQuickActionButtons(botToken, chatId, lastCommand, lastResult)
 			{ text: "📊 Status", callback_data: "brain_status" },
 			{ text: "🧠 Memory", callback_data: "brain_memory" },
 		])
+
+		// ─── GAP 5.2: Pattern-Based Next Action Suggestions ─────────────────
+		// Append suggested next actions from the learner (based on user patterns).
+		var ctx = getSmartContext(chatId)
+		if (ctx && ctx.suggestedNextActions && ctx.suggestedNextActions.length > 0) {
+			var suggestionButtons = []
+			var actionLabels = {
+				run_tests: "🧪 Test",
+				deploy: "🚀 Deploy",
+				read_logs: "📋 Logs",
+				code_task: "💻 Code",
+				debug_plan: "🔍 Debug",
+				commit_status: "📊 Status",
+				create_pr: "🔀 PR",
+			}
+			for (var si = 0; si < ctx.suggestedNextActions.length; si++) {
+				var action = ctx.suggestedNextActions[si]
+				var label = actionLabels[action] || "➡️ " + action
+				var actionToken = storeCallbackCommand("/" + action)
+				suggestionButtons.push({ text: label, callback_data: "brain_exec:" + actionToken })
+			}
+			if (suggestionButtons.length > 0) {
+				buttons.push(suggestionButtons)
+			}
+		}
 
 		if (buttons.length > 0) {
 			await sendInlineKeyboard(botToken, chatId, "*Quick Actions* ⚡", buttons)
@@ -5221,6 +6036,11 @@ async function handleProjectSelect(botToken, chatId, messageId, projectId, teleg
 		})
 
 		if (result && result.project) {
+			// Record project in cross-session user memory
+			if (telegramUserId) {
+				recordUserProject(telegramUserId, result.project.name)
+				updateUserContext(telegramUserId, { preferredProject: result.project.name })
+			}
 			// Update the original message to show selection
 			await editMessageText(
 				botToken,
@@ -5269,117 +6089,109 @@ async function handleProjectSelect(botToken, chatId, messageId, projectId, teleg
  * @param {string} text - The user's message
  * @returns {string} Agent type: "coder", "debugger", "deployer", "tester", or "ask"
  */
+/**
+ * Intent confidence scoring — returns an array of { intent, score, matchedKeywords }
+ * instead of a single string. This enables disambiguation when multiple intents
+ * have similar confidence levels.
+ *
+ * @param {string} text - The user's message text
+ * @returns {{ intent: string, score: number, matchedKeywords: string[] }}
+ */
 function detectIntent(text) {
 	var lower = text.toLowerCase()
 
-	// Consultant / Research intent — questions about viability, analysis, research, best practices
-	if (
-		lower.includes("research") ||
-		lower.includes("analyze") ||
-		lower.includes("analysis") ||
-		lower.includes("is it good") ||
-		lower.includes("should i") ||
-		lower.includes("compare") ||
-		lower.includes("comparison") ||
-		lower.includes("viability") ||
-		lower.includes("feasibility") ||
-		lower.includes("pros and cons") ||
-		lower.includes("advantages") ||
-		lower.includes("disadvantages") ||
-		lower.includes("best practice") ||
-		lower.includes("recommend") ||
-		lower.includes("recommendation") ||
-		lower.includes("evaluate") ||
-		lower.includes("evaluation") ||
-		lower.includes("what is the best") ||
-		lower.includes("which one") ||
-		lower.includes("how does") ||
-		lower.includes("explain") ||
-		lower.includes("what is") ||
-		lower.includes("tell me about") ||
-		lower.includes("upgrade skill") ||
-		lower.includes("upgrade my skill") ||
-		lower.includes("consultant") ||
-		lower.includes("consult") ||
-		lower.includes("advise") ||
-		lower.includes("advice") ||
-		lower.includes("guidance") ||
-		lower.includes("strategy") ||
-		lower.includes("strategic") ||
-		lower.includes("architecture") ||
-		lower.includes("design pattern") ||
-		lower.includes("technology stack") ||
-		lower.includes("tech stack") ||
-		lower.includes("overview") ||
-		lower.includes("summary of") ||
-		lower.includes("deep dive") ||
-		lower.includes("learn about")
-	) {
-		return "consultant"
+	// ─── Intent keyword groups with weights ──────────────────────────────────
+	// Each intent has a list of keyword groups. Each group has a weight.
+	// Higher-weight keywords indicate stronger intent signal.
+	var intentGroups = {
+		consultant: [
+			{ keywords: ["research", "analyze", "analysis", "evaluate", "evaluation"], weight: 3 },
+			{ keywords: ["compare", "comparison", "pros and cons", "advantages", "disadvantages"], weight: 3 },
+			{ keywords: ["best practice", "recommend", "recommendation", "guidance", "advise", "advice"], weight: 3 },
+			{ keywords: ["viability", "feasibility", "strategy", "strategic", "architecture"], weight: 3 },
+			{ keywords: ["what is the best", "which one", "how does", "explain", "what is", "tell me about"], weight: 2 },
+			{ keywords: ["design pattern", "technology stack", "tech stack", "overview", "deep dive"], weight: 2 },
+			{ keywords: ["learn about", "summary of", "consultant", "consult", "upgrade skill", "upgrade my skill"], weight: 2 },
+		],
+		debugger: [
+			{ keywords: ["debug", "fix bug", "bug"], weight: 3 },
+			{ keywords: ["error", "not working", "broken", "crash", "issue"], weight: 2 },
+		],
+		deployer: [
+			{ keywords: ["deploy", "release", "publish", "ship", "go live"], weight: 3 },
+		],
+		tester: [
+			{ keywords: ["run test", "run the test", "run tests", "run e2e", "check test", "unit test", "vitest"], weight: 3 },
+		],
+		coder: [
+			{ keywords: ["implement", "add feature", "refactor", "develop"], weight: 3 },
+			{ keywords: ["code", "create", "write", "build", "make"], weight: 2 },
+			{ keywords: ["update", "change", "modify", "improve", "fix"], weight: 2 },
+			{ keywords: ["add ", "remove "], weight: 1 },
+		],
+		ask: [
+			{ keywords: ["what", "how", "why", "when", "where", "who", "which", "can you", "could you", "would you"], weight: 1 },
+		],
 	}
 
-	// Debugging intent
-	if (
-		lower.includes("debug") ||
-		lower.includes("fix bug") ||
-		lower.includes("error") ||
-		lower.includes("issue") ||
-		lower.includes("not working") ||
-		lower.includes("broken") ||
-		lower.includes("crash") ||
-		lower.includes("bug")
-	) {
-		return "debugger"
+	var scores = {}
+	var matchedKeywords = {}
+
+	for (var intent in intentGroups) {
+		var groups = intentGroups[intent]
+		var totalScore = 0
+		var matched = []
+		for (var gi = 0; gi < groups.length; gi++) {
+			var group = groups[gi]
+			for (var ki = 0; ki < group.keywords.length; ki++) {
+				var kw = group.keywords[ki]
+				if (lower.includes(kw)) {
+					totalScore += group.weight
+					matched.push(kw)
+				}
+			}
+		}
+		if (totalScore > 0) {
+			scores[intent] = totalScore
+			matchedKeywords[intent] = matched
+		}
 	}
 
-	// Deployment intent
-	if (
-		lower.includes("deploy") ||
-		lower.includes("release") ||
-		lower.includes("publish") ||
-		lower.includes("ship") ||
-		lower.includes("go live")
-	) {
-		return "deployer"
+	// ─── No intent matched — default to "ask" with low confidence ────────────
+	if (Object.keys(scores).length === 0) {
+		return { intent: "ask", score: 0.1, matchedKeywords: [] }
 	}
 
-	// Testing intent — require explicit action phrases, not bare "test" (too broad)
-	if (
-		lower.includes("run test") ||
-		lower.includes("run the test") ||
-		lower.includes("run tests") ||
-		lower.includes("run e2e") ||
-		lower.includes("check test") ||
-		lower.includes("unit test") ||
-		lower.includes("vitest")
-	) {
-		return "tester"
+	// ─── Find the top intent(s) ─────────────────────────────────────────────
+	var sortedIntents = Object.entries(scores).sort(function (a, b) {
+		return b[1] - a[1]
+	})
+
+	var topIntent = sortedIntents[0][0]
+	var topScore = sortedIntents[0][1]
+
+	// ─── Disambiguation: check if second-place intent is close ───────────────
+	// If the top two intents are within 1 point of each other, the intent is
+	// ambiguous. We pick the higher one but flag it with a lower confidence.
+	var secondScore = sortedIntents.length > 1 ? sortedIntents[1][1] : 0
+	var isAmbiguous = secondScore > 0 && (topScore - secondScore) <= 1
+
+	// Normalize score to 0-1 range (max possible score per intent varies)
+	// Max possible: consultant=~30, debugger=~10, deployer=~15, tester=~21, coder=~16, ask=~10
+	var maxPossible = { consultant: 30, debugger: 10, deployer: 15, tester: 21, coder: 16, ask: 10 }
+	var maxScore = maxPossible[topIntent] || 10
+	var normalizedScore = Math.min(topScore / maxScore, 1.0)
+
+	// If ambiguous, reduce confidence by 30%
+	if (isAmbiguous) {
+		normalizedScore = normalizedScore * 0.7
 	}
 
-	// Coding intent — creating/modifying code
-	if (
-		lower.includes("code") ||
-		lower.includes("implement") ||
-		lower.includes("add feature") ||
-		lower.includes("create") ||
-		lower.includes("write") ||
-		lower.includes("build") ||
-		lower.includes("make") ||
-		lower.includes("develop") ||
-		lower.includes("refactor") ||
-		lower.includes("update") ||
-		lower.includes("change") ||
-		lower.includes("modify") ||
-		lower.includes("improve") ||
-		lower.includes("fix") ||
-		lower.includes("add ") ||
-		lower.includes("remove ")
-	) {
-		return "coder"
+	return {
+		intent: topIntent,
+		score: Math.round(normalizedScore * 100) / 100,
+		matchedKeywords: matchedKeywords[topIntent] || [],
 	}
-
-	// Default: just asking a question
-	return "ask"
 }
 
 // ─── Zero-Friction Coding Helpers ────────────────────────────────────────────
@@ -5688,6 +6500,64 @@ async function handleNaturalLanguageInstruction(
 			confidence: confidence.toFixed(2),
 			text: text.slice(0, 60),
 		})
+
+		// Record intent in cross-session user memory
+		if (telegramUserId) {
+			recordUserIntent(telegramUserId, intentKind)
+			updateUserContext(telegramUserId, { lastInteraction: Date.now() })
+		}
+
+		// ─── GAP 5.4: Intent Accuracy Tracking ──────────────────────────────
+		// Detect when the user is correcting a previous misclassification.
+		// If the user's message contains correction signals (e.g. "no, I meant deploy",
+		// "not code, debug"), mark the previous intent as incorrect and the new one as correct.
+		var prevIntent = getSmartContext(chatId).lastClassifiedIntent
+		if (prevIntent && prevIntent !== intentKind) {
+			var lowerText = text.toLowerCase()
+			var correctionSignals =
+				lowerText.includes("not " + prevIntent) ||
+				lowerText.includes("no " + prevIntent) ||
+				lowerText.includes("wrong") ||
+				lowerText.includes("that's not") ||
+				lowerText.includes("that is not") ||
+				lowerText.includes("i meant") ||
+				lowerText.includes("i mean") ||
+				lowerText.includes("actually") ||
+				lowerText.match(/not\s+\w+\s*,\s*(chat|code|debug|deploy|test|shell)/) ||
+				lowerText.match(/no\s*,\s*(chat|code|debug|deploy|test|shell)/)
+			if (correctionSignals) {
+				try {
+					telegramLearner.updateIntentAccuracy(prevIntent, false)
+					telegramLearner.updateIntentAccuracy(intentKind, true)
+					console.log(
+						"[telegram] Intent accuracy: " +
+							prevIntent +
+							"=false, " +
+							intentKind +
+							"=true (user corrected)",
+					)
+				} catch (e) {
+					console.log("[telegram] Intent accuracy tracking error (non-fatal):", e.message)
+				}
+			}
+		}
+		// Store current intent for next-message correction detection
+		updateSmartContext(chatId, { lastClassifiedIntent: intentKind })
+
+		// ─── GAP 5.2: Pattern-Based Next Action Suggestions ─────────────────
+		// After classifying the intent, compute suggested next actions based on
+		// the user's historical patterns and common workflow sequences.
+		// Store them in smart context so the response handler can append suggestions.
+		try {
+			var nextActions = telegramLearner.getSuggestedNextActions(chatId, intentKind)
+			if (nextActions && nextActions.length > 0) {
+				updateSmartContext(chatId, { suggestedNextActions: nextActions })
+			} else {
+				updateSmartContext(chatId, { suggestedNextActions: null })
+			}
+		} catch (e) {
+			console.log("[telegram] Pattern-based suggestion error (non-fatal):", e.message)
+		}
 
 		// ─── Chat Intent ────────────────────────────────────────────────────
 		// Handle questions directly with the enhanced AI.
@@ -6738,6 +7608,54 @@ async function handleRollbackCallback(botToken, chatId, messageId, savepointId) 
 	)
 }
 
+// ─── Callback Query Registry ──────────────────────────────────────────────
+// Centralized registry for callback query handlers. Each entry defines:
+//   prefix: string to match (startsWith or exact)
+//   exact: boolean (true = exact match, false = startsWith)
+//   handler: async function(botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge)
+//   description: human-readable label for logging
+const callbackRegistry = []
+
+/**
+ * Register a callback query handler.
+ * @param {string} prefix - The callback data prefix to match
+ * @param {Function} handler - Async handler function
+ * @param {object} [opts] - Options
+ * @param {boolean} [opts.exact=false] - If true, match exact string instead of startsWith
+ * @param {string} [opts.description=""] - Human-readable label for logging
+ */
+function registerCallback(prefix, handler, opts) {
+	opts = opts || {}
+	callbackRegistry.push({
+		prefix: prefix,
+		handler: handler,
+		exact: opts.exact || false,
+		description: opts.description || prefix,
+	})
+}
+
+/**
+ * Dispatch a callback query to the registered handler.
+ * Returns true if a handler was found and executed, false otherwise.
+ */
+async function dispatchCallback(botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) {
+	for (var i = 0; i < callbackRegistry.length; i++) {
+		var entry = callbackRegistry[i]
+		var matches = entry.exact ? cqData === entry.prefix : cqData.startsWith(entry.prefix)
+		if (matches) {
+			logTelegramUsage("callback:" + entry.description, cqChatId, cqUserId, { data: cqData.slice(0, 60) })
+			try {
+				await entry.handler(botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge)
+			} catch (err) {
+				logTelegramError("callback:" + entry.description, cqChatId, cqUserId, err, { data: cqData })
+				console.error("[telegram] Callback handler error for '" + entry.description + "':", err.message)
+			}
+			return true
+		}
+	}
+	return false
+}
+
 /**
  * Main update handler — routes incoming Telegram updates to the appropriate handler.
  * Supports both direct commands and @superroo_bot mentions in groups.
@@ -6749,6 +7667,25 @@ async function handleRollbackCallback(botToken, chatId, messageId, savepointId) 
  * @param {Array} [providers] - AI provider configs for /ask and @mention support
  */
 async function handleUpdate(update, botToken, queue, providers, orchestratorBridge) {
+	// ─── Webhook update deduplication ──────────────────────────────────────
+	// Telegram delivers updates with at-least-once semantics. Skip updates
+	// that have already been processed to prevent duplicate command execution.
+	if (update && update.update_id !== undefined) {
+		if (processedUpdateIds.has(update.update_id)) {
+			console.log("[telegram] Duplicate update_id " + update.update_id + " — skipping")
+			return
+		}
+		processedUpdateIds.add(update.update_id)
+		// Bounded set: remove oldest entries when we exceed the limit
+		if (processedUpdateIds.size > PROCESSED_UPDATE_IDS_MAX) {
+			var toDelete = processedUpdateIds.size - PROCESSED_UPDATE_IDS_MAX
+			var iter = processedUpdateIds.values()
+			for (var di = 0; di < toDelete; di++) {
+				processedUpdateIds.delete(iter.next().value)
+			}
+		}
+	}
+
 	// ─── Handle my_chat_member updates (bot added to/removed from groups) ──
 	// Only @jpgy888 can add the bot to groups. If someone else adds it, leave immediately.
 	if (update && update.my_chat_member) {
@@ -6816,9 +7753,11 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 			? update.callback_query.message.chat.id
 			: null
 	if (chatId) {
-		var rateCheck = checkRateLimit(chatId)
+		var session = activeSessions.get(chatId)
+		var isPremium = !!(session && session.authSession)
+		var rateCheck = checkRateLimit(chatId, isPremium)
 		if (!rateCheck.allowed) {
-			console.log("[telegram] Rate limited chat " + chatId + ", retry after " + rateCheck.retryAfter + "s")
+			console.log("[telegram] Rate limited chat " + chatId + " (" + (isPremium ? "premium" : "free") + "), retry after " + rateCheck.retryAfter + "s")
 			return
 		}
 	}
@@ -6835,159 +7774,92 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 		await answerCallbackQuery(botToken, cq.id)
 
 		try {
-			// Handle project selection
-			if (cqData.startsWith("project:")) {
+			// ─── Register all callback handlers ──────────────────────────────────
+			// Mini App Workflow
+			registerCallback("project:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
 				var projectId = cqData.slice(8)
-				logTelegramUsage("callback:project", cqChatId, cqUserId, { projectId: projectId })
 				await handleProjectSelect(botToken, cqChatId, cqMessageId, projectId, cqUserId)
-				return
-			}
-
-			// Handle notification button presses (approve/reject/diff/status/logs/retry)
-			if (cqData.startsWith("notify:")) {
-				logTelegramUsage("callback:notify", cqChatId, cqUserId, { data: cqData })
+			}, { description: "project" })
+			registerCallback("notify:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
 				await telegramNotifier.handleNotificationCallback(botToken, cq)
-				return
-			}
-
-			// ─── Mini App Workflow Callbacks ────────────────────────────────────
-
-			// preview_plan:<taskId> — Show plan preview for a task
-			if (cqData.startsWith("preview_plan:")) {
+			}, { description: "notify" })
+			// Paginated message navigation (GAP 4.3)
+			registerCallback("page:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
+				await handlePageNavigation(botToken, cq, cqChatId, cqMessageId, cqData)
+			}, { description: "page" })
+			registerCallback("preview_plan:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
 				var pptaskId = cqData.slice(13)
-				logTelegramUsage("callback:preview_plan", cqChatId, cqUserId, { taskId: pptaskId })
 				await handlePreviewPlan(botToken, cqChatId, cqMessageId, pptaskId)
-				return
-			}
-
-			// approve_plan:<taskId> — Approve a plan (moves task to plan_approved state)
-			if (cqData.startsWith("approve_plan:")) {
+			}, { description: "preview_plan" })
+			registerCallback("approve_plan:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
 				var aptaskId = cqData.slice(13)
-				logTelegramUsage("callback:approve_plan", cqChatId, cqUserId, { taskId: aptaskId })
 				await handleApprovePlan(botToken, cqChatId, cqMessageId, aptaskId)
-				return
-			}
-
-			// view_diff:<taskId> — Show diff for a task
-			if (cqData.startsWith("view_diff:")) {
+			}, { description: "approve_plan" })
+			registerCallback("view_diff:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
 				var vdtaskId = cqData.slice(10)
-				logTelegramUsage("callback:view_diff", cqChatId, cqUserId, { taskId: vdtaskId })
 				await handleViewDiff(botToken, cqChatId, cqMessageId, vdtaskId)
-				return
-			}
-
-			// deploy_staging:<taskId> — Deploy to staging environment
-			if (cqData.startsWith("deploy_staging:")) {
+			}, { description: "view_diff" })
+			registerCallback("deploy_staging:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
 				var dstaskId = cqData.slice(15)
-				logTelegramUsage("callback:deploy_staging", cqChatId, cqUserId, { taskId: dstaskId })
 				await handleDeployStaging(botToken, cqChatId, cqMessageId, dstaskId)
-				return
-			}
-
-			// deploy_production:<taskId> — Deploy to production (requires OTP)
-			if (cqData.startsWith("deploy_production:")) {
+			}, { description: "deploy_staging" })
+			registerCallback("deploy_production:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
 				var dptaskId = cqData.slice(18)
-				logTelegramUsage("callback:deploy_production", cqChatId, cqUserId, { taskId: dptaskId })
 				await handleDeployProduction(botToken, cqChatId, cqMessageId, dptaskId)
-				return
-			}
-
-			// rollback:<savepointId> — Rollback to a savepoint
-			if (cqData.startsWith("rollback:")) {
+			}, { description: "deploy_production" })
+			registerCallback("rollback:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
 				var rbsavepointId = cqData.slice(9)
-				logTelegramUsage("callback:rollback", cqChatId, cqUserId, { savepointId: rbsavepointId })
 				await handleRollbackCallback(botToken, cqChatId, cqMessageId, rbsavepointId)
-				return
-			}
-
-			// ─── Mini IDE Callbacks ───────────────────────────────────────────
-			// "projects" — Show project list from Mini IDE
-			if (cqData === "projects") {
-				logTelegramUsage("callback:miniide_projects", cqChatId, cqUserId)
+			}, { description: "rollback" })
+			// Mini IDE
+			registerCallback("projects", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
 				await handleProjects(botToken, cqChatId, cqUserId)
-				return
-			}
-
-			// "help" — Show help from Mini IDE
-			if (cqData === "help") {
-				logTelegramUsage("callback:miniide_help", cqChatId, cqUserId)
+			}, { exact: true, description: "miniide_projects" })
+			registerCallback("help", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
 				await handleHelp(botToken, cqChatId)
-				return
-			}
+			}, { exact: true, description: "miniide_help" })
 
 			// ─── Smart Terminal Callbacks ──────────────────────────────────────
-
-			// brain_exec:<token> — Execute a command via Terminal Brain (token-based to stay within 64-byte limit)
-			if (cqData.startsWith("brain_exec:")) {
+			registerCallback("brain_exec:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
 				var execToken = cqData.slice(11)
 				var execCmd = resolveCallbackCommand(execToken)
 				if (!execCmd) {
-					await sendMessage(
-						botToken,
-						cqChatId,
-						"*Command Expired* ⏰\n\nThis quick action button has expired. Please run the command again directly.",
-					)
+					await sendMessage(botToken, cqChatId, "*Command Expired* ⏰\n\nThis quick action button has expired. Please run the command again directly.")
 					await answerCallbackQuery(botToken, cq.id)
 					return
 				}
-				logTelegramUsage("callback:brain_exec", cqChatId, cqUserId, { command: execCmd.slice(0, 60) })
 				await sendChatAction(botToken, cqChatId, "typing")
 				try {
 					var execResult = await tgEndpoints.brainExecute(execCmd, cqChatId)
 					if (execResult.ok) {
 						updateSmartContext(cqChatId, { lastCommand: execCmd, lastBrainResult: execResult })
-						var execReply = telegramEngineer.formatBrainFeedback(execResult.feedback)
-						await sendMessage(botToken, cqChatId, execReply)
-
-						// Auto-analyze errors
+						await sendMessage(botToken, cqChatId, telegramEngineer.formatBrainFeedback(execResult.feedback))
 						if (execResult.feedback && execResult.feedback.exitCode !== 0) {
-							await new Promise(function (r) {
-								return setTimeout(r, 300)
-							})
-							var analyzeResult = await tgEndpoints.brainAnalyze(
-								execResult.feedback.output || execCmd,
-								cqChatId,
-							)
+							await new Promise(function (r) { return setTimeout(r, 300) })
+							var analyzeResult = await tgEndpoints.brainAnalyze(execResult.feedback.output || execCmd, cqChatId)
 							if (analyzeResult.ok && analyzeResult.errors && analyzeResult.errors.length > 0) {
 								updateSmartContext(cqChatId, { lastError: analyzeResult.errors[0].message })
-								await sendMessage(
-									botToken,
-									cqChatId,
-									telegramEngineer.formatBrainErrors(analyzeResult.errors),
-								)
+								await sendMessage(botToken, cqChatId, telegramEngineer.formatBrainErrors(analyzeResult.errors))
 							}
 						}
-
 						await sendQuickActionButtons(botToken, cqChatId, execCmd, execResult)
 					} else {
-						await sendMessage(
-							botToken,
-							cqChatId,
-							"*Execution Error* ❌\n\n" + (execResult.error || "Unknown error"),
-						)
+						await sendMessage(botToken, cqChatId, "*Execution Error* ❌\n\n" + (execResult.error || "Unknown error"))
 					}
 				} catch (err) {
 					logTelegramError("callback:brain_exec", cqChatId, cqUserId, err, { command: execCmd })
 					await sendMessage(botToken, cqChatId, "*Error* ❌\n\n" + err.message)
 				}
 				await answerCallbackQuery(botToken, cq.id)
-				return
-			}
-
-			// brain_pipeline:<token> — Run full pipeline (token-based)
-			if (cqData.startsWith("brain_pipeline:")) {
+			}, { description: "brain_exec" })
+			registerCallback("brain_pipeline:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
 				var pipeToken = cqData.slice(15)
 				var pipeQuery = resolveCallbackCommand(pipeToken)
 				if (!pipeQuery) {
-					await sendMessage(
-						botToken,
-						cqChatId,
-						"*Command Expired* ⏰\n\nThis quick action button has expired. Please run the command again directly.",
-					)
+					await sendMessage(botToken, cqChatId, "*Command Expired* ⏰\n\nThis quick action button has expired. Please run the command again directly.")
 					await answerCallbackQuery(botToken, cq.id)
 					return
 				}
-				logTelegramUsage("callback:brain_pipeline", cqChatId, cqUserId, { query: pipeQuery.slice(0, 60) })
 				await sendChatAction(botToken, cqChatId, "typing")
 				try {
 					var pipeResult = await tgEndpoints.brainPipeline(pipeQuery, cqChatId)
@@ -6997,98 +7869,58 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 						if (pipeResult.plan && pipeResult.plan.commands) {
 							pipeLines.push("\n*📋 Plan:*")
 							for (var ppi = 0; ppi < pipeResult.plan.commands.length; ppi++) {
-								var ppc =
-									typeof pipeResult.plan.commands[ppi] === "string"
-										? pipeResult.plan.commands[ppi]
-										: pipeResult.plan.commands[ppi].command || ""
+								var ppc = typeof pipeResult.plan.commands[ppi] === "string" ? pipeResult.plan.commands[ppi] : pipeResult.plan.commands[ppi].command || ""
 								pipeLines.push("  `" + (ppi + 1) + ".` `" + ppc + "`")
 							}
 						}
-						if (pipeResult.errors && pipeResult.errors.length > 0) {
-							updateSmartContext(cqChatId, { lastError: pipeResult.errors[0].message })
-							pipeLines.push("\n*🔍 Errors:* " + pipeResult.errors.length)
-						}
-						if (pipeResult.fixes && pipeResult.fixes.length > 0) {
-							pipeLines.push("\n*🔧 Fixes:* " + pipeResult.fixes.length)
-						}
-						if (!pipeResult.errors || pipeResult.errors.length === 0) {
-							pipeLines.push("\n✅ *All steps completed!*")
-						}
+						if (pipeResult.errors && pipeResult.errors.length > 0) { updateSmartContext(cqChatId, { lastError: pipeResult.errors[0].message }); pipeLines.push("\n*🔍 Errors:* " + pipeResult.errors.length) }
+						if (pipeResult.fixes && pipeResult.fixes.length > 0) { pipeLines.push("\n*🔧 Fixes:* " + pipeResult.fixes.length) }
+						if (!pipeResult.errors || pipeResult.errors.length === 0) { pipeLines.push("\n✅ *All steps completed!*") }
 						await sendMessage(botToken, cqChatId, pipeLines.join("\n"))
 						await sendQuickActionButtons(botToken, cqChatId, pipeQuery, pipeResult)
 					} else {
-						await sendMessage(
-							botToken,
-							cqChatId,
-							"*Pipeline Error* ❌\n\n" + (pipeResult.error || "Unknown error"),
-						)
+						await sendMessage(botToken, cqChatId, "*Pipeline Error* ❌\n\n" + (pipeResult.error || "Unknown error"))
 					}
 				} catch (err) {
 					logTelegramError("callback:brain_pipeline", cqChatId, cqUserId, err, { query: pipeQuery })
 					await sendMessage(botToken, cqChatId, "*Error* ❌\n\n" + err.message)
 				}
 				await answerCallbackQuery(botToken, cq.id)
-				return
-			}
-
-			// brain_explain:<token> — Explain a command (token-based)
-			if (cqData.startsWith("brain_explain:")) {
+			}, { description: "brain_pipeline" })
+			registerCallback("brain_explain:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
 				var explainToken = cqData.slice(14)
 				var explainCmd = resolveCallbackCommand(explainToken)
 				if (!explainCmd) {
-					await sendMessage(
-						botToken,
-						cqChatId,
-						"*Command Expired* ⏰\n\nThis quick action button has expired. Please run the command again directly.",
-					)
+					await sendMessage(botToken, cqChatId, "*Command Expired* ⏰\n\nThis quick action button has expired. Please run the command again directly.")
 					await answerCallbackQuery(botToken, cq.id)
 					return
 				}
-				logTelegramUsage("callback:brain_explain", cqChatId, cqUserId, { command: explainCmd.slice(0, 60) })
 				await sendChatAction(botToken, cqChatId, "typing")
 				try {
 					var explainResult = await tgEndpoints.brainPlan("explain: " + explainCmd, cqChatId)
 					if (explainResult.ok) {
 						var explainText = "*❓ Command Explanation*\n\n`" + explainCmd + "`\n\n"
-						if (explainResult.plan && typeof explainResult.plan === "string") {
-							explainText += explainResult.plan
-						} else {
-							explainText +=
-								"This command will be executed through the Terminal Brain with safety checks and error analysis."
-						}
+						explainText += (explainResult.plan && typeof explainResult.plan === "string") ? explainResult.plan : "This command will be executed through the Terminal Brain with safety checks and error analysis."
 						await sendMessage(botToken, cqChatId, explainText)
 					} else {
-						await sendMessage(
-							botToken,
-							cqChatId,
-							"*Explain Error* ❌\n\n" + (explainResult.error || "Unknown error"),
-						)
+						await sendMessage(botToken, cqChatId, "*Explain Error* ❌\n\n" + (explainResult.error || "Unknown error"))
 					}
 				} catch (err) {
 					logTelegramError("callback:brain_explain", cqChatId, cqUserId, err, { command: explainCmd })
 					await sendMessage(botToken, cqChatId, "*Error* ❌\n\n" + err.message)
 				}
 				await answerCallbackQuery(botToken, cq.id)
-				return
-			}
-
-			// brain_fix:<token> — Auto-fix errors from last command (token-based)
-			if (cqData.startsWith("brain_fix:")) {
+			}, { description: "brain_explain" })
+			registerCallback("brain_fix:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
 				var fixToken = cqData.slice(9)
 				var fixCmd = resolveCallbackCommand(fixToken)
 				if (!fixCmd) {
-					await sendMessage(
-						botToken,
-						cqChatId,
-						"*Command Expired* ⏰\n\nThis quick action button has expired. Please run the command again directly.",
-					)
+					await sendMessage(botToken, cqChatId, "*Command Expired* ⏰\n\nThis quick action button has expired. Please run the command again directly.")
 					await answerCallbackQuery(botToken, cq.id)
 					return
 				}
-				logTelegramUsage("callback:brain_fix", cqChatId, cqUserId, { command: fixCmd.slice(0, 60) })
 				await sendChatAction(botToken, cqChatId, "typing")
 				try {
-					// Re-run the command and analyze
 					var fixExecResult = await tgEndpoints.brainExecute(fixCmd, cqChatId)
 					if (fixExecResult.ok && fixExecResult.feedback) {
 						var fixOutput = fixExecResult.feedback.output || ""
@@ -7096,92 +7928,54 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 						if (fixResult.ok && fixResult.fixes && fixResult.fixes.length > 0) {
 							updateSmartContext(cqChatId, { lastFixApplied: fixResult.fixes[0] })
 							var fixLines = ["*🔧 Auto-Fix Results*"]
-							for (var fxi = 0; fxi < fixResult.fixes.length; fxi++) {
-								fixLines.push("• " + fixResult.fixes[fxi])
-							}
+							for (var fxi = 0; fxi < fixResult.fixes.length; fxi++) { fixLines.push("• " + fixResult.fixes[fxi]) }
 							await sendMessage(botToken, cqChatId, fixLines.join("\n"))
 						} else {
-							await sendMessage(
-								botToken,
-								cqChatId,
-								"*No fixes found* — the command may have run successfully or the error is not yet recognized.",
-							)
+							await sendMessage(botToken, cqChatId, "*No fixes found* — the command may have run successfully or the error is not yet recognized.")
 						}
 					} else {
-						await sendMessage(
-							botToken,
-							cqChatId,
-							"*Fix Error* ❌\n\n" + (fixExecResult.error || "Could not re-run command"),
-						)
+						await sendMessage(botToken, cqChatId, "*Fix Error* ❌\n\n" + (fixExecResult.error || "Could not re-run command"))
 					}
 				} catch (err) {
 					logTelegramError("callback:brain_fix", cqChatId, cqUserId, err, { command: fixCmd })
 					await sendMessage(botToken, cqChatId, "*Error* ❌\n\n" + err.message)
 				}
 				await answerCallbackQuery(botToken, cq.id)
-				return
-			}
-
-			// brain_errors:<token> — Show errors from last command (token-based)
-			if (cqData.startsWith("brain_errors:")) {
+			}, { description: "brain_fix" })
+			registerCallback("brain_errors:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
 				var errToken = cqData.slice(13)
 				var errCmd = resolveCallbackCommand(errToken)
 				if (!errCmd) {
-					await sendMessage(
-						botToken,
-						cqChatId,
-						"*Command Expired* ⏰\n\nThis quick action button has expired. Please run the command again directly.",
-					)
+					await sendMessage(botToken, cqChatId, "*Command Expired* ⏰\n\nThis quick action button has expired. Please run the command again directly.")
 					await answerCallbackQuery(botToken, cq.id)
 					return
 				}
-				logTelegramUsage("callback:brain_errors", cqChatId, cqUserId, { command: errCmd.slice(0, 60) })
 				await sendChatAction(botToken, cqChatId, "typing")
 				try {
 					var errResult = await tgEndpoints.brainAnalyze(errCmd, cqChatId)
 					if (errResult.ok) {
 						await sendMessage(botToken, cqChatId, telegramEngineer.formatBrainErrors(errResult.errors))
 					} else {
-						await sendMessage(
-							botToken,
-							cqChatId,
-							"*Error Analysis Failed* ❌\n\n" + (errResult.error || "Unknown error"),
-						)
+						await sendMessage(botToken, cqChatId, "*Error Analysis Failed* ❌\n\n" + (errResult.error || "Unknown error"))
 					}
 				} catch (err) {
 					logTelegramError("callback:brain_errors", cqChatId, cqUserId, err, { command: errCmd })
 					await sendMessage(botToken, cqChatId, "*Error* ❌\n\n" + err.message)
 				}
 				await answerCallbackQuery(botToken, cq.id)
-				return
-			}
-
-			// brain_deploy:<token> — Deploy after successful execution (token-based)
-			if (cqData.startsWith("brain_deploy:")) {
+			}, { description: "brain_errors" })
+			registerCallback("brain_deploy:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
 				var deployToken = cqData.slice(13)
 				var deployCmd = resolveCallbackCommand(deployToken)
 				if (!deployCmd) {
-					await sendMessage(
-						botToken,
-						cqChatId,
-						"*Command Expired* ⏰\n\nThis quick action button has expired. Please run the command again directly.",
-					)
+					await sendMessage(botToken, cqChatId, "*Command Expired* ⏰\n\nThis quick action button has expired. Please run the command again directly.")
 					await answerCallbackQuery(botToken, cq.id)
 					return
 				}
-				logTelegramUsage("callback:brain_deploy", cqChatId, cqUserId, { command: deployCmd.slice(0, 60) })
-				await sendMessage(
-					botToken,
-					cqChatId,
-					"*Deploy Requested* 🚀\n\nUse `/deploy` to start the deployment process.\n\nYou'll need to verify with your OTP code for production deployments.",
-				)
+				await sendMessage(botToken, cqChatId, "*Deploy Requested* 🚀\n\nUse `/deploy` to start the deployment process.\n\nYou'll need to verify with your OTP code for production deployments.")
 				await answerCallbackQuery(botToken, cq.id)
-				return
-			}
-
-			// brain_status — Show system status
-			if (cqData === "brain_status") {
-				logTelegramUsage("callback:brain_status", cqChatId, cqUserId)
+			}, { description: "brain_deploy" })
+			registerCallback("brain_status", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
 				await sendChatAction(botToken, cqChatId, "typing")
 				try {
 					var statusResult = await tgEndpoints.readLogs("all", 5)
@@ -7191,50 +7985,35 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 					if (ctx.lastCommand) statusLines.push("• Last command: `" + ctx.lastCommand.slice(0, 50) + "`")
 					if (ctx.lastError) statusLines.push("• Last error: " + ctx.lastError.slice(0, 100))
 					if (ctx.lastFixApplied) statusLines.push("• Last fix: " + ctx.lastFixApplied.slice(0, 100))
-					statusLines.push(
-						"\n*Terminal Brain:* " + (_terminalBrainAvailable ? "✅ Available" : "❌ Not available"),
-					)
+					statusLines.push("\n*Terminal Brain:* " + (_terminalBrainAvailable ? "✅ Available" : "❌ Not available"))
 					await sendMessage(botToken, cqChatId, statusLines.join("\n"))
 				} catch (err) {
 					await sendMessage(botToken, cqChatId, "*Status Error* ❌\n\n" + err.message)
 				}
 				await answerCallbackQuery(botToken, cq.id)
-				return
-			}
-
-			// brain_memory — Show Terminal Brain memory
-			if (cqData === "brain_memory") {
-				logTelegramUsage("callback:brain_memory", cqChatId, cqUserId)
+			}, { exact: true, description: "brain_status" })
+			registerCallback("brain_memory", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
 				await sendChatAction(botToken, cqChatId, "typing")
 				try {
 					var memResult = await tgEndpoints.brainMemory(cqChatId)
 					if (memResult.ok) {
 						await sendMessage(botToken, cqChatId, telegramEngineer.formatBrainMemory(memResult.stats))
 					} else {
-						await sendMessage(
-							botToken,
-							cqChatId,
-							"*Memory Error* ❌\n\n" + (memResult.error || "Unknown error"),
-						)
+						await sendMessage(botToken, cqChatId, "*Memory Error* ❌\n\n" + (memResult.error || "Unknown error"))
 					}
 				} catch (err) {
 					await sendMessage(botToken, cqChatId, "*Error* ❌\n\n" + err.message)
 				}
 				await answerCallbackQuery(botToken, cq.id)
-				return
-			}
-
-			// brain_cancel — Cancel current action
-			if (cqData === "brain_cancel") {
-				logTelegramUsage("callback:brain_cancel", cqChatId, cqUserId)
+			}, { exact: true, description: "brain_memory" })
+			registerCallback("brain_cancel", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
 				await sendMessage(botToken, cqChatId, "*Cancelled* ❌\n\nAction has been cancelled.")
 				await answerCallbackQuery(botToken, cq.id)
-				return
-			}
+			}, { exact: true, description: "brain_cancel" })
 
 			// ─── Coder Workflow Callbacks ────────────────────────────────────────
 			// coder:<action>:<taskId> — Handle multi-phase coder workflow (approve/reject/commit/deploy/etc.)
-			if (cqData.startsWith("coder:")) {
+			registerCallback("coder:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
 				logTelegramUsage("callback:coder", cqChatId, cqUserId, { data: cqData })
 				try {
 					var coderResult = await telegramNotifier.handleCoderCallback(botToken, cq)
@@ -7439,12 +8218,11 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 					logTelegramError("callback:coder", cqChatId, cqUserId, err, { data: cqData })
 					await sendMessage(botToken, cqChatId, "*Coder Workflow Error* ❌\n\n" + err.message)
 				}
-				return
-			}
+			})
 
 			// ─── Quick Action Callbacks (from sendActionButtons) ────────────────
 			// action:<type>[:<taskId>] — Run Tests, Show Diff, Approve, Status, Fix, Debug
-			if (cqData.startsWith("action:")) {
+			registerCallback("action:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
 				var actionParts = cqData.slice(7).split(":")
 				var actionType = actionParts[0]
 				var actionTaskId = actionParts[1] || null
@@ -7485,12 +8263,11 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 				} catch (aqErr) {
 					await sendMessage(botToken, cqChatId, "❌ Action failed: " + aqErr.message)
 				}
-				return
-			}
+			})
 
 			// ─── Menu Callbacks ────────────────────────────────────────────────
 			// menu:<action> — Handle menu button clicks (GUI upgrade, no slash commands needed)
-			if (cqData.startsWith("menu:")) {
+			registerCallback("menu:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
 				var menuAction = cqData.slice(5)
 				logTelegramUsage("callback:menu", cqChatId, cqUserId, { action: menuAction })
 				try {
@@ -7616,11 +8393,13 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 					logTelegramError("callback:menu", cqChatId, cqUserId, err, { action: menuAction })
 					await sendMessage(botToken, cqChatId, "*Menu Error* ❌\n\n" + err.message)
 				}
-				return
-			}
+			})
 
-			// Unhandled callback data — log warning for Ace Team monitoring
-			logTelegramWarning("callback:unknown", cqChatId, cqUserId, "Unhandled callback data", { data: cqData })
+			// Unhandled callback data — dispatch via registry; if no handler matched, log warning
+			var handled = await dispatchCallback(botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge)
+			if (!handled) {
+				logTelegramWarning("callback:unknown", cqChatId, cqUserId, "Unhandled callback data", { data: cqData })
+			}
 		} catch (err) {
 			logTelegramError("callback:" + (cqData.split(":")[0] || "unknown"), cqChatId, cqUserId, err, {
 				data: cqData,
@@ -7707,6 +8486,11 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 	var cmdArgs = args.slice(1)
 	console.log("[telegram] Message from " + telegramUserId + " in chat " + chatId + ": " + text.slice(0, 80))
 
+	// ─── Record Command History (GAP 4.2) ───────────────────────────────
+	// Store every user message in a per-chat ring buffer so the user can
+	// recall recent commands via /history.
+	recordCommand(chatId, command, text, cmdArgs)
+
 	// ─── Session Guard ──────────────────────────────────────────────────
 	// Block non-public slash commands until the user has an active auth session.
 	// Natural language messages (no slash prefix) are allowed through — they'll
@@ -7781,7 +8565,9 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 	}
 
 	// ─── Rate Limit Check ────────────────────────────────────────────────
-	var rateLimit = checkRateLimit(chatId)
+	var session = activeSessions.get(chatId)
+	var isPremium = !!(session && session.authSession)
+	var rateLimit = checkRateLimit(chatId, isPremium)
 	if (!rateLimit.allowed) {
 		await sendMessage(
 			botToken,
@@ -7794,6 +8580,8 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 	// ─── Command Routing ────────────────────────────────────────────────
 	// Support both slash commands AND natural language.
 	// Slash commands are kept for power users; natural language is the primary interface.
+
+	var _cmdStartTime = Date.now()
 
 	// Handle slash commands explicitly
 	try {
@@ -7828,6 +8616,21 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 		} else if (command === "/help") {
 			logTelegramUsage("/help", chatId, telegramUserId)
 			await handleHelp(botToken, chatId)
+		} else if (command === "/history") {
+			logTelegramUsage("/history", chatId, telegramUserId)
+			var historyEntries = getCommandHistory(chatId, 15)
+			if (historyEntries.length === 0) {
+				await sendMessage(botToken, chatId, "*Command History* 📋\n\nNo commands recorded yet.")
+			} else {
+				var historyLines = ["*Command History* 📋\n"]
+				for (var hi = 0; hi < historyEntries.length; hi++) {
+					var he = historyEntries[hi]
+					var timeAgo = Math.round((Date.now() - he.timestamp) / 1000)
+					var timeStr = timeAgo < 60 ? timeAgo + "s ago" : timeAgo < 3600 ? Math.round(timeAgo / 60) + "m ago" : Math.round(timeAgo / 3600) + "h ago"
+					historyLines.push("`" + he.command + "` — " + he.text.slice(0, 60) + "  _(" + timeStr + ")_")
+				}
+				await sendMessage(botToken, chatId, historyLines.join("\n"))
+			}
 		} else if (command === "/about") {
 			logTelegramUsage("/about", chatId, telegramUserId)
 			await handleAbout(botToken, chatId)
@@ -8091,9 +8894,18 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 				await handleAsk(botToken, chatId, text.split(/\s+/), providers || [])
 			}
 		}
+		// Record command latency
+		var cmdLabel = command || "natural_language"
+		logCommandLatency(cmdLabel, Date.now() - _cmdStartTime)
 	} catch (err) {
 		logTelegramError(command || "unknown", chatId, telegramUserId, err, { text: text.slice(0, 100) })
 		console.error("[telegram] Unhandled error in command routing:", err.message)
+		// Record error in cross-session user memory
+		if (telegramUserId) {
+			recordUserError(telegramUserId, err.message)
+		}
+		// Record error latency
+		logCommandLatency((command || "unknown") + "_error", Date.now() - _cmdStartTime)
 		try {
 			await sendMessage(
 				botToken,
@@ -8161,4 +8973,28 @@ module.exports = {
 	handleMcp,
 	// Shutdown handlers
 	registerShutdownHandlers,
+	// Webhook health check
+	startWebhookHealthCheck,
+	stopWebhookHealthCheck,
+	getWebhookHealth,
+	webhookHealth,
+	// Command latency tracking
+	logCommandLatency,
+	getCommandLatency,
+	commandLatency,
+	// Provider fallback metrics
+	logProviderAttempt,
+	getProviderMetrics,
+	providerMetrics,
+	// Cross-session user memory
+	getUserContext,
+	updateUserContext,
+	recordUserIntent,
+	recordUserProject,
+	recordUserError,
+	_userContext,
+	// Command history (GAP 4.2)
+	recordCommand,
+	getCommandHistory,
+	_commandHistory,
 }

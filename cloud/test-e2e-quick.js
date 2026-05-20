@@ -25,12 +25,13 @@ tests.forEach(function (test) {
 	var expected = test[0]
 	var input = test[1]
 	var result = t.detectIntent(input)
-	if (result === expected) {
+	var intent = result.intent
+	if (intent === expected) {
 		passed++
-		console.log('PASS: detectIntent("' + input + '") => ' + result)
+		console.log('PASS: detectIntent("' + input + '") => ' + intent + ' (score: ' + result.score + ')')
 	} else {
 		failed++
-		console.log('FAIL: detectIntent("' + input + '") => ' + result + " (expected " + expected + ")")
+		console.log('FAIL: detectIntent("' + input + '") => ' + intent + ' (score: ' + result.score + ') (expected ' + expected + ')')
 	}
 })
 

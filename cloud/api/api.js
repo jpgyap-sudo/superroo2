@@ -10525,6 +10525,50 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// GET /telegram/health — get webhook health status
+		if (method === "GET" && (url === "/telegram/health" || normalizedUrl === "/telegram/health")) {
+			if (!TELEGRAM_BOT_TOKEN) {
+				sendJson(res, 200, { success: false, error: "TELEGRAM_BOT_TOKEN not configured" })
+				return
+			}
+			const health = telegramBot.getWebhookHealth ? telegramBot.getWebhookHealth() : { error: "health check not available" }
+			sendJson(res, 200, { success: true, health })
+			return
+		}
+
+		// POST /telegram/health/start — start periodic health checks
+		if (method === "POST" && (url === "/telegram/health/start" || normalizedUrl === "/telegram/health/start")) {
+			if (!TELEGRAM_BOT_TOKEN) {
+				sendJson(res, 200, { success: false, error: "TELEGRAM_BOT_TOKEN not configured" })
+				return
+			}
+			if (telegramBot.startWebhookHealthCheck) {
+				telegramBot.startWebhookHealthCheck(TELEGRAM_BOT_TOKEN)
+				sendJson(res, 200, { success: true, message: "Webhook health check started" })
+			} else {
+				sendJson(res, 200, { success: false, error: "health check not available" })
+			}
+			return
+		}
+
+		// POST /telegram/health/stop — stop periodic health checks
+		if (method === "POST" && (url === "/telegram/health/stop" || normalizedUrl === "/telegram/health/stop")) {
+			if (telegramBot.stopWebhookHealthCheck) {
+				telegramBot.stopWebhookHealthCheck()
+				sendJson(res, 200, { success: true, message: "Webhook health check stopped" })
+			} else {
+				sendJson(res, 200, { success: false, error: "health check not available" })
+			}
+			return
+		}
+
+		// GET /telegram/latency — get command latency statistics
+		if (method === "GET" && (url === "/telegram/latency" || normalizedUrl === "/telegram/latency")) {
+			const latency = telegramBot.getCommandLatency ? telegramBot.getCommandLatency() : { error: "latency tracking not available" }
+			sendJson(res, 200, { success: true, latency })
+			return
+		}
+
 		// ── Telegram Bot Routes ────────────────────────────────────────────────
 
 		// POST /telegram/webhook — receive updates from Telegram

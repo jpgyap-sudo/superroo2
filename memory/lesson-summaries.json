@@ -1,17 +1,17 @@
 {
-	"generatedAt": "2026-05-20T03:28:11.841Z",
-	"deepseekModel": "deepseek-chat",
-	"ollamaUrl": "http://100.64.175.88:11434",
-	"sourceFile": "memory/lessons-learned.md",
-	"count": 1,
-	"summaries": [
-		{
-			"title": "MCP server `local_json_fallback` silently drops lesson data — `withFallback()` must detect it",
-			"date": "2026-05-20",
-			"model": "DeepSeek Chat",
-			"confidence": "high",
-			"summary": "The MCP server's `_handleLocalFallback` returns `{success:true, source:\"local_json_fallback\"}` without actually storing lesson data, causing `withFallback()` to silently drop lessons because it only caught thrown errors. The fix adds detection of `source === \"local_json_fallback\"` to trigger proper fallback to local storage and retry queue. Key takeaway: never trust `success: true` from upstream components—always inspect the `source` field to verify data was actually persisted.",
-			"hasEmbeddings": true
-		}
-	]
+  "generatedAt": "2026-05-20T03:37:44.984Z",
+  "deepseekModel": "deepseek-chat",
+  "ollamaUrl": "http://100.64.175.88:11434",
+  "sourceFile": "memory/lessons-learned.md",
+  "count": 1,
+  "summaries": [
+    {
+      "title": "PM2 v7 env_file directive does not load .env — env vars must be in env block",
+      "date": "unknown",
+      "model": "unknown",
+      "confidence": "unknown",
+      "summary": "PM2 v7's `env_file` directive does not load .env file contents into the process environment; environment variables must be placed directly in the `env` block of `ecosystem.config.js`. Additionally, `pm2 restart` reuses the old environment, so you must use `pm2 delete` and `pm2 start` to apply new variables.",
+      "hasEmbeddings": true
+    }
+  ]
 }

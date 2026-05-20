@@ -299,6 +299,100 @@ async function sendTaskStarted(botToken, chatId, taskId, instruction, agentType)
 	return await sendInlineKeyboard(botToken, chatId, text, buttons)
 }
 
+// ─── GAP 4.1: Progress Bar for Long-Running Operations ──────────────────────
+// Sends a visual progress indicator that can be updated as the task progresses.
+// Uses emoji blocks to create a 10-segment progress bar.
+// ---------------------------------------------------------------------------
+const _progressMessages = new Map() // taskId -> { chatId, messageId, lastUpdate }
+
+async function sendProgressBar(botToken, chatId, taskId, label, progress, statusText) {
+	// progress: 0.0 to 1.0
+	var clampedProgress = Math.max(0, Math.min(1, progress))
+	var filled = Math.round(clampedProgress * 10)
+	var empty = 10 - filled
+	var bar = ""
+	for (var fi = 0; fi < filled; fi++) bar += "🟩"
+	for (var ei = 0; ei < empty; ei++) bar += "⬜"
+	var pct = Math.round(clampedProgress * 100)
+	var text =
+		"*" + label + "*\n" +
+		bar + " " + pct + "%\n" +
+		(statusText || "_Working..._")
+
+	var existing = _progressMessages.get(taskId)
+	if (existing && existing.messageId) {
+		try {
+			var editUrl = "https://api.telegram.org/bot" + botToken + "/editMessageText"
+			var editBody = {
+				chat_id: chatId,
+				message_id: existing.messageId,
+				text: text,
+				parse_mode: "Markdown",
+			}
+			var editRes = await fetch(editUrl, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(editBody),
+			})
+			if (editRes.ok) {
+				existing.lastUpdate = Date.now()
+				return existing.messageId
+			}
+			// If edit fails (e.g. message too old), fall through to send new
+		} catch (_) {}
+	}
+
+	// Send a new progress message
+	var result = await sendMessage(botToken, chatId, text)
+	if (result && result.message_id) {
+		_progressMessages.set(taskId, { chatId: chatId, messageId: result.message_id, lastUpdate: Date.now() })
+		return result.message_id
+	}
+	return null
+}
+
+async function updateProgressBar(botToken, taskId, progress, statusText) {
+	var existing = _progressMessages.get(taskId)
+	if (!existing) return false
+	// Reuse the stored chatId/messageId to edit the existing message
+	var clampedProgress = Math.max(0, Math.min(1, progress))
+	var filled = Math.round(clampedProgress * 10)
+	var empty = 10 - filled
+	var bar = ""
+	for (var fi = 0; fi < filled; fi++) bar += "🟩"
+	for (var ei = 0; ei < empty; ei++) bar += "⬜"
+	var pct = Math.round(clampedProgress * 100)
+	var text =
+		"*" + (statusText ? statusText.split("\n")[0] : "Progress") + "*\n" +
+		bar + " " + pct + "%\n" +
+		(statusText || "_Working..._")
+
+	try {
+		var editUrl = "https://api.telegram.org/bot" + botToken + "/editMessageText"
+		var editBody = {
+			chat_id: existing.chatId,
+			message_id: existing.messageId,
+			text: text,
+			parse_mode: "Markdown",
+		}
+		var editRes = await fetch(editUrl, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(editBody),
+		})
+		if (editRes.ok) {
+			existing.lastUpdate = Date.now()
+			return true
+		}
+	} catch (_) {}
+	return false
+}
+
+async function clearProgressBar(taskId) {
+	_progressMessages.delete(taskId)
+}
+}
+
 // ---------------------------------------------------------------------------
 // 2. Task Complete Notification (with diff summary and action buttons)
 // ---------------------------------------------------------------------------
@@ -1364,6 +1458,11 @@ module.exports = {
 	sendDeploymentHealth,
 	sendRollbackAvailable,
 	sendNotification,
+
+	// Progress bar (GAP 4.1)
+	sendProgressBar,
+	updateProgressBar,
+	clearProgressBar,
 
 	// Coder workflow send functions
 	sendCoderPlan,

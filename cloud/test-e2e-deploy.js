@@ -45,16 +45,16 @@ async function run() {
 	assert(stats && typeof stats === "object", "getStats returns an object")
 	console.log("  Learner stats:", JSON.stringify(stats))
 
-	// Test 3: Intent Detection
+	// Test 3: Intent Detection (now returns { intent, score, matchedKeywords })
 	console.log("\n--- Test 3: Intent Detection ---")
-	assert(telegramBot.detectIntent("fix the login bug") === "debugger", "detectIntent: 'fix bug' -> debugger")
-	assert(telegramBot.detectIntent("should I use PostgreSQL") === "consultant", "detectIntent: 'should I' -> consultant")
-	assert(telegramBot.detectIntent("deploy to production") === "deployer", "detectIntent: 'deploy' -> deployer")
-	assert(telegramBot.detectIntent("run tests") === "tester", "detectIntent: 'test' -> tester")
-	assert(telegramBot.detectIntent("implement login feature") === "coder", "detectIntent: 'implement' -> coder")
-	assert(telegramBot.detectIntent("what is the architecture") === "consultant", "detectIntent: 'what is' -> consultant")
-	assert(telegramBot.detectIntent("how does the system work") === "consultant", "detectIntent: 'how does' -> consultant")
-	assert(telegramBot.detectIntent("hello how are you") === "ask", "detectIntent: casual -> ask")
+	assert(telegramBot.detectIntent("fix the login bug").intent === "debugger", "detectIntent: 'fix bug' -> debugger")
+	assert(telegramBot.detectIntent("should I use PostgreSQL").intent === "consultant", "detectIntent: 'should I' -> consultant")
+	assert(telegramBot.detectIntent("deploy to production").intent === "deployer", "detectIntent: 'deploy' -> deployer")
+	assert(telegramBot.detectIntent("run tests").intent === "tester", "detectIntent: 'test' -> tester")
+	assert(telegramBot.detectIntent("implement login feature").intent === "coder", "detectIntent: 'implement' -> coder")
+	assert(telegramBot.detectIntent("what is the architecture").intent === "consultant", "detectIntent: 'what is' -> consultant")
+	assert(telegramBot.detectIntent("how does the system work").intent === "consultant", "detectIntent: 'how does' -> consultant")
+	assert(telegramBot.detectIntent("hello how are you").intent === "ask", "detectIntent: casual -> ask")
 
 	// Test 4: Telegram Bot exports
 	console.log("\n--- Test 4: Telegram Bot Exports ---")

@@ -45,12 +45,13 @@ var consultantTests = [
 ];
 consultantTests.forEach(function(q) {
   tests++;
-  var intent = bot.detectIntent(q);
+  var result = bot.detectIntent(q);
+  var intent = result.intent;
   if (intent === "consultant") {
-    console.log("PASS: consultant detected for: " + q);
+    console.log("PASS: consultant detected for: " + q + " (score: " + result.score + ")");
     passed++;
   } else {
-    console.log("FAIL: expected consultant got " + intent + " for: " + q);
+    console.log("FAIL: expected consultant got " + intent + " (score: " + result.score + ") for: " + q);
   }
 });
 
@@ -64,12 +65,13 @@ var codingTests = [
 ];
 codingTests.forEach(function(q) {
   tests++;
-  var intent = bot.detectIntent(q);
+  var result = bot.detectIntent(q);
+  var intent = result.intent;
   if (intent === "coder" || intent === "debugger") {
-    console.log("PASS: coding/debug intent for: " + q);
+    console.log("PASS: coding/debug intent for: " + q + " (score: " + result.score + ")");
     passed++;
   } else {
-    console.log("FAIL: expected coder/debugger got " + intent + " for: " + q);
+    console.log("FAIL: expected coder/debugger got " + intent + " (score: " + result.score + ") for: " + q);
   }
 });
 
@@ -82,12 +84,13 @@ var debugTests = [
 ];
 debugTests.forEach(function(q) {
   tests++;
-  var intent = bot.detectIntent(q);
+  var result = bot.detectIntent(q);
+  var intent = result.intent;
   if (intent === "debugger") {
-    console.log("PASS: debugger detected for: " + q);
+    console.log("PASS: debugger detected for: " + q + " (score: " + result.score + ")");
     passed++;
   } else {
-    console.log("FAIL: expected debugger got " + intent + " for: " + q);
+    console.log("FAIL: expected debugger got " + intent + " (score: " + result.score + ") for: " + q);
   }
 });
 
@@ -99,12 +102,13 @@ var deployTests = [
 ];
 deployTests.forEach(function(q) {
   tests++;
-  var intent = bot.detectIntent(q);
+  var result = bot.detectIntent(q);
+  var intent = result.intent;
   if (intent === "deployer") {
-    console.log("PASS: deployer detected for: " + q);
+    console.log("PASS: deployer detected for: " + q + " (score: " + result.score + ")");
     passed++;
   } else {
-    console.log("FAIL: expected deployer got " + intent + " for: " + q);
+    console.log("FAIL: expected deployer got " + intent + " (score: " + result.score + ") for: " + q);
   }
 });
 
@@ -116,12 +120,13 @@ var testTests = [
 ];
 testTests.forEach(function(q) {
   tests++;
-  var intent = bot.detectIntent(q);
+  var result = bot.detectIntent(q);
+  var intent = result.intent;
   if (intent === "tester") {
-    console.log("PASS: tester detected for: " + q);
+    console.log("PASS: tester detected for: " + q + " (score: " + result.score + ")");
     passed++;
   } else {
-    console.log("FAIL: expected tester got " + intent + " for: " + q);
+    console.log("FAIL: expected tester got " + intent + " (score: " + result.score + ") for: " + q);
   }
 });
 

@@ -2,6 +2,20 @@
 
 import { cn } from "@/lib/utils"
 
+/**
+ * Status badge component.
+ *
+ * ⚠️ This is a CUSTOM lightweight component — NOT shadcn/ui Badge.
+ * Props: { status: string; label?: string; className?: string }
+ *   - `status`  -> determines background/text color (maps to statusColors)
+ *   - `label`   -> optional override text (defaults to `status`)
+ *   - `className` -> optional extra Tailwind classes
+ * Does NOT support `children`, `variant`, or any other shadcn/ui props.
+ *
+ * @example
+ *   <Badge status="online" />
+ *   <Badge status="warning" label="Pending" />
+ */
 const statusColors: Record<string, string> = {
 	online: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
 	completed: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
