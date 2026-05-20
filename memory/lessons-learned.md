@@ -1758,3 +1758,96 @@ To be determined — this commit was auto-flagged as potentially containing a le
 deployment, bugfix
 
 ---
+
+### Auto-Extracted Lesson: Add /orchestrator/hermes/ to auth.js exclusion list — handleAuthRoute was int...
+
+Date: 2026-05-20
+Source: Git commit f26d3311
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/api/auth.js
+
+#### Task Summary
+
+fix: add /orchestrator/hermes/ to auth.js exclusion list — handleAuthRoute was intercepting Hermes Claw API calls and returning 401 Unauthorized
+
+#### Files Changed
+
+- `cloud/api/auth.js`
+
+#### Bug Cause
+
+`auth.handleAuthRoute()` in `cloud/api/auth.js` has a catch-all `requireAuth()` at the end of its route-matching block. Any URL path not explicitly listed in the "don't intercept" exclusion list falls through to `requireAuth`, which returns 401 Unauthorized. The Hermes Claw API routes (`/orchestrator/hermes/stats`, `/orchestrator/hermes/list-skills`, `/orchestrator/hermes/list-resources`) were not in the exclusion list, so they were being intercepted and rejected with 401 before reaching their actual handlers in `api.js`.
+
+#### Fix Applied
+
+Added `/orchestrator/hermes/` to the "don't intercept" exclusion list in `auth.js`'s `handleAuthRoute()` function, alongside the existing exclusions for `/healing/`, `/monitoring/`, `/memory-explorer`, etc. This allows Hermes Claw API requests to pass through `handleAuthRoute()` without requiring authentication and reach their handlers in `api.js`.
+
+#### Test Result
+
+Verified via direct curl to API server: all three Hermes Claw endpoints now return HTTP 200 with valid JSON responses instead of 401.
+
+#### Lesson Learned
+
+When adding new API route groups to `api.js`, always check if `auth.handleAuthRoute()` in `auth.js` has a catch-all `requireAuth()` that would intercept them. Any new route group must be added to the exclusion list in `handleAuthRoute()` (using `return false` for the path prefix) before the catch-all `requireAuth()` call.
+
+#### Reusable Rule
+
+When adding new API route groups to the SuperRoo API server, always add the route prefix to the "don't intercept" exclusion list in `cloud/api/auth.js` `handleAuthRoute()` function (before the catch-all `requireAuth()` at line 947). Otherwise, the auth middleware will intercept and reject all requests to those routes with 401 Unauthorized.
+
+#### Tags
+
+api, bugfix
+
+---
+
+### Auto-Extracted Lesson: Feat(telegram): Phase 3 — Central Brain lesson sync
+
+Date: 2026-05-20
+Source: Git commit 961413ac
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/api/telegramBot.js, cloud/api/telegramLearner.js
+
+#### Task Summary
+
+feat(telegram): Phase 3 — Central Brain lesson sync
+
+#### Files Changed
+
+- `cloud/api/telegramBot.js`
+- `cloud/api/telegramLearner.js`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 961413ac.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 961413ac by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+api
+
+---
