@@ -184,6 +184,24 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 		>
 	>(new Map())
 
+	// Prune aggregatedCostsMap when tasks are deleted from history to prevent
+	// unbounded growth over long sessions.
+	useEffect(() => {
+		const activeTaskIds = new Set(taskHistory.map((item) => item.id))
+		setAggregatedCostsMap((prev) => {
+			let changed = false
+			const next = new Map<string, { totalCost: number; ownCost: number; childrenCost: number }>()
+			for (const [id, cost] of prev) {
+				if (activeTaskIds.has(id)) {
+					next.set(id, cost)
+				} else {
+					changed = true
+				}
+			}
+			return changed ? next : prev
+		})
+	}, [taskHistory])
+
 	const clineAskRef = useRef(clineAsk)
 	useEffect(() => {
 		clineAskRef.current = clineAsk

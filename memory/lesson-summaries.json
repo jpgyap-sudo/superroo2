@@ -1,5 +1,5 @@
 {
-	"generatedAt": "2026-05-20T06:05:16.781Z",
+	"generatedAt": "2026-05-20T06:19:08.503Z",
 	"deepseekModel": "deepseek-chat",
 	"ollamaUrl": "http://100.64.175.88:11434",
 	"sourceFile": "memory/lessons-learned.md",
@@ -10,7 +10,7 @@
 			"date": "2026-05-20",
 			"model": "deepseek-chat",
 			"confidence": "high",
-			"summary": "PM2 v7's `env_file` directive does not load .env files; environment variables must be placed directly in the `env` block of ecosystem.config.js. To apply new env vars, use `pm2 delete` and `pm2 start` instead of `pm2 restart`, as restart reuses the old process environment.",
+			"summary": "PM2 v7's `env_file` directive does not load .env file contents into the process environment; all environment variables must be specified directly in the `env` block of ecosystem.config.js. Additionally, `pm2 restart` reuses the old environment, so you must use `pm2 delete` followed by `pm2 start` to apply new env vars.",
 			"hasEmbeddings": true
 		}
 	]

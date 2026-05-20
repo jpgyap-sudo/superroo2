@@ -285,6 +285,34 @@ async function handleGetStats(req, res) {
 			activeIncidents = incidents.filter((inc) => !terminalStatuses.includes(inc.status)).length
 		}
 
+		// Swap + RAM orchestrator state
+		let swap = null
+		let ramOrch = null
+		try {
+			const ramRes = await fetch("http://127.0.0.1:3456/health", { signal: AbortSignal.timeout(2000) })
+			if (ramRes.ok) {
+				const rd = await ramRes.json()
+				swap = rd.swapUsage || rd.swap || null
+				ramOrch = {
+					state: rd.ramState || "unknown",
+					ramPercent: rd.snapshot?.ramPercent ?? null,
+					trend: rd.trend?.trend || "unknown",
+					ratePerMinute: rd.trend?.ratePerMinute ?? null,
+				}
+			}
+		} catch {}
+
+		// Disk usage
+		let disk = null
+		try {
+			const { stdout } = await execAsync("df -k / | tail -1")
+			const parts = stdout.trim().split(/\s+/)
+			const totalKb = parseInt(parts[1], 10)
+			const usedKb = parseInt(parts[2], 10)
+			const usedPercent = parseInt((parts[4] || "0").replace("%", ""), 10)
+			disk = { totalBytes: totalKb * 1024, usedBytes: usedKb * 1024, usedPercent }
+		} catch {}
+
 		const serviceHealth = await getServiceHealth()
 
 		sendJson(res, 200, {
@@ -304,6 +332,8 @@ async function handleGetStats(req, res) {
 					used: usedMem,
 					usagePercent: memUsagePercent,
 				},
+				swap,
+				disk,
 			},
 			agents: {
 				activeAgents,
@@ -312,6 +342,7 @@ async function handleGetStats(req, res) {
 			logs: {
 				recentErrors24h: recentErrors,
 			},
+			ramOrch,
 			services: serviceHealth,
 			timestamp: new Date().toISOString(),
 		})
@@ -322,7 +353,14 @@ async function handleGetStats(req, res) {
 }
 
 async function getServiceHealth() {
-	const serviceNames = ["superroo-api", "superroo-dashboard"]
+	const serviceNames = [
+		"superroo-api",
+		"superroo-dashboard",
+		"superroo-worker",
+		"superroo-auto-deployer",
+		"superroo-mcp-memory",
+		"superroo-ram-orchestrator",
+	]
 	let pm2Services = {}
 
 	try {
@@ -344,31 +382,26 @@ async function getServiceHealth() {
 		console.error("[monitoring] Failed to read PM2 status:", err.message)
 	}
 
+	const SERVICE_PROBES = [
+		["superroo-api", "http://127.0.0.1:8787/api/health"],
+		["superroo-dashboard", "http://127.0.0.1:3001"],
+		["superroo-worker", null],
+		["superroo-auto-deployer", "http://127.0.0.1:8790/api/auto-deploy/status"],
+		["superroo-mcp-memory", "http://127.0.0.1:3419/mcp"],
+		["superroo-ram-orchestrator", "http://127.0.0.1:3456/health"],
+	]
+
 	const probes = await Promise.all(
-		[
-			["superroo-api", "http://127.0.0.1:8787/api/health"],
-			["superroo-dashboard", "http://127.0.0.1:3001"],
-		].map(async ([name, url]) => {
+		SERVICE_PROBES.map(async ([name, url]) => {
+			if (!url) {
+				return [name, { listening: pm2Services[name]?.status === "online", httpStatus: null, latencyMs: 0 }]
+			}
 			const start = Date.now()
 			try {
 				const response = await fetch(url, { signal: AbortSignal.timeout(3000) })
-				return [
-					name,
-					{
-						listening: response.ok,
-						httpStatus: response.status,
-						latencyMs: Date.now() - start,
-					},
-				]
+				return [name, { listening: response.ok, httpStatus: response.status, latencyMs: Date.now() - start }]
 			} catch {
-				return [
-					name,
-					{
-						listening: false,
-						httpStatus: null,
-						latencyMs: Date.now() - start,
-					},
-				]
+				return [name, { listening: false, httpStatus: null, latencyMs: Date.now() - start }]
 			}
 		}),
 	)
@@ -377,7 +410,9 @@ async function getServiceHealth() {
 		name,
 		process: pm2Services[name] || null,
 		...probe,
-		healthy: pm2Services[name]?.status === "online" && probe.listening,
+		healthy:
+			pm2Services[name]?.status === "online" &&
+			(probe.httpStatus !== null ? probe.listening : pm2Services[name]?.status === "online"),
 	}))
 }
 
@@ -464,6 +499,65 @@ async function handleRecordHealthCheck(req, res, body) {
 	writeJSON(HEALTH_LOG_PATH, timeline)
 
 	sendJson(res, 200, { success: true, recorded: true })
+}
+
+// -- Error Rate Buckets -----------------------------------------------------------
+
+/**
+ * GET /api/monitoring/error-rate-buckets
+ *
+ * Returns 24 hourly error/warn/total buckets in a single pass over log files.
+ * Replaces the 24-request loop the frontend was doing.
+ */
+function handleGetErrorRateBuckets(req, res) {
+	const now = Date.now()
+	const windowMs = 24 * 60 * 60 * 1000
+	const bucketMs = 60 * 60 * 1000
+	const numBuckets = 24
+	const cutoff = now - windowMs
+
+	const buckets = Array.from({ length: numBuckets }, (_, i) => {
+		const from = cutoff + i * bucketMs
+		return {
+			from,
+			label: new Date(from).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }),
+			errors: 0,
+			warns: 0,
+			total: 0,
+		}
+	})
+
+	try {
+		if (fs.existsSync(LOGS_DIR)) {
+			const files = fs
+				.readdirSync(LOGS_DIR)
+				.filter((f) => f.startsWith("superroo-") && f.endsWith(".jsonl"))
+				.sort()
+				.reverse()
+
+			for (const file of files) {
+				try {
+					const content = fs.readFileSync(path.join(LOGS_DIR, file), "utf-8")
+					for (const line of content.split("\n")) {
+						if (!line.trim()) continue
+						try {
+							const entry = JSON.parse(line)
+							if (entry.timestamp < cutoff || entry.timestamp > now) continue
+							const idx = Math.floor((entry.timestamp - cutoff) / bucketMs)
+							if (idx < 0 || idx >= numBuckets) continue
+							buckets[idx].total++
+							if (entry.level === "error") buckets[idx].errors++
+							else if (entry.level === "warn") buckets[idx].warns++
+						} catch {}
+					}
+				} catch {}
+			}
+		}
+	} catch (err) {
+		console.error("[monitoring] Error building error rate buckets:", err.message)
+	}
+
+	sendJson(res, 200, { buckets, generatedAt: new Date().toISOString() })
 }
 
 // -- Aggregated Logs (pgvector) ---------------------------------------------------
@@ -676,6 +770,12 @@ async function handleMonitoringRoute(method, url, req, res) {
 		// Body is already parsed by the caller
 		const body = req.body || {}
 		await handleRecordHealthCheck(req, res, body)
+		return true
+	}
+
+	// GET /api/monitoring/error-rate-buckets
+	if (method === "GET" && pathname === "/api/monitoring/error-rate-buckets") {
+		handleGetErrorRateBuckets(req, res)
 		return true
 	}
 

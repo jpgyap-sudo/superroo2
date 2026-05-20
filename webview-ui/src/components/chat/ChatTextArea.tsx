@@ -635,6 +635,14 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 		// Ref to store the search timeout.
 		const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
+		useEffect(() => {
+			return () => {
+				if (searchTimeoutRef.current) {
+					clearTimeout(searchTimeoutRef.current)
+				}
+			}
+		}, [])
+
 		const handleInputChange = useCallback(
 			(e: React.ChangeEvent<HTMLTextAreaElement>) => {
 				const newValue = e.target.value

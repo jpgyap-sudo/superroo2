@@ -166,6 +166,9 @@ export class ClineProvider
 	 * Used by the frontend to reject stale state that arrives out-of-order.
 	 */
 	private clineMessagesSeq = 0
+	private stateUpdateTimer: ReturnType<typeof setTimeout> | null = null
+	private pendingStateUpdate: (() => void) | null = null
+	private static readonly STATE_UPDATE_THROTTLE_MS = 150
 
 	public isViewLaunched = false
 	public settingsImportedAt?: number
@@ -713,6 +716,10 @@ export class ClineProvider
 		this.customModesManager?.dispose()
 		this.taskHistoryStore.dispose()
 		this.flushGlobalStateWriteThrough()
+		if (this.stateUpdateTimer) {
+			clearTimeout(this.stateUpdateTimer)
+			this.stateUpdateTimer = null
+		}
 		this.log("Disposed all disposables")
 		ClineProvider.activeInstances.delete(this)
 
@@ -2079,16 +2086,28 @@ export class ClineProvider
 	 *   `taskHistoryUpdated` / `taskHistoryItemUpdated`.
 	 */
 	async postStateToWebviewWithoutTaskHistory(): Promise<void> {
-		const state = await this.getStateToPostToWebview()
-		this.clineMessagesSeq++
-		state.clineMessagesSeq = this.clineMessagesSeq
-		const { taskHistory: _omit, ...rest } = state
-		this.postMessageToWebview({ type: "state", state: rest })
-
-		// Preserve existing MDM redirect behavior
-		if (this.mdmService?.requiresCloudAuth() && !this.checkMdmCompliance()) {
-			await this.postMessageToWebview({ type: "action", action: "cloudButtonClicked" })
+		// Throttle rapid state updates during streaming to avoid serializing
+		// the full clineMessages array dozens of times per second.
+		if (this.stateUpdateTimer) {
+			// A flush is already scheduled; it will pick up the latest state.
+			return
 		}
+
+		const flush = async () => {
+			this.stateUpdateTimer = null
+			const state = await this.getStateToPostToWebview()
+			this.clineMessagesSeq++
+			state.clineMessagesSeq = this.clineMessagesSeq
+			const { taskHistory: _omit, ...rest } = state
+			this.postMessageToWebview({ type: "state", state: rest })
+
+			// Preserve existing MDM redirect behavior
+			if (this.mdmService?.requiresCloudAuth() && !this.checkMdmCompliance()) {
+				await this.postMessageToWebview({ type: "action", action: "cloudButtonClicked" })
+			}
+		}
+
+		this.stateUpdateTimer = setTimeout(flush, ClineProvider.STATE_UPDATE_THROTTLE_MS)
 	}
 
 	/**

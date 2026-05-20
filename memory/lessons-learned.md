@@ -1144,4 +1144,47 @@ To be determined — this commit was auto-flagged as potentially containing a le
 
 testing, ui, api, deployment, bugfix
 
+### Lesson: Systematic Telegram gap analysis — implement all 26 gaps across 6 phases
+
+Date: 2026-05-20
+Source: Code task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/api/telegramBot.js, cloud/api/api.js, cloud/api/telegramLearner.js, cloud/test-telegram-regression.js
+
+#### Task Summary
+
+Implemented all 26 gaps identified in the Telegram Gap Analysis across 6 phases: Security (webhook secret, dedup, callback registry), Intelligence (LLM summary compression, smart context, cross-session memory, intent scoring, topic detection), Reliability (progress bars, command history, paginated messages, scheduled commands, multi-select keyboards), Monitoring (webhook health dashboard, command latency, provider fallback metrics), Intelligence v2 (active learning, pattern optimization, quality scoring, intent accuracy, cross-user patterns), and Nice-to-Have (response cache, tiered rate limiting, IP whitelist, regression test). All 33 regression tests pass.
+
+#### Files Changed
+
+- cloud/api/telegramBot.js — added response cache, scheduled commands, multi-select keyboards, paginated messages, callback registry, smart context, topic detection, command history, latency tracking, provider metrics, webhook health, progress bars, active learning, rate limiting, and all corresponding exports
+- cloud/api/api.js — added TELEGRAM_IP_RANGES constant, \_isTelegramIp() function, webhook IP whitelist check
+- cloud/api/telegramLearner.js — added cross-user pattern learning (mergeCrossUserPatterns, getCrossUserPatterns, getCrossUserInsights), user intent profiles
+- cloud/test-telegram-regression.js — new file: 33-test regression suite covering all 26 GAP features
+
+#### Bug Cause
+
+N/A — new feature implementation
+
+#### Fix Applied
+
+N/A — new feature implementation
+
+#### Test Result
+
+pass — 33/33 regression tests pass
+
+#### Lesson Learned
+
+When implementing a large batch of features across multiple files, create a regression test suite early to catch export mismatches and missing function references. The test caught 10 missing exports and 3 constant name mismatches in the first run. Also, when adding features to a large existing module (telegramBot.js is ~9800 lines), always verify module.exports includes every new function — it is easy to forget.
+
+#### Reusable Rule
+
+For any multi-file feature implementation, create a structural regression test that validates: (1) all expected functions are exported, (2) all expected constants exist in source, (3) all expected source code patterns are present. Run this test before deployment to catch missing exports and naming mismatches.
+
+#### Tags
+
+telegram, gap-analysis, security, intelligence, reliability, monitoring, regression-testing, deployment
+
 ---

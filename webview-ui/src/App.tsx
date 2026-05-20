@@ -196,7 +196,15 @@ const App = () => {
 			return
 		}
 
+		let attempts = 1
+		const maxAttempts = 30 // 60 seconds max
 		const retryInterval = window.setInterval(() => {
+			attempts++
+			if (attempts > maxAttempts) {
+				window.clearInterval(retryInterval)
+				console.error("[webview] Extension host did not respond after 60s. Webview may be disconnected.")
+				return
+			}
 			vscode.postMessage({ type: "webviewDidLaunch" })
 		}, 2000)
 

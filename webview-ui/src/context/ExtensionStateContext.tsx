@@ -193,6 +193,18 @@ export const mergeExtensionState = (prevState: ExtensionState, newState: Partial
 	}
 }
 
+let _persistStateTimer: ReturnType<typeof setTimeout> | null = null
+
+function schedulePersistState(state: Omit<ExtensionState, "clineMessages" | "clineMessagesSeq" | "currentTaskTodos">) {
+	if (_persistStateTimer) {
+		clearTimeout(_persistStateTimer)
+	}
+	_persistStateTimer = setTimeout(() => {
+		_persistStateTimer = null
+		vscode.setState({ extensionState: state })
+	}, 500)
+}
+
 export const ExtensionStateContextProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 	const persistedWebviewState = vscode.getState() as PersistedWebviewState | undefined
 	// Strip volatile fields that must never be restored from persisted state.
@@ -341,7 +353,8 @@ export const ExtensionStateContextProvider: React.FC<{ children: React.ReactNode
 							currentTaskTodos: _todos,
 							...persistable
 						} = mergedState
-						vscode.setState({ extensionState: persistable })
+						// Debounce persist to avoid hammering vscode.setState during streaming
+						schedulePersistState(persistable)
 						return mergedState
 					})
 					setShowWelcome(!checkExistKey(newState.apiConfiguration))

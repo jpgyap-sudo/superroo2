@@ -13,11 +13,19 @@ import { enhanceErrorWithSourceMaps } from "./sourceMapUtils"
 /**
  * Initialize source map support for production builds
  */
+let _sourceMapsInitialized = false
+
 export function initializeSourceMaps(): void {
 	if (process.env.NODE_ENV !== "production") {
 		// Only needed in production builds
 		return
 	}
+
+	// Guard against duplicate initialization on React re-renders
+	if (_sourceMapsInitialized) {
+		return
+	}
+	_sourceMapsInitialized = true
 
 	console.debug("Initializing CSP-compatible source map support for production build")
 
@@ -68,8 +76,11 @@ export function initializeSourceMaps(): void {
 					script.src.replace(/\.js$/, ".sourcemap"),
 				]
 
-				// Preload all possible source map locations
+				// Preload all possible source map locations (dedupe by href)
 				for (const mapUrl of possibleMapUrls) {
+					if (document.querySelector(`link[rel="preload"][href="${mapUrl}"]`)) {
+						continue
+					}
 					const link = document.createElement("link")
 					link.rel = "preload"
 					link.as = "fetch"
@@ -92,12 +103,14 @@ export function initializeSourceMaps(): void {
 								const baseUrl = scriptUrlObj.href.substring(0, scriptUrlObj.href.lastIndexOf("/") + 1)
 								const fullUrl = new URL(sourceMappingURL, baseUrl).href
 
-								const link = document.createElement("link")
-								link.rel = "preload"
-								link.as = "fetch"
-								link.href = fullUrl
-								link.crossOrigin = "anonymous"
-								document.head.appendChild(link)
+								if (!document.querySelector(`link[rel="preload"][href="${fullUrl}"]`)) {
+									const link = document.createElement("link")
+									link.rel = "preload"
+									link.as = "fetch"
+									link.href = fullUrl
+									link.crossOrigin = "anonymous"
+									document.head.appendChild(link)
+								}
 							}
 						}
 					})
