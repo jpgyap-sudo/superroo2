@@ -864,6 +864,7 @@ async function runCoderApply(job, jobId, taskId, telegram) {
 
 	// Generate git diff summary
 	let diffSummary = ""
+	let gitDiff = ""
 	try {
 		const { stdout: diff } = await execAsync(`cd ${workspaceDir} && git diff --stat 2>/dev/null || true`, {
 			timeout: 10000,
@@ -871,6 +872,14 @@ async function runCoderApply(job, jobId, taskId, telegram) {
 		diffSummary = diff
 	} catch {
 		diffSummary = "(diff unavailable)"
+	}
+	try {
+		const { stdout: diff } = await execAsync(`cd ${workspaceDir} && git diff 2>/dev/null || true`, {
+			timeout: 10000,
+		})
+		gitDiff = diff.substring(0, 20000)
+	} catch {
+		gitDiff = ""
 	}
 
 	output.push("")
@@ -886,17 +895,6 @@ async function runCoderApply(job, jobId, taskId, telegram) {
 			const { BugKnowledgeStore } = require("../orchestrator/stores/BugKnowledgeStore")
 			const ragStore = new BugKnowledgeStore()
 			await ragStore.init()
-
-			// Get git diff for the fix
-			let gitDiff = ""
-			try {
-				const { stdout: diff } = await execAsync(`cd ${workspaceDir} && git diff 2>/dev/null || true`, {
-					timeout: 10000,
-				})
-				gitDiff = diff.substring(0, 5000)
-			} catch {
-				/* non-fatal */
-			}
 
 			await ragStore.storeBugFix({
 				task_id: taskId,
@@ -928,13 +926,14 @@ async function runCoderApply(job, jobId, taskId, telegram) {
 				status: allSuccess ? "awaiting_commit" : "applied_with_errors",
 				appliedChanges,
 				allSuccess,
+				diff: gitDiff,
 				diffSummary,
 				updatedAt: new Date().toISOString(),
 			})
 			await notifier.sendCoderApplied(telegram.botToken, telegram.chatId, taskId, instruction, {
 				changes: appliedChanges,
 				allSuccess,
-				diff: diffSummary,
+				diff: gitDiff || diffSummary,
 			})
 			log("coder", jobId, `Applied notification sent to Telegram chat ${telegram.chatId}`)
 		} catch (e) {

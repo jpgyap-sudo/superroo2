@@ -1297,3 +1297,126 @@ When reviewing webview React code, audit for:
 webview, memory-leak, performance, LRUCache, debounce, throttle, react, vscode-extension
 
 ---
+
+### Auto-Extracted Lesson: Apply and Run buttons now actually work — Apply saves file to disk with visua...
+
+Date: 2026-05-20
+Source: Git commit a5a42898
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/dashboard/src/components/views/ide-terminal.tsx, memory/.stop-hook-last-run, memory/.sync-state.json, memory/lesson-summaries.json
+
+#### Task Summary
+
+fix: Apply and Run buttons now actually work — Apply saves file to disk with visual feedback, Run auto-executes command in terminal
+
+#### Files Changed
+
+- `cloud/dashboard/src/components/views/ide-terminal.tsx`
+- `memory/.stop-hook-last-run`
+- `memory/.sync-state.json`
+- `memory/lesson-summaries.json`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit a5a42898.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit a5a42898 by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+bugfix
+
+---
+
+### Lesson: Implemented 16 IDE terminal UX improvements across 6 dashboard components
+
+Date: 2026-05-20
+Source: Code task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/dashboard/src/components/ide-terminal/hooks/useWebSocket.ts, cloud/dashboard/src/lib/ide-store.tsx, cloud/dashboard/src/components/ide-terminal/hooks/useIdeTerminal.ts, cloud/dashboard/src/components/ide-terminal/AiChatPanel.tsx, cloud/dashboard/src/components/ide-terminal/TerminalPanel.tsx, cloud/dashboard/src/components/views/ide-terminal.tsx
+
+#### Task Summary
+
+Implemented all 16 identified IDE terminal improvements across 6 dashboard components to enhance reliability, UX, and developer experience.
+
+#### Files Changed
+
+- cloud/dashboard/src/components/ide-terminal/hooks/useWebSocket.ts — AI message queueing (Gap #1, #3)
+- cloud/dashboard/src/lib/ide-store.tsx — Terminal output persistence (Gap #5)
+- cloud/dashboard/src/components/ide-terminal/hooks/useIdeTerminal.ts — Debounced output, auto-save, file size validation, command history (Gap #7, #9, #11, #16)
+- cloud/dashboard/src/components/ide-terminal/AiChatPanel.tsx — Connection indicator, search empty state, rate limit feedback, image preview (Gap #2, #10, #13, #14)
+- cloud/dashboard/src/components/ide-terminal/TerminalPanel.tsx — ANSI color parsing, output virtualization (Gap #12, #15)
+- cloud/dashboard/src/components/views/ide-terminal.tsx — File save error handling, keyboard shortcuts, pass new props (Gap #4, #8)
+
+#### Bug Cause
+
+N/A — feature implementation, not bug fix.
+
+#### Fix Applied
+
+N/A
+
+#### Test Result
+
+unknown
+
+#### Lesson Learned
+
+When implementing multiple UX improvements across a component tree, it's essential to trace the data flow end-to-end: hook → store → parent component → child component. Each new prop must be exposed from the hook's return value, passed through the parent's JSX, and consumed in the child's interface. For virtualization, use absolute positioning with a spacer div to maintain scroll height while only rendering visible items. For ANSI parsing, strip codes for classification (error/warning detection) but render styled spans for display.
+
+#### Reusable Rule
+
+When adding new props to a deeply-nested React component, trace the full chain: (1) hook return type → (2) destructure in parent → (3) pass as JSX prop → (4) add to child interface → (5) destructure in child. Miss any link and the prop silently fails. For virtualization, always pair `useMemo` for visible range calculation with a `ResizeObserver` for container height tracking.
+
+#### Tags
+
+ide-terminal, ux, virtualization, ansi, react, websocket
+
+---
+
+### Lesson: Telegram diff deep links
+
+Date: 2026-05-20
+Source: superroo-learn CLI (local fallback)
+Model/API used: local
+Confidence: medium
+Related files:
+Tags:
+
+#### Task Summary
+
+Telegram View Diff must never depend only on a volatile callback preview. Store/preserve the git diff in pending coder job state, expose it through /api/telegram/tasks/:id/diff, include diff metadata in /api/telegram/tasks, and make Telegram buttons open the dashboard deep link /?page=telegram&task=<id>&panel=diff with an inline preview as a fallback.
+
+#### Lesson Learned
+
+Telegram View Diff must never depend only on a volatile callback preview. Store/preserve the git diff in pending coder job state, expose it through /api/telegram/tasks/:id/diff, include diff metadata in /api/telegram/tasks, and make Telegram buttons open the dashboard deep link /?page=telegram&task=<id>&panel=diff with an inline preview as a fallback.
+
+#### Tags
+
+cross-project, local-fallback
+
+---

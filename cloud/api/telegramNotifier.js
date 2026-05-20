@@ -19,6 +19,7 @@
 // Configuration
 // ---------------------------------------------------------------------------
 const TELEGRAM_API_BASE = "https://api.telegram.org/bot"
+const DEFAULT_DASHBOARD_URL = "https://dev.abcx124.xyz"
 
 const fs = require("fs").promises
 const path = require("path")
@@ -135,6 +136,14 @@ function setGroupRouting(userChatId, groupChatId) {
 function resolveChatId(userChatId) {
 	const routed = groupChatRouting.get(String(userChatId))
 	return routed || userChatId
+}
+
+function getDashboardBaseUrl() {
+	return (process.env.PUBLIC_DASHBOARD_URL || process.env.DASHBOARD_URL || DEFAULT_DASHBOARD_URL).replace(/\/+$/, "")
+}
+
+function getTelegramTaskDiffUrl(taskId) {
+	return getDashboardBaseUrl() + "/?page=telegram&task=" + encodeURIComponent(taskId) + "&panel=diff"
 }
 
 // ---------------------------------------------------------------------------
@@ -785,8 +794,9 @@ async function sendCoderApplied(botToken, chatId, taskId, instruction, applyResu
 		],
 		[
 			{ text: "❌ Reject Changes", callback_data: `coder:reject:${taskId}` },
-			{ text: "📄 View Diff", callback_data: `coder:diff:${taskId}` },
+			{ text: "📄 View Diff", url: getTelegramTaskDiffUrl(taskId) },
 		],
+		[{ text: "Preview Diff Here", callback_data: `coder:diff:${taskId}` }],
 	]
 
 	// Add retry button if some changes failed
@@ -1092,14 +1102,17 @@ async function handleCoderCallback(botToken, callbackQuery) {
 		}
 
 		case "diff": {
-			// Show the diff from the pending job
-			const diffText =
-				pending && pending.diff
-					? "```\n" + pending.diff.substring(0, 3000) + "\n```"
-					: "_Diff details not available._"
+			// Show the diff from the pending job when available, and always offer the dashboard deep link.
+			const fullDiffUrl = getTelegramTaskDiffUrl(taskId)
+			const preview =
+				pending && (pending.diff || pending.diffSummary) ? String(pending.diff || pending.diffSummary) : ""
+			const diffText = preview
+				? "```\n" + preview.substring(0, 3000) + "\n```"
+				: "_Diff preview is not stored in Telegram memory. Open the dashboard diff page below for the latest captured task details._"
 
-			await editMessageText(botToken, chatId, messageId, `📄 *Diff for ${taskId}*\n\n${diffText}`, [
-				[{ text: "🔙 Back", callback_data: `coder:back:${taskId}` }],
+			await editMessageText(botToken, chatId, messageId, `Diff for ${taskId}\n\n${diffText}`, [
+				[{ text: "Open Full Diff", url: fullDiffUrl }],
+				[{ text: "Back", callback_data: `coder:back:${taskId}` }],
 			])
 			return { action: "diff", taskId }
 		}
@@ -1284,21 +1297,21 @@ async function handleNotificationCallback(botToken, callbackQuery) {
 		}
 
 		case "diff": {
-			// Show diff summary — in a real scenario this would fetch the actual diff
+			const fullDiffUrl = getTelegramTaskDiffUrl(taskId)
 			await editMessageText(
 				botToken,
 				chatId,
 				messageId,
-				`📄 *Diff for ${taskId}*\n\n` +
-					`_Fetching diff details..._\n\n` +
-					`Use \`/diff ${taskId}\` in chat to see the full diff.\n\n` +
-					`*Actions:*\n` +
-					`• \`/approve ${taskId}\` — Approve changes\n` +
-					`• \`/reject ${taskId}\` — Reject changes`,
+				`Diff for ${taskId}\n\n` +
+					`Open the dashboard for the full captured diff, file list, and current task status.\n\n` +
+					`Actions:\n` +
+					`- /approve ${taskId} - Approve changes\n` +
+					`- /reject ${taskId} - Reject changes`,
 				[
+					[{ text: "Open Full Diff", url: fullDiffUrl }],
 					[
-						{ text: "✅ Approve", callback_data: `notify:approve:${taskId}` },
-						{ text: "❌ Reject", callback_data: `notify:reject:${taskId}` },
+						{ text: "Approve", callback_data: `notify:approve:${taskId}` },
+						{ text: "Reject", callback_data: `notify:reject:${taskId}` },
 					],
 				],
 			)
@@ -1495,6 +1508,8 @@ module.exports = {
 
 	// Utilities
 	stripMarkdown,
+	getDashboardBaseUrl,
+	getTelegramTaskDiffUrl,
 }
 
 // Auto-initialize on module load

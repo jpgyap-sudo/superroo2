@@ -883,6 +883,73 @@ function sendJson(res, status, payload) {
 	res.end(JSON.stringify(payload))
 }
 
+const DEFAULT_DASHBOARD_URL = "https://dev.abcx124.xyz"
+
+function getDashboardBaseUrl() {
+	return (process.env.PUBLIC_DASHBOARD_URL || process.env.DASHBOARD_URL || DEFAULT_DASHBOARD_URL).replace(/\/+$/, "")
+}
+
+function getTelegramTaskDiffUrl(taskId) {
+	return getDashboardBaseUrl() + "/?page=telegram&task=" + encodeURIComponent(taskId) + "&panel=diff"
+}
+
+function findTelegramTask(taskId) {
+	const wanted = String(taskId || "").toUpperCase()
+	if (!wanted || !telegramBot.userTasks || typeof telegramBot.userTasks.entries !== "function") return null
+	for (const [chatId, chatTasks] of telegramBot.userTasks.entries()) {
+		for (const task of chatTasks || []) {
+			if (String(task.id || "").toUpperCase() === wanted) {
+				return { chatId, task }
+			}
+		}
+	}
+	return null
+}
+
+function getNotifierPendingJob(taskId) {
+	const notifier = telegramBot.telegramNotifier
+	if (!notifier) return null
+	if (typeof notifier.getPendingCoderJob === "function") return notifier.getPendingCoderJob(taskId)
+	if (notifier.pendingCoderJobs && typeof notifier.pendingCoderJobs.get === "function") {
+		return notifier.pendingCoderJobs.get(taskId)
+	}
+	return null
+}
+
+function getTaskDiffText(taskId, task) {
+	const pending = getNotifierPendingJob(taskId)
+	return (
+		task?.diff ||
+		task?.gitDiff ||
+		task?.diffText ||
+		task?.patch ||
+		pending?.diff ||
+		pending?.gitDiff ||
+		pending?.diffText ||
+		pending?.patch ||
+		pending?.diffSummary ||
+		task?.diffSummary ||
+		""
+	)
+}
+
+function normalizeTaskFiles(task, pending) {
+	const list =
+		task?.changedFileList ||
+		task?.filesChanged ||
+		task?.files ||
+		pending?.changedFileList ||
+		pending?.filesChanged ||
+		pending?.files ||
+		pending?.appliedChanges
+	if (!Array.isArray(list)) return []
+	return list
+		.map((item) =>
+			typeof item === "string" ? { path: item } : { path: item.file || item.path || item.name || "" },
+		)
+		.filter((item) => item.path)
+}
+
 /**
  * Generate an embedding vector for text using Ollama nomic-embed-text.
  * Used by Qdrant search and other vector operations.
@@ -10252,16 +10319,28 @@ const server = http.createServer(async (req, res) => {
 			if (telegramBot.userTasks && typeof telegramBot.userTasks.entries === "function") {
 				for (const [chatId, chatTasks] of telegramBot.userTasks.entries()) {
 					for (const t of chatTasks) {
+						const pending = getNotifierPendingJob(t.id) || {}
+						const diffText = getTaskDiffText(t.id, t)
+						const changedFileList = normalizeTaskFiles(t, pending).map((f) => f.path)
 						tasks.push({
 							id: t.id,
 							title: t.instruction,
 							instruction: t.instruction,
 							status: t.status,
 							agent: t.agentId || "coder",
-							changedFiles: t.changedFiles || 0,
-							linesAdded: t.linesAdded || 0,
+							changedFiles:
+								t.changedFiles || changedFileList.length || pending.appliedChanges?.length || 0,
+							linesAdded: t.linesAdded || pending.linesAdded || 0,
+							linesRemoved: t.linesRemoved || pending.linesRemoved || 0,
+							changedFileList,
 							createdAgo: t.createdAt ? timeAgo(new Date(t.createdAt)) : "recently",
+							createdAt: t.createdAt,
 							branchName: t.branchName || "",
+							projectPath: t.projectPath || pending.workspaceDir || "",
+							savepointHash: t.savepointHash || pending.savepointHash || pending.savepoint,
+							diffAvailable: !!diffText,
+							diffUrl: getTelegramTaskDiffUrl(t.id),
+							chatId,
 						})
 					}
 				}
@@ -10277,7 +10356,11 @@ const server = http.createServer(async (req, res) => {
 						agent: "Coder Agent",
 						changedFiles: 8,
 						linesAdded: 245,
+						linesRemoved: 12,
+						changedFileList: ["cloud/dashboard/src/components/views/telegram.tsx", "cloud/api/api.js"],
 						createdAgo: "2h ago",
+						diffAvailable: false,
+						diffUrl: getTelegramTaskDiffUrl("TG-1287"),
 					},
 					{
 						id: "TG-1286",
@@ -10287,7 +10370,11 @@ const server = http.createServer(async (req, res) => {
 						agent: "Coder Agent",
 						changedFiles: 3,
 						linesAdded: 148,
+						linesRemoved: 9,
+						changedFileList: ["cloud/api/telegramBot.js"],
 						createdAgo: "4h ago",
+						diffAvailable: false,
+						diffUrl: getTelegramTaskDiffUrl("TG-1286"),
 					},
 					{
 						id: "TG-1285",
@@ -10363,8 +10450,13 @@ const server = http.createServer(async (req, res) => {
 		}
 
 		// POST /telegram/tasks/:id/approve — approve a task
-		if (method === "POST" && url.match(/^\/telegram\/tasks\/([^/]+)\/approve$/)) {
-			const taskId = url.match(/^\/telegram\/tasks\/([^/]+)\/approve$/)[1]
+		if (
+			method === "POST" &&
+			(url.match(/^\/telegram\/tasks\/([^/]+)\/approve$/) ||
+				normalizedUrl.match(/^\/telegram\/tasks\/([^/]+)\/approve$/))
+		) {
+			const taskId = (url.match(/^\/telegram\/tasks\/([^/]+)\/approve$/) ||
+				normalizedUrl.match(/^\/telegram\/tasks\/([^/]+)\/approve$/))[1]
 			// Update task status in memory
 			if (telegramBot.userTasks) {
 				for (const [, chatTasks] of telegramBot.userTasks.entries()) {
@@ -10381,8 +10473,13 @@ const server = http.createServer(async (req, res) => {
 		}
 
 		// POST /telegram/tasks/:id/reject — reject a task
-		if (method === "POST" && url.match(/^\/telegram\/tasks\/([^/]+)\/reject$/)) {
-			const taskId = url.match(/^\/telegram\/tasks\/([^/]+)\/reject$/)[1]
+		if (
+			method === "POST" &&
+			(url.match(/^\/telegram\/tasks\/([^/]+)\/reject$/) ||
+				normalizedUrl.match(/^\/telegram\/tasks\/([^/]+)\/reject$/))
+		) {
+			const taskId = (url.match(/^\/telegram\/tasks\/([^/]+)\/reject$/) ||
+				normalizedUrl.match(/^\/telegram\/tasks\/([^/]+)\/reject$/))[1]
 			if (telegramBot.userTasks) {
 				for (const [, chatTasks] of telegramBot.userTasks.entries()) {
 					for (const t of chatTasks) {
@@ -10397,14 +10494,39 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
-		// GET /telegram/tasks/:id/diff — get diff for a task
-		if (method === "GET" && url.match(/^\/telegram\/tasks\/([^/]+)\/diff$/)) {
-			const taskId = url.match(/^\/telegram\/tasks\/([^/]+)\/diff$/)[1]
+		// GET /telegram/tasks/:id/diff ? get diff for a task
+		if (
+			method === "GET" &&
+			(url.match(/^\/telegram\/tasks\/([^/]+)\/diff$/) ||
+				normalizedUrl.match(/^\/telegram\/tasks\/([^/]+)\/diff$/))
+		) {
+			const taskId = (url.match(/^\/telegram\/tasks\/([^/]+)\/diff$/) ||
+				normalizedUrl.match(/^\/telegram\/tasks\/([^/]+)\/diff$/))[1]
+			const found = findTelegramTask(taskId)
+			const task = found?.task || null
+			const pending = getNotifierPendingJob(taskId) || {}
+			const diff = String(getTaskDiffText(taskId, task) || "")
+			const files = normalizeTaskFiles(task, pending)
+			const source = diff
+				? pending.diff || pending.gitDiff || pending.diffText || pending.patch || pending.diffSummary
+					? "notifier"
+					: "task"
+				: "none"
 			sendJson(res, 200, {
 				success: true,
 				taskId,
-				diff: "diff --git a/src/file.ts b/src/file.ts\nindex abc..def 100644\n--- a/src/file.ts\n+++ b/src/file.ts\n@@ -1,5 +1,8 @@\n+// New feature added\n+console.log('Hello World');",
-				files: [{ path: "src/file.ts", additions: 3, deletions: 0 }],
+				found: !!task || !!pending,
+				diffAvailable: !!diff,
+				diff,
+				files,
+				summary: task?.diffSummary || pending.diffSummary || "",
+				branchName: task?.branchName || pending.branch || "",
+				projectPath: task?.projectPath || pending.workspaceDir || "",
+				dashboardUrl: getTelegramTaskDiffUrl(taskId),
+				source,
+				message: diff
+					? "Diff loaded."
+					: "No captured diff is available yet. The task may still be running, or it was created before diff capture was enabled.",
 			})
 			return
 		}

@@ -75,6 +75,20 @@ interface CodingTask {
 	createdAt: string
 	savepointHash?: string
 	environment?: "staging" | "production"
+	diffAvailable?: boolean
+	diffUrl?: string
+	diffSource?: string
+}
+
+interface TaskDiffResponse {
+	success: boolean
+	taskId: string
+	diffAvailable: boolean
+	diff: string
+	files?: Array<{ path: string; additions?: number; deletions?: number }>
+	summary?: string
+	message?: string
+	source?: string
 }
 
 interface CommandPermission {
@@ -490,6 +504,9 @@ function mapApiTask(t: any): CodingTask {
 		createdAt: t.createdAgo || t.createdAt || "recently",
 		savepointHash: t.savepointHash,
 		environment: t.environment,
+		diffAvailable: Boolean(t.diffAvailable || t.diffMetadata?.hasDiff),
+		diffUrl: t.diffUrl || t.diffMetadata?.dashboardUrl,
+		diffSource: t.diffSource || t.diffMetadata?.source,
 	}
 }
 
@@ -579,6 +596,9 @@ export function TelegramView() {
 	const [alertRules, setAlertRules] = useState<AlertRule[]>(ALERT_RULES)
 	const [webhookStatus, setWebhookStatus] = useState<"checking" | "active" | "inactive">("checking")
 	const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({})
+	const [selectedDiff, setSelectedDiff] = useState<TaskDiffResponse | null>(null)
+	const [diffLoading, setDiffLoading] = useState(false)
+	const [diffError, setDiffError] = useState<string | null>(null)
 
 	const fetchData = useCallback(async () => {
 		try {
@@ -622,6 +642,18 @@ export function TelegramView() {
 		return () => clearInterval(iv)
 	}, [fetchData])
 
+	useEffect(() => {
+		if (typeof window === "undefined" || tasks.length === 0) return
+		const params = new URLSearchParams(window.location.search)
+		const taskId = params.get("task")
+		const panel = params.get("panel")
+		if (!taskId || panel !== "diff") return
+		const task = tasks.find((t) => t.id.toLowerCase() === taskId.toLowerCase())
+		if (task && selectedTask?.id !== task.id && !diffLoading) {
+			void handleViewDiff(task)
+		}
+	}, [tasks, selectedTask?.id, diffLoading])
+
 	const handleApprove = async (taskId: string) => {
 		setActionLoading((p) => ({ ...p, [`approve-${taskId}`]: true }))
 		try {
@@ -643,6 +675,28 @@ export function TelegramView() {
 			)
 		} finally {
 			setActionLoading((p) => ({ ...p, [`reject-${taskId}`]: false }))
+		}
+	}
+
+	const handleViewDiff = async (task: CodingTask) => {
+		setSelectedTask(task)
+		setDiffLoading(true)
+		setDiffError(null)
+		try {
+			const res = await tgFetch<TaskDiffResponse>(`/telegram/tasks/${task.id}/diff`)
+			setSelectedDiff(res)
+			if (typeof window !== "undefined") {
+				const params = new URLSearchParams(window.location.search)
+				params.set("page", "telegram")
+				params.set("task", task.id)
+				params.set("panel", "diff")
+				window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`)
+			}
+		} catch (err) {
+			setSelectedDiff(null)
+			setDiffError(err instanceof Error ? err.message : "Failed to load diff")
+		} finally {
+			setDiffLoading(false)
 		}
 	}
 
@@ -1020,7 +1074,14 @@ export function TelegramView() {
 								{tasks.map((task) => (
 									<button
 										key={task.id}
-										onClick={() => setSelectedTask(selectedTask?.id === task.id ? null : task)}
+										onClick={() => {
+											const nextTask = selectedTask?.id === task.id ? null : task
+											setSelectedTask(nextTask)
+											if (!nextTask || nextTask.id !== selectedDiff?.taskId) {
+												setSelectedDiff(null)
+												setDiffError(null)
+											}
+										}}
 										className={cn(
 											"w-full rounded-2xl border bg-[#0f1117]/50 p-4 text-left transition-colors",
 											selectedTask?.id === task.id
@@ -1081,6 +1142,61 @@ export function TelegramView() {
 														</div>
 													</div>
 												)}
+												<div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+													<button
+														onClick={(e) => {
+															e.stopPropagation()
+															void handleViewDiff(task)
+														}}
+														disabled={diffLoading && selectedTask?.id === task.id}
+														className="rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-2.5 text-sm font-semibold text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-50">
+														<FileText size={14} className="mr-1 inline" />
+														{diffLoading && selectedTask?.id === task.id
+															? "Loading diff..."
+															: "View Diff"}
+													</button>
+													<a
+														href={
+															task.diffUrl ||
+															`/?page=telegram&task=${encodeURIComponent(task.id)}&panel=diff`
+														}
+														onClick={(e) => e.stopPropagation()}
+														className="rounded-xl border border-slate-600/40 bg-[#0a0e1a] px-4 py-2.5 text-center text-sm font-semibold text-slate-200 hover:border-cyan-500/40">
+														<ExternalLink size={14} className="mr-1 inline" />
+														Open Status Page
+													</a>
+												</div>
+												{selectedTask?.id === task.id &&
+													(selectedDiff || diffLoading || diffError) && (
+														<div className="mt-3 rounded-xl border border-[#1e2535] bg-[#050814] p-3">
+															<div className="mb-2 flex items-center justify-between gap-2">
+																<p className="text-xs font-semibold text-slate-200">
+																	Task Diff
+																</p>
+																{selectedDiff?.source && (
+																	<span className="rounded-full bg-cyan-500/10 px-2 py-0.5 text-[10px] text-cyan-200">
+																		{selectedDiff.source}
+																	</span>
+																)}
+															</div>
+															{diffLoading ? (
+																<p className="text-xs text-slate-400">
+																	Loading captured diff...
+																</p>
+															) : diffError ? (
+																<p className="text-xs text-red-300">{diffError}</p>
+															) : selectedDiff?.diffAvailable && selectedDiff.diff ? (
+																<pre className="max-h-96 overflow-auto rounded-lg bg-black/40 p-3 text-[11px] leading-relaxed text-slate-200">
+																	{selectedDiff.diff}
+																</pre>
+															) : (
+																<p className="text-xs text-amber-200">
+																	{selectedDiff?.message ||
+																		"No captured diff is available yet."}
+																</p>
+															)}
+														</div>
+													)}
 												{(task.status === "waiting_approval" || task.status === "review") && (
 													<div className="mt-3 grid grid-cols-2 gap-3">
 														<button

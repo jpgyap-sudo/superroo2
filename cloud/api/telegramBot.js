@@ -600,6 +600,16 @@ const pendingApprovals = new Map()
 /** Map<chatId, CodingTask[]> */
 const userTasks = new Map()
 
+const DEFAULT_DASHBOARD_URL = "https://dev.abcx124.xyz"
+
+function getDashboardBaseUrl() {
+	return (process.env.PUBLIC_DASHBOARD_URL || process.env.DASHBOARD_URL || DEFAULT_DASHBOARD_URL).replace(/\/+$/, "")
+}
+
+function getTelegramTaskDiffUrl(taskId) {
+	return getDashboardBaseUrl() + "/?page=telegram&task=" + encodeURIComponent(taskId) + "&panel=diff"
+}
+
 /** Map<chatId, { secret, verified }> — TOTP secrets awaiting verification */
 const pendingOtpSecrets = new Map()
 
@@ -7964,6 +7974,8 @@ async function handleViewDiff(botToken, chatId, messageId, taskId) {
 		return
 	}
 
+	var diffUrl = getTelegramTaskDiffUrl(task.id)
+
 	if (!task.changedFiles || task.changedFiles === 0) {
 		await editMessageText(
 			botToken,
@@ -7976,7 +7988,10 @@ async function handleViewDiff(botToken, chatId, messageId, taskId) {
 				" to check progress.",
 			{
 				reply_markup: {
-					inline_keyboard: [[{ text: "🔄 Refresh", callback_data: "view_diff:" + task.id }]],
+					inline_keyboard: [
+						[{ text: "Open Dashboard Diff", url: diffUrl }],
+						[{ text: "Refresh", callback_data: "view_diff:" + task.id }],
+					],
 				},
 			},
 		)
@@ -8006,11 +8021,13 @@ async function handleViewDiff(botToken, chatId, messageId, taskId) {
 			})
 			.join("\n") +
 		"\n\n" +
-		"Use the Mini App dashboard for full diff viewer."
+		"Open the Mini App dashboard for the full diff viewer:\n" +
+		diffUrl
 
 	await editMessageText(botToken, chatId, messageId, diffText, {
 		reply_markup: {
 			inline_keyboard: [
+				[{ text: "Open Full Diff", url: diffUrl }],
 				[
 					{ text: "✅ Approve", callback_data: "notify:approve:" + task.id },
 					{ text: "❌ Request Changes", callback_data: "notify:reject:" + task.id },
