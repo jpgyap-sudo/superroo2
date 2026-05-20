@@ -22,9 +22,9 @@ interface BugItem {
 }
 
 interface HermesStats {
+	operationCount: number
 	memoryEntries: number
-	skillsCreated: number
-	resourcesCreated: number
+	averageDurationMs: number
 }
 
 // ── Main View ─────────────────────────────────────────────────────────────────
@@ -45,7 +45,7 @@ export function ProductMemoryView() {
 			])
 			setFeatures(Array.isArray(featuresRes) ? featuresRes : featuresRes.features || [])
 			setBugs(Array.isArray(bugsRes) ? bugsRes : bugsRes.bugs || [])
-			setHermes(hermesRes)
+			setHermes(hermesRes.success ? hermesRes.stats : hermesRes)
 			setError(null)
 		} catch (err: unknown) {
 			setError(err instanceof Error ? err.message : "Failed to fetch product memory")
@@ -129,16 +129,18 @@ export function ProductMemoryView() {
 					<Card className="border-slate-800/40 bg-slate-900/40 p-4">
 						<div className="flex items-center gap-2">
 							<TrendingUp className="h-4 w-4 text-sky-400" />
-							<span className="text-sm text-slate-300">Skills Created</span>
+							<span className="text-sm text-slate-300">Operations</span>
 						</div>
-						<p className="mt-1 text-2xl font-semibold text-slate-100">{hermes.skillsCreated || 0}</p>
+						<p className="mt-1 text-2xl font-semibold text-slate-100">{hermes.operationCount || 0}</p>
 					</Card>
 					<Card className="border-slate-800/40 bg-slate-900/40 p-4">
 						<div className="flex items-center gap-2">
 							<GitCommit className="h-4 w-4 text-emerald-400" />
-							<span className="text-sm text-slate-300">Resources</span>
+							<span className="text-sm text-slate-300">Avg Duration</span>
 						</div>
-						<p className="mt-1 text-2xl font-semibold text-slate-100">{hermes.resourcesCreated || 0}</p>
+						<p className="mt-1 text-2xl font-semibold text-slate-100">
+							{hermes.averageDurationMs > 0 ? `${hermes.averageDurationMs}ms` : "—"}
+						</p>
 					</Card>
 				</div>
 			)}

@@ -24,13 +24,22 @@ import {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+interface KnowledgeStoreStats {
+	bugCount?: number
+	lessonCount?: number
+	testsPassed?: number
+	testsFailed?: number
+	errorTypes?: number
+	agentTypes?: number
+	untested?: number
+}
+
 interface HermesStats {
-	totalQueries: number
-	totalSkillsCreated: number
-	totalLessonsStored: number
-	totalBugFixes: number
-	ollamaReady: boolean
-	modelLoaded: string
+	operationCount: number
+	totalDurationMs: number
+	averageDurationMs: number
+	memoryEntries: number
+	knowledgeStore?: KnowledgeStoreStats
 }
 
 interface QueryResult {
@@ -69,7 +78,7 @@ export function HermesClawView() {
 			const res = await fetch("/api/orchestrator/hermes/stats")
 			const data = await res.json()
 			if (data.success) {
-				setStats(data)
+				setStats(data.stats)
 				setError(null)
 			}
 		} catch {
@@ -81,6 +90,8 @@ export function HermesClawView() {
 
 	useEffect(() => {
 		fetchStats()
+		fetchSkills()
+		fetchResources()
 		const iv = setInterval(fetchStats, 30000)
 		return () => clearInterval(iv)
 	}, [fetchStats])
@@ -204,30 +215,20 @@ export function HermesClawView() {
 
 			{/* Stats Cards */}
 			<div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-				<StatCard label="Total Queries" value={s.totalQueries} color="text-purple-400" />
-				<StatCard label="Skills Created" value={s.totalSkillsCreated} color="text-amber-400" />
-				<StatCard label="Lessons Stored" value={s.totalLessonsStored} color="text-blue-400" />
-				<StatCard label="Bug Fixes" value={s.totalBugFixes} color="text-red-400" />
+				<StatCard label="Operations" value={s.operationCount} color="text-purple-400" />
+				<StatCard label="Memory Entries" value={s.memoryEntries} color="text-amber-400" />
 				<StatCard
-					label="Ollama"
-					value={
-						<span className="flex items-center gap-2">
-							<span
-								className={cn(
-									"h-2 w-2 rounded-full",
-									s.ollamaReady ? "bg-green-500" : "bg-red-500",
-								)}
-							/>
-							{s.ollamaReady ? "Ready" : "Offline"}
-						</span>
-					}
-					color={s.ollamaReady ? "text-green-400" : "text-red-400"}
+					label="Avg Duration"
+					value={s.averageDurationMs > 0 ? `${s.averageDurationMs}ms` : "—"}
+					color="text-blue-400"
 				/>
 				<StatCard
-					label="Model"
-					value={s.modelLoaded || "—"}
-					color="text-[#e2e8f0]"
+					label="Total Duration"
+					value={s.totalDurationMs > 0 ? `${(s.totalDurationMs / 1000).toFixed(1)}s` : "—"}
+					color="text-cyan-400"
 				/>
+				<StatCard label="Bug Fixes (RAG)" value={s.knowledgeStore?.bugCount ?? "—"} color="text-red-400" />
+				<StatCard label="Lessons (RAG)" value={s.knowledgeStore?.lessonCount ?? "—"} color="text-green-400" />
 			</div>
 
 			{/* Memory Search + Context Recall */}
@@ -418,21 +419,29 @@ export function HermesClawView() {
 			<div className="rounded-lg border border-[#1e2535] bg-[#0f1117] px-4 py-3">
 				<div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-gray-500">
 					<span className="flex items-center gap-1.5">
-						<MessageSquare className="h-3.5 w-3.5 text-purple-400" />
-						{s.totalQueries} queries
+						<Activity className="h-3.5 w-3.5 text-purple-400" />
+						{s.operationCount} operations
 					</span>
 					<span className="flex items-center gap-1.5">
-						<Wand2 className="h-3.5 w-3.5 text-amber-400" />
-						{s.totalSkillsCreated} skills
+						<Database className="h-3.5 w-3.5 text-amber-400" />
+						{s.memoryEntries} memory entries
 					</span>
 					<span className="flex items-center gap-1.5">
-						<Database className="h-3.5 w-3.5 text-blue-400" />
-						{s.totalLessonsStored} lessons
+						<Cpu className="h-3.5 w-3.5 text-blue-400" />
+						{s.averageDurationMs > 0 ? `${s.averageDurationMs}ms avg` : "no duration data"}
 					</span>
-					<span className="flex items-center gap-1.5">
-						<Cpu className="h-3.5 w-3.5 text-green-400" />
-						{s.ollamaReady ? `${s.modelLoaded} loaded` : "Ollama offline"}
-					</span>
+					{s.knowledgeStore && (
+						<>
+							<span className="flex items-center gap-1.5">
+								<Database className="h-3.5 w-3.5 text-green-400" />
+								{s.knowledgeStore.bugCount ?? 0} bug fixes (RAG)
+							</span>
+							<span className="flex items-center gap-1.5">
+								<BookOpen className="h-3.5 w-3.5 text-cyan-400" />
+								{s.knowledgeStore.lessonCount ?? 0} lessons (RAG)
+							</span>
+						</>
+					)}
 				</div>
 			</div>
 		</div>
