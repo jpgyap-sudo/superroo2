@@ -728,7 +728,6 @@ function getTelegramMetrics() {
 		activeSessions: activeSessions.size,
 		conversationHistorySize: conversationHistory.size,
 		callbackRegistrySize: callbackRegistry.length,
-		pendingCoderJobs: pendingCoderJobs.size,
 		userTasks: userTasks.size,
 		processedUpdateIds: processedUpdateIds.size,
 		rateLimitMapSize: rateLimitMap.size,
