@@ -40,6 +40,7 @@ import { HermesClawView } from "@/components/views/hermes-claw"
 import { DeployOrchestratorView } from "@/components/views/deploy-orchestrator"
 import { MLEngineView } from "@/components/views/ml-engine"
 import { ProductMemoryView } from "@/components/views/product-memory"
+import { RamOrchestratorView } from "@/components/views/ram-orchestrator"
 import { LoginPage } from "@/components/auth/login"
 
 const PAGES: Record<string, React.FC> = {
@@ -79,6 +80,7 @@ const PAGES: Record<string, React.FC> = {
 	"hermes-claw": HermesClawView,
 	"deploy-orchestrator": DeployOrchestratorView,
 	"ml-engine": MLEngineView,
+	"ram-orchestrator": RamOrchestratorView,
 	"product-memory": ProductMemoryView,
 }
 
@@ -210,6 +212,7 @@ export default function Dashboard() {
 			"deploy-orchestrator": "Deploy Orchestrator",
 			"hermes-claw": "Hermes Claw",
 			"ml-engine": "ML Engine",
+			"ram-orchestrator": "RAM Orchestrator",
 			"product-memory": "Product Memory",
 		}[page] || page
 

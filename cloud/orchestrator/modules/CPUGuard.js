@@ -5,6 +5,9 @@
  *
  * Resource-aware backpressure for autonomous agent loops.
  * Monitors CPU and RAM usage, pausing agent execution when thresholds are exceeded.
+ *
+ * GAP 9: RAM measurement is now shared via RAMMonitor.getRamUsagePercent()
+ * to ensure consistent RAM readings across all modules.
  */
 
 const os = require("os")
@@ -44,13 +47,23 @@ async function getCpuUsagePercent(sampleMs = 500) {
 	return Math.round((1 - idleDiff / totalDiff) * 100)
 }
 
-// ── RAM measurement ──────────────────────────────────────────────────────────
+// ── RAM measurement (GAP 9: shared with RAMMonitor) ─────────────────────────
 
 /**
  * Get current RAM usage as a percentage 0–100.
+ * Delegates to RAMMonitor.getRamUsagePercent() when available for consistency.
+ * Falls back to os module directly if RAMMonitor is not loaded.
  * @returns {number}
  */
 function getRamUsagePercent() {
+	try {
+		const { getRamUsagePercent: sharedGetRam } = require("./RAMMonitor");
+		if (typeof sharedGetRam === "function") {
+			return sharedGetRam();
+		}
+	} catch {
+		// RAMMonitor not available — use local fallback
+	}
 	const total = os.totalmem()
 	const free = os.freemem()
 	if (total <= 0) return 0

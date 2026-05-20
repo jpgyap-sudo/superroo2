@@ -1,17 +1,17 @@
 {
-	"generatedAt": "2026-05-20T02:39:50.688Z",
-	"deepseekModel": "deepseek-chat",
-	"ollamaUrl": "http://100.64.175.88:11434",
-	"sourceFile": "memory/lessons-learned.md",
-	"count": 1,
-	"summaries": [
-		{
-			"title": "VPS RAM Orchestrator Worker — multi-layer RAM pressure management with worker pausing and task deferral",
-			"date": "2026-05-20",
-			"model": "deepseek-chat",
-			"confidence": "high",
-			"summary": "The VPS RAM Orchestrator Worker system implements multi-layer RAM pressure management by separating sensing (RAMMonitor), policy (RAMScheduler), and actuation (WorkerPauseManager) into independent modules. A 4-state state machine with hysteresis prevents oscillation, while worker criticality levels enable graceful degradation by pausing non-essential workers based on RAM pressure severity. Key takeaway: always decouple sensing, policy, and actuation in resource management systems, use state machines with hysteresis, and employ granular criticality levels instead of binary on/off controls.",
-			"hasEmbeddings": true
-		}
-	]
+  "generatedAt": "2026-05-20T02:44:24.792Z",
+  "deepseekModel": "deepseek-chat",
+  "ollamaUrl": "http://100.64.175.88:11434",
+  "sourceFile": "memory/lessons-learned.md",
+  "count": 1,
+  "summaries": [
+    {
+      "title": "VPS RAM Orchestrator Worker — multi-layer RAM pressure management with worker pausing and task deferral",
+      "date": "2026-05-20",
+      "model": "deepseek-chat",
+      "confidence": "high",
+      "summary": "The VPS RAM Orchestrator Worker implements multi-layer RAM pressure management by separating sensing (RAMMonitor), policy (RAMScheduler), and actuation (WorkerPauseManager) into independent modules. A 4-state state machine with hysteresis prevents oscillation, while worker criticality levels enable graceful degradation by pausing non-essential workers based on RAM pressure severity. This modular architecture allows each layer to be tested and replaced independently.",
+      "hasEmbeddings": true
+    }
+  ]
 }

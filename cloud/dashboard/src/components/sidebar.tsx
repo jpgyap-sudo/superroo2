@@ -37,6 +37,7 @@ import {
 	ClipboardCheck,
 	Cpu,
 	Package,
+	MemoryStick,
 } from "lucide-react"
 
 const NAV = [
@@ -76,6 +77,7 @@ const NAV = [
 	{ id: "hermes-claw", icon: Bot, label: "Hermes Claw" },
 	{ id: "deploy-orchestrator", icon: Rocket, label: "Deploy Orchestrator" },
 	{ id: "ml-engine", icon: Cpu, label: "ML Engine" },
+	{ id: "ram-orchestrator", icon: MemoryStick, label: "RAM Orchestrator" },
 	{ id: "product-memory", icon: Package, label: "Product Memory" },
 ]
 

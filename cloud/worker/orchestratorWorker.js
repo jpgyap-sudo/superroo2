@@ -21,6 +21,7 @@
  *   - Job timeout to prevent hanging
  *   - Dead-letter queue for failed jobs
  *   - Auto-recovery from paused state
+ *   - RAM-aware: checks VPS RAM Orchestrator before processing jobs
  */
 
 const { Worker, Queue } = require("bullmq")
@@ -39,6 +40,8 @@ const HEALTH_CHECK_INTERVAL_MS = parseInt(process.env.ORCHESTRATOR_HEALTH_INTERV
 const JOB_TIMEOUT_MS = parseInt(process.env.ORCHESTRATOR_JOB_TIMEOUT || "600000", 10)
 const MAX_PAUSE_DURATION_MS = parseInt(process.env.ORCHESTRATOR_MAX_PAUSE || "300000", 10)
 const API_BASE_URL = process.env.API_BASE_URL || "http://127.0.0.1:8787"
+const RAM_ORCHESTRATOR_URL = process.env.RAM_ORCHESTRATOR_URL || "http://127.0.0.1:3456"
+const RAM_CHECK_TIMEOUT_MS = parseInt(process.env.RAM_CHECK_TIMEOUT || "3000", 10)
 
 // ── Redis connection ──────────────────────────────────────────────────────────
 
@@ -143,6 +146,29 @@ async function notifyAPI(endpoint, payload) {
   }
 }
 
+// ── RAM Orchestrator integration ──────────────────────────────────────────────
+
+/**
+ * Check RAM state from the VPS RAM Orchestrator.
+ * Returns the RAM state or null if unreachable.
+ */
+async function checkRamState() {
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), RAM_CHECK_TIMEOUT_MS)
+    const res = await fetch(`${RAM_ORCHESTRATOR_URL}/health`, {
+      signal: controller.signal,
+    })
+    clearTimeout(timeout)
+    if (!res.ok) return null
+    const data = await res.json()
+    return data.ramState || null
+  } catch {
+    // RAM Orchestrator unreachable — proceed without RAM check
+    return null
+  }
+}
+
 // ── Job processor ─────────────────────────────────────────────────────────────
 
 async function processJob(job) {
@@ -150,10 +176,31 @@ async function processJob(job) {
     throw new Error("Worker paused due to Redis failures")
   }
 
+  // Check RAM state before processing
+  const ramState = await checkRamState()
+  if (ramState === "danger") {
+    console.warn(`[orchestrator-worker:${job.id}] RAM state is DANGER — deferring job`)
+    throw new Error(`RAM state is DANGER — job ${job.id} deferred by RAM Orchestrator`)
+  }
+  if (ramState === "critical") {
+    const jobPriority = job.opts?.priority || 5
+    if (jobPriority > 1) {
+      console.warn(`[orchestrator-worker:${job.id}] RAM state is CRITICAL — deferring low-priority job (priority ${jobPriority})`)
+      throw new Error(`RAM state is CRITICAL — low-priority job ${job.id} deferred by RAM Orchestrator`)
+    }
+  }
+  if (ramState === "warning") {
+    const jobPriority = job.opts?.priority || 5
+    if (jobPriority >= 8) {
+      console.warn(`[orchestrator-worker:${job.id}] RAM state is WARNING — deferring background job (priority ${jobPriority})`)
+      throw new Error(`RAM state is WARNING — background job ${job.id} deferred by RAM Orchestrator`)
+    }
+  }
+
   const { runnerType, instruction, workspaceDir, repoName, branch, parentTaskId, phase, totalPhases } = job.data
   const tag = `[orchestrator-worker:${job.id}]`
 
-  console.log(`${tag} Processing | runner=${runnerType} | phase=${phase}/${totalPhases} | instruction=${(instruction || "").substring(0, 80)}`)
+  console.log(`${tag} Processing | runner=${runnerType} | phase=${phase}/${totalPhases} | ramState=${ramState || "unknown"} | instruction=${(instruction || "").substring(0, 80)}`)
 
   if (!runnerType) {
     throw new Error("No runnerType specified in job data")
@@ -167,6 +214,7 @@ async function processJob(job) {
     phase,
     totalPhases,
     status: "running",
+    ramState: ramState || "unknown",
     timestamp: new Date().toISOString(),
   })
 
@@ -193,6 +241,7 @@ async function processJob(job) {
     totalPhases,
     status: result.success ? "completed" : "failed",
     summary: result.output?.slice(0, 3)?.join("\n") || "",
+    ramState: ramState || "unknown",
     timestamp: new Date().toISOString(),
   })
 

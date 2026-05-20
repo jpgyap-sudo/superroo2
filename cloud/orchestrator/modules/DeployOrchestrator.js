@@ -16,6 +16,7 @@
 const crypto = require("crypto");
 const path = require("path");
 const fs = require("fs");
+const http = require("http");
 const { spawn } = require("child_process");
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -90,6 +91,11 @@ class DeployOrchestrator {
 		this.maxConcurrentBuilds = opts.maxConcurrentBuilds || 1;
 		this.healthCheckTimeoutMs = opts.healthCheckTimeoutMs || 30000;
 		this.deployTimeoutMs = opts.deployTimeoutMs || 300000;
+
+		// RAM Orchestrator awareness (GAP 5)
+		this.ramOrchestratorUrl = opts.ramOrchestratorUrl || "http://127.0.0.1:3456";
+		this.ramCheckTimeoutMs = opts.ramCheckTimeoutMs || 3000;
+		this.ramDeferOnStates = opts.ramDeferOnStates || ["critical", "danger"];
 
 		// In-memory active tracking (fast lookup, SQLite is source of truth)
 		this._activeDeployments = new Map(); // projectName -> deploymentId
@@ -254,6 +260,45 @@ class DeployOrchestrator {
 		} catch (err) {
 			clearTimeout(timer);
 			return { healthy: false, error: err.message };
+		}
+	}
+
+	// ── RAM state check (GAP 5) ───────────────────────────────────────────
+
+	/**
+		* Check RAM orchestrator health before deploying.
+		* If RAM is in a defer-on state (critical/danger), deployment is queued instead.
+		* @returns {Promise<{ok: boolean, state?: string, ramPercent?: number}>}
+		*/
+	async _checkRamState() {
+		const timeoutMs = this.ramCheckTimeoutMs;
+		const controller = new AbortController();
+		const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+		try {
+			const res = await fetch(`${this.ramOrchestratorUrl}/health`, {
+				signal: controller.signal,
+				timeout: timeoutMs,
+			});
+			clearTimeout(timer);
+
+			if (!res.ok) {
+				// RAM orchestrator unreachable — allow deploy (fail open)
+				return { ok: true };
+			}
+
+			const data = await res.json();
+			const state = data.ramState || "normal";
+
+			if (this.ramDeferOnStates.includes(state)) {
+				return { ok: false, state, ramPercent: data.ramPercent };
+			}
+
+			return { ok: true, state, ramPercent: data.ramPercent };
+		} catch (err) {
+			clearTimeout(timer);
+			// RAM orchestrator unreachable — allow deploy (fail open)
+			return { ok: true };
 		}
 	}
 
@@ -462,6 +507,38 @@ class DeployOrchestrator {
 		await this.initialize();
 
 		const deploymentId = crypto.randomUUID();
+
+		// GAP 5: Check RAM state before deploying
+		if (!force) {
+			const ramCheck = await this._checkRamState();
+			if (!ramCheck.ok) {
+				await this._run(
+					`INSERT INTO ${QUEUE_TABLE} (id, project_name, type, priority, status, input, agent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+					[
+						deploymentId,
+						this.projectName,
+						"deploy",
+						0,
+						"pending",
+						JSON.stringify({ version, commitSha, skipHealthCheck, skipBuild }),
+						agent,
+						now(),
+						now(),
+					]
+				);
+
+				await this._emitEvent("deploy.queued", {
+					project: this.projectName,
+					version,
+					commitSha,
+					agent,
+					deploymentId,
+					reason: `RAM state is ${ramCheck.state} — deployment deferred`,
+				}, "warning");
+
+				return { queued: true, deploymentId, status: DEPLOY_STATUS.QUEUED, ramState: ramCheck.state };
+			}
+		}
 
 		// Check if there's already an active deployment for this project
 		const activeDeploy = this._activeDeployments.get(this.projectName);
