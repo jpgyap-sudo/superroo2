@@ -11501,6 +11501,65 @@ const server = http.createServer(async (req, res) => {
 
 		// ── Commissioning Loop Endpoints ─────────────────────────────────────────
 
+		/**
+		 * Map numeric phase (1-14) to kebab-case string key used by the dashboard frontend.
+		 */
+		function _phaseNumberToKey(phase) {
+			const map = {
+				1: "repo-inspection",
+				2: "env-validation",
+				3: "boot-verification",
+				4: "ui-testing",
+				5: "api-verification",
+				6: "database-validation",
+				7: "integration-verification",
+				8: "queue-worker-testing",
+				9: "file-upload-testing",
+				10: "security-auth",
+				11: "performance-stability",
+				12: "autonomous-debugging",
+				13: "reporting",
+				14: "cleanup",
+			}
+			return map[phase] || `phase-${phase}`
+		}
+
+		/**
+		 * Normalize the raw CommissioningLoop status into the shape the dashboard frontend expects.
+		 */
+		function _normalizeCommissioningStatus(raw) {
+			if (!raw) return null
+			return {
+				running: raw.running || false,
+				currentPhase: raw.currentPhase ? _phaseNumberToKey(raw.currentPhase) : null,
+				currentPhaseName: raw.currentPhaseName || null,
+				totalPhases: raw.totalPhases || 14,
+				progress: raw.progress || 0,
+				overallStatus: raw.overallStatus || "PENDING",
+				elapsedMs: raw.elapsedMs || 0,
+				elapsedFormatted: raw.elapsedFormatted || "",
+				error: raw.error || null,
+				startedAt: raw.startedAt || null,
+				phaseResults: (raw.phaseResults || []).map((pr) => ({
+					phase: typeof pr.phase === "number" ? _phaseNumberToKey(pr.phase) : pr.phase,
+					name: pr.name || "",
+					status:
+						pr.status === "completed"
+							? "passed"
+							: pr.status === "error"
+								? "failed"
+								: pr.status || "skipped",
+					duration: pr.duration || 0,
+					findings: pr.findings || pr.evidence?.length || 0,
+					results: pr.results || 0,
+					details: pr.details || null,
+					reason: pr.reason || null,
+				})),
+				reportUrl: raw.reportUrl || null,
+				jobId: raw.jobId || null,
+			}
+		}
+
 		// POST /commissioning/start — Start the 14-phase commissioning verification
 		if (method === "POST" && (url === "/commissioning/start" || normalizedUrl === "/commissioning/start")) {
 			try {
@@ -11513,7 +11572,8 @@ const server = http.createServer(async (req, res) => {
 
 				// If already running, return current status
 				if (commissioningLoop && commissioningLoop.getStatus().running) {
-					const status = commissioningLoop.getStatus()
+					const raw = commissioningLoop.getStatus()
+					const status = _normalizeCommissioningStatus(raw)
 					sendJson(res, 200, { success: true, message: "Commissioning already running", status })
 					return
 				}
@@ -11526,6 +11586,11 @@ const server = http.createServer(async (req, res) => {
 				})
 
 				const result = await commissioningLoop.start({ jobId: `commission-${Date.now()}` })
+				// Normalize the initial status in the response
+				if (result && result.success) {
+					const raw = commissioningLoop.getStatus()
+					result.status = _normalizeCommissioningStatus(raw)
+				}
 				sendJson(res, result.success ? 200 : 400, result)
 			} catch (err) {
 				sendJson(res, 500, { success: false, error: err.message })
@@ -11533,17 +11598,38 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
-		// GET /commissioning/status/:jobId — Get commissioning status
+		// GET /commissioning/status — Get commissioning status (no jobId required, for dashboard)
+		// GET /commissioning/status/:jobId — Get commissioning status by jobId
 		if (
 			method === "GET" &&
-			(url.startsWith("/commissioning/status/") || normalizedUrl.startsWith("/commissioning/status/"))
+			(url === "/commissioning/status" ||
+				normalizedUrl === "/commissioning/status" ||
+				url.startsWith("/commissioning/status/") ||
+				normalizedUrl.startsWith("/commissioning/status/"))
 		) {
 			try {
 				if (!commissioningLoop) {
-					sendJson(res, 404, { success: false, error: "No commissioning has been started" })
+					sendJson(res, 200, {
+						success: true,
+						status: {
+							running: false,
+							currentPhase: null,
+							phaseResults: [],
+							reportUrl: null,
+							jobId: null,
+							totalPhases: 14,
+							progress: 0,
+							overallStatus: "PENDING",
+							elapsedMs: 0,
+							elapsedFormatted: "",
+							error: null,
+							startedAt: null,
+						},
+					})
 					return
 				}
-				const status = commissioningLoop.getStatus()
+				const raw = commissioningLoop.getStatus()
+				const status = _normalizeCommissioningStatus(raw)
 				sendJson(res, 200, { success: true, status })
 			} catch (err) {
 				sendJson(res, 500, { success: false, error: err.message })
@@ -11551,10 +11637,14 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
-		// POST /commissioning/stop/:jobId — Stop the commissioning loop
+		// POST /commissioning/stop — Stop the commissioning loop (no jobId required, for dashboard)
+		// POST /commissioning/stop/:jobId — Stop the commissioning loop by jobId
 		if (
 			method === "POST" &&
-			(url.startsWith("/commissioning/stop/") || normalizedUrl.startsWith("/commissioning/stop/"))
+			(url === "/commissioning/stop" ||
+				normalizedUrl === "/commissioning/stop" ||
+				url.startsWith("/commissioning/stop/") ||
+				normalizedUrl.startsWith("/commissioning/stop/"))
 		) {
 			try {
 				if (!commissioningLoop) {
@@ -11562,6 +11652,11 @@ const server = http.createServer(async (req, res) => {
 					return
 				}
 				const result = await commissioningLoop.stop()
+				// Normalize status in response
+				if (result) {
+					const raw = commissioningLoop.getStatus()
+					result.status = _normalizeCommissioningStatus(raw)
+				}
 				sendJson(res, 200, result)
 			} catch (err) {
 				sendJson(res, 500, { success: false, error: err.message })
@@ -11579,9 +11674,9 @@ const server = http.createServer(async (req, res) => {
 					})
 					return
 				}
-				const status = commissioningLoop.getStatus()
-				if (status && status.report) {
-					sendJson(res, 200, { report: status.report })
+				const raw = commissioningLoop.getStatus()
+				if (raw && raw.report) {
+					sendJson(res, 200, { report: raw.report })
 				} else {
 					sendJson(res, 200, {
 						report: null,

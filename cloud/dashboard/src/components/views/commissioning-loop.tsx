@@ -33,7 +33,7 @@ interface PhaseResult {
 
 interface CommissioningStatus {
 	running: boolean
-	currentPhase: string
+	currentPhase: string | null
 	phaseResults: PhaseResult[]
 	reportUrl: string | null
 }
@@ -70,8 +70,8 @@ const PHASE_LABELS: Record<string, string> = {
 	"security-auth": "Security/Auth",
 	"performance-stability": "Performance/Stability",
 	"autonomous-debugging": "Autonomous Debugging",
-	"reporting": "Reporting",
-	"cleanup": "Cleanup",
+	reporting: "Reporting",
+	cleanup: "Cleanup",
 }
 
 const PHASE_ICONS: Record<string, any> = {
@@ -87,8 +87,8 @@ const PHASE_ICONS: Record<string, any> = {
 	"security-auth": ShieldCheck,
 	"performance-stability": Zap,
 	"autonomous-debugging": Activity,
-	"reporting": FileText,
-	"cleanup": RefreshCw,
+	reporting: FileText,
+	cleanup: RefreshCw,
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -114,8 +114,17 @@ export function CommissioningLoopView() {
 			const res = await fetch("/api/commissioning/status")
 			const data = await res.json()
 			if (data.success) {
-				setStatus(data)
+				// The API returns { success, status: { ... } } where status is the normalized object
+				setStatus(data.status || data)
 				setError(null)
+			} else {
+				// No commissioning has been started — return idle state
+				setStatus({
+					running: false,
+					currentPhase: null,
+					phaseResults: [],
+					reportUrl: null,
+				})
 			}
 		} catch {
 			// non-critical polling failure
@@ -354,12 +363,8 @@ export function CommissioningLoopView() {
 									</div>
 									{result && (
 										<div className="flex items-center gap-3 text-[11px] text-gray-500 mt-0.5">
-											{result.findings != null && (
-												<span>{result.findings} findings</span>
-											)}
-											{result.results != null && (
-												<span>{result.results} results</span>
-											)}
+											{result.findings != null && <span>{result.findings} findings</span>}
+											{result.results != null && <span>{result.results} results</span>}
 										</div>
 									)}
 								</div>
