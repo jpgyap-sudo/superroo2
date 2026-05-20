@@ -902,6 +902,12 @@ async function handleAuthRoute(method, url, req, res) {
 	// Don't intercept Telegram metrics — read-only observability endpoint
 	if (normalizedPath === "/telegram/metrics") return false
 
+	// Don't intercept Telegram task read endpoints — needed for deep links opened from bot buttons
+	if (normalizedPath === "/telegram/tasks") return false
+	if (normalizedPath === "/telegram/logs") return false
+	if (normalizedPath.match(/^\/telegram\/tasks\/[^/]+\/diff$/)) return false
+	if (normalizedPath.match(/^\/telegram\/tasks\/[^/]+\/status$/)) return false
+
 	// Don't intercept GitHub webhook — it has no auth header and must
 	// fall through to the dedicated handler in api.js
 	if (
@@ -964,6 +970,9 @@ async function handleAuthRoute(method, url, req, res) {
 
 	// Don't intercept Central Brain WebSocket info — public info endpoint
 	if (normalizedPath === "/brain/ws/info") return false
+
+	// Don't intercept Commissioning routes — handled by api.js directly (CommissioningLoop)
+	if (normalizedPath.startsWith("/commissioning/")) return false
 
 	// ── Protected Web Auth Routes ───────────────────────────────────────────
 

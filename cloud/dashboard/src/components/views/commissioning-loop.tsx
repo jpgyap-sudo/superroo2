@@ -109,9 +109,15 @@ export function CommissioningLoopView() {
 	const [actionLoading, setActionLoading] = useState(false)
 	const [error, setError] = useState<string | null>(null)
 
+	const authHeaders = (): Record<string, string> => {
+		if (typeof window === "undefined") return {}
+		const token = localStorage.getItem("superroo_auth_token")
+		return token ? { Authorization: `Bearer ${token}` } : {}
+	}
+
 	const fetchStatus = useCallback(async () => {
 		try {
-			const res = await fetch("/api/commissioning/status")
+			const res = await fetch("/api/commissioning/status", { headers: authHeaders() })
 			const data = await res.json()
 			if (data.success) {
 				// The API returns { success, status: { ... } } where status is the normalized object
@@ -127,7 +133,13 @@ export function CommissioningLoopView() {
 				})
 			}
 		} catch {
-			// non-critical polling failure
+			// Non-critical polling failure — set idle state to prevent crash
+			setStatus({
+				running: false,
+				currentPhase: null,
+				phaseResults: [],
+				reportUrl: null,
+			})
 		} finally {
 			setLoading(false)
 		}
@@ -143,7 +155,7 @@ export function CommissioningLoopView() {
 		setActionLoading(true)
 		setError(null)
 		try {
-			const res = await fetch("/api/commissioning/start", { method: "POST" })
+			const res = await fetch("/api/commissioning/start", { method: "POST", headers: authHeaders() })
 			const data = await res.json()
 			if (!data.success) {
 				setError(data.error || "Failed to start commissioning loop")
@@ -160,7 +172,7 @@ export function CommissioningLoopView() {
 		setActionLoading(true)
 		setError(null)
 		try {
-			const res = await fetch("/api/commissioning/stop", { method: "POST" })
+			const res = await fetch("/api/commissioning/stop", { method: "POST", headers: authHeaders() })
 			const data = await res.json()
 			if (!data.success) {
 				setError(data.error || "Failed to stop commissioning loop")
