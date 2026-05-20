@@ -1842,7 +1842,7 @@ function getConversationContext(chatId, maxMessages) {
  * @param {string} role - "user" or "assistant"
  * @param {string} content
  */
-function addToConversationContext(chatId, role, content) {
+async function addToConversationContext(chatId, role, content) {
 	if (!conversationHistory.has(chatId)) {
 		conversationHistory.set(chatId, [])
 	}
@@ -1852,12 +1852,53 @@ function addToConversationContext(chatId, role, content) {
 		content: content,
 		timestamp: Date.now(),
 	})
-	// Keep only last MAX_CONVERSATION_MESSAGES to prevent memory bloat
+	// Smart summarization: when exceeding cap, compress oldest 30 messages into a summary
 	if (history.length > MAX_CONVERSATION_MESSAGES) {
-		history.splice(0, history.length - MAX_CONVERSATION_MESSAGES)
+		var toSummarize = history.slice(0, 30)
+		try {
+			var summary = await _summarizeConversationMessages(toSummarize)
+			if (summary) {
+				// Replace oldest 30 with summary system message
+				history.splice(0, 30, {
+					role: "system",
+					content: "[Conversation Summary] " + summary,
+					timestamp: Date.now(),
+				})
+			} else {
+				// Fallback: just trim like before
+				history.splice(0, history.length - MAX_CONVERSATION_MESSAGES)
+			}
+		} catch (e) {
+			console.error("[telegram] Conversation summarization failed:", e.message)
+			history.splice(0, history.length - MAX_CONVERSATION_MESSAGES)
+		}
 	}
 	// Debounce persist — save at most once per 5 seconds per chat
 	scheduleConversationPersist(chatId)
+}
+
+/**
+ * Summarize a batch of conversation messages using Ollama.
+ * Returns a concise bullet-point summary or null if unavailable.
+ * @param {Array} messages — Array of {role, content, timestamp}
+ * @returns {Promise<string|null>}
+ */
+async function _summarizeConversationMessages(messages) {
+	var transcript = messages
+		.map(function (m) {
+			return (m.role || "user") + ": " + (m.content || "").substring(0, 500)
+		})
+		.join("\n")
+	if (transcript.length < 200) return null // Too short to bother
+	var prompt =
+		"Summarize the following conversation into 3-5 bullet points of key facts, requirements, and decisions. Be concise.\n\n" +
+		transcript
+	var summary = await _callOllamaChat([{ role: "user", content: prompt }], {
+		num_predict: 512,
+		temperature: 0.3,
+		timeout: 15000,
+	})
+	return summary
 }
 
 /** Map<chatId, timeoutId> for debounced persist */
@@ -2682,8 +2723,8 @@ async function askAI(message, providers, chatId, options) {
 
 			// ── Step 7: Record to conversation context ────────────────────
 			if (chatId !== undefined && chatId !== null) {
-				addToConversationContext(chatId, "user", message)
-				addToConversationContext(chatId, "assistant", reply)
+				await addToConversationContext(chatId, "user", message)
+				await addToConversationContext(chatId, "assistant", reply)
 			}
 
 			// Log the exchange to daily chat log for agent monitoring
@@ -2780,8 +2821,8 @@ async function askAI(message, providers, chatId, options) {
 	if (ollamaReply) {
 		// Log the exchange
 		if (chatId !== undefined && chatId !== null) {
-			addToConversationContext(chatId, "user", message)
-			addToConversationContext(chatId, "assistant", ollamaReply)
+			await addToConversationContext(chatId, "user", message)
+			await addToConversationContext(chatId, "assistant", ollamaReply)
 		}
 		logChatExchange(chatId, "user", message, { intent: "ask" }).catch(function () {})
 		logChatExchange(chatId, "assistant", ollamaReply, { provider: "ollama" }).catch(function () {})
