@@ -1,5 +1,5 @@
 {
-	"generatedAt": "2026-05-20T03:15:25.967Z",
+	"generatedAt": "2026-05-20T03:25:23.751Z",
 	"deepseekModel": "deepseek-chat",
 	"ollamaUrl": "http://100.64.175.88:11434",
 	"sourceFile": "memory/lessons-learned.md",
@@ -10,7 +10,7 @@
 			"date": "2026-05-20",
 			"model": "DeepSeek Chat",
 			"confidence": "high",
-			"summary": "The MCP server's `_handleLocalFallback` returns `{success:true, source:\"local_json_fallback\"}` even though it silently drops lesson data, so `withFallback()` must detect the `source` field and treat `local_json_fallback` as a failure to trigger real local storage and retry queuing. Never trust `success: true` from an upstream component without verifying the `source` field.",
+			"summary": "The MCP server's `_handleLocalFallback` returns `{success:true, source:\"local_json_fallback\"}` without actually storing lesson data, causing `withFallback()` to silently drop lessons because it only catches thrown errors. The fix adds detection of `source === \"local_json_fallback\"` to trigger proper fallback to local storage and retry queue. Key takeaway: when building fallback chains, never trust `success: true` from upstream components—always inspect the `source` field to verify data was actually persisted.",
 			"hasEmbeddings": true
 		}
 	]

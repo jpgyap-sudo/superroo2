@@ -926,3 +926,57 @@ To be determined — this commit was auto-flagged as potentially containing a le
 bugfix
 
 ---
+
+### Auto-Extracted Lesson: Add TELEGRAM_BOT_TOKEN and BOSS_TELEGRAM_CHAT_ID to ecosystem.config.js env b...
+
+Date: 2026-05-20
+Source: Git commit 1feb0dd1
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/dashboard/src/components/views/ram-orchestrator.tsx, cloud/ecosystem.config.js, memory/lesson-index.jsonl, memory/lesson-summaries.json, memory/lessons-learned.md
+
+#### Task Summary
+
+fix: add TELEGRAM_BOT_TOKEN and BOSS_TELEGRAM_CHAT_ID to ecosystem.config.js env block — PM2 v7 env_file is not supported
+
+#### Files Changed
+
+- `cloud/dashboard/src/components/views/ram-orchestrator.tsx`
+- `cloud/ecosystem.config.js`
+- `memory/lesson-index.jsonl`
+- `memory/lesson-summaries.json`
+- `memory/lessons-learned.md`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 1feb0dd1.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 1feb0dd1 by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+bugfix
+
+---
