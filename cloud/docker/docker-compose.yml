@@ -41,8 +41,9 @@ services:
       context: ../..
       dockerfile: cloud/docker/Dockerfile.api
     restart: unless-stopped
-    ports:
-      - "8787:8787"
+    # Port 8787 is handled by PM2 on the host — don't bind in Docker to avoid conflict
+    # ports:
+    #   - "8787:8787"
     environment:
       - REDIS_URL=redis://172.17.0.1:6379
       - ORCHESTRATOR_DB_PATH=/opt/superroo2/cloud/orchestrator/data/orchestrator.db
@@ -79,9 +80,6 @@ services:
       - NEXT_PUBLIC_API_URL=http://localhost:8787
       - API_INTERNAL_URL=http://superroo-api:8787
     mem_limit: 256m
-    depends_on:
-      superroo-api:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/"]
       interval: 30s
@@ -110,9 +108,6 @@ services:
       - /opt/superroo2/cloud/node_modules:/opt/superroo2/cloud/node_modules:ro
       - /opt/superroo2/node_modules:/opt/superroo2/node_modules:ro
     mem_limit: 256m
-    depends_on:
-      superroo-api:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8081/"]
       interval: 30s
@@ -141,9 +136,6 @@ services:
       - logs:/opt/superroo2/cloud/logs
       - /var/run/docker.sock:/var/run/docker.sock:ro
     mem_limit: 512m
-    depends_on:
-      superroo-api:
-        condition: service_healthy
     networks:
       - superroo-net
 
@@ -165,9 +157,6 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ${HOME}/.ssh:/root/.ssh:ro
     mem_limit: 128m
-    depends_on:
-      superroo-api:
-        condition: service_healthy
     networks:
       - superroo-net
 
