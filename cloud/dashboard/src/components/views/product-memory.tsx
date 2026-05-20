@@ -2,17 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { StatCard, Card } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import {
-	Package,
-	Bug,
-	CheckCircle2,
-	AlertTriangle,
-	Loader2,
-	GitCommit,
-	Sparkles,
-	TrendingUp,
-} from "lucide-react"
+import { Package, Bug, CheckCircle2, AlertTriangle, Loader2, GitCommit, Sparkles, TrendingUp } from "lucide-react"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -99,7 +89,8 @@ export function ProductMemoryView() {
 	const criticalBugs = bugs.filter((b) => b.status === "open" && b.severity === "critical").length
 
 	const statusColor = (status: string) => {
-		if (status === "healthy" || status === "working") return "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+		if (status === "healthy" || status === "working")
+			return "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
 		if (status === "degraded") return "bg-amber-500/20 text-amber-300 border-amber-500/30"
 		if (status === "failing") return "bg-rose-500/20 text-rose-300 border-rose-500/30"
 		return "bg-slate-500/20 text-slate-300 border-slate-500/30"
@@ -120,10 +111,10 @@ export function ProductMemoryView() {
 			</div>
 
 			<div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-				<StatCard icon={Package} label="Features" value={features.length} sub="Registered" />
-				<StatCard icon={CheckCircle2} label="Healthy" value={healthyFeatures} sub="Working well" />
-				<StatCard icon={Bug} label="Open Bugs" value={openBugs} sub="Needs attention" />
-				<StatCard icon={AlertTriangle} label="Critical" value={criticalBugs} sub="Urgent fixes" />
+				<StatCard label="Features" value={features.length} sub="Registered" />
+				<StatCard label="Healthy" value={healthyFeatures} sub="Working well" />
+				<StatCard label="Open Bugs" value={openBugs} sub="Needs attention" />
+				<StatCard label="Critical" value={criticalBugs} sub="Urgent fixes" />
 			</div>
 
 			{hermes && (
@@ -154,13 +145,9 @@ export function ProductMemoryView() {
 
 			<div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
 				<Card className="border-slate-800/40 bg-slate-900/40 p-5">
-					<h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-300">
-						Features
-					</h3>
+					<h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-300">Features</h3>
 					<div className="max-h-80 space-y-2 overflow-y-auto">
-						{features.length === 0 && (
-							<p className="text-sm text-slate-500">No features registered yet.</p>
-						)}
+						{features.length === 0 && <p className="text-sm text-slate-500">No features registered yet.</p>}
 						{features.slice(0, 20).map((f) => (
 							<div
 								key={f.id}
@@ -171,30 +158,28 @@ export function ProductMemoryView() {
 										<p className="truncate text-xs text-slate-500">{f.description}</p>
 									)}
 								</div>
-								<Badge variant="outline" className={statusColor(f.health)}>
+								<span
+									className={`inline-flex items-center rounded px-2 py-0.5 text-[11px] font-semibold tracking-wide border ${statusColor(f.health)}`}>
 									{f.status}
-								</Badge>
+								</span>
 							</div>
 						))}
 					</div>
 				</Card>
 
 				<Card className="border-slate-800/40 bg-slate-900/40 p-5">
-					<h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-300">
-						Recent Bugs
-					</h3>
+					<h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-300">Recent Bugs</h3>
 					<div className="max-h-80 space-y-2 overflow-y-auto">
-						{bugs.length === 0 && (
-							<p className="text-sm text-slate-500">No bugs reported.</p>
-						)}
+						{bugs.length === 0 && <p className="text-sm text-slate-500">No bugs reported.</p>}
 						{bugs.slice(0, 20).map((b) => (
 							<div
 								key={b.id}
 								className="flex items-center justify-between rounded-lg border border-slate-800/50 bg-slate-950/50 px-3 py-2">
 								<p className="min-w-0 truncate text-sm text-slate-200">{b.title}</p>
-								<Badge variant="outline" className={severityColor(b.severity)}>
+								<span
+									className={`inline-flex items-center rounded px-2 py-0.5 text-[11px] font-semibold tracking-wide border ${severityColor(b.severity)}`}>
 									{b.severity}
-								</Badge>
+								</span>
 							</div>
 						))}
 					</div>

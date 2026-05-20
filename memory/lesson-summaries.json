@@ -1,17 +1,17 @@
 {
-  "generatedAt": "2026-05-20T01:17:47.838Z",
-  "deepseekModel": "deepseek-chat",
-  "ollamaUrl": "http://100.64.175.88:11434",
-  "sourceFile": "memory/lessons-learned.md",
-  "count": 1,
-  "summaries": [
-    {
-      "title": "Telegram Bot Frictionless Coding & Context Awareness Improvements",
-      "date": "2026-05-20",
-      "model": "kimi-k2.5",
-      "confidence": "high",
-      "summary": "The lesson focused on making Telegram bot coding workflows frictionless by ensuring the UI matches backend behavior—hiding manual approval buttons during auto-mode and showing progress messages instead. Key improvements included persistent reply keyboards to reduce typing, passing conversation context to the classifier for accurate follow-up intent resolution, and adding bounded typing indicators to prevent leaks if workers crash.",
-      "hasEmbeddings": true
-    }
-  ]
+	"generatedAt": "2026-05-20T02:39:50.688Z",
+	"deepseekModel": "deepseek-chat",
+	"ollamaUrl": "http://100.64.175.88:11434",
+	"sourceFile": "memory/lessons-learned.md",
+	"count": 1,
+	"summaries": [
+		{
+			"title": "VPS RAM Orchestrator Worker — multi-layer RAM pressure management with worker pausing and task deferral",
+			"date": "2026-05-20",
+			"model": "deepseek-chat",
+			"confidence": "high",
+			"summary": "The VPS RAM Orchestrator Worker system implements multi-layer RAM pressure management by separating sensing (RAMMonitor), policy (RAMScheduler), and actuation (WorkerPauseManager) into independent modules. A 4-state state machine with hysteresis prevents oscillation, while worker criticality levels enable graceful degradation by pausing non-essential workers based on RAM pressure severity. Key takeaway: always decouple sensing, policy, and actuation in resource management systems, use state machines with hysteresis, and employ granular criticality levels instead of binary on/off controls.",
+			"hasEmbeddings": true
+		}
+	]
 }

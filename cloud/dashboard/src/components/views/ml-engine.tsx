@@ -2,8 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { StatCard, Card } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
+
 import {
 	BrainCircuit,
 	Activity,
@@ -118,42 +117,24 @@ export function MLEngineView() {
 			<div className="flex items-center justify-between">
 				<div>
 					<h2 className="text-xl font-semibold text-slate-100">ML Engine</h2>
-					<p className="text-sm text-slate-400">Neural network training, learners, and infinite improvement loop</p>
+					<p className="text-sm text-slate-400">
+						Neural network training, learners, and infinite improvement loop
+					</p>
 				</div>
-				<Button
+				<button
 					onClick={triggerTraining}
 					disabled={training}
-					className="gap-2 bg-violet-600 hover:bg-violet-500">
+					className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-500 disabled:opacity-50 disabled:cursor-not-allowed">
 					{training ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
 					{training ? "Training..." : "Train Cycle"}
-				</Button>
+				</button>
 			</div>
 
 			<div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-				<StatCard
-					icon={BrainCircuit}
-					label="Model Type"
-					value={m.modelType}
-					sub="Active NN"
-				/>
-				<StatCard
-					icon={Zap}
-					label="Loops Run"
-					value={m.loopsRun.toLocaleString()}
-					sub="Training cycles"
-				/>
-				<StatCard
-					icon={Activity}
-					label="Observations"
-					value={m.observationsCollected.toLocaleString()}
-					sub="Data points"
-				/>
-				<StatCard
-					icon={CheckCircle2}
-					label="Predictions"
-					value={m.predictionsMade.toLocaleString()}
-					sub="Model outputs"
-				/>
+				<StatCard label="Model Type" value={m.modelType} sub="Active NN" />
+				<StatCard label="Loops Run" value={m.loopsRun.toLocaleString()} sub="Training cycles" />
+				<StatCard label="Observations" value={m.observationsCollected.toLocaleString()} sub="Data points" />
+				<StatCard label="Predictions" value={m.predictionsMade.toLocaleString()} sub="Model outputs" />
 			</div>
 
 			<div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -174,9 +155,9 @@ export function MLEngineView() {
 									<BrainCircuit className="h-4 w-4 text-violet-400" />
 									<span className="text-sm text-slate-200">{learner.name}</span>
 								</div>
-								<Badge variant="outline" className="text-slate-300">
+								<span className="inline-flex items-center rounded px-2 py-0.5 text-[11px] font-semibold tracking-wide border border-slate-700 text-slate-300">
 									{(learner.data as any).samples || 0} samples
-								</Badge>
+								</span>
 							</div>
 						))}
 					</div>

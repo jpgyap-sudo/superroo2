@@ -207,7 +207,7 @@ Date: 2026-05-20
 Source: Code task completion
 Model/API used: deepseek-chat
 Confidence: high
-Related files: src/super-roo/debug-team/__tests__/DebugTeamComponents.test.ts, src/super-roo/ml/sync/MLSyncClient.ts
+Related files: src/super-roo/debug-team/**tests**/DebugTeamComponents.test.ts, src/super-roo/ml/sync/MLSyncClient.ts
 
 #### Task Summary
 
@@ -215,11 +215,11 @@ Created 4 comprehensive test files for untested TypeScript modules: Learners.tes
 
 #### Files Changed
 
-- src/super-roo/ml/learning/__tests__/Learners.test.ts (created)
-- src/super-roo/ml/loop/__tests__/InfiniteImprovementLoop.test.ts (created)
-- src/super-roo/ml/sync/__tests__/MLSyncClient.test.ts (created)
+- src/super-roo/ml/learning/**tests**/Learners.test.ts (created)
+- src/super-roo/ml/loop/**tests**/InfiniteImprovementLoop.test.ts (created)
+- src/super-roo/ml/sync/**tests**/MLSyncClient.test.ts (created)
 - src/super-roo/ml/sync/MLSyncClient.ts (fixed double re-queue bug)
-- src/super-roo/debug-team/__tests__/DebugTeamComponents.test.ts (created)
+- src/super-roo/debug-team/**tests**/DebugTeamComponents.test.ts (created)
 
 #### Bug Cause
 
@@ -337,11 +337,12 @@ Date: 2026-05-20
 Source: Orchestrator + DeepSeek (Code mode) task completion
 Model/API used: deepseek-chat (coding), kimi-k2.6 (orchestration)
 Confidence: high
-Related files: cloud/dashboard/src/components/views/*.tsx, cloud/api/api.js, src/super-roo/ml/**/__tests__/*.ts, cloud/orchestrator/modules/*.js, docs/super-roo/*.md
+Related files: cloud/dashboard/src/components/views/_.tsx, cloud/api/api.js, src/super-roo/ml/\*\*/**tests**/_.ts, cloud/orchestrator/modules/_.js, docs/super-roo/_.md
 
 #### Task Summary
 
 Fixed all identified gaps in SuperRoo's advanced features across 9 modules:
+
 - 4 dashboard views created (Parallel Execution, Autonomous Loop, Commissioning Loop, HermesClaw)
 - 4 API endpoints added (ML train, ML model, ML learners, Commissioning report)
 - 186 tests added across 4 test files (Learners, InfiniteImprovementLoop, MLSyncClient, DebugTeamComponents)
@@ -358,10 +359,10 @@ Fixed all identified gaps in SuperRoo's advanced features across 9 modules:
 - cloud/dashboard/src/app/page.tsx
 - cloud/dashboard/src/components/sidebar.tsx
 - cloud/api/api.js
-- src/super-roo/ml/learning/__tests__/Learners.test.ts
-- src/super-roo/ml/loop/__tests__/InfiniteImprovementLoop.test.ts
-- src/super-roo/ml/sync/__tests__/MLSyncClient.test.ts
-- src/super-roo/debug-team/__tests__/DebugTeamComponents.test.ts
+- src/super-roo/ml/learning/**tests**/Learners.test.ts
+- src/super-roo/ml/loop/**tests**/InfiniteImprovementLoop.test.ts
+- src/super-roo/ml/sync/**tests**/MLSyncClient.test.ts
+- src/super-roo/debug-team/**tests**/DebugTeamComponents.test.ts
 - cloud/orchestrator/modules/AutonomousLoop.js
 - cloud/orchestrator/modules/InfiniteImprovementLoop.js
 - cloud/orchestrator/modules/CommissioningLoop.js
@@ -413,6 +414,7 @@ Related files: cloud/orchestrator/modules/RAMMonitor.js, cloud/orchestrator/modu
 #### Task Summary
 
 Built a complete VPS RAM Orchestrator Worker system with three modular layers:
+
 1. **RAMMonitor** — Continuously polls VPS RAM usage with 4-state state machine (normal→warning→critical→danger) and trend analysis over a rolling window. Emits events on state transitions.
 2. **RAMScheduler** — RAM-aware task queuing that throttles dispatch based on current RAM state. Deferred tasks are automatically resubmitted when RAM recovers. Supports priority boosting for urgent operations.
 3. **WorkerPauseManager** — Manages worker lifecycle with 4 criticality levels (essential/critical/normal/background). Automatically pauses non-essential workers when RAM exceeds thresholds and resumes them on recovery. Integrates with AgentRegistry and ParallelExecutor.
@@ -451,5 +453,223 @@ Always separate sensing, policy, and actuation into distinct modules for resourc
 #### Tags
 
 vps, ram, orchestrator, worker, resource-management, backpressure, scheduling, pm2
+
+---
+
+### Auto-Extracted Lesson: Feat: add ML Engine + Product Memory dashboard views, wire sidebar nav, add /...
+
+Date: 2026-05-20
+Source: Git commit 20f78e53
+Model/API used: unknown
+Confidence: medium
+Related files: ', AGENTS.md, cloud/api/api.js, cloud/api/routes/workflow-compliance.js, cloud/api/telegramBot.js
+
+#### Task Summary
+
+feat: add ML Engine + Product Memory dashboard views, wire sidebar nav, add /cancel command
+
+#### Files Changed
+
+- `'`
+- `AGENTS.md`
+- `cloud/api/api.js`
+- `cloud/api/routes/workflow-compliance.js`
+- `cloud/api/telegramBot.js`
+- `cloud/api/telegramLearner.js`
+- `cloud/api/telegramNotifier.js`
+- `cloud/dashboard/src/app/page.tsx`
+- `cloud/dashboard/src/components/sidebar.tsx`
+- `cloud/dashboard/src/components/views/autonomous-loop.tsx`
+- `cloud/dashboard/src/components/views/commissioning-loop.tsx`
+- `cloud/dashboard/src/components/views/deploy-orchestrator.tsx`
+- `cloud/dashboard/src/components/views/hermes-claw.tsx`
+- `cloud/dashboard/src/components/views/ml-engine.tsx`
+- `cloud/dashboard/src/components/views/parallel-execution.tsx`
+- `cloud/dashboard/src/components/views/product-memory.tsx`
+- `cloud/dashboard/src/components/views/workflow-compliance.tsx`
+- `cloud/docker/Dockerfile.dashboard`
+- `cloud/orchestrator/CloudOrchestrator.js`
+- `cloud/orchestrator/index.js`
+- `cloud/orchestrator/ml/NeuralNetwork.js`
+- `cloud/orchestrator/modules/AutonomousLoop.js`
+- `cloud/orchestrator/modules/BuildQueue.js`
+- `cloud/orchestrator/modules/CommissioningLoop.js`
+- `cloud/orchestrator/modules/DeployOrchestrator.js`
+- `cloud/orchestrator/modules/FeatureAnswerer.js`
+- `cloud/orchestrator/modules/InfiniteImprovementLoop.js`
+- `cloud/orchestrator/modules/RAMMonitor.js`
+- `cloud/orchestrator/modules/RAMScheduler.js`
+- `cloud/orchestrator/modules/UnifiedBuilder.js`
+- `cloud/orchestrator/modules/WorkerPauseManager.js`
+- `cloud/remote-deploy-dashboard.sh`
+- `cloud/test-e2e-deploy.js`
+- `cloud/test-e2e-openclaw.js`
+- `cloud/worker/vpsRamOrchestratorWorker.js`
+- `docs/super-roo/AUTONOMOUS_LOOP_GUIDE.md`
+- `docs/super-roo/COMMISSIONING_LOOP_GUIDE.md`
+- `docs/super-roo/DEBUG_TEAM_GUIDE.md`
+- `docs/super-roo/HERMES_CLAW_GUIDE.md`
+- `docs/super-roo/ML_ENGINE_GUIDE.md`
+- `memory/.stop-hook-last-run`
+- `memory/.sync-state.json`
+- `memory/context/latest-agent-context.md`
+- `memory/lesson-index.jsonl`
+- `memory/lesson-summaries.json`
+- `memory/lessons-learned.md`
+- `product-features/advanced-features-gap-analysis.md`
+- `scripts/check-workflow-compliance.mjs`
+- `scripts/sync-dashboard-static.sh`
+- `server/src/memory/McpMemoryServer.ts`
+- `server/src/memory/commit-deploy-log.json`
+- `src/docs/resources/debug-team/websocket-best-practices.md`
+- `src/services/checkpoints/__tests__/ShadowCheckpointService.spec.ts`
+- `src/super-roo/debug-team/__tests__/DebugTeamComponents.test.ts`
+- `src/super-roo/ml/learning/__tests__/Learners.test.ts`
+- `src/super-roo/ml/loop/__tests__/InfiniteImprovementLoop.test.ts`
+- `src/super-roo/ml/sync/MLSyncClient.ts`
+- `src/super-roo/ml/sync/__tests__/MLSyncClient.test.ts`
+- `tools/superroo-learn.mjs`
+- `website_response.html`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 20f78e53.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 20f78e53 by JPG Yap.
+
+#### Test Result
+
+Tests were included in this commit.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+testing, ml-engine, api, deployment
+
+---
+
+### Auto-Extracted Lesson: Feat: add ML Engine + Product Memory dashboard views, wire sidebar nav, add /...
+
+Date: 2026-05-20
+Source: Git commit ec3b00f6
+Model/API used: unknown
+Confidence: medium
+Related files: ', AGENTS.md, cloud/api/api.js, cloud/api/routes/workflow-compliance.js, cloud/api/telegramBot.js
+
+#### Task Summary
+
+feat: add ML Engine + Product Memory dashboard views, wire sidebar nav, add /cancel command
+
+#### Files Changed
+
+- `'`
+- `AGENTS.md`
+- `cloud/api/api.js`
+- `cloud/api/routes/workflow-compliance.js`
+- `cloud/api/telegramBot.js`
+- `cloud/api/telegramLearner.js`
+- `cloud/api/telegramNotifier.js`
+- `cloud/dashboard/src/app/page.tsx`
+- `cloud/dashboard/src/components/sidebar.tsx`
+- `cloud/dashboard/src/components/views/autonomous-loop.tsx`
+- `cloud/dashboard/src/components/views/commissioning-loop.tsx`
+- `cloud/dashboard/src/components/views/deploy-orchestrator.tsx`
+- `cloud/dashboard/src/components/views/hermes-claw.tsx`
+- `cloud/dashboard/src/components/views/ml-engine.tsx`
+- `cloud/dashboard/src/components/views/parallel-execution.tsx`
+- `cloud/dashboard/src/components/views/product-memory.tsx`
+- `cloud/dashboard/src/components/views/workflow-compliance.tsx`
+- `cloud/docker/Dockerfile.dashboard`
+- `cloud/orchestrator/CloudOrchestrator.js`
+- `cloud/orchestrator/index.js`
+- `cloud/orchestrator/ml/NeuralNetwork.js`
+- `cloud/orchestrator/modules/AutonomousLoop.js`
+- `cloud/orchestrator/modules/BuildQueue.js`
+- `cloud/orchestrator/modules/CommissioningLoop.js`
+- `cloud/orchestrator/modules/DeployOrchestrator.js`
+- `cloud/orchestrator/modules/FeatureAnswerer.js`
+- `cloud/orchestrator/modules/InfiniteImprovementLoop.js`
+- `cloud/orchestrator/modules/RAMMonitor.js`
+- `cloud/orchestrator/modules/RAMScheduler.js`
+- `cloud/orchestrator/modules/UnifiedBuilder.js`
+- `cloud/orchestrator/modules/WorkerPauseManager.js`
+- `cloud/remote-deploy-dashboard.sh`
+- `cloud/test-e2e-deploy.js`
+- `cloud/test-e2e-openclaw.js`
+- `cloud/worker/vpsRamOrchestratorWorker.js`
+- `docs/super-roo/AUTONOMOUS_LOOP_GUIDE.md`
+- `docs/super-roo/COMMISSIONING_LOOP_GUIDE.md`
+- `docs/super-roo/DEBUG_TEAM_GUIDE.md`
+- `docs/super-roo/HERMES_CLAW_GUIDE.md`
+- `docs/super-roo/ML_ENGINE_GUIDE.md`
+- `memory/.stop-hook-last-run`
+- `memory/.sync-state.json`
+- `memory/context/latest-agent-context.md`
+- `memory/lesson-index.jsonl`
+- `memory/lesson-summaries.json`
+- `memory/lessons-learned.md`
+- `product-features/advanced-features-gap-analysis.md`
+- `scripts/check-workflow-compliance.mjs`
+- `scripts/sync-dashboard-static.sh`
+- `server/src/memory/McpMemoryServer.ts`
+- `server/src/memory/commit-deploy-log.json`
+- `src/docs/resources/debug-team/websocket-best-practices.md`
+- `src/services/checkpoints/__tests__/ShadowCheckpointService.spec.ts`
+- `src/super-roo/debug-team/__tests__/DebugTeamComponents.test.ts`
+- `src/super-roo/ml/learning/__tests__/Learners.test.ts`
+- `src/super-roo/ml/loop/__tests__/InfiniteImprovementLoop.test.ts`
+- `src/super-roo/ml/sync/MLSyncClient.ts`
+- `src/super-roo/ml/sync/__tests__/MLSyncClient.test.ts`
+- `tools/superroo-learn.mjs`
+- `website_response.html`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit ec3b00f6.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit ec3b00f6 by JPG Yap.
+
+#### Test Result
+
+Tests were included in this commit.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+testing, ml-engine, api, deployment
 
 ---
