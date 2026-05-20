@@ -1,17 +1,17 @@
 {
-	"generatedAt": "2026-05-19T15:55:46.269Z",
-	"deepseekModel": "deepseek-chat",
-	"ollamaUrl": "http://100.64.175.88:11434",
-	"sourceFile": "memory/lessons-learned.md",
-	"count": 1,
-	"summaries": [
-		{
-			"title": "Healing Module — add ML classification metrics, per-category escalation, repair tracking, and notification routing",
-			"date": "2026-05-19",
-			"model": "deepseek-chat",
-			"confidence": "high",
-			"summary": "The lesson enhanced the Healing Module by adding ML classification metrics (precision/recall/F1, confusion matrix), per-category escalation policies, repair tracking with automatic circuit breaker triggers, and notification routing to channels like Slack and Telegram. A key takeaway is that per-category escalation requires explicit configuration layering—tests must set `escalationPolicy.maxRetries` rather than relying on the top-level `maxRetries` in `SelfHealingConfig`, as the default `maxRetries: 3` can prevent escalation from triggering.",
-			"hasEmbeddings": true
-		}
-	]
+  "generatedAt": "2026-05-20T01:17:47.838Z",
+  "deepseekModel": "deepseek-chat",
+  "ollamaUrl": "http://100.64.175.88:11434",
+  "sourceFile": "memory/lessons-learned.md",
+  "count": 1,
+  "summaries": [
+    {
+      "title": "Telegram Bot Frictionless Coding & Context Awareness Improvements",
+      "date": "2026-05-20",
+      "model": "kimi-k2.5",
+      "confidence": "high",
+      "summary": "The lesson focused on making Telegram bot coding workflows frictionless by ensuring the UI matches backend behavior—hiding manual approval buttons during auto-mode and showing progress messages instead. Key improvements included persistent reply keyboards to reduce typing, passing conversation context to the classifier for accurate follow-up intent resolution, and adding bounded typing indicators to prevent leaks if workers crash.",
+      "hasEmbeddings": true
+    }
+  ]
 }

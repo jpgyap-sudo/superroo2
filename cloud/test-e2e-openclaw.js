@@ -113,7 +113,7 @@ async function run() {
 	)
 	assert(classifier.keywordFallback("Run a shell command") === "shell", "keywordFallback: 'Shell' -> shell")
 	assert(classifier.keywordFallback("Hello how are you?") === "chat", "keywordFallback: casual -> chat")
-	assert(classifier.keywordFallback("What is the architecture?") === "chat", "keywordFallback: 'What is' -> chat")
+	assert(classifier.keywordFallback("What is the architecture?") === "feature_query", "keywordFallback: 'What is the architecture' -> feature_query")
 
 	// classifyIntent falls back to keyword when no providers
 	try {
@@ -302,7 +302,7 @@ async function run() {
 	assert(botSrc.includes("telegramEngineer.formatLogsResult"), "telegramBot uses formatLogsResult")
 	assert(botSrc.includes("telegramEngineer.formatTestResult"), "telegramBot uses formatTestResult")
 	assert(botSrc.includes("telegramEngineer.formatRestartResult"), "telegramBot uses formatRestartResult")
-	assert(botSrc.includes("telegramEngineer.seniorEngineerReply"), "telegramBot uses seniorEngineerReply")
+	assert(botSrc.includes("telegramEngineer.formatCommitDeployStatus"), "telegramBot uses formatCommitDeployStatus")
 
 	// Check tgEndpoints integration
 	assert(botSrc.includes("tgEndpoints.debugPlan"), "telegramBot calls tgEndpoints.debugPlan")

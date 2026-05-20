@@ -38,6 +38,13 @@ const {
 	onAutonomousControllerEvent,
 	runControlledAutonomousTask,
 } = require("./modules/CPUGuard")
+const { RAMMonitor, DEFAULT_THRESHOLDS } = require("./modules/RAMMonitor")
+const { RAMScheduler, PRIORITY } = require("./modules/RAMScheduler")
+const {
+	WorkerPauseManager,
+	WORKER_CRITICALITY,
+	DEFAULT_WORKER_CRITICALITY,
+} = require("./modules/WorkerPauseManager")
 
 module.exports = {
 	CloudOrchestrator,
@@ -71,4 +78,12 @@ module.exports = {
 	autonomousController,
 	onAutonomousControllerEvent,
 	runControlledAutonomousTask,
+	// RAM Orchestrator exports
+	RAMMonitor,
+	DEFAULT_THRESHOLDS,
+	RAMScheduler,
+	PRIORITY,
+	WorkerPauseManager,
+	WORKER_CRITICALITY,
+	DEFAULT_WORKER_CRITICALITY,
 }

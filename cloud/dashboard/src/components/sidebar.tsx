@@ -33,6 +33,10 @@ import {
 	CheckCircle,
 	Database,
 	Eye,
+	RotateCcw,
+	ClipboardCheck,
+	Cpu,
+	Package,
 } from "lucide-react"
 
 const NAV = [
@@ -66,6 +70,13 @@ const NAV = [
 	{ id: "ollama-growth", icon: BrainCircuit, label: "Ollama Growth" },
 	{ id: "memory-explorer", icon: Database, label: "Memory Explorer" },
 	{ id: "visual-crawler", icon: Eye, label: "Visual Crawler" },
+	{ id: "parallel-execution", icon: Layers, label: "Parallel Execution" },
+	{ id: "autonomous-loop", icon: RotateCcw, label: "Autonomous Loop" },
+	{ id: "commissioning-loop", icon: ClipboardCheck, label: "Commissioning" },
+	{ id: "hermes-claw", icon: Bot, label: "Hermes Claw" },
+	{ id: "deploy-orchestrator", icon: Rocket, label: "Deploy Orchestrator" },
+	{ id: "ml-engine", icon: Cpu, label: "ML Engine" },
+	{ id: "product-memory", icon: Package, label: "Product Memory" },
 ]
 
 export function Sidebar({ page, setPage }: { page: string; setPage: (p: string) => void }) {

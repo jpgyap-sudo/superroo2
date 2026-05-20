@@ -772,6 +772,67 @@ class InfiniteImprovementLoop {
 	getRecentActions(limit = 20) {
 		return this._recentActions.slice(-limit)
 	}
+
+	/**
+	 * Ingest a debug lesson from the AutonomousLoop's pattern learning step.
+	 * Adds the lesson to the observations and debug samples for model training.
+	 *
+	 * @param {object} lesson - Debug lesson object
+	 * @param {string} lesson.type - Lesson type (e.g. 'debug')
+	 * @param {string} lesson.content - Lesson content text
+	 * @param {number} lesson.timestamp - When the lesson was generated
+	 */
+	async ingestDebugLesson(lesson) {
+		if (!lesson || !lesson.content) return
+
+		try {
+			// Add to debug samples for model training
+			this._debugSamples.push({
+				features: [1, 0.5, 0.8, 0.3, 0.6], // Default feature vector for debug lessons
+				outcome: 1, // Assume positive outcome (lesson learned)
+			})
+
+			// Retain only the most recent samples
+			if (this._debugSamples.length > 100) {
+				this._debugSamples = this._debugSamples.slice(-100)
+			}
+
+			// Record as an observation in ml_observations_v2 if DB is available
+			try {
+				const db = this.memory.getDb()
+				const hasTable = db.prepare(
+					`SELECT name FROM sqlite_master WHERE type='table' AND name='ml_observations_v2'`
+				).get()
+				if (hasTable) {
+					db.prepare(
+						`INSERT OR IGNORE INTO ml_observations_v2
+						 (id, task_type, input_summary, output_summary, success, duration_ms, features_cloud, features_unified, source, session_id, created_at)
+						 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+					).run(
+						crypto.randomUUID(),
+						'debug_lesson',
+						lesson.content.slice(0, 500),
+						'ingested from autonomous-loop',
+						1,
+						0,
+						JSON.stringify([1, 0.5, 0.8, 0.3, 0.6]),
+						JSON.stringify([1, 0.5, 0.8, 0.3, 0.6, 0, 0, 0, 0, 0]),
+						'autonomous-loop',
+						null,
+						lesson.timestamp || Date.now(),
+					)
+					this.stats.observationsSynced++
+				}
+			} catch (dbErr) {
+				// DB not available — non-critical
+			}
+
+			this.stats.observationsCollected++
+			console.log(`[orchestrator/improvement-loop] Ingested debug lesson: ${lesson.content.slice(0, 80)}...`)
+		} catch (err) {
+			console.warn('[orchestrator/improvement-loop] Failed to ingest debug lesson:', err.message)
+		}
+	}
 }
 
 module.exports = { InfiniteImprovementLoop }

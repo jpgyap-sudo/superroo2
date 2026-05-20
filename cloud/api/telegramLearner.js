@@ -23,7 +23,7 @@ const CONVERSATION_LOG_FILE = path.join(__dirname, "..", "data", "telegram-conve
 const PATTERNS_FILE = path.join(__dirname, "..", "data", "telegram-patterns.json")
 
 const MAX_CONVERSATIONS_IN_MEMORY = 1000
-const MIN_PATTERN_CONFIDENCE = 0.6
+const MIN_PATTERN_CONFIDENCE = 0.4
 const LEARNING_RATE = 0.1
 
 // ─── State ──────────────────────────────────────────────────────────────────
@@ -261,7 +261,7 @@ function assessUserSatisfaction(followUpMessage) {
  * This runs periodically to find common patterns in user interactions.
  */
 function detectPatterns() {
-	if (conversationBuffer.length < 10) return
+	if (conversationBuffer.length < 5) return
 
 	// Group by intent
 	const byIntent = {}

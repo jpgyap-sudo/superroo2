@@ -171,6 +171,11 @@ class RateLimiter {
 	}
 }
 
+function safeIsoTimestamp(value: unknown): string {
+	const date = new Date(value as string | number | Date)
+	return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString()
+}
+
 // ── SuperRoo Config (from ~/.superroo/config.json) ──
 
 interface SuperrooProjectConfig {
@@ -850,7 +855,7 @@ class McpMemoryServer {
 		const rateCheck = this.rateLimiter.check(name)
 		if (!rateCheck.allowed) {
 			throw new Error(
-				`Rate limit exceeded for tool '${name}'. Try again after ${new Date(rateCheck.resetAt).toISOString()}. Limit: ${RATE_LIMIT_MAX_CALLS} calls per ${RATE_LIMIT_WINDOW_MS / 1000}s window.`,
+				`Rate limit exceeded for tool '${name}'. Try again after ${safeIsoTimestamp(rateCheck.resetAt)}. Limit: ${RATE_LIMIT_MAX_CALLS} calls per ${RATE_LIMIT_WINDOW_MS / 1000}s window.`,
 			)
 		}
 

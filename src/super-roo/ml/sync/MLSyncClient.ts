@@ -347,11 +347,11 @@ export class MLSyncClient {
 				this.status.lastObservationSyncAt = Date.now()
 				this.status.totalObservationsSynced += batch.length
 			} else {
-				// Re-queue on failure
+				// Re-queue on failure (catch block below handles network errors)
 				this.observationQueue.unshift(...batch)
 				this.status.pendingObservations = this.observationQueue.length
 				const errData = await res.json().catch(() => ({}))
-				throw new Error(`Observation sync failed: ${res.status} - ${errData.error || res.statusText}`)
+				this.status.lastError = `ObsSync: ${res.status} - ${errData.error || res.statusText}`
 			}
 		} catch (err: any) {
 			// Re-queue on network error

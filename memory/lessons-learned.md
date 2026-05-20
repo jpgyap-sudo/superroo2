@@ -201,6 +201,52 @@ To be determined — this commit was auto-flagged as potentially containing a le
 
 bugfix
 
+### Lesson: Use vi.doMock instead of vi.mock inside beforeEach after vi.resetModules
+
+Date: 2026-05-20
+Source: Code task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: src/super-roo/debug-team/__tests__/DebugTeamComponents.test.ts, src/super-roo/ml/sync/MLSyncClient.ts
+
+#### Task Summary
+
+Created 4 comprehensive test files for untested TypeScript modules: Learners.test.ts (36 tests), InfiniteImprovementLoop.test.ts (21 tests), MLSyncClient.test.ts (22 tests), and DebugTeamComponents.test.ts (107 tests). All 186 tests pass.
+
+#### Files Changed
+
+- src/super-roo/ml/learning/__tests__/Learners.test.ts (created)
+- src/super-roo/ml/loop/__tests__/InfiniteImprovementLoop.test.ts (created)
+- src/super-roo/ml/sync/__tests__/MLSyncClient.test.ts (created)
+- src/super-roo/ml/sync/MLSyncClient.ts (fixed double re-queue bug)
+- src/super-roo/debug-team/__tests__/DebugTeamComponents.test.ts (created)
+
+#### Bug Cause
+
+1. MLSyncClient.syncObservations() had a double re-queue bug: the else branch (HTTP error) re-queued observations AND threw, causing the catch block to re-queue again.
+2. DebugTeamComponents OpenClawAdapter tests used vi.mock() inside beforeEach after vi.resetModules(), but vi.mock is hoisted to the top of the file by vitest, so the mock was registered before resetModules() cleared the module registry.
+
+#### Fix Applied
+
+1. Removed the throw in syncObservations() else branch; just set lastError directly.
+2. Changed vi.mock() to vi.doMock() which is NOT hoisted and works correctly inside beforeEach after resetModules().
+
+#### Test Result
+
+pass
+
+#### Lesson Learned
+
+vi.mock() is hoisted by vitest to the top of the file, so it cannot be used inside beforeEach() after vi.resetModules(). Use vi.doMock() instead, which is not hoisted and evaluates at the call site. This pattern is essential when dynamically mocking modules per-test with resetModules().
+
+#### Reusable Rule
+
+When mocking modules inside beforeEach() after calling vi.resetModules(), ALWAYS use vi.doMock() instead of vi.mock(). vi.mock() is hoisted and will be registered before resetModules() clears the registry, causing the mock to be lost.
+
+#### Tags
+
+testing, vitest, mocking, vi.doMock, vi.mock, resetModules, hoisting, debug-team, ML
+
 ---
 
 ### Lesson: Telegram Bot Frictionless Coding & Context Awareness Improvements
@@ -259,5 +305,151 @@ When implementing auto-mode workflows, the UI must match the backend behavior. I
 #### Tags
 
 telegram, ux, auto-mode, context-awareness, intent-classification, reply-keyboard, progress-messaging
+
+---
+
+### Lesson: Compliance tab learning layer health
+
+Date: 2026-05-20
+Source: superroo-learn CLI (local fallback)
+Model/API used: local
+Confidence: medium
+Related files:
+Tags:
+
+#### Task Summary
+
+Expose learning-layer health, lesson quality, sync coverage, hook status, bridge health, and commit data-quality diagnostics separately from true workflow violations. Use safe JSON/JSONL readers so malformed memory records degrade into dashboard diagnostics instead of crashing compliance routes.
+
+#### Lesson Learned
+
+Expose learning-layer health, lesson quality, sync coverage, hook status, bridge health, and commit data-quality diagnostics separately from true workflow violations. Use safe JSON/JSONL readers so malformed memory records degrade into dashboard diagnostics instead of crashing compliance routes.
+
+#### Tags
+
+cross-project, local-fallback
+
+---
+
+### Lesson: Advanced Features Gap Fix — 28 Gaps Across 9 Modules
+
+Date: 2026-05-20
+Source: Orchestrator + DeepSeek (Code mode) task completion
+Model/API used: deepseek-chat (coding), kimi-k2.6 (orchestration)
+Confidence: high
+Related files: cloud/dashboard/src/components/views/*.tsx, cloud/api/api.js, src/super-roo/ml/**/__tests__/*.ts, cloud/orchestrator/modules/*.js, docs/super-roo/*.md
+
+#### Task Summary
+
+Fixed all identified gaps in SuperRoo's advanced features across 9 modules:
+- 4 dashboard views created (Parallel Execution, Autonomous Loop, Commissioning Loop, HermesClaw)
+- 4 API endpoints added (ML train, ML model, ML learners, Commissioning report)
+- 186 tests added across 4 test files (Learners, InfiniteImprovementLoop, MLSyncClient, DebugTeamComponents)
+- 5 cross-module integrations wired (Debug→Healing, ML→Debug, Commissioning→Bug Registry, FeatureAnswerer→LearningGateway, Cross-module health check)
+- 5 documentation files written (ML Engine, Debug Team, Autonomous Loop, Commissioning Loop, HermesClaw)
+- 1 source bug fixed (MLSyncClient double re-queue on HTTP error)
+
+#### Files Changed
+
+- cloud/dashboard/src/components/views/parallel-execution.tsx
+- cloud/dashboard/src/components/views/autonomous-loop.tsx
+- cloud/dashboard/src/components/views/commissioning-loop.tsx
+- cloud/dashboard/src/components/views/hermes-claw.tsx
+- cloud/dashboard/src/app/page.tsx
+- cloud/dashboard/src/components/sidebar.tsx
+- cloud/api/api.js
+- src/super-roo/ml/learning/__tests__/Learners.test.ts
+- src/super-roo/ml/loop/__tests__/InfiniteImprovementLoop.test.ts
+- src/super-roo/ml/sync/__tests__/MLSyncClient.test.ts
+- src/super-roo/debug-team/__tests__/DebugTeamComponents.test.ts
+- cloud/orchestrator/modules/AutonomousLoop.js
+- cloud/orchestrator/modules/InfiniteImprovementLoop.js
+- cloud/orchestrator/modules/CommissioningLoop.js
+- cloud/orchestrator/modules/FeatureAnswerer.js
+- src/super-roo/ml/sync/MLSyncClient.ts
+- docs/super-roo/ML_ENGINE_GUIDE.md
+- docs/super-roo/DEBUG_TEAM_GUIDE.md
+- docs/super-roo/AUTONOMOUS_LOOP_GUIDE.md
+- docs/super-roo/COMMISSIONING_LOOP_GUIDE.md
+- docs/super-roo/HERMES_CLAW_GUIDE.md
+
+#### Bug Cause
+
+MLSyncClient.syncObservations() had a double re-queue bug: the else branch (HTTP error) re-queued observations AND threw, causing the catch block to re-queue again.
+
+#### Fix Applied
+
+Removed the throw in the else branch and set lastError directly, so the catch block handles the single re-queue.
+
+#### Test Result
+
+pass — 186 tests across 4 new test files all pass. 1 existing bug fixed during test writing.
+
+#### Lesson Learned
+
+1. Gap analysis documents can have stale information — always verify actual source code before implementing. The initial gap analysis claimed "0 tests" for ML Engine, but engine/ already had 5 test files.
+2. `vi.doMock()` must be used instead of `vi.mock()` when mocking inside beforeEach after resetModules — vi.mock is hoisted and won't re-evaluate.
+3. Cross-platform test assertions need care: exit codes differ between Windows (returns -1 for exit 1) and Unix.
+4. Writing tests first is the fastest way to discover real bugs in the codebase.
+
+#### Reusable Rule
+
+Before claiming a module has "no tests", run `find src/MODULE -name '*.test.ts'` and check all subdirectories. The test coverage may be partial, not zero.
+
+#### Tags
+
+advanced-features, gap-analysis, testing, dashboard, api, documentation, integration, ml-engine, debug-team, parallel-execution, autonomous-loop, commissioning-loop, hermesclaw
+
+---
+
+### Lesson: VPS RAM Orchestrator Worker — multi-layer RAM pressure management with worker pausing and task deferral
+
+Date: 2026-05-20
+Source: Code task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/orchestrator/modules/RAMMonitor.js, cloud/orchestrator/modules/RAMScheduler.js, cloud/orchestrator/modules/WorkerPauseManager.js, cloud/worker/vpsRamOrchestratorWorker.js, cloud/orchestrator/CloudOrchestrator.js, cloud/orchestrator/index.js
+
+#### Task Summary
+
+Built a complete VPS RAM Orchestrator Worker system with three modular layers:
+1. **RAMMonitor** — Continuously polls VPS RAM usage with 4-state state machine (normal→warning→critical→danger) and trend analysis over a rolling window. Emits events on state transitions.
+2. **RAMScheduler** — RAM-aware task queuing that throttles dispatch based on current RAM state. Deferred tasks are automatically resubmitted when RAM recovers. Supports priority boosting for urgent operations.
+3. **WorkerPauseManager** — Manages worker lifecycle with 4 criticality levels (essential/critical/normal/background). Automatically pauses non-essential workers when RAM exceeds thresholds and resumes them on recovery. Integrates with AgentRegistry and ParallelExecutor.
+
+The main `vpsRamOrchestratorWorker.js` ties all three modules together as a standalone PM2 process with a health HTTP API, BullMQ integration, and graceful shutdown. All modules are exported from the orchestrator index and registered in CloudOrchestrator.
+
+#### Files Changed
+
+- cloud/orchestrator/modules/RAMMonitor.js — NEW: RAM sensing with state machine
+- cloud/orchestrator/modules/RAMScheduler.js — NEW: RAM-aware task queuing
+- cloud/orchestrator/modules/WorkerPauseManager.js — NEW: Worker lifecycle management
+- cloud/worker/vpsRamOrchestratorWorker.js — NEW: Standalone PM2 worker process
+- cloud/orchestrator/CloudOrchestrator.js — MODIFIED: Added RAM module registration + status
+- cloud/orchestrator/index.js — MODIFIED: Exported all new modules
+
+#### Bug Cause
+
+N/A — new feature
+
+#### Fix Applied
+
+N/A — new feature
+
+#### Test Result
+
+All modules load and export correctly. Verified via Node.js require().
+
+#### Lesson Learned
+
+When building resource-aware orchestration, separate sensing (RAMMonitor) from policy (RAMScheduler) from actuation (WorkerPauseManager). This allows each layer to be tested independently and replaced without affecting the others. The state machine pattern (normal→warning→critical→danger) with hysteresis (recovery threshold lower than warning) prevents oscillation. Worker criticality levels let the system make granular decisions about which processes to pause based on RAM pressure severity.
+
+#### Reusable Rule
+
+Always separate sensing, policy, and actuation into distinct modules for resource management systems. Use a state machine with hysteresis to prevent oscillation. Use criticality levels (not binary on/off) for worker management so the system degrades gracefully under increasing pressure.
+
+#### Tags
+
+vps, ram, orchestrator, worker, resource-management, backpressure, scheduling, pm2
 
 ---

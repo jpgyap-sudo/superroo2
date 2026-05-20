@@ -30,8 +30,8 @@ RUN cd cloud/dashboard && pnpm run build
 WORKDIR /app/cloud/dashboard/.next/standalone
 
 EXPOSE 3001
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:3001/api/health || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:3001/ || exit 1
 
 ENV NODE_ENV=production PORT=3001
 CMD ["node", "server.js"]

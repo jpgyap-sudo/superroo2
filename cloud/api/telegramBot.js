@@ -62,7 +62,7 @@ const BOT_USERNAME = process.env.TELEGRAM_BOT_USERNAME || "superroo_bot"
 const BOSS_USERNAME = process.env.BOSS_TELEGRAM_USERNAME || "jpgy888"
 
 /** Commands that don't require an active Telegram session */
-const PUBLIC_COMMANDS = ["/start", "/login", "/help", "/about", "/debug", "/logs", "/tests", "/restart", "/aceteam"]
+const PUBLIC_COMMANDS = ["/start", "/login", "/help", "/about", "/debug", "/logs", "/tests", "/restart", "/aceteam", "/cancel"]
 
 /** Mini App URL for login */
 const DASHBOARD_URL = process.env.TELEGRAM_MINI_APP_URL || "https://dev.abcx124.xyz"

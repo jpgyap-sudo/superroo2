@@ -68,7 +68,7 @@ async function run() {
 	// Test 5: Verify askAI signature accepts chatId
 	console.log("\n--- Test 5: askAI signature ---")
 	var botSrc = fs.readFileSync("./api/telegramBot.js", "utf8")
-	assert(botSrc.includes("async function askAI(message, providers, chatId)"), "askAI accepts chatId parameter")
+	assert(botSrc.includes("async function askAI(message, providers, chatId"), "askAI accepts chatId parameter")
 	assert(botSrc.includes("getConversationContext(chatId)"), "askAI uses conversation context")
 	assert(botSrc.includes("addToConversationContext"), "askAI records to conversation context")
 	assert(botSrc.includes("telegramLearner.recordInteraction"), "askAI records to telegram learner")
@@ -79,7 +79,7 @@ async function run() {
 	// Test 6: handleNaturalLanguageInstruction handles "chat" intent directly
 	console.log("\n--- Test 6: Natural Language Routing ---")
 	assert(botSrc.includes('if (intentKind === "chat")'), "handleNaturalLanguageInstruction handles chat intent")
-	assert(botSrc.includes("await askAI(text, providers || [], chatId)"), "routes ask to enhanced askAI with chatId")
+	assert(botSrc.includes("await askAI(chatPrompt, providers || [], chatId)"), "routes ask to enhanced askAI with chatId")
 
 	// Test 7: Telegram Agent files exist
 	console.log("\n--- Test 7: Telegram Agent Files ---")

@@ -33,6 +33,13 @@ import WorkflowComplianceView from "@/components/views/workflow-compliance"
 import OllamaGrowthView from "@/components/views/ollama-growth"
 import { MemoryExplorerView } from "@/components/views/memory-explorer"
 import { VisualCrawlerView } from "@/components/views/visual-crawler"
+import { ParallelExecutionView } from "@/components/views/parallel-execution"
+import { AutonomousLoopView } from "@/components/views/autonomous-loop"
+import { CommissioningLoopView } from "@/components/views/commissioning-loop"
+import { HermesClawView } from "@/components/views/hermes-claw"
+import { DeployOrchestratorView } from "@/components/views/deploy-orchestrator"
+import { MLEngineView } from "@/components/views/ml-engine"
+import { ProductMemoryView } from "@/components/views/product-memory"
 import { LoginPage } from "@/components/auth/login"
 
 const PAGES: Record<string, React.FC> = {
@@ -66,6 +73,13 @@ const PAGES: Record<string, React.FC> = {
 	"ollama-growth": OllamaGrowthView,
 	"memory-explorer": MemoryExplorerView,
 	"visual-crawler": VisualCrawlerView,
+	"parallel-execution": ParallelExecutionView,
+	"autonomous-loop": AutonomousLoopView,
+	"commissioning-loop": CommissioningLoopView,
+	"hermes-claw": HermesClawView,
+	"deploy-orchestrator": DeployOrchestratorView,
+	"ml-engine": MLEngineView,
+	"product-memory": ProductMemoryView,
 }
 
 function StatusDot({ online }: { online: boolean }) {
@@ -190,6 +204,13 @@ export default function Dashboard() {
 			"workflow-compliance": "Compliance",
 			"ollama-growth": "Ollama Growth",
 			"memory-explorer": "Memory Explorer",
+			"parallel-execution": "Parallel Execution",
+			"autonomous-loop": "Autonomous Loop",
+			"commissioning-loop": "Commissioning Loop",
+			"deploy-orchestrator": "Deploy Orchestrator",
+			"hermes-claw": "Hermes Claw",
+			"ml-engine": "ML Engine",
+			"product-memory": "Product Memory",
 		}[page] || page
 
 	// Show login page while checking auth or if not authenticated

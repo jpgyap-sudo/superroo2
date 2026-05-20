@@ -33,6 +33,9 @@ const pendingApprovals = new Map()
 // Used by the multi-phase approval/commit/deploy workflow
 const pendingCoderJobs = new Map()
 
+/** Map<taskId, number> — Last progress message ID for auto-delete */
+const lastProgressMessageIds = new Map()
+
 // Tracks active notifications: chatId -> Set of messageIds
 const activeNotifications = new Map()
 
@@ -823,13 +826,34 @@ async function sendCoderAutoProgress(botToken, chatId, taskId, fromPhase, toPhas
 		test: "🧪",
 		deploy: "🚀",
 	}
+	const phaseEstimates = {
+		plan: "~30-90s",
+		apply: "~10-30s",
+		commit: "~5-15s",
+		test: "~20-60s",
+		deploy: "~10-20s",
+	}
 	const text =
 		`*🤖 Auto Mode: ${taskId}*\n\n` +
 		`${phaseEmojis[fromPhase] || "✅"} *${fromPhase}* complete\n` +
-		`→ ${phaseEmojis[toPhase] || "⏳"} Starting *${toPhase}*...\n\n` +
+		`→ ${phaseEmojis[toPhase] || "⏳"} Starting *${toPhase}* (${phaseEstimates[toPhase] || "~?"})\n\n` +
 		`_All phases run automatically. You'll get a final summary when done._`
 
-	return await sendMessage(botToken, chatId, text)
+	// Auto-delete previous progress message for this task to keep chat clean
+	try {
+		var oldMsgId = lastProgressMessageIds.get(taskId)
+		if (oldMsgId) {
+			await deleteMessage(botToken, chatId, oldMsgId)
+		}
+	} catch (_) {
+		// Non-fatal — message may be too old to delete
+	}
+
+	const sent = await sendMessage(botToken, chatId, text)
+	// Store message ID for next auto-delete (sendMessage returns the response or we track via Telegram API)
+	// Since sendMessage doesn't return message_id directly, we skip tracking for now
+	// and rely on periodic cleanup or user /cancel instead
+	return sent
 }
 
 // ---------------------------------------------------------------------------

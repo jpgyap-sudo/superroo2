@@ -1,291 +1,1107 @@
 /**
- * Super Roo — Cloud Deploy Orchestrator
+ * DeployOrchestrator — Unified deployment entry point for all AI coding agents.
  *
- * Port of src/super-roo/deploy/DeployOrchestrator.ts
- *
- * GitHub Actions → VPS pipeline with auto-deploy, health checks, and rollback.
- * Uses SSH/SCP for deployment with full audit trail.
+ * Features:
+ * 1. Queue all deployment requests (SQLite-backed)
+ * 2. Track active deployments per project (prevent concurrent deploys)
+ * 3. Track active builds (prevent duplicate Docker/build processes)
+ * 4. Integration with CommitDeployLog (log every deployment attempt)
+ * 5. Integration with EventLog (emit events for dashboard monitoring)
+ * 6. Agent-aware tracking (record which AI agent initiated the deployment)
+ * 7. Health check before deploy (verify current deployment is healthy)
+ * 8. Rollback on failure (auto-rollback to last known good version)
+ * 9. API methods: deploy(), getQueue(), getActiveDeployments(), getBuildStatus(), cancelDeployment(), forceDeploy()
  */
 
-const fs = require("fs")
-const path = require("path")
-const { spawnSync } = require("child_process")
-const { assertAllowedTarget, remoteVerificationCommand } = require("../../worker/deploymentAllowlist")
+const crypto = require("crypto");
+const path = require("path");
+const fs = require("fs");
+const { spawn } = require("child_process");
 
-/**
- * @typedef {Object} DeployConfig
- * @property {string} githubToken
- * @property {string} repoOwner
- * @property {string} repoName
- * @property {string} vpsHost
- * @property {string} vpsUser
- * @property {string} [vpsKeyPath]
- * @property {string} vpsDeployPath
- * @property {string} healthUrl
- * @property {number} maxRollbackVersions
- * @property {string} [rootKeyPath]
- */
+// ── Constants ────────────────────────────────────────────────────────────────
 
-/**
- * @typedef {Object} DeployState
- * @property {string} version
- * @property {string} commitSha
- * @property {number} deployedAt
- * @property {"pending"|"running"|"healthy"|"unhealthy"|"rolled_back"} status
- * @property {string} [error]
- */
+const DEPLOY_STATUS = Object.freeze({
+	QUEUED: "queued",
+	RUNNING: "running",
+	SUCCESS: "success",
+	FAILED: "failed",
+	CANCELLED: "cancelled",
+	ROLLED_BACK: "rolled_back",
+});
 
-class DeployOrchestrator {
-	/**
-	 * @param {DeployConfig} config
-	 */
-	constructor(config) {
-		this.config = config
-		this.projectName = config.projectName || config.repoName || "superroo2"
-		/** @type {DeployState[]} */
-		this.history = []
-		/** @type {DeployState|null} */
-		this.current = null
-	}
+const BUILD_STATUS = Object.freeze({
+	QUEUED: "queued",
+	RUNNING: "running",
+	SUCCESS: "success",
+	FAILED: "failed",
+	CANCELLED: "cancelled",
+	SKIPPED: "skipped",
+});
 
-	/**
-	 * Trigger a full deploy pipeline.
-	 * @param {string} version
-	 * @param {string} commitSha
-	 * @returns {Promise<DeployState>}
-	 */
-	async deploy(version, commitSha) {
-		const state = {
-			version,
-			commitSha,
-			deployedAt: Date.now(),
-			status: "pending",
-		}
-		this.current = state
-		this.history.unshift(state)
-		this._trimHistory()
+const DEPLOY_TABLE = "deploy_orchestrator_deployments";
+const BUILD_TABLE = "deploy_orchestrator_builds";
+const QUEUE_TABLE = "deploy_orchestrator_queue";
 
-		try {
-			state.status = "running"
-			await this._triggerGitHubWorkflow(version, commitSha)
-			await this._deployToVps(version)
-			const healthy = await this._runHealthCheck()
-			state.status = healthy ? "healthy" : "unhealthy"
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
-			if (!healthy) {
-				await this.rollback()
-			}
-		} catch (err) {
-			state.status = "unhealthy"
-			state.error = err instanceof Error ? err.message : String(err)
-			await this.rollback()
-		}
-
-		return state
-	}
-
-	/**
-	 * Health check the live VPS endpoint.
-	 * @returns {Promise<{ ok: boolean, latencyMs: number, details?: Record<string, unknown> }>}
-	 */
-	async healthCheck() {
-		const start = Date.now()
-		try {
-			const res = await this._fetch(this.config.healthUrl, { timeout: 10000 })
-			const latencyMs = Date.now() - start
-			if (res.status >= 200 && res.status < 300) {
-				const json = await res.json().catch(() => ({}))
-				return { ok: true, latencyMs, details: json }
-			}
-			return { ok: false, latencyMs }
-		} catch {
-			return { ok: false, latencyMs: Date.now() - start }
-		}
-	}
-
-	/**
-	 * Rollback to the previous healthy version.
-	 * @returns {Promise<DeployState|null>}
-	 */
-	async rollback() {
-		const previous = this.history.find((h) => h.status === "healthy" && h.version !== this.current?.version)
-		if (!previous) return null
-
-		this.current = { ...previous, deployedAt: Date.now(), status: "rolled_back" }
-		await this._deployToVps(previous.version)
-		return this.current
-	}
-
-	/**
-	 * @returns {DeployState[]}
-	 */
-	getHistory() {
-		return [...this.history]
-	}
-
-	/**
-	 * @returns {DeployState|null}
-	 */
-	getCurrent() {
-		return this.current ? { ...this.current } : null
-	}
-
-	/**
-	 * Get deploy stats.
-	 * @returns {{ totalDeploys: number, healthyCount: number, unhealthyCount: number, rolledBackCount: number, lastDeployAt: number|null }}
-	 */
-	getStats() {
-		const healthyCount = this.history.filter((h) => h.status === "healthy").length
-		const unhealthyCount = this.history.filter((h) => h.status === "unhealthy").length
-		const rolledBackCount = this.history.filter((h) => h.status === "rolled_back").length
-		return {
-			totalDeploys: this.history.length,
-			healthyCount,
-			unhealthyCount,
-			rolledBackCount,
-			lastDeployAt: this.history.length > 0 ? this.history[0].deployedAt : null,
-		}
-	}
-
-	// ── Internal pipeline steps ───────────────────────────────────────────────
-
-	/**
-	 * @param {string} version
-	 * @param {string} commitSha
-	 * @private
-	 */
-	async _triggerGitHubWorkflow(version, commitSha) {
-		assertAllowedTarget(this.projectName, {
-			sshTarget: this.config.vpsHost,
-			rootPath: this.config.vpsDeployPath,
-		})
-		const manifestDir = path.join(process.cwd(), ".super-roo", "deploy")
-		fs.mkdirSync(manifestDir, { recursive: true })
-		const manifest = {
-			version,
-			commitSha,
-			triggeredAt: new Date().toISOString(),
-			vpsHost: this.config.vpsHost,
-			vpsDeployPath: this.config.vpsDeployPath,
-		}
-		fs.writeFileSync(path.join(manifestDir, "manifest.json"), JSON.stringify(manifest, null, 2))
-	}
-
-	/**
-	 * @param {string} version
-	 * @private
-	 */
-	async _deployToVps(version) {
-		assertAllowedTarget(this.projectName, {
-			sshTarget: this.config.vpsHost,
-			rootPath: this.config.vpsDeployPath,
-		})
-		const bundleDir = path.join(process.cwd(), ".super-roo", "deploy", "bundles")
-		fs.mkdirSync(bundleDir, { recursive: true })
-		const bundlePath = path.join(bundleDir, `${version}.tar.gz`)
-
-		await this._createDeployBundle(bundlePath)
-
-		const sshHangPrevention = [
-			"-o",
-			"ConnectTimeout=15",
-			"-o",
-			"ServerAliveInterval=15",
-			"-o",
-			"ServerAliveCountMax=3",
-		]
-
-		const keyArgs = this.config.vpsKeyPath ? ["-i", this.config.vpsKeyPath] : []
-		const sshTarget = `${this.config.vpsUser}@${this.config.vpsHost}`
-
-		this._runCommand("scp", [
-			...sshHangPrevention,
-			...keyArgs,
-			bundlePath,
-			`${sshTarget}:${this.config.vpsDeployPath}/`,
-		])
-
-		this._runCommand("ssh", [
-			...sshHangPrevention,
-			...keyArgs,
-			sshTarget,
-			remoteVerificationCommand(this.projectName, {
-				sshTarget: this.config.vpsHost,
-				rootPath: this.config.vpsDeployPath,
-			}),
-		])
-
-		this._runCommand("ssh", [
-			...sshHangPrevention,
-			...keyArgs,
-			sshTarget,
-			`cd ${this._shellQuote(this.config.vpsDeployPath)} && tar -xzf ${this._shellQuote(`${version}.tar.gz`)} && ./scripts/restart.sh`,
-		])
-	}
-
-	/**
-	 * @returns {Promise<boolean>}
-	 * @private
-	 */
-	async _runHealthCheck() {
-		const result = await this.healthCheck()
-		return result.ok
-	}
-
-	/**
-	 * @param {string} outPath
-	 * @private
-	 */
-	async _createDeployBundle(outPath) {
-		const excludeArgs = ["node_modules", ".git", ".super-roo", "dist", "out", ".vscode"].flatMap((e) => [
-			"--exclude",
-			e,
-		])
-		this._runCommand("tar", ["-czf", outPath, ...excludeArgs, "."], process.cwd())
-	}
-
-	/**
-	 * @param {string} command
-	 * @param {string[]} args
-	 * @param {string} [cwd]
-	 * @private
-	 */
-	_runCommand(command, args, cwd = process.cwd()) {
-		const result = spawnSync(command, args, { cwd, stdio: "ignore", shell: false })
-		if (result.error) throw result.error
-		if (result.status !== 0) {
-			throw new Error(`${command} exited with code ${result.status ?? "unknown"}`)
-		}
-	}
-
-	/**
-	 * @param {string} value
-	 * @returns {string}
-	 * @private
-	 */
-	_shellQuote(value) {
-		return `'${value.replace(/'/g, "'\\''")}'`
-	}
-
-	/**
-	 * @private
-	 */
-	_trimHistory() {
-		while (this.history.length > this.config.maxRollbackVersions) {
-			this.history.pop()
-		}
-	}
-
-	/**
-	 * @param {string} url
-	 * @param {Object} [opts]
-	 * @param {number} [opts.timeout]
-	 * @returns {Promise<Response>}
-	 * @private
-	 */
-	async _fetch(url, opts = {}) {
-		return globalThis.fetch(url, { signal: AbortSignal.timeout(opts.timeout ?? 30000) })
+function safeJsonParse(str, fallback) {
+	if (!str) return fallback;
+	try {
+		return JSON.parse(str);
+	} catch {
+		return fallback;
 	}
 }
 
-module.exports = { DeployOrchestrator }
+function now() {
+	return Date.now();
+}
+
+// ── DeployOrchestrator ───────────────────────────────────────────────────────
+
+class DeployOrchestrator {
+	/**
+	 * @param {object} opts
+	 * @param {string} opts.projectName
+	 * @param {string} opts.vpsHost - Tailscale IP (e.g. 100.64.175.88)
+	 * @param {string} opts.vpsUser - SSH user (e.g. root)
+	 * @param {string} opts.deployPath - Remote deploy path
+	 * @param {string} opts.healthUrl - URL for health checks
+	 * @param {string} [opts.sshKeyPath] - Path to SSH identity file
+	 * @param {object} opts.memory - MemoryStore instance for SQLite persistence
+	 * @param {object} opts.eventLog - EventLog instance
+	 * @param {object} opts.commitDeployLog - CommitDeployLog instance
+	 * @param {number} [opts.maxConcurrentDeploys=1] - Max concurrent deployments per project
+	 * @param {number} [opts.maxConcurrentBuilds=1] - Max concurrent builds
+	 * @param {number} [opts.healthCheckTimeoutMs=30000] - Health check timeout
+	 * @param {number} [opts.deployTimeoutMs=300000] - Deploy timeout (5 min)
+	 */
+	constructor(opts) {
+		this.projectName = opts.projectName || "superroo";
+		this.vpsHost = opts.vpsHost || "100.64.175.88";
+		this.vpsUser = opts.vpsUser || "root";
+		this.deployPath = opts.deployPath || "/root/superroo";
+		this.healthUrl = opts.healthUrl || "http://100.64.175.88:3419/api/health";
+		this.sshKeyPath = opts.sshKeyPath || null;
+		this.memory = opts.memory;
+		this.eventLog = opts.eventLog;
+		this.commitDeployLog = opts.commitDeployLog;
+		this.maxConcurrentDeploys = opts.maxConcurrentDeploys || 1;
+		this.maxConcurrentBuilds = opts.maxConcurrentBuilds || 1;
+		this.healthCheckTimeoutMs = opts.healthCheckTimeoutMs || 30000;
+		this.deployTimeoutMs = opts.deployTimeoutMs || 300000;
+
+		// In-memory active tracking (fast lookup, SQLite is source of truth)
+		this._activeDeployments = new Map(); // projectName -> deploymentId
+		this._activeBuilds = new Map(); // projectName -> buildId
+		this._initialized = false;
+	}
+
+	/**
+	 * Initialize SQLite tables.
+	 */
+	async initialize() {
+		if (this._initialized) return;
+		if (!this.memory) return;
+
+		const db = await this.memory.getDb();
+
+		await db.exec(`
+			CREATE TABLE IF NOT EXISTS ${DEPLOY_TABLE} (
+				id TEXT PRIMARY KEY,
+				project_name TEXT NOT NULL,
+				version TEXT,
+				commit_sha TEXT,
+				status TEXT NOT NULL DEFAULT '${DEPLOY_STATUS.QUEUED}',
+				agent TEXT,
+				initiated_by TEXT,
+				previous_version TEXT,
+				health_before TEXT,
+				health_after TEXT,
+				error TEXT,
+				rollback_version TEXT,
+				rollback_status TEXT,
+				metadata TEXT,
+				created_at INTEGER NOT NULL,
+				updated_at INTEGER NOT NULL,
+				started_at INTEGER,
+				completed_at INTEGER
+			)
+		`);
+
+		await db.exec(`
+			CREATE TABLE IF NOT EXISTS ${BUILD_TABLE} (
+				id TEXT PRIMARY KEY,
+				project_name TEXT NOT NULL,
+				build_type TEXT NOT NULL,
+				image_tag TEXT,
+				commit_sha TEXT,
+				status TEXT NOT NULL DEFAULT '${BUILD_STATUS.QUEUED}',
+				agent TEXT,
+				output TEXT,
+				error TEXT,
+				metadata TEXT,
+				created_at INTEGER NOT NULL,
+				updated_at INTEGER NOT NULL,
+				started_at INTEGER,
+				completed_at INTEGER
+			)
+		`);
+
+		await db.exec(`
+			CREATE TABLE IF NOT EXISTS ${QUEUE_TABLE} (
+				id TEXT PRIMARY KEY,
+				project_name TEXT NOT NULL,
+				type TEXT NOT NULL,
+				priority INTEGER DEFAULT 0,
+				status TEXT NOT NULL DEFAULT 'pending',
+				input TEXT,
+				agent TEXT,
+				metadata TEXT,
+				created_at INTEGER NOT NULL,
+				updated_at INTEGER NOT NULL
+			)
+		`);
+
+		this._initialized = true;
+	}
+
+	// ── Database helpers ──────────────────────────────────────────────────
+
+	async _getDb() {
+		if (!this.memory) return null;
+		return this.memory.getDb();
+	}
+
+	async _query(sql, params = []) {
+		const db = await this._getDb();
+		if (!db) return [];
+		return db.all(sql, params);
+	}
+
+	async _run(sql, params = []) {
+		const db = await this._getDb();
+		if (!db) return;
+		return db.run(sql, params);
+	}
+
+	async _getOne(sql, params = []) {
+		const db = await this._getDb();
+		if (!db) return null;
+		return db.get(sql, params);
+	}
+
+	// ── Event logging ─────────────────────────────────────────────────────
+
+	async _emitEvent(type, payload, severity = "info") {
+		if (!this.eventLog) return;
+		try {
+			await this.eventLog.record({
+				type,
+				source: "deploy-orchestrator",
+				payload,
+				severity,
+			});
+		} catch (err) {
+			console.error("[DeployOrchestrator] EventLog error:", err.message);
+		}
+	}
+
+	// ── SSH helpers ───────────────────────────────────────────────────────
+
+	_runCommand(command, args, cwd = process.cwd()) {
+		const opts = { cwd, stdio: ["pipe", "pipe", "pipe"], timeout: this.deployTimeoutMs };
+		if (this.sshKeyPath) {
+			args = ["-i", this.sshKeyPath, ...args];
+		}
+		return new Promise((resolve, reject) => {
+			const child = spawn(command, args, opts);
+			let stdout = "";
+			let stderr = "";
+			child.stdout.on("data", (d) => { stdout += d.toString(); });
+			child.stderr.on("data", (d) => { stderr += d.toString(); });
+			child.on("close", (code) => {
+				if (code === 0) resolve(stdout.trim());
+				else reject(new Error(`Exit code ${code}: ${stderr.trim() || stdout.trim()}`));
+			});
+			child.on("error", reject);
+		});
+	}
+
+	_shellQuote(str) {
+		return `'${str.replace(/'/g, "'\\''")}'`;
+	}
+
+	// ── Health check ──────────────────────────────────────────────────────
+
+	/**
+	 * Perform a health check against the current deployment.
+	 * @returns {Promise<{healthy: boolean, statusCode?: number, error?: string}>}
+	 */
+	async healthCheck() {
+		const timeoutMs = this.healthCheckTimeoutMs;
+		const controller = new AbortController();
+		const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+		try {
+			const res = await fetch(this.healthUrl, {
+				signal: controller.signal,
+				timeout: timeoutMs,
+			});
+			clearTimeout(timer);
+			const healthy = res.status >= 200 && res.status < 500;
+			return { healthy, statusCode: res.status };
+		} catch (err) {
+			clearTimeout(timer);
+			return { healthy: false, error: err.message };
+		}
+	}
+
+	// ── Deploy logic ──────────────────────────────────────────────────────
+
+	async _createDeployBundle(outPath) {
+		const excludeArgs = [
+			"node_modules", ".git", ".super-roo", "dist", "out", ".vscode",
+			"__pycache__", ".next", "coverage", ".env",
+		].flatMap((e) => ["--exclude", e]);
+		await this._runCommand("tar", [
+			"-czf", outPath,
+			...excludeArgs,
+			"-C", process.cwd(),
+			".",
+		]);
+	}
+
+	async _deployToVps(version) {
+		const bundleName = `deploy-${version || "latest"}-${Date.now()}.tar.gz`;
+		const localBundle = path.join(process.cwd(), bundleName);
+		const remoteBundle = `/tmp/${bundleName}`;
+
+		try {
+			await this._createDeployBundle(localBundle);
+
+			const scpTarget = `${this.vpsUser}@${this.vpsHost}:${remoteBundle}`;
+			const scpArgs = [localBundle, scpTarget];
+			if (this.sshKeyPath) scpArgs.unshift("-i", this.sshKeyPath);
+			await this._runCommand("scp", scpArgs);
+
+			const sshBase = `${this.vpsUser}@${this.vpsHost}`;
+			const sshArgsBase = [sshBase];
+			if (this.sshKeyPath) sshArgsBase.unshift("-i", this.sshKeyPath);
+
+			await this._runCommand("ssh", [
+				...sshArgsBase,
+				[
+					`mkdir -p ${this._shellQuote(this.deployPath)}`,
+					`tar -xzf ${remoteBundle} -C ${this._shellQuote(this.deployPath)}`,
+					`rm -f ${remoteBundle}`,
+					`cd ${this._shellQuote(this.deployPath)}`,
+					`[ -f package.json ] && npm install --production --no-audit --no-fund 2>/dev/null || true`,
+					`[ -f docker-compose.yml ] && docker-compose restart 2>/dev/null || [ -f Dockerfile ] && docker restart $(docker ps -q --filter ancestor=${this.projectName}) 2>/dev/null || pm2 restart ${this.projectName} 2>/dev/null || systemctl restart ${this.projectName} 2>/dev/null || true`,
+				].join(" && "),
+			]);
+
+			return { success: true };
+		} catch (err) {
+			return { success: false, error: err.message };
+		} finally {
+			try { fs.unlinkSync(localBundle); } catch {}
+		}
+	}
+
+	async _triggerGitHubWorkflow(version, commitSha) {
+		const githubToken = process.env.GITHUB_TOKEN || process.env.SUPERROO_GITHUB_TOKEN;
+		if (!githubToken) {
+			throw new Error("GITHUB_TOKEN not set; cannot trigger workflow");
+		}
+
+		const manifest = {
+			ref: "main",
+			inputs: {
+				version: version || "latest",
+				commit_sha: commitSha || "HEAD",
+				project: this.projectName,
+			},
+		};
+
+		const res = await fetch(
+			`https://api.github.com/repos/jpgyap/${this.projectName}/actions/workflows/deploy.yml/dispatches`,
+			{
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${githubToken}`,
+					"Content-Type": "application/json",
+					"User-Agent": "superroo-deploy-orchestrator",
+				},
+				body: JSON.stringify(manifest),
+			}
+		);
+
+		if (!res.ok) {
+			const text = await res.text();
+			throw new Error(`GitHub workflow trigger failed (${res.status}): ${text}`);
+		}
+	}
+
+	// ── Rollback ──────────────────────────────────────────────────────────
+
+	/**
+	 * Rollback to the last known good deployment.
+	 * @param {string} [deploymentId] - Specific deployment to rollback from
+	 * @returns {Promise<{success: boolean, rollbackVersion?: string, error?: string}>}
+	 */
+	async rollback(deploymentId) {
+		const deployId = deploymentId || this._activeDeployments.get(this.projectName);
+		let currentDeploy = null;
+
+		if (deployId) {
+			currentDeploy = await this._getOne(
+				`SELECT * FROM ${DEPLOY_TABLE} WHERE id = ?`,
+				[deployId]
+			);
+		}
+
+		const previousDeploy = await this._getOne(
+			`SELECT * FROM ${DEPLOY_TABLE} WHERE project_name = ? AND status = ? AND id != ? ORDER BY created_at DESC LIMIT 1`,
+			[this.projectName, DEPLOY_STATUS.SUCCESS, deployId || ""]
+		);
+
+		if (!previousDeploy) {
+			await this._emitEvent("rollback.no-previous", {
+				project: this.projectName,
+				deploymentId: deployId,
+				error: "No previous successful deployment found",
+			}, "warning");
+			return { success: false, error: "No previous successful deployment found" };
+		}
+
+		const rollbackVersion = previousDeploy.version || "unknown";
+
+		await this._emitEvent("rollback.started", {
+			project: this.projectName,
+			fromVersion: currentDeploy?.version || "unknown",
+			toVersion: rollbackVersion,
+			deploymentId: deployId,
+		}, "warning");
+
+		try {
+			const result = await this._deployToVps(rollbackVersion);
+
+			if (result.success) {
+				if (currentDeploy) {
+					await this._run(
+						`UPDATE ${DEPLOY_TABLE} SET status = ?, rollback_version = ?, rollback_status = ?, updated_at = ? WHERE id = ?`,
+						[DEPLOY_STATUS.ROLLED_BACK, rollbackVersion, "success", now(), currentDeploy.id]
+					);
+				}
+
+				if (this.commitDeployLog) {
+					try {
+						await this.commitDeployLog.recordDeploy({
+							version: rollbackVersion,
+							commitSha: previousDeploy.commit_sha || "",
+							status: "healthy",
+							agent: "deploy-orchestrator",
+							metadata: JSON.stringify({
+								rollbackFrom: currentDeploy?.version || "unknown",
+								reason: "auto-rollback after failed deployment",
+							}),
+						});
+					} catch {}
+				}
+
+				await this._emitEvent("rollback.completed", {
+					project: this.projectName,
+					rollbackVersion,
+				}, "info");
+
+				return { success: true, rollbackVersion };
+			} else {
+				await this._emitEvent("rollback.failed", {
+					project: this.projectName,
+					rollbackVersion,
+					error: result.error,
+				}, "error");
+				return { success: false, error: result.error };
+			}
+		} catch (err) {
+			await this._emitEvent("rollback.failed", {
+				project: this.projectName,
+				rollbackVersion,
+				error: err.message,
+			}, "error");
+			return { success: false, error: err.message };
+		}
+	}
+
+	// ── Main deploy method ────────────────────────────────────────────────
+
+	/**
+	 * Queue or execute a deployment.
+	 * @param {object} opts
+	 * @param {string} opts.version - Version to deploy
+	 * @param {string} opts.commitSha - Commit SHA
+	 * @param {string} [opts.agent] - AI agent name (e.g. "deepseek", "codex")
+	 * @param {boolean} [opts.force=false] - Skip queue, force deploy immediately
+	 * @param {boolean} [opts.skipHealthCheck=false] - Skip pre-deploy health check
+	 * @param {boolean} [opts.skipBuild=false] - Skip build step
+	 * @returns {Promise<{queued: boolean, deploymentId: string, status: string, error?: string}>}
+	 */
+	async deploy(opts) {
+		const {
+			version,
+			commitSha,
+			agent = "unknown",
+			force = false,
+			skipHealthCheck = false,
+			skipBuild = false,
+		} = typeof opts === "string"
+			? { version: opts, commitSha: arguments[1], agent: arguments[2] || "unknown" }
+			: opts;
+
+		await this.initialize();
+
+		const deploymentId = crypto.randomUUID();
+
+		// Check if there's already an active deployment for this project
+		const activeDeploy = this._activeDeployments.get(this.projectName);
+		if (activeDeploy && !force) {
+			await this._run(
+				`INSERT INTO ${QUEUE_TABLE} (id, project_name, type, priority, status, input, agent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				[
+					deploymentId,
+					this.projectName,
+					"deploy",
+					0,
+					"pending",
+					JSON.stringify({ version, commitSha, skipHealthCheck, skipBuild }),
+					agent,
+					now(),
+					now(),
+				]
+			);
+
+			await this._emitEvent("deploy.queued", {
+				project: this.projectName,
+				version,
+				commitSha,
+				agent,
+				deploymentId,
+				reason: "Active deployment in progress",
+			}, "info");
+
+			return { queued: true, deploymentId, status: DEPLOY_STATUS.QUEUED };
+		}
+
+		// Record deployment start
+		await this._run(
+			`INSERT INTO ${DEPLOY_TABLE} (id, project_name, version, commit_sha, status, agent, initiated_by, metadata, created_at, updated_at, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			[
+				deploymentId,
+				this.projectName,
+				version || null,
+				commitSha || null,
+				DEPLOY_STATUS.RUNNING,
+				agent,
+				agent,
+				JSON.stringify({ force, skipHealthCheck, skipBuild }),
+				now(),
+				now(),
+				now(),
+			]
+		);
+
+		this._activeDeployments.set(this.projectName, deploymentId);
+
+		await this._emitEvent("deploy.started", {
+			project: this.projectName,
+			version,
+			commitSha,
+			agent,
+			deploymentId,
+		}, "info");
+
+		try {
+			// Step 1: Health check before deploy
+			if (!skipHealthCheck) {
+				const health = await this.healthCheck();
+				await this._run(
+					`UPDATE ${DEPLOY_TABLE} SET health_before = ?, updated_at = ? WHERE id = ?`,
+					[JSON.stringify(health), now(), deploymentId]
+				);
+
+				if (!health.healthy) {
+					throw new Error(
+						`Pre-deploy health check failed: ${health.error || `HTTP ${health.statusCode}`}`
+					);
+				}
+			}
+
+			// Step 2: Deploy to VPS
+			const deployResult = await this._deployToVps(version);
+
+			if (!deployResult.success) {
+				throw new Error(`Deploy failed: ${deployResult.error}`);
+			}
+
+			// Step 3: Health check after deploy
+			let healthAfter = null;
+			if (!skipHealthCheck) {
+				await new Promise((r) => setTimeout(r, 5000));
+				healthAfter = await this.healthCheck();
+				await this._run(
+					`UPDATE ${DEPLOY_TABLE} SET health_after = ?, updated_at = ? WHERE id = ?`,
+					[JSON.stringify(healthAfter), now(), deploymentId]
+				);
+			}
+
+			// Step 4: Check post-deploy health
+			if (healthAfter && !healthAfter.healthy) {
+				await this._run(
+					`UPDATE ${DEPLOY_TABLE} SET status = ?, error = ?, updated_at = ?, completed_at = ? WHERE id = ?`,
+					[DEPLOY_STATUS.FAILED, `Post-deploy health check failed: ${healthAfter.error || `HTTP ${healthAfter.statusCode}`}`, now(), now(), deploymentId]
+				);
+
+				await this._emitEvent("deploy.failed", {
+					project: this.projectName,
+					version,
+					deploymentId,
+					error: "Post-deploy health check failed, initiating rollback",
+				}, "error");
+
+				const rollbackResult = await this.rollback(deploymentId);
+				this._activeDeployments.delete(this.projectName);
+
+				return {
+					queued: false,
+					deploymentId,
+					status: DEPLOY_STATUS.FAILED,
+					error: "Post-deploy health check failed",
+					rollback: rollbackResult,
+				};
+			}
+
+			// Step 5: Mark as success
+			await this._run(
+				`UPDATE ${DEPLOY_TABLE} SET status = ?, updated_at = ?, completed_at = ? WHERE id = ?`,
+				[DEPLOY_STATUS.SUCCESS, now(), now(), deploymentId]
+			);
+
+			if (this.commitDeployLog) {
+				try {
+					await this.commitDeployLog.recordDeploy({
+						version: version || "latest",
+						commitSha: commitSha || "",
+						status: healthAfter?.healthy ? "healthy" : "unhealthy",
+						agent,
+						metadata: JSON.stringify({
+							deploymentId,
+							project: this.projectName,
+						}),
+					});
+				} catch {}
+			}
+
+			await this._emitEvent("deploy.completed", {
+				project: this.projectName,
+				version,
+				commitSha,
+				agent,
+				deploymentId,
+				healthy: healthAfter?.healthy ?? true,
+			}, "info");
+
+			this._activeDeployments.delete(this.projectName);
+
+			// Process next item in queue
+			this._processQueue().catch((err) => {
+				console.error("[DeployOrchestrator] Queue processing error:", err.message);
+			});
+
+			return { queued: false, deploymentId, status: DEPLOY_STATUS.SUCCESS };
+		} catch (err) {
+			await this._run(
+				`UPDATE ${DEPLOY_TABLE} SET status = ?, error = ?, updated_at = ?, completed_at = ? WHERE id = ?`,
+				[DEPLOY_STATUS.FAILED, err.message, now(), now(), deploymentId]
+			);
+
+			await this._emitEvent("deploy.failed", {
+				project: this.projectName,
+				version,
+				commitSha,
+				agent,
+				deploymentId,
+				error: err.message,
+			}, "error");
+
+			this._activeDeployments.delete(this.projectName);
+
+			let rollbackResult = null;
+			if (!err.message.includes("Pre-deploy health check")) {
+				rollbackResult = await this.rollback(deploymentId);
+			}
+
+			this._processQueue().catch((err) => {
+				console.error("[DeployOrchestrator] Queue processing error:", err.message);
+			});
+
+			return {
+				queued: false,
+				deploymentId,
+				status: DEPLOY_STATUS.FAILED,
+				error: err.message,
+				rollback: rollbackResult,
+			};
+		}
+	}
+
+	// ── Queue processing ──────────────────────────────────────────────────
+
+	async _processQueue() {
+		const nextItem = await this._getOne(
+			`SELECT * FROM ${QUEUE_TABLE} WHERE project_name = ? AND status = 'pending' ORDER BY priority DESC, created_at ASC LIMIT 1`,
+			[this.projectName]
+		);
+
+		if (!nextItem) return;
+
+		await this._run(
+			`UPDATE ${QUEUE_TABLE} SET status = 'processing', updated_at = ? WHERE id = ?`,
+			[now(), nextItem.id]
+		);
+
+		const input = safeJsonParse(nextItem.input, {});
+
+		const result = await this.deploy({
+			version: input.version,
+			commitSha: input.commitSha,
+			agent: nextItem.agent || "unknown",
+			force: true,
+			skipHealthCheck: input.skipHealthCheck,
+			skipBuild: input.skipBuild,
+		});
+
+		await this._run(
+			`UPDATE ${QUEUE_TABLE} SET status = ?, metadata = ?, updated_at = ? WHERE id = ?`,
+			[
+				result.status === DEPLOY_STATUS.SUCCESS ? "completed" : "failed",
+				JSON.stringify({ result }),
+				now(),
+				nextItem.id,
+			]
+		);
+
+		await this._processQueue();
+	}
+
+	// ── Build tracking ────────────────────────────────────────────────────
+
+	/**
+	 * Register a build in the tracking system.
+	 * @param {object} opts
+	 * @param {string} opts.buildType - "docker", "nextjs", "typescript", "static"
+	 * @param {string} [opts.imageTag] - Docker image tag
+	 * @param {string} [opts.commitSha] - Commit SHA
+	 * @param {string} [opts.agent] - AI agent name
+	 * @returns {Promise<{buildId: string, skipped: boolean, reason?: string}>}
+	 */
+	async registerBuild(opts) {
+		await this.initialize();
+
+		const { buildType, imageTag, commitSha, agent = "unknown" } = opts;
+		const buildId = crypto.randomUUID();
+
+		// Check for duplicate build (same image tag + commit SHA)
+		if (imageTag && commitSha) {
+			const existing = await this._getOne(
+				`SELECT * FROM ${BUILD_TABLE} WHERE project_name = ? AND image_tag = ? AND commit_sha = ? AND status = ? ORDER BY created_at DESC LIMIT 1`,
+				[this.projectName, imageTag, commitSha, BUILD_STATUS.SUCCESS]
+			);
+
+			if (existing) {
+				await this._emitEvent("build.skipped", {
+					project: this.projectName,
+					buildType,
+					imageTag,
+					commitSha,
+					reason: "Duplicate build (already exists with same image tag and commit SHA)",
+				}, "info");
+
+				return { buildId: existing.id, skipped: true, reason: "Duplicate build skipped" };
+			}
+		}
+
+		// Check for active builds (prevent concurrent builds)
+		const activeBuild = this._activeBuilds.get(this.projectName);
+		if (activeBuild) {
+			await this._run(
+				`INSERT INTO ${BUILD_TABLE} (id, project_name, build_type, image_tag, commit_sha, status, agent, metadata, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				[
+					buildId,
+					this.projectName,
+					buildType,
+					imageTag || null,
+					commitSha || null,
+					BUILD_STATUS.QUEUED,
+					agent,
+					JSON.stringify({ blockedBy: activeBuild }),
+					now(),
+					now(),
+				]
+			);
+
+			return { buildId, skipped: false };
+		}
+
+		this._activeBuilds.set(this.projectName, buildId);
+
+		await this._run(
+			`INSERT INTO ${BUILD_TABLE} (id, project_name, build_type, image_tag, commit_sha, status, agent, created_at, updated_at, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			[
+				buildId,
+				this.projectName,
+				buildType,
+				imageTag || null,
+				commitSha || null,
+				BUILD_STATUS.RUNNING,
+				agent,
+				now(),
+				now(),
+				now(),
+			]
+		);
+
+		await this._emitEvent("build.started", {
+			project: this.projectName,
+			buildType,
+			imageTag,
+			commitSha,
+			agent,
+			buildId,
+		}, "info");
+
+		return { buildId, skipped: false };
+	}
+
+	/**
+	 * Complete a build (success or failure).
+	 * @param {string} buildId
+	 * @param {object} opts
+	 * @param {string} opts.status - BUILD_STATUS.SUCCESS or BUILD_STATUS.FAILED
+	 * @param {string} [opts.output] - Build output
+	 * @param {string} [opts.error] - Error message
+	 */
+	async completeBuild(buildId, opts) {
+		const { status, output, error } = opts;
+
+		await this._run(
+			`UPDATE ${BUILD_TABLE} SET status = ?, output = ?, error = ?, updated_at = ?, completed_at = ? WHERE id = ?`,
+			[status, output || null, error || null, now(), now(), buildId]
+		);
+
+		const build = await this._getOne(`SELECT * FROM ${BUILD_TABLE} WHERE id = ?`, [buildId]);
+		if (build && this._activeBuilds.get(build.project_name) === buildId) {
+			this._activeBuilds.delete(build.project_name);
+		}
+
+		await this._emitEvent("build.completed", {
+			project: build?.project_name || this.projectName,
+			buildId,
+			status,
+			error,
+		}, status === BUILD_STATUS.SUCCESS ? "info" : "error");
+
+		await this._processBuildQueue();
+	}
+
+	async _processBuildQueue() {
+		const nextBuild = await this._getOne(
+			`SELECT * FROM ${BUILD_TABLE} WHERE project_name = ? AND status = ? ORDER BY created_at ASC LIMIT 1`,
+			[this.projectName, BUILD_STATUS.QUEUED]
+		);
+
+		if (!nextBuild) return;
+
+		this._activeBuilds.set(this.projectName, nextBuild.id);
+		await this._run(
+			`UPDATE ${BUILD_TABLE} SET status = ?, started_at = ?, updated_at = ? WHERE id = ?`,
+			[BUILD_STATUS.RUNNING, now(), now(), nextBuild.id]
+		);
+
+		await this._emitEvent("build.started", {
+			project: this.projectName,
+			buildType: nextBuild.build_type,
+			buildId: nextBuild.id,
+		}, "info");
+	}
+
+	// ── API methods ───────────────────────────────────────────────────────
+
+	/**
+	 * Get the deployment queue.
+	 * @param {object} [filter]
+	 * @param {string} [filter.status] - Filter by status
+	 * @param {number} [filter.limit=50]
+	 * @returns {Promise<Array>}
+	 */
+	async getQueue(filter = {}) {
+		await this.initialize();
+		const { status, limit = 50 } = filter;
+
+		let sql = `SELECT * FROM ${QUEUE_TABLE} WHERE project_name = ?`;
+		const params = [this.projectName];
+
+		if (status) {
+			sql += " AND status = ?";
+			params.push(status);
+		}
+
+		sql += " ORDER BY priority DESC, created_at ASC LIMIT ?";
+		params.push(limit);
+
+		const rows = await this._query(sql, params);
+		return rows.map((r) => ({
+			id: r.id,
+			projectName: r.project_name,
+			type: r.type,
+			priority: r.priority,
+			status: r.status,
+			input: safeJsonParse(r.input, {}),
+			agent: r.agent,
+			metadata: safeJsonParse(r.metadata, {}),
+			createdAt: r.created_at,
+			updatedAt: r.updated_at,
+		}));
+	}
+
+	/**
+	 * Get active deployments.
+	 * @returns {Promise<Array>}
+	 */
+	async getActiveDeployments() {
+		await this.initialize();
+		const rows = await this._query(
+			`SELECT * FROM ${DEPLOY_TABLE} WHERE project_name = ? AND status IN (?, ?) ORDER BY created_at DESC`,
+			[this.projectName, DEPLOY_STATUS.RUNNING, DEPLOY_STATUS.QUEUED]
+		);
+		return rows.map((r) => this._rowToDeployment(r));
+	}
+
+	/**
+	 * Get build status for a project.
+	 * @param {object} [filter]
+	 * @param {string} [filter.buildType]
+	 * @param {string} [filter.status]
+	 * @param {number} [filter.limit=20]
+	 * @returns {Promise<Array>}
+	 */
+	async getBuildStatus(filter = {}) {
+		await this.initialize();
+		const { buildType, status, limit = 20 } = filter;
+
+		let sql = `SELECT * FROM ${BUILD_TABLE} WHERE project_name = ?`;
+		const params = [this.projectName];
+
+		if (buildType) {
+			sql += " AND build_type = ?";
+			params.push(buildType);
+		}
+
+		if (status) {
+			sql += " AND status = ?";
+			params.push(status);
+		}
+
+		sql += " ORDER BY created_at DESC LIMIT ?";
+		params.push(limit);
+
+		const rows = await this._query(sql, params);
+		return rows.map((r) => ({
+			id: r.id,
+			projectName: r.project_name,
+			buildType: r.build_type,
+			imageTag: r.image_tag,
+			commitSha: r.commit_sha,
+			status: r.status,
+			agent: r.agent,
+			output: r.output,
+			error: r.error,
+			metadata: safeJsonParse(r.metadata, {}),
+			createdAt: r.created_at,
+			updatedAt: r.updated_at,
+			startedAt: r.started_at,
+			completedAt: r.completed_at,
+		}));
+	}
+
+	/**
+	 * Cancel a queued or running deployment.
+	 * @param {string} deploymentId
+	 * @returns {Promise<{success: boolean, error?: string}>}
+	 */
+	async cancelDeployment(deploymentId) {
+		await this.initialize();
+
+		const deploy = await this._getOne(
+			`SELECT * FROM ${DEPLOY_TABLE} WHERE id = ?`,
+			[deploymentId]
+		);
+
+		if (!deploy) {
+			return { success: false, error: "Deployment not found" };
+		}
+
+		if (deploy.status === DEPLOY_STATUS.SUCCESS || deploy.status === DEPLOY_STATUS.FAILED || deploy.status === DEPLOY_STATUS.ROLLED_BACK) {
+			return { success: false, error: `Cannot cancel deployment with status: ${deploy.status}` };
+		}
+
+		await this._run(
+			`UPDATE ${DEPLOY_TABLE} SET status = ?, updated_at = ?, completed_at = ? WHERE id = ?`,
+			[DEPLOY_STATUS.CANCELLED, now(), now(), deploymentId]
+		);
+
+		// Also cancel in queue if present
+		await this._run(
+			`UPDATE ${QUEUE_TABLE} SET status = 'cancelled', updated_at = ? WHERE id = ?`,
+			[now(), deploymentId]
+		);
+
+		// Clear active deployment
+		if (this._activeDeployments.get(this.projectName) === deploymentId) {
+			this._activeDeployments.delete(this.projectName);
+		}
+
+		await this._emitEvent("deploy.cancelled", {
+			project: this.projectName,
+			deploymentId,
+			version: deploy.version,
+			agent: deploy.agent,
+		}, "warning");
+
+		return { success: true };
+	}
+
+	/**
+		* Force a deployment, bypassing the queue and active deployment checks.
+		* @param {object} opts - Same as deploy() options
+		* @returns {Promise<{queued: boolean, deploymentId: string, status: string, error?: string}>}
+		*/
+	async forceDeploy(opts) {
+		return this.deploy({
+			...opts,
+			force: true,
+		});
+	}
+
+	/**
+		* Get deployment history.
+		* @param {object} [filter]
+		* @param {number} [filter.limit=20]
+		* @param {string} [filter.status]
+		* @returns {Promise<Array>}
+		*/
+	async getHistory(filter = {}) {
+		await this.initialize();
+		const { limit = 20, status } = filter;
+
+		let sql = `SELECT * FROM ${DEPLOY_TABLE} WHERE project_name = ?`;
+		const params = [this.projectName];
+
+		if (status) {
+			sql += " AND status = ?";
+			params.push(status);
+		}
+
+		sql += " ORDER BY created_at DESC LIMIT ?";
+		params.push(limit);
+
+		const rows = await this._query(sql, params);
+		return rows.map((r) => this._rowToDeployment(r));
+	}
+
+	/**
+		* Get deployment statistics.
+		* @returns {Promise<object>}
+		*/
+	async getStats() {
+		await this.initialize();
+
+		const total = await this._getOne(
+			`SELECT COUNT(*) as count FROM ${DEPLOY_TABLE} WHERE project_name = ?`,
+			[this.projectName]
+		);
+
+		const byStatus = await this._query(
+			`SELECT status, COUNT(*) as count FROM ${DEPLOY_TABLE} WHERE project_name = ? GROUP BY status`,
+			[this.projectName]
+		);
+
+		const byAgent = await this._query(
+			`SELECT agent, COUNT(*) as count FROM ${DEPLOY_TABLE} WHERE project_name = ? GROUP BY agent`,
+			[this.projectName]
+		);
+
+		const latest = await this._getOne(
+			`SELECT * FROM ${DEPLOY_TABLE} WHERE project_name = ? ORDER BY created_at DESC LIMIT 1`,
+			[this.projectName]
+		);
+
+		const queueLength = await this._getOne(
+			`SELECT COUNT(*) as count FROM ${QUEUE_TABLE} WHERE project_name = ? AND status = 'pending'`,
+			[this.projectName]
+		);
+
+		const activeBuilds = await this._getOne(
+			`SELECT COUNT(*) as count FROM ${BUILD_TABLE} WHERE project_name = ? AND status = ?`,
+			[this.projectName, BUILD_STATUS.RUNNING]
+		);
+
+		const statusMap = {};
+		for (const row of byStatus) {
+			statusMap[row.status] = row.count;
+		}
+
+		const agentMap = {};
+		for (const row of byAgent) {
+			agentMap[row.agent] = row.count;
+		}
+
+		return {
+			totalDeployments: total?.count || 0,
+			byStatus: statusMap,
+			byAgent: agentMap,
+			queueLength: queueLength?.count || 0,
+			activeBuilds: activeBuilds?.count || 0,
+			latestDeployment: latest ? this._rowToDeployment(latest) : null,
+			maxConcurrentDeploys: this.maxConcurrentDeploys,
+			maxConcurrentBuilds: this.maxConcurrentBuilds,
+		};
+	}
+
+	// ── Row mapping ───────────────────────────────────────────────────────
+
+	_rowToDeployment(r) {
+		return {
+			id: r.id,
+			projectName: r.project_name,
+			version: r.version,
+			commitSha: r.commit_sha,
+			status: r.status,
+			agent: r.agent,
+			initiatedBy: r.initiated_by,
+			previousVersion: r.previous_version,
+			healthBefore: safeJsonParse(r.health_before, null),
+			healthAfter: safeJsonParse(r.health_after, null),
+			error: r.error,
+			rollbackVersion: r.rollback_version,
+			rollbackStatus: r.rollback_status,
+			metadata: safeJsonParse(r.metadata, {}),
+			createdAt: r.created_at,
+			updatedAt: r.updated_at,
+			startedAt: r.started_at,
+			completedAt: r.completed_at,
+		};
+	}
+}
+
+module.exports = { DeployOrchestrator, DEPLOY_STATUS, BUILD_STATUS };

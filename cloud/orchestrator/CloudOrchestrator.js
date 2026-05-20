@@ -11,6 +11,7 @@
  *   - ML-driven improvement
  *   - Event logging
  *   - Commit/deploy tracking
+ *   - RAM-aware scheduling and worker management
  */
 
 const EventEmitter = require("events")
@@ -18,6 +19,9 @@ const MemoryStore = require("./stores/MemoryStore")
 const EventLog = require("./modules/EventLog")
 const TaskQueueBullMQ = require("./modules/TaskQueueBullMQ")
 const { TaskExecutor } = require("./modules/TaskExecutor")
+const { RAMMonitor } = require("./modules/RAMMonitor")
+const { RAMScheduler } = require("./modules/RAMScheduler")
+const { WorkerPauseManager } = require("./modules/WorkerPauseManager")
 
 // ─── Safety Modes ─────────────────────────────────────────────────────
 
@@ -78,6 +82,11 @@ class CloudOrchestrator extends EventEmitter {
 		// HermesClaw — Memory & Context Agent
 		this.hermesClaw = null
 		this.learningGateway = null
+
+		// RAM Orchestrator modules (Phase 7)
+		this.ramMonitor = null
+		this.ramScheduler = null
+		this.workerPauseManager = null
 
 		// Internal state
 		this._running = false
@@ -581,6 +590,35 @@ class CloudOrchestrator extends EventEmitter {
 		console.log("[CloudOrchestrator] LearningGateway registered")
 	}
 
+	// ─── RAM Orchestrator Registration (Phase 7) ────────────────────────
+
+	/**
+	 * Register the RAMMonitor module.
+	 * @param {import('./modules/RAMMonitor')} ramMonitor
+	 */
+	registerRAMMonitor(ramMonitor) {
+		this.ramMonitor = ramMonitor
+		console.log("[CloudOrchestrator] RAMMonitor registered")
+	}
+
+	/**
+	 * Register the RAMScheduler module.
+	 * @param {import('./modules/RAMScheduler')} ramScheduler
+	 */
+	registerRAMScheduler(ramScheduler) {
+		this.ramScheduler = ramScheduler
+		console.log("[CloudOrchestrator] RAMScheduler registered")
+	}
+
+	/**
+	 * Register the WorkerPauseManager module.
+	 * @param {import('./modules/WorkerPauseManager')} workerPauseManager
+	 */
+	registerWorkerPauseManager(workerPauseManager) {
+		this.workerPauseManager = workerPauseManager
+		console.log("[CloudOrchestrator] WorkerPauseManager registered")
+	}
+
 	// ─── Status ─────────────────────────────────────────────────────────
 
 	/**
@@ -608,6 +646,9 @@ class CloudOrchestrator extends EventEmitter {
 			cpuGuard: !!this.cpuGuard,
 			hermesClaw: !!this.hermesClaw,
 			learningGateway: !!this.learningGateway,
+			ramMonitor: !!this.ramMonitor,
+			ramScheduler: !!this.ramScheduler,
+			workerPauseManager: !!this.workerPauseManager,
 		}
 		return {
 			running: this._running,

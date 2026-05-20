@@ -436,3 +436,100 @@ Any Project Directory
 7. **Zero-config for most projects**: Project name is auto-detected from `git remote`. Only override via `SUPERROO_PROJECT` env var if needed.
 8. **No breaking changes**: All existing superroo2 code continues to work exactly as before. The new behavior is purely additive.
 9. **Transparent fallback**: Callers don't need to know which layer is active. The system handles it automatically.
+
+## Unified Deployment System (Mandatory)
+
+**ALL AI coding agents (DeepSeek, Codex, Superoo, and any future agents) MUST use the unified deployment system for ALL deployments.** This prevents race conditions between multiple agents simultaneously deploying.
+
+### Architecture
+
+The unified deployment system consists of three components:
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| **DeployOrchestrator** | [`cloud/orchestrator/modules/DeployOrchestrator.js`](cloud/orchestrator/modules/DeployOrchestrator.js) | Single entry point for all deployments with queue, locking, health checks, and auto-rollback |
+| **BuildQueue** | [`cloud/orchestrator/modules/BuildQueue.js`](cloud/orchestrator/modules/BuildQueue.js) | Project-scoped build queue with image deduplication and build result caching |
+| **UnifiedBuilder** | [`cloud/orchestrator/modules/UnifiedBuilder.js`](cloud/orchestrator/modules/UnifiedBuilder.js) | Multi-type build system (Docker, Next.js, TypeScript, Static) |
+
+### Mandatory Rules
+
+1. **ALWAYS use `DeployOrchestrator.deploy()`** — Never deploy directly via SSH/SCP. Always go through the unified deploy method which handles queuing, locking, health checks, and rollback.
+
+2. **ALWAYS use `BuildQueue.enqueueBuild()`** — Never run builds directly. Always go through the build queue which prevents duplicate builds and caches results.
+
+3. **ALWAYS use `UnifiedBuilder.build()` or a type-specific builder** — Never run build commands directly. Use the auto-detection or explicit builder methods.
+
+4. **ALWAYS record commits via `CommitDeployLog.recordCommit()`** — Every code change must be recorded before deployment.
+
+5. **ALWAYS record deployments via `CommitDeployLog.recordDeploy()`** — Every deployment attempt (success, failure, rollback) must be logged.
+
+6. **ALWAYS extract lessons after task completion** — Run `node scripts/extract-lesson-from-commit.mjs --interactive` or commit with a descriptive message to trigger the post-commit hook.
+
+### API Endpoints
+
+The unified deployment system exposes these API endpoints:
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/deploy` | Queue or execute a deployment |
+| GET | `/api/deploy/queue` | Get deployment queue |
+| GET | `/api/deploy/active` | Get active deployments |
+| GET | `/api/deploy/builds` | Get build status |
+| POST | `/api/deploy/cancel` | Cancel a deployment |
+| POST | `/api/deploy/force` | Force a deployment (bypass queue) |
+
+### Dashboard
+
+The unified deployment system is visualized in the SuperRoo Cloud Dashboard under the **Deploy Orchestrator** tab.
+
+### Global README Rule
+
+**ALL SuperRoo AI agents MUST ensure every project's README is updated to document:**
+
+1. **Deployer Agent** — How to use `DeployOrchestrator` for deployments
+2. **Builder Agent** — How to use `UnifiedBuilder` for builds
+3. **Commit & Learning Lessons** — How to use `CommitDeployLog` and the learning layer
+
+This rule applies to ALL projects in the SuperRoo ecosystem. When working on a new project or making significant changes, agents MUST:
+
+1. Check if the README documents the deployer agent, builder agent, and commit/learning workflow
+2. If not, update the README to include these sections
+3. Use the unified deployment system for all deployments
+4. Record all commits and deployments
+5. Extract and store lessons after every task
+
+### Workflow
+
+```
+Agent wants to deploy
+        │
+        ▼
+1. Commit code changes
+2. Record commit via CommitDeployLog.recordCommit()
+3. Call DeployOrchestrator.deploy({version, commitSha, agent})
+        │
+        ├── Active deploy? ──► Queued (auto-processed when active deploy completes)
+        │
+        ▼
+4. Health check before deploy
+        │
+        ├── Unhealthy? ──► Abort with error
+        │
+        ▼
+5. Build via UnifiedBuilder (if needed)
+        │
+        ├── Via BuildQueue (deduplication + caching)
+        │
+        ▼
+6. Deploy to VPS via SSH/SCP
+        │
+        ▼
+7. Health check after deploy
+        │
+        ├── Unhealthy? ──► Auto-rollback to last good version
+        │
+        ▼
+8. Record deploy in CommitDeployLog
+9. Extract lesson
+10. Update README if needed
+```

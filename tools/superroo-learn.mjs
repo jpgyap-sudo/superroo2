@@ -673,10 +673,11 @@ async function processRetryQueue(options = {}) {
   for (let i = 0; i < queue.length; i++) {
     const item = queue[i]
     const progress = `[${i + 1}/${queue.length}]`
+    const label = String(item.topic || item.project || item.operation || item.id || "retry item")
 
     // Skip items that have exceeded max attempts (unless flushing)
     if (item.attempts >= RETRY_MAX && !flush) {
-      process.stdout.write(`   ${progress} "${item.topic.slice(0, 50)}" — max attempts reached, skipping. `)
+      process.stdout.write(`   ${progress} "${label.slice(0, 50)}" — max attempts reached, skipping. `)
       console.error(`⚠️`)
       skipped.push(item)
       continue
@@ -690,7 +691,7 @@ async function processRetryQueue(options = {}) {
     }
 
     // Attempt the MCP call
-    process.stdout.write(`   ${progress} Retrying "${item.topic.slice(0, 50)}" (attempt ${item.attempts + 1}/${RETRY_MAX})... `)
+    process.stdout.write(`   ${progress} Retrying "${label.slice(0, 50)}" (attempt ${item.attempts + 1}/${RETRY_MAX})... `)
 
     try {
       const controller = new AbortController()
@@ -710,7 +711,9 @@ async function processRetryQueue(options = {}) {
           method: "tools/call",
           params: {
             name: "hermes_learn",
-            arguments: { topic: item.topic, content: item.content },
+            arguments: item.operation === "register"
+              ? { topic: `[system] Project registered: ${item.project}`, content: JSON.stringify({ type: "project_registration", project: item.project }), project: item.project }
+              : { topic: item.topic, content: item.content, project: item.project },
           },
         }),
         signal: controller.signal,
@@ -718,13 +721,20 @@ async function processRetryQueue(options = {}) {
 
       clearTimeout(timeout)
 
-      if (response.ok) {
-        console.error(`✅`)
+      const text = await response.text()
+      let payload = null
+      try {
+        payload = text ? JSON.parse(text) : null
+      } catch {}
+
+      if (response.ok && !payload?.error && payload?.result?.success !== false && payload?.result?.source !== "local_json_fallback") {
+        console.error(`?`)
         succeeded.push(item)
       } else {
         item.attempts++
         item.lastAttempt = new Date().toISOString()
-        console.error(`❌ (HTTP ${response.status})`)
+        const errMsg = payload?.error?.message || payload?.result?.error || text || `HTTP ${response.status}`
+        console.error(`? (${String(errMsg).slice(0, 80)})`)
         failed.push(item)
       }
     } catch (err) {
@@ -741,7 +751,7 @@ async function processRetryQueue(options = {}) {
   // Log items that are being dropped
   const dropped = failed.filter((item) => item.attempts >= RETRY_MAX && !flush)
   for (const item of dropped) {
-    console.error(`   ⚠️  Dropping "${item.topic.slice(0, 50)}" after ${item.attempts} failed attempts.`)
+    console.error(`   ⚠️  Dropping "${label.slice(0, 50)}" after ${item.attempts} failed attempts.`)
     console.error(`      Use 'superroo-learn retry --flush' to force-retry dropped items.`)
   }
 
@@ -764,6 +774,11 @@ async function processRetryQueue(options = {}) {
 }
 
 // ── Commands ──
+
+async function cmdRetry(options = {}) {
+	const result = await processRetryQueue(options)
+	console.log(JSON.stringify(result, null, 2))
+}
 
 async function cmdQuery(query, project) {
 	console.error(`🔍 Querying: "${query}" (project: ${project || "all"})`)
@@ -797,7 +812,10 @@ async function cmdStore(topic, content) {
 	const { success, result, fallbackUsed } = await withFallback(
 		// Primary: Central Brain
 		async () => {
-			const r = await mcpToolCall("hermes_learn", { topic, content })
+			const r = await mcpToolCall("hermes_learn", { topic, content, project })
+			if (r && typeof r === "object" && (r.success === false || r.source === "local_json_fallback")) {
+				throw new Error(r.error || r.note || "Central Brain returned fallback/non-success")
+			}
 			// Also register the project if not already known
 			const config = await getConfig()
 			if (!config.projects[project]) {

@@ -170,10 +170,21 @@ echo "[8/9] Restarting PM2 services..."
 ssh_cmd "pm2 restart" 60 "cd ${CLOUD_DIR} && (pm2 restart ecosystem.config.js || pm2 start ecosystem.config.js) && pm2 save"
 
 # ---------------------------------------------------------------------------
-# 9. Show status
+# 9. Sync Next.js static files from Docker container to host filesystem
+#    This prevents the "white screen" bug where nginx serves stale chunks
+#    from the host while the container has new build hashes.
 # ---------------------------------------------------------------------------
 echo ""
-echo "[9/9] Checking service status..."
+echo "[9/10] Syncing Next.js static files from Docker container to host..."
+# Copy the sync script to VPS and run it
+timeout 15 scp ${SSH_OPTS} scripts/sync-dashboard-static.sh "${SSH_TARGET}:/tmp/sync-dashboard-static.sh"
+ssh_cmd "sync static files" 30 "bash /tmp/sync-dashboard-static.sh docker-superroo-dashboard-1 && rm -f /tmp/sync-dashboard-static.sh"
+
+# ---------------------------------------------------------------------------
+# 10. Show status
+# ---------------------------------------------------------------------------
+echo ""
+echo "[10/10] Checking service status..."
 ssh_cmd "pm2 status" 30 "pm2 list"
 
 # ---------------------------------------------------------------------------

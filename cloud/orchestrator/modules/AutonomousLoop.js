@@ -275,6 +275,16 @@ class AutonomousLoop {
 
 					if (!result.success) {
 						console.warn(`[AutonomousLoop] Step ${step} failed: ${result.error}`)
+						// I1: Report failure to self-healing bus
+						if (this.orchestrator?.healingBus) {
+							await this.orchestrator.healingBus.reportIncident({
+								category: 'autonomous-debug',
+								severity: 'warning',
+								source: 'autonomous-loop',
+								description: `Step ${stepName} failed: ${result.error}`,
+								metadata: { stepName, stepIndex: step, error: result.error }
+							}).catch(e => console.warn('[AutonomousLoop] Failed to report incident:', e.message))
+						}
 					}
 				} catch (err) {
 					console.error(`[AutonomousLoop] Step ${step} error:`, err.message)
@@ -285,6 +295,16 @@ class AutonomousLoop {
 						error: err.message,
 						timestamp: Date.now(),
 					})
+					// I1: Report catch-block failure to self-healing bus
+					if (this.orchestrator?.healingBus) {
+						await this.orchestrator.healingBus.reportIncident({
+							category: 'autonomous-debug',
+							severity: 'warning',
+							source: 'autonomous-loop',
+							description: `Step ${stepName} threw: ${err.message}`,
+							metadata: { stepName, stepIndex: step, error: err.message }
+						}).catch(e => console.warn('[AutonomousLoop] Failed to report incident:', e.message))
+					}
 				}
 
 				// Check if we should stop after this step
@@ -830,6 +850,21 @@ class AutonomousLoop {
 				fs.writeFileSync(learningsPath, learnings.join("\n"), "utf8")
 			} catch {
 				// Non-critical
+			}
+
+			// I2: Feed debug lessons to InfiniteImprovementLoop
+			if (this.orchestrator?.infiniteImprovementLoop) {
+				for (const learning of learnings) {
+					try {
+						await this.orchestrator.infiniteImprovementLoop.ingestDebugLesson({
+							type: 'debug',
+							content: learning,
+							timestamp: Date.now()
+						})
+					} catch (e) {
+						console.warn('[AutonomousLoop] Failed to feed debug lesson:', e.message)
+					}
+				}
 			}
 
 			return { success: true, details: `Pattern learning complete — ${learnings.length} insights recorded` }

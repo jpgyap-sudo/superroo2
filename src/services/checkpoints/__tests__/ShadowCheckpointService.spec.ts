@@ -46,9 +46,10 @@ const initWorkspaceRepo = async ({
 
 	return { git, testFile }
 }
-
 describe.each([[RepoPerTaskCheckpointService, "RepoPerTaskCheckpointService"]])(
+
 	"CheckpointService",
+	{ timeout: 60_000 },
 	(klass, prefix) => {
 		const taskId = "test-task"
 

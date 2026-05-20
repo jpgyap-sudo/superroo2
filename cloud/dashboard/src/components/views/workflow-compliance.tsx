@@ -16,11 +16,7 @@ import {
 	XCircle,
 	AlertTriangle,
 	Brain,
-	Activity,
 	Key,
-	Clock,
-	TrendingUp,
-	TrendingDown,
 	GitCommit,
 	BarChart3,
 	ShieldCheck,
@@ -28,6 +24,9 @@ import {
 	Link2Off,
 	CalendarDays,
 	Users,
+	Database,
+	GitBranch,
+	Server,
 } from "lucide-react"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -77,6 +76,13 @@ interface WorkflowStats {
 		lastTrackedCommitAt: string | null
 		lastUsageRecordAt: string | null
 	}
+	dataQuality?: {
+		malformedRecords: number
+		missingSha: number
+		missingWorkflowCompliance: number
+		missingModelUsage: number
+		invalidTimestamp: number
+	}
 }
 
 interface Commit {
@@ -103,6 +109,7 @@ interface Commit {
 		}
 		violations: string[]
 	}
+	dataQualityIssues?: string[]
 }
 
 interface DeepSeekStats {
@@ -116,6 +123,69 @@ interface DeepSeekStats {
 	callsByModel: Record<string, number>
 }
 
+interface LearningHealth {
+	centralBrainOnline: boolean
+	fallbackEnabled: boolean
+	currentProject: string
+	knownProjects: number
+	localFiles: {
+		jsonl: { path: string; available: boolean; malformedLines: number }
+		markdown: { path: string; available: boolean }
+		syncState: { path: string; available: boolean; malformed: boolean }
+	}
+	lessons: {
+		total: number
+		draft: number
+		promotable: number
+		standard: number
+		todoRuleCount: number
+		missingReusableRule: number
+		missingTags: number
+		missingProject: number
+		lowQuality: number
+		malformedLines: number
+		learningScore: number
+	}
+	sync: {
+		syncedCount: number
+		unsyncedCount: number
+		syncCoverage: number
+		retryQueueLength: number
+		retryQueueAvailable: boolean
+	}
+	hooks: {
+		globalHookAvailable: boolean
+		bridgeAvailable: boolean
+		hookLogAvailable: boolean
+		hookLogPath: string
+		retryQueuePath: string
+		coreHooksPath: string | null
+		blocksGlobalHook: boolean
+		lastVerificationStatus: string
+	}
+}
+
+interface BridgeHealth {
+	bridgeAvailable: boolean
+	healthy?: boolean
+	deepseek: {
+		status: string
+		configured?: boolean
+		model?: string
+		keyLast4?: string
+		latencyMs?: number
+		error?: string
+	}
+	ollama: {
+		status: string
+		url?: string
+		latencyMs?: number
+		models?: string[]
+		modelCount?: number
+		error?: string
+	}
+}
+
 // ── Components ────────────────────────────────────────────────────────────────
 
 export default function WorkflowComplianceView() {
@@ -123,9 +193,12 @@ export default function WorkflowComplianceView() {
 	const [stats, setStats] = useState<WorkflowStats | null>(null)
 	const [commits, setCommits] = useState<Commit[]>([])
 	const [deepseekStats, setDeepseekStats] = useState<DeepSeekStats | null>(null)
+	const [learningHealth, setLearningHealth] = useState<LearningHealth | null>(null)
+	const [bridgeHealth, setBridgeHealth] = useState<BridgeHealth | null>(null)
 	const [apiOnline, setApiOnline] = useState<boolean | null>(null)
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState<string | null>(null)
+	const [actionStatus, setActionStatus] = useState<string | null>(null)
 
 	useEffect(() => {
 		fetchData()
@@ -136,26 +209,32 @@ export default function WorkflowComplianceView() {
 			setLoading(true)
 
 			// Fetch all data in parallel
-			const [statsRes, commitsRes, deepseekRes, healthRes] = await Promise.all([
+			const [statsRes, commitsRes, deepseekRes, learningRes, bridgeRes, healthRes] = await Promise.all([
 				fetch("/api/workflow-compliance/stats"),
 				fetch("/api/workflow-compliance/commits?limit=20"),
 				fetch("/api/workflow-compliance/deepseek-stats"),
+				fetch("/api/workflow-compliance/learning-health"),
+				fetch("/api/workflow-compliance/bridge-health"),
 				fetch("/api/health"),
 			])
 
-			if (!statsRes.ok || !commitsRes.ok || !deepseekRes.ok) {
+			if (!statsRes.ok || !commitsRes.ok || !deepseekRes.ok || !learningRes.ok || !bridgeRes.ok) {
 				throw new Error("Failed to fetch workflow compliance data")
 			}
 
-			const [statsData, commitsData, deepseekData] = await Promise.all([
+			const [statsData, commitsData, deepseekData, learningData, bridgeData] = await Promise.all([
 				statsRes.json(),
 				commitsRes.json(),
 				deepseekRes.json(),
+				learningRes.json(),
+				bridgeRes.json(),
 			])
 
 			setStats(statsData.data)
 			setCommits(commitsData.data)
 			setDeepseekStats(deepseekData.data)
+			setLearningHealth(learningData.data)
+			setBridgeHealth(bridgeData.data)
 			setApiOnline(healthRes.ok)
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Unknown error")
@@ -165,14 +244,38 @@ export default function WorkflowComplianceView() {
 		}
 	}
 
+	const runComplianceAction = async (action: string) => {
+		try {
+			setActionStatus(`Running ${action}...`)
+			const res = await fetch("/api/workflow-compliance/action", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ action }),
+			})
+			const data = await res.json()
+			if (!res.ok || !data.success) {
+				throw new Error(data.error || `Action failed: ${action}`)
+			}
+			setActionStatus(`${action} complete`)
+			await fetchData()
+		} catch (err) {
+			setActionStatus(err instanceof Error ? err.message : "Action failed")
+		}
+	}
+
 	const tabs = [
 		{ id: "overview", label: "Overview", icon: BarChart3 },
 		{ id: "commits", label: "Commits", icon: GitCommit },
 		{ id: "deepseek", label: "DeepSeek", icon: Brain },
+		{ id: "learning", label: "Learning", icon: Database },
+		{ id: "hooks", label: "Hooks & Sync", icon: GitBranch },
+		{ id: "bridge", label: "Bridge", icon: Server },
 		{ id: "violations", label: "Violations", icon: AlertCircle },
 	]
 	const hasTrackedCommits = (stats?.trackedCommits || 0) > 0
 	const complianceLabel = hasTrackedCommits ? `${stats?.complianceRate}% Compliant` : "No tracking data"
+	const bridgeHealthy = bridgeHealth?.healthy || false
+	const hookHealthy = Boolean(learningHealth?.hooks.globalHookAvailable && !learningHealth?.hooks.blocksGlobalHook)
 
 	if (loading) {
 		return (
@@ -201,11 +304,23 @@ export default function WorkflowComplianceView() {
 						<p className="text-xs text-gray-500">Track DeepSeek delegation and workflow adherence</p>
 					</div>
 				</div>
-				<Badge
-					status={hasTrackedCommits && parseFloat(stats?.complianceRate || "0") >= 80 ? "healthy" : "warning"}
-					label={complianceLabel}
-				/>
+				<div className="flex flex-wrap items-center justify-end gap-2">
+					<ActionButton label="Refresh" onClick={fetchData} />
+					<ActionButton label="Retry Sync" onClick={() => runComplianceAction("retry-sync")} />
+					<ActionButton label="Verify Hook" onClick={() => runComplianceAction("verify-hook")} />
+					<ActionButton label="Repair Metadata" onClick={() => runComplianceAction("repair-commit-metadata")} />
+					<Badge
+						status={hasTrackedCommits && parseFloat(stats?.complianceRate || "0") >= 80 ? "healthy" : "warning"}
+						label={complianceLabel}
+					/>
+				</div>
 			</div>
+
+			{actionStatus && (
+				<div className="rounded border border-blue-500/30 bg-blue-500/10 p-3 text-xs text-blue-100">
+					{actionStatus}
+				</div>
+			)}
 
 			{(stats?.untrackedCommits || 0) > 0 && (
 				<div className="flex items-start gap-3 rounded border border-yellow-500/30 bg-yellow-500/10 p-3">
@@ -215,6 +330,19 @@ export default function WorkflowComplianceView() {
 						<div className="mt-1 text-xs text-yellow-200/80">
 							{stats?.untrackedCommits} of {stats?.totalCommits} commits have no workflow metadata.
 							Compliance is calculated only across tracked commits.
+						</div>
+					</div>
+				</div>
+			)}
+
+			{(stats?.dataQuality?.malformedRecords || 0) > 0 && (
+				<div className="flex items-start gap-3 rounded border border-orange-500/30 bg-orange-500/10 p-3">
+					<AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-orange-300" />
+					<div className="text-sm text-orange-100">
+						<div className="font-medium">Commit log has data-quality gaps</div>
+						<div className="mt-1 text-xs text-orange-200/80">
+							{stats?.dataQuality?.malformedRecords} records need metadata repair. Missing telemetry is
+							reported separately from actual workflow violations.
 						</div>
 					</div>
 				</div>
@@ -262,6 +390,30 @@ export default function WorkflowComplianceView() {
 					value={(deepseekStats?.totalCalls || 0).toString()}
 					sub={`${(deepseekStats?.totalTokens || 0).toLocaleString()} tokens`}
 					color="text-blue-400"
+				/>
+				<StatCard
+					label="Learning Score"
+					value={`${learningHealth?.lessons.learningScore ?? 0}%`}
+					sub={`${learningHealth?.lessons.total || 0} lessons`}
+					color={(learningHealth?.lessons.learningScore || 0) >= 80 ? "text-emerald-400" : "text-yellow-400"}
+				/>
+				<StatCard
+					label="Sync Coverage"
+					value={`${learningHealth?.sync.syncCoverage ?? 0}%`}
+					sub={`${learningHealth?.sync.unsyncedCount || 0} unsynced`}
+					color={(learningHealth?.sync.unsyncedCount || 0) === 0 ? "text-emerald-400" : "text-yellow-400"}
+				/>
+				<StatCard
+					label="Hook Status"
+					value={hookHealthy ? "Ready" : "Check"}
+					sub={learningHealth?.hooks.blocksGlobalHook ? "hooksPath blocker" : "global hook"}
+					color={hookHealthy ? "text-emerald-400" : "text-yellow-400"}
+				/>
+				<StatCard
+					label="Bridge Health"
+					value={bridgeHealthy ? "Healthy" : "Degraded"}
+					sub={`DeepSeek: ${bridgeHealth?.deepseek.status || "unknown"}`}
+					color={bridgeHealthy ? "text-emerald-400" : "text-yellow-400"}
 				/>
 			</div>
 
@@ -370,6 +522,18 @@ export default function WorkflowComplianceView() {
 								</div>
 							</div>
 						</div>
+						{stats?.dataQuality && (
+							<div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-5">
+								<DataHealthItem label="Malformed Records" value={`${stats.dataQuality.malformedRecords}`} />
+								<DataHealthItem label="Missing SHA" value={`${stats.dataQuality.missingSha}`} />
+								<DataHealthItem
+									label="Missing Compliance"
+									value={`${stats.dataQuality.missingWorkflowCompliance}`}
+								/>
+								<DataHealthItem label="Missing Model Usage" value={`${stats.dataQuality.missingModelUsage}`} />
+								<DataHealthItem label="Bad Timestamp" value={`${stats.dataQuality.invalidTimestamp}`} />
+							</div>
+						)}
 					</Card>
 
 					<Card>
@@ -421,6 +585,150 @@ export default function WorkflowComplianceView() {
 								</div>
 							</div>
 						)}
+					</Card>
+				</div>
+			)}
+
+			{/* Learning Tab */}
+			{activeTab === "learning" && (
+				<div className="space-y-4">
+					<Card>
+						<h3 className="mb-4 text-sm font-semibold text-gray-300">Learning Layer Health</h3>
+						<div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+							<StatCard
+								label="Central Brain"
+								value={learningHealth?.centralBrainOnline ? "Online" : "Unknown"}
+								sub={learningHealth?.currentProject || "project unknown"}
+								color={learningHealth?.centralBrainOnline ? "text-emerald-400" : "text-yellow-400"}
+							/>
+							<StatCard
+								label="Known Projects"
+								value={`${learningHealth?.knownProjects || 0}`}
+								sub="cross-project memory"
+								color="text-blue-400"
+							/>
+							<StatCard
+								label="Local JSONL"
+								value={learningHealth?.localFiles.jsonl.available ? "Ready" : "Missing"}
+								sub={`${learningHealth?.localFiles.jsonl.malformedLines || 0} malformed lines`}
+								color={learningHealth?.localFiles.jsonl.available ? "text-emerald-400" : "text-red-400"}
+							/>
+							<StatCard
+								label="Markdown Fallback"
+								value={learningHealth?.localFiles.markdown.available ? "Ready" : "Missing"}
+								sub={learningHealth?.fallbackEnabled ? "fallback enabled" : "fallback disabled"}
+								color={learningHealth?.localFiles.markdown.available ? "text-emerald-400" : "text-red-400"}
+							/>
+						</div>
+					</Card>
+
+					<Card>
+						<h3 className="mb-4 text-sm font-semibold text-gray-300">Lesson Quality Compliance</h3>
+						<div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+							<DataHealthItem label="Total Lessons" value={`${learningHealth?.lessons.total || 0}`} />
+							<DataHealthItem label="Promotable" value={`${learningHealth?.lessons.promotable || 0}`} />
+							<DataHealthItem label="Standard" value={`${learningHealth?.lessons.standard || 0}`} />
+							<DataHealthItem label="Draft" value={`${learningHealth?.lessons.draft || 0}`} />
+							<DataHealthItem label="TODO Rules" value={`${learningHealth?.lessons.todoRuleCount || 0}`} />
+							<DataHealthItem
+								label="Missing Reusable Rule"
+								value={`${learningHealth?.lessons.missingReusableRule || 0}`}
+							/>
+							<DataHealthItem label="Missing Tags" value={`${learningHealth?.lessons.missingTags || 0}`} />
+							<DataHealthItem label="Missing Project" value={`${learningHealth?.lessons.missingProject || 0}`} />
+						</div>
+					</Card>
+				</div>
+			)}
+
+			{/* Hooks & Sync Tab */}
+			{activeTab === "hooks" && (
+				<div className="space-y-4">
+					<Card>
+						<h3 className="mb-4 text-sm font-semibold text-gray-300">Sync Status</h3>
+						<div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+							<StatCard
+								label="Synced Lessons"
+								value={`${learningHealth?.sync.syncedCount || 0}`}
+								sub={`${learningHealth?.sync.syncCoverage || 0}% coverage`}
+								color="text-emerald-400"
+							/>
+							<StatCard
+								label="Unsynced Lessons"
+								value={`${learningHealth?.sync.unsyncedCount || 0}`}
+								sub="needs Central Brain sync"
+								color={(learningHealth?.sync.unsyncedCount || 0) === 0 ? "text-emerald-400" : "text-yellow-400"}
+							/>
+							<StatCard
+								label="Retry Queue"
+								value={`${learningHealth?.sync.retryQueueLength || 0}`}
+								sub={learningHealth?.hooks.retryQueuePath || ""}
+								color={(learningHealth?.sync.retryQueueLength || 0) === 0 ? "text-emerald-400" : "text-yellow-400"}
+							/>
+							<StatCard
+								label="Last Hook Result"
+								value={learningHealth?.hooks.lastVerificationStatus || "unknown"}
+								sub={learningHealth?.hooks.hookLogAvailable ? "hook log present" : "no hook log"}
+								color="text-blue-400"
+							/>
+						</div>
+					</Card>
+
+					<Card>
+						<h3 className="mb-4 text-sm font-semibold text-gray-300">Global Hook Verification</h3>
+						<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+							<DataHealthItem
+								label="Global Hook"
+								value={learningHealth?.hooks.globalHookAvailable ? "Available" : "Missing"}
+							/>
+							<DataHealthItem
+								label="Bridge Command"
+								value={learningHealth?.hooks.bridgeAvailable ? "Available" : "Missing"}
+							/>
+							<DataHealthItem
+								label="core.hooksPath"
+								value={learningHealth?.hooks.coreHooksPath || "Not set"}
+							/>
+							<DataHealthItem
+								label="Global Hook Blocker"
+								value={learningHealth?.hooks.blocksGlobalHook ? "Yes" : "No"}
+							/>
+						</div>
+						<div className="mt-4 rounded bg-[#0a0e1a] p-3 text-xs text-gray-500">
+							Check hook details in {learningHealth?.hooks.hookLogPath || "hook log"} and retry failures in{" "}
+							{learningHealth?.hooks.retryQueuePath || "retry queue"}.
+						</div>
+					</Card>
+				</div>
+			)}
+
+			{/* Bridge Tab */}
+			{activeTab === "bridge" && (
+				<div className="space-y-4">
+					<Card>
+						<h3 className="mb-4 text-sm font-semibold text-gray-300">Required Model Bridge</h3>
+						<div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+							<BridgeStatusCard
+								title="DeepSeek Coding Route"
+								status={bridgeHealth?.deepseek.status || "unknown"}
+								details={[
+									`Model: ${bridgeHealth?.deepseek.model || "unknown"}`,
+									`Key: ${bridgeHealth?.deepseek.keyLast4 ? `****${bridgeHealth.deepseek.keyLast4}` : "not shown"}`,
+									`Latency: ${bridgeHealth?.deepseek.latencyMs ?? "n/a"}ms`,
+									bridgeHealth?.deepseek.error ? `Error: ${bridgeHealth.deepseek.error}` : "",
+								]}
+							/>
+							<BridgeStatusCard
+								title="Ollama Embeddings Route"
+								status={bridgeHealth?.ollama.status || "unknown"}
+								details={[
+									`URL: ${bridgeHealth?.ollama.url || "unknown"}`,
+									`Models: ${bridgeHealth?.ollama.modelCount ?? bridgeHealth?.ollama.models?.length ?? 0}`,
+									`Latency: ${bridgeHealth?.ollama.latencyMs ?? "n/a"}ms`,
+									bridgeHealth?.ollama.error ? `Error: ${bridgeHealth.ollama.error}` : "",
+								]}
+							/>
+						</div>
 					</Card>
 				</div>
 			)}
@@ -545,8 +853,18 @@ function CommitItem({ commit }: { commit: Commit }) {
 					</div>
 				</div>
 				<div className="mt-1 text-xs text-gray-500">
-					{commit.commitSha.substring(0, 8)} • {commit.agent} • {new Date(commit.timestamp).toLocaleString()}
+					{(commit.commitSha || "unknown").substring(0, 8)} • {commit.agent} •{" "}
+					{formatTimestamp(commit.timestamp)}
 				</div>
+				{commit.dataQualityIssues && commit.dataQualityIssues.length > 0 && (
+					<div className="mt-2 flex flex-wrap gap-1">
+						{commit.dataQualityIssues.map((issue) => (
+							<span key={issue} className="rounded bg-orange-500/10 px-1.5 py-0.5 text-[10px] text-orange-300">
+								{issue}
+							</span>
+						))}
+					</div>
+				)}
 				{commit.modelsUsed && commit.modelsUsed.length > 0 && (
 					<div className="mt-2 flex flex-wrap gap-1">
 						{commit.modelsUsed.map((model, idx) => (
@@ -571,7 +889,7 @@ function ViolationItem({ commit }: { commit: Commit }) {
 			<div className="min-w-0 flex-1">
 				<div className="text-sm font-medium text-gray-200">{commit.title}</div>
 				<div className="mt-1 text-xs text-gray-500">
-					{commit.commitSha.substring(0, 8)} • {new Date(commit.timestamp).toLocaleString()}
+					{(commit.commitSha || "unknown").substring(0, 8)} • {formatTimestamp(commit.timestamp)}
 				</div>
 				{commit.workflowCompliance?.violations && (
 					<ul className="mt-2 list-inside list-disc text-xs text-red-300">
@@ -594,6 +912,33 @@ function DataHealthItem({ label, value }: { label: string; value: string }) {
 		<div className="rounded bg-[#0a0e1a] p-3">
 			<div className="text-xs text-gray-500">{label}</div>
 			<div className="mt-1 text-sm font-medium text-gray-200">{value}</div>
+		</div>
+	)
+}
+
+function ActionButton({ label, onClick }: { label: string; onClick: () => void }) {
+	return (
+		<button
+			onClick={onClick}
+			className="rounded border border-[#1e2535] bg-[#0a0e1a] px-2 py-1 text-[11px] font-medium text-gray-300 transition-colors hover:border-emerald-500/50 hover:text-emerald-300">
+			{label}
+		</button>
+	)
+}
+
+function BridgeStatusCard({ title, status, details }: { title: string; status: string; details: string[] }) {
+	const healthy = status === "healthy"
+	return (
+		<div className="rounded bg-[#0a0e1a] p-4">
+			<div className="mb-3 flex items-center justify-between gap-3">
+				<div className="text-sm font-medium text-gray-200">{title}</div>
+				<Badge status={healthy ? "online" : "warning"} label={status} />
+			</div>
+			<div className="space-y-1 text-xs text-gray-500">
+				{details.filter(Boolean).map((detail) => (
+					<div key={detail}>{detail}</div>
+				))}
+			</div>
 		</div>
 	)
 }

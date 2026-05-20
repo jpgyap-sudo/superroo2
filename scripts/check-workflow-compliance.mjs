@@ -178,6 +178,31 @@ function checkCommitCompliance(commit) {
 	}
 }
 
+function normalizeCommitForReport(commit, index = 0) {
+	const normalized = { ...commit }
+	const dataQualityIssues = []
+	if (!normalized.commitSha) {
+		normalized.commitSha = "unknown"
+		dataQualityIssues.push("missing commitSha")
+	}
+	if (!normalized.id) {
+		normalized.id = `unkeyed_commit_${index}`
+		dataQualityIssues.push("missing id")
+	}
+	const timestamp = normalized.timestamp ? new Date(normalized.timestamp) : null
+	if (!timestamp || Number.isNaN(timestamp.getTime())) {
+		dataQualityIssues.push("invalid timestamp")
+	} else {
+		normalized.timestamp = timestamp.toISOString()
+	}
+	if (!Array.isArray(normalized.modelsUsed)) {
+		normalized.modelsUsed = []
+		dataQualityIssues.push("missing modelsUsed")
+	}
+	normalized.dataQualityIssues = dataQualityIssues
+	return normalized
+}
+
 // ── Report Generation ─────────────────────────────────────────────────────────
 
 async function generateReport(options) {
@@ -195,7 +220,7 @@ async function generateReport(options) {
 	console.log(color("bright", "═══════════════════════════════════════════════════════════\n"))
 
 	// Filter commits by date if specified
-	let commits = commitLog.commits || []
+	let commits = (commitLog.commits || []).map(normalizeCommitForReport)
 	if (options.since) {
 		const sinceDate = parseDate(options.since)
 		if (sinceDate) {
@@ -289,6 +314,9 @@ async function generateReport(options) {
 			} else {
 				console.log(`  Actual: ${color("red", "No coding phase recorded")}`)
 			}
+			if (commit.dataQualityIssues?.length) {
+				console.log(`  Data:   ${color("yellow", commit.dataQualityIssues.join(", "))}`)
+			}
 			console.log("")
 		}
 	}
@@ -304,6 +332,9 @@ async function generateReport(options) {
 			console.log(`${statusIcon} ${color("bright", commit.commitSha)} - ${commit.title}`)
 			console.log(`   Date: ${new Date(commit.timestamp).toLocaleString()}`)
 			console.log(`   Agent: ${commit.agent}`)
+			if (commit.dataQualityIssues?.length) {
+				console.log(`   ${color("yellow", "Data quality:")} ${commit.dataQualityIssues.join(", ")}`)
+			}
 
 			if (commit.modelsUsed?.length > 0) {
 				console.log("   Models used:")

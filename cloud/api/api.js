@@ -3329,6 +3329,131 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// I6: Advanced modules health endpoint
+		if (method === "GET" && (url === "/orchestrator/health/advanced" || normalizedUrl === "/orchestrator/health/advanced")) {
+			const advancedHealth = {
+				mlEngine: { status: "unknown", modelType: null, loopsRun: 0 },
+				debugTeam: { status: "unknown", running: false, jobsPending: 0 },
+				parallelExecution: { status: "unknown", activeTasks: 0, maxConcurrency: 2 },
+				selfHealing: { status: "unknown", openIncidents: 0 },
+				autonomousLoop: { status: "unknown", running: false, currentStep: null },
+				commissioningLoop: { status: "unknown", running: false },
+				hermesClaw: { status: "unknown", ollamaReady: false, totalQueries: 0 },
+				learningGateway: { status: "unknown", totalLessons: 0 },
+			}
+
+			if (orchestrator) {
+				// ML Engine (InfiniteImprovementLoop)
+				const improvementLoop = orchestrator.infiniteImprovementLoop || orchestrator.improvementLoop
+				if (improvementLoop) {
+					const stats = improvementLoop.stats || {}
+					const weights = improvementLoop._weights || {}
+					const modelType = weights.code?.featureWeights ? "linear-regression" : null
+					advancedHealth.mlEngine = { status: "healthy", modelType, loopsRun: stats.loopsRun || 0 }
+				} else {
+					advancedHealth.mlEngine = { status: "unavailable", modelType: null, loopsRun: 0 }
+				}
+
+				// Debug Team (AutonomousLoop)
+				if (orchestrator.autonomousLoop) {
+					const status = orchestrator.autonomousLoop.getStatus()
+					advancedHealth.debugTeam = {
+						status: "healthy",
+						running: status.running || false,
+						jobsPending: status.stepResults ? status.stepResults.filter(r => r.status === 'failed' || r.status === 'error').length : 0,
+					}
+				} else {
+					advancedHealth.debugTeam = { status: "unavailable", running: false, jobsPending: 0 }
+				}
+
+				// Parallel Execution
+				if (orchestrator.parallelExecutor) {
+					const execStatus = orchestrator.parallelExecutor.getStatus ? orchestrator.parallelExecutor.getStatus() : {}
+					advancedHealth.parallelExecution = {
+						status: "healthy",
+						activeTasks: execStatus.activeTasks || 0,
+						maxConcurrency: execStatus.maxConcurrency || 2,
+					}
+				} else {
+					advancedHealth.parallelExecution = { status: "unavailable", activeTasks: 0, maxConcurrency: 2 }
+				}
+
+				// Self-Healing (HealingBus)
+				if (orchestrator.healingBus) {
+					const incidents = orchestrator.healingBus.list ? orchestrator.healingBus.list({ status: 'open' }) : []
+					advancedHealth.selfHealing = {
+						status: "healthy",
+						openIncidents: (incidents && incidents.length) || 0,
+					}
+				} else {
+					advancedHealth.selfHealing = { status: "unavailable", openIncidents: 0 }
+				}
+
+				// AutonomousLoop (same instance as debug team)
+				if (orchestrator.autonomousLoop) {
+					const status = orchestrator.autonomousLoop.getStatus()
+					advancedHealth.autonomousLoop = {
+						status: "healthy",
+						running: status.running || false,
+						currentStep: status.currentStepName || null,
+					}
+				} else {
+					advancedHealth.autonomousLoop = { status: "unavailable", running: false, currentStep: null }
+				}
+
+				// CommissioningLoop
+				if (orchestrator.commissioningLoop) {
+					const status = orchestrator.commissioningLoop.getStatus()
+					advancedHealth.commissioningLoop = {
+						status: "healthy",
+						running: status.running || false,
+					}
+				} else {
+					advancedHealth.commissioningLoop = { status: "unavailable", running: false }
+				}
+
+				// HermesClaw
+				if (orchestrator.hermesClaw) {
+					let totalQueries = 0
+					let ollamaReady = false
+					try {
+						const stats = orchestrator.hermesClaw.getStats()
+						totalQueries = stats.totalQueries || stats.queries || 0
+						ollamaReady = stats.ollamaReady || false
+					} catch {
+						// stats not available
+					}
+					advancedHealth.hermesClaw = {
+						status: "healthy",
+						ollamaReady,
+						totalQueries,
+					}
+				} else {
+					advancedHealth.hermesClaw = { status: "unavailable", ollamaReady: false, totalQueries: 0 }
+				}
+
+				// LearningGateway
+				if (orchestrator.learningGateway) {
+					let totalLessons = 0
+					try {
+						const ops = await orchestrator.learningGateway.getOperationalStats()
+						totalLessons = ops.totalLessons || ops.lessonCount || 0
+					} catch {
+						// stats not available
+					}
+					advancedHealth.learningGateway = {
+						status: "healthy",
+						totalLessons,
+					}
+				} else {
+					advancedHealth.learningGateway = { status: "unavailable", totalLessons: 0 }
+				}
+			}
+
+			sendJson(res, 200, advancedHealth)
+			return
+		}
+
 		// System stats
 		if (method === "GET" && (url === "/system" || normalizedUrl === "/system")) {
 			const stats = await getSystemStats()
@@ -5231,6 +5356,24 @@ const server = http.createServer(async (req, res) => {
 			// GET /workflow-compliance/deepseek-stats
 			if (wcMethod === "GET" && wcUrl === "/deepseek-stats") {
 				await workflowCompliance.getDeepSeekStats(req, res)
+				return
+			}
+
+			// GET /workflow-compliance/learning-health
+			if (wcMethod === "GET" && wcUrl === "/learning-health") {
+				await workflowCompliance.getLearningHealth(req, res)
+				return
+			}
+
+			// GET /workflow-compliance/bridge-health
+			if (wcMethod === "GET" && wcUrl === "/bridge-health") {
+				await workflowCompliance.getBridgeHealth(req, res)
+				return
+			}
+
+			// POST /workflow-compliance/action
+			if (wcMethod === "POST" && wcUrl === "/action") {
+				await workflowCompliance.runAction(req, res)
 				return
 			}
 		}
@@ -8055,6 +8198,112 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// ── Unified Deploy API ─────────────────────────────────────────────────
+
+		// POST /api/deploy — queue or execute a deployment
+		if (
+			method === "POST" &&
+			(url === "/api/deploy" || normalizedUrl === "/api/deploy")
+		) {
+			if (!orchestrator || !orchestrator.deployOrchestrator) {
+				sendJson(res, 503, { success: false, error: "DeployOrchestrator not initialized" })
+				return
+			}
+			const data = await parseBody(req)
+			const result = await orchestrator.deployOrchestrator.deploy({
+				version: data.version,
+				commitSha: data.commitSha,
+				agent: data.agent || "api",
+				force: data.force || false,
+				skipHealthCheck: data.skipHealthCheck || false,
+				skipBuild: data.skipBuild || false,
+			})
+			sendJson(res, 200, { success: true, deploy: result })
+			return
+		}
+
+		// GET /api/deploy/queue — get deployment queue
+		if (
+			method === "GET" &&
+			(url === "/api/deploy/queue" || normalizedUrl === "/api/deploy/queue")
+		) {
+			if (!orchestrator || !orchestrator.deployOrchestrator) {
+				sendJson(res, 503, { success: false, error: "DeployOrchestrator not initialized" })
+				return
+			}
+			const queue = await orchestrator.deployOrchestrator.getQueue()
+			sendJson(res, 200, { success: true, queue })
+			return
+		}
+
+		// GET /api/deploy/active — get active deployments
+		if (
+			method === "GET" &&
+			(url === "/api/deploy/active" || normalizedUrl === "/api/deploy/active")
+		) {
+			if (!orchestrator || !orchestrator.deployOrchestrator) {
+				sendJson(res, 503, { success: false, error: "DeployOrchestrator not initialized" })
+				return
+			}
+			const active = await orchestrator.deployOrchestrator.getActiveDeployments()
+			sendJson(res, 200, { success: true, active })
+			return
+		}
+
+		// GET /api/deploy/builds — get build status
+		if (
+			method === "GET" &&
+			(url === "/api/deploy/builds" || normalizedUrl === "/api/deploy/builds")
+		) {
+			if (!orchestrator || !orchestrator.deployOrchestrator) {
+				sendJson(res, 503, { success: false, error: "DeployOrchestrator not initialized" })
+				return
+			}
+			const builds = await orchestrator.deployOrchestrator.getBuildStatus()
+			sendJson(res, 200, { success: true, builds })
+			return
+		}
+
+		// POST /api/deploy/cancel — cancel a deployment
+		if (
+			method === "POST" &&
+			(url === "/api/deploy/cancel" || normalizedUrl === "/api/deploy/cancel")
+		) {
+			if (!orchestrator || !orchestrator.deployOrchestrator) {
+				sendJson(res, 503, { success: false, error: "DeployOrchestrator not initialized" })
+				return
+			}
+			const data = await parseBody(req)
+			if (!data.deploymentId) {
+				sendJson(res, 400, { success: false, error: "Missing required field: deploymentId" })
+				return
+			}
+			const result = await orchestrator.deployOrchestrator.cancelDeployment(data.deploymentId)
+			sendJson(res, 200, { success: true, cancel: result })
+			return
+		}
+
+		// POST /api/deploy/force — force a deployment (bypass queue)
+		if (
+			method === "POST" &&
+			(url === "/api/deploy/force" || normalizedUrl === "/api/deploy/force")
+		) {
+			if (!orchestrator || !orchestrator.deployOrchestrator) {
+				sendJson(res, 503, { success: false, error: "DeployOrchestrator not initialized" })
+				return
+			}
+			const data = await parseBody(req)
+			const result = await orchestrator.deployOrchestrator.forceDeploy({
+				version: data.version,
+				commitSha: data.commitSha,
+				agent: data.agent || "api",
+				skipHealthCheck: data.skipHealthCheck || false,
+				skipBuild: data.skipBuild || false,
+			})
+			sendJson(res, 200, { success: true, deploy: result })
+			return
+		}
+
 		// ── File Importer ──────────────────────────────────────────────────────
 
 		// POST /orchestrator/file-importer/import — import files by path
@@ -8165,6 +8414,115 @@ const server = http.createServer(async (req, res) => {
 			}
 			orchestrator.improvementLoop.triggerCycle()
 			sendJson(res, 200, { success: true })
+			return
+		}
+
+		// ── ML / Neural Network Endpoints ────────────────────────────────────────
+
+		// POST /orchestrator/ml/train — Trigger neural network training via InfiniteImprovementLoop
+		if (
+			method === "POST" &&
+			(url === "/orchestrator/ml/train" || normalizedUrl === "/orchestrator/ml/train")
+		) {
+			try {
+				const improvementLoop =
+					orchestrator?.infiniteImprovementLoop || orchestrator?.improvementLoop
+				if (!improvementLoop) {
+					sendJson(res, 503, { success: false, error: "ImprovementLoop not initialized" })
+					return
+				}
+				if (typeof improvementLoop.runCycle === "function") {
+					await improvementLoop.runCycle()
+					const stats = improvementLoop.getStats ? improvementLoop.getStats() : improvementLoop.stats
+					sendJson(res, 200, {
+						success: true,
+						message: "Training cycle started",
+						stats: stats || {},
+					})
+				} else if (typeof improvementLoop.triggerCycle === "function") {
+					await improvementLoop.triggerCycle()
+					const stats = improvementLoop.getStats ? improvementLoop.getStats() : improvementLoop.stats
+					sendJson(res, 200, {
+						success: true,
+						message: "Training cycle started",
+						stats: stats || {},
+					})
+				} else {
+					sendJson(res, 200, {
+						success: false,
+						message: "Training not available — using linear regression model only",
+					})
+				}
+			} catch (err) {
+				writeApiLog("error", "ml-train", "Training cycle failed", { error: err.message })
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /orchestrator/ml/model — Inspect the current ML model
+		if (
+			method === "GET" &&
+			(url === "/orchestrator/ml/model" || normalizedUrl === "/orchestrator/ml/model")
+		) {
+			try {
+				const improvementLoop =
+					orchestrator?.infiniteImprovementLoop || orchestrator?.improvementLoop
+				if (!improvementLoop) {
+					sendJson(res, 503, { success: false, error: "ImprovementLoop not initialized" })
+					return
+				}
+				const stats = improvementLoop.getStats ? improvementLoop.getStats() : improvementLoop.stats
+				sendJson(res, 200, {
+					modelType: "linear-regression",
+					loopsRun: stats?.loopsRun || 0,
+					observationsCollected: stats?.observationsCollected || 0,
+					predictionsMade: stats?.predictionsMade || 0,
+					actionsTaken: stats?.actionsTaken || 0,
+					latestSync: stats?.latestSync || null,
+					latestModel: stats?.latestModel || null,
+				})
+			} catch (err) {
+				writeApiLog("error", "ml-model", "Failed to get model stats", { error: err.message })
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /orchestrator/ml/learners — View individual learner status
+		if (
+			method === "GET" &&
+			(url === "/orchestrator/ml/learners" || normalizedUrl === "/orchestrator/ml/learners")
+		) {
+			try {
+				const improvementLoop =
+					orchestrator?.infiniteImprovementLoop || orchestrator?.improvementLoop
+				if (!improvementLoop) {
+					sendJson(res, 503, { success: false, error: "ImprovementLoop not initialized" })
+					return
+				}
+				if (improvementLoop.learners) {
+					sendJson(res, 200, { learners: improvementLoop.learners })
+				} else {
+					// Build learner status from internal sample arrays
+					const codeSamples = (improvementLoop._codeSamples || []).length
+					const debugSamples = (improvementLoop._debugSamples || []).length
+					const testSamples = (improvementLoop._testSamples || []).length
+					const stats = improvementLoop.getStats ? improvementLoop.getStats() : improvementLoop.stats
+					const models = stats?.models || {}
+					sendJson(res, 200, {
+						learners: [
+							{ name: "code", status: models.code === "trained" ? "active" : "idle", samples: codeSamples },
+							{ name: "debug", status: models.debug === "trained" ? "active" : "idle", samples: debugSamples },
+							{ name: "test", status: models.test === "trained" ? "active" : "idle", samples: testSamples },
+						],
+						note: "Derived from internal sample arrays",
+					})
+				}
+			} catch (err) {
+				writeApiLog("error", "ml-learners", "Failed to get learners", { error: err.message })
+				sendJson(res, 500, { success: false, error: err.message })
+			}
 			return
 		}
 
@@ -8643,6 +9001,11 @@ const server = http.createServer(async (req, res) => {
 				const path = require("path")
 				const requestUrl = new URL(req.url || "", "http://localhost")
 				const lessonsPath = path.join(__dirname, "../../memory/lesson-index.jsonl")
+				const safeDateOnly = (value) => {
+					if (!value) return ""
+					const parsed = new Date(value)
+					return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString().split("T")[0]
+				}
 				const terms = String(requestUrl.searchParams.get("q") || "")
 					.toLowerCase()
 					.split(/\s+/)
@@ -8760,9 +9123,7 @@ const server = http.createServer(async (req, res) => {
 										date:
 											lesson.date ||
 											entry.date ||
-											(lesson.createdAt
-												? new Date(lesson.createdAt).toISOString().split("T")[0]
-												: ""),
+											safeDateOnly(lesson.createdAt),
 										project: lesson.project || entry.project || source,
 									}
 								})
@@ -10817,6 +11178,34 @@ const server = http.createServer(async (req, res) => {
 				const result = await commissioningLoop.stop()
 				sendJson(res, 200, result)
 			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /commissioning/report — Retrieve the final commissioning report
+		if (method === "GET" && (url === "/commissioning/report" || normalizedUrl === "/commissioning/report")) {
+			try {
+				if (!commissioningLoop) {
+					sendJson(res, 200, {
+						report: null,
+						message: "No commissioning report available. Run commissioning first.",
+					})
+					return
+				}
+				const status = commissioningLoop.getStatus()
+				if (status && status.report) {
+					sendJson(res, 200, { report: status.report })
+				} else {
+					sendJson(res, 200, {
+						report: null,
+						message: "No commissioning report available. Run commissioning first.",
+					})
+				}
+			} catch (err) {
+				writeApiLog("error", "commissioning-report", "Failed to get commissioning report", {
+					error: err.message,
+				})
 				sendJson(res, 500, { success: false, error: err.message })
 			}
 			return

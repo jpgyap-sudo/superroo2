@@ -56,6 +56,7 @@ class FeatureAnswerer {
 		this.indexer = opts.indexer || new FeatureKnowledgeIndexer(opts)
 		this.ollamaBaseUrl = opts.ollamaBaseUrl || OLLAMA_BASE_URL
 		this.model = opts.model || OLLAMA_MODEL
+		this.orchestrator = opts.orchestrator || null
 		this._indexed = false
 	}
 
@@ -121,8 +122,22 @@ class FeatureAnswerer {
 			.map((c, i) => `[${i + 1}] ${c.section} (${c.source_file})\n${c.chunk_text.slice(0, CHUNK_CONTEXT_CHARS)}`)
 			.join("\n\n---\n\n")
 
+		// I4: Also search learning gateway for related lessons
+		let lessonContext = ''
+		if (this.orchestrator?.learningGateway) {
+			try {
+				const lessons = await this.orchestrator.learningGateway.search({ query: question, topK: 2 })
+				if (lessons && lessons.length > 0) {
+					lessonContext = '\n\nRelevant lessons from the learning layer:\n' +
+						lessons.map((l, i) => `${i + 1}. ${l.title || l.topic}: ${l.content || l.summary}`).join('\n')
+				}
+			} catch (lgErr) {
+				console.warn('[FeatureAnswerer] LearningGateway search failed:', lgErr.message)
+			}
+		}
+
 		const userPrompt =
-			`Context from SuperRoo product docs:\n\n${context}\n\n` +
+			`Context from SuperRoo product docs:\n\n${context}${lessonContext}\n\n` +
 			`---\n\nQuestion: ${question}\n\nAnswer concisely for Telegram:`
 
 		// Try Ollama first

@@ -265,6 +265,21 @@ class CommissioningLoop {
 
 				if (!result.success) {
 					console.warn(`[CommissioningLoop] Phase ${phase} failed: ${result.error}`)
+					// I3: Create bug registry entry on phase failure
+					if (this.orchestrator?.bugRegistry) {
+						try {
+							await this.orchestrator.bugRegistry.create({
+								title: `Commissioning phase failed: ${phaseName}`,
+								description: JSON.stringify(result),
+								severity: 'medium',
+								status: 'open',
+								source: 'commissioning-loop',
+								metadata: { phase, phaseName, cycleId: this._jobId }
+							})
+						} catch (bugErr) {
+							console.warn('[CommissioningLoop] Failed to create bug entry:', bugErr.message)
+						}
+					}
 				}
 			} catch (err) {
 				console.error(`[CommissioningLoop] Phase ${phase} error:`, err.message)
@@ -275,6 +290,21 @@ class CommissioningLoop {
 					error: err.message,
 					timestamp: Date.now(),
 				})
+				// I3: Create bug registry entry on catch-block phase error
+				if (this.orchestrator?.bugRegistry) {
+					try {
+						await this.orchestrator.bugRegistry.create({
+							title: `Commissioning phase error: ${phaseName}`,
+							description: JSON.stringify({ error: err.message, phase, phaseName }),
+							severity: 'medium',
+							status: 'open',
+							source: 'commissioning-loop',
+							metadata: { phase, phaseName, cycleId: this._jobId, error: err.message }
+						})
+					} catch (bugErr) {
+						console.warn('[CommissioningLoop] Failed to create bug entry:', bugErr.message)
+					}
+				}
 			}
 
 			// Check if we should stop after this phase
