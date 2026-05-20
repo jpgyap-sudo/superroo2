@@ -137,11 +137,33 @@
 			"timestamp": 1779111103077
 		},
 		{
+			"sha": "2ad4488cdd5a1ea1cd6ca2024283cb6c80bb9171",
+			"agent": "Kimi Code CLI",
+			"type": "bugfix",
+			"title": "fix(telegram): P0 bug fixes — shell policy boolean, /logs empty content, callback registry leak, sendMessage return message_id",
+			"filesChanged": ["cloud/api/telegramBot.js", "cloud/api/telegramNotifier.js"],
+			"featuresAffected": ["telegram-bot"],
+			"timestamp": "2026-05-20T11:41:10.000Z",
+			"id": "commit_1779277270000",
+			"modelsUsed": [],
+			"workflowCompliance": null
+		}
+	],
+	"deploys": [
+		{
 			"version": "3.53.3+telegram",
 			"commitSha": "8375e025c3822d9ef30ee23708c90027838bbefc",
 			"agent": "Kimi Code CLI",
 			"target": "VPS (100.64.175.88)",
 			"timestamp": "2026-05-20T01:21:36.151Z",
+			"status": "healthy"
+		},
+		{
+			"version": "3.53.3+telegram",
+			"commitSha": "2ad4488cdd5a1ea1cd6ca2024283cb6c80bb9171",
+			"agent": "Kimi Code CLI",
+			"target": "VPS (100.64.175.88)",
+			"timestamp": "2026-05-20T11:47:53.000Z",
 			"status": "healthy"
 		}
 	]

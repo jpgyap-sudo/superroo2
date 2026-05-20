@@ -1,5 +1,5 @@
 {
-	"generatedAt": "2026-05-20T11:04:30.484Z",
+	"generatedAt": "2026-05-20T11:41:41.734Z",
 	"deepseekModel": "deepseek-chat",
 	"ollamaUrl": "http://100.64.175.88:11434",
 	"sourceFile": "memory/lessons-learned.md",
@@ -10,7 +10,7 @@
 			"date": "2026-05-20",
 			"model": "deepseek-chat",
 			"confidence": "high",
-			"summary": "Missing `await` on async method calls silently returns Promise objects instead of resolved data, causing bugs that are hard to detect. Always verify `await` is present on all call sites of async functions, especially in route handlers, and confirm field names match the actual API response.",
+			"summary": "Missing `await` on async method calls silently returns Promise objects instead of resolved data, causing bugs that are hard to detect. Always verify `await` is present at every call site, and confirm field names match the actual method implementation.",
 			"hasEmbeddings": true
 		}
 	]

@@ -1638,3 +1638,70 @@ When building frontend dashboards that consume API data, always verify the TypeS
 bugfix, frontend, typescript, interface-mismatch, api, dashboard, hermes-claw, pgvector
 
 ---
+
+### Lesson: Telegram Bot P0 Bug Fixes — Policy Boolean, Logs Empty, Callback Leak, Retry Wrapper
+
+Date: 2026-05-20
+Source: Agent task completion
+Model/API used: DeepSeek
+Confidence: high
+Related files: cloud/api/telegramBot.js, cloud/api/telegramNotifier.js
+
+#### Task Summary
+
+Fixed four P0 bugs in the Telegram bot pipeline and added a resilient fetch wrapper.
+
+1. **Shell policy check broken**: `telegramPolicy.canRunWithoutApproval("shell", command)` returns a `boolean`, but `handleShell` destructured it as `policyCheck.allowed`. Since `(true).allowed === undefined` and `!undefined === true`, ALL `/shell` commands were blocked — even safe read-only ones like `ls` or `cat`.
+2. **`/logs` sent empty content**: `handleLogs` computed `var logs = result.logs.slice(-limit)` but never appended it to the `text` variable before calling `sendMessage`. Users received only the header "📋 _Recent Logs_\n\n".
+3. **Callback registry leak**: ~20 `registerCallback()` calls lived INSIDE `handleUpdate()`'s callback query branch, so every callback query re-registered all handlers. After N callbacks, `dispatchCallback()` iterated `20N` entries, causing `O(N)` degradation.
+4. **`sendCoderAutoProgress` auto-delete broken**: `sendMessage` did not return the Telegram API response (which contains `message_id`), so `lastProgressMessageIds` tracking was commented out. Old progress messages accumulated in chat.
+
+Bonus improvements:
+
+- Added `fetchTelegramWithRetry()` helper with exponential backoff on 429/5xx and network errors, covering all Telegram API calls.
+- Added `cleanupRateLimitMap()` to purge stale rate-limit entries and prevent unbounded `Map` growth.
+
+#### Files Changed
+
+- `cloud/api/telegramBot.js`
+- `cloud/api/telegramNotifier.js`
+
+#### Bug Cause
+
+1. **Interface mismatch**: Developer assumed `canRunWithoutApproval()` returned an object `{allowed: boolean}` when it actually returned a plain `boolean`.
+2. **Incomplete wiring**: `handleLogs` fetched and sliced logs but forgot to append them to the outgoing message string.
+3. **Misplaced initialization**: Callback handler registration was placed inside the hot-path `handleUpdate()` function instead of at module load time.
+4. **Missing return value**: `sendMessage` looped over chunks and called `await res.json()` but never stored or returned the response.
+
+#### Fix Applied
+
+1. Changed `if (!policyCheck.allowed)` → `if (!policyCheck)` in `handleShell`.
+2. Changed `var text = "📋 *Recent Logs*\n\n"` → `var text = "📋 *Recent Logs*\n\n" + (logs.length ? logs.join("\n") : "_No logs found._")` in `handleLogs`.
+3. Wrapped all `registerCallback()` calls in `if (callbackRegistry.length === 0) { ... }` so registration happens once per process.
+4. Added `var lastResponse = null` at top of `sendMessage`, assigned `lastResponse = await res.json()` on success, and `return lastResponse` at the end. Updated `sendCoderAutoProgress` to extract `message_id` from the returned response and track it in `lastProgressMessageIds`.
+5. Created `fetchTelegramWithRetry(url, options, maxRetries=3)` with exponential backoff starting at 500ms. Replaced bare `fetch()` in `sendMessage`, `editMessageText`, `deleteMessage`, `answerCallbackQuery`, `sendChatAction`, `setWebhook`, `getWebhookInfo`, `deleteWebhook`.
+6. Added `cleanupRateLimitMap()` + `setInterval(cleanupRateLimitMap, 10 * 60 * 1000)`.
+
+#### Test Result
+
+Node syntax check (`node --check cloud/api/telegramBot.js`) passes. No unit tests exist for the Telegram bot (known gap).
+
+#### Lesson Learned
+
+When consuming API return values, **always verify the actual return type** against assumptions. A `boolean` masquerading as an object causes silent, total failures (`!undefined === true`). Similarly, when refactoring large functions, use lint rules or code review checklists to catch "computed but unused" variables — the `logs` variable in `handleLogs` was a pure waste of computation and user confusion. For event-driven systems, register handlers at module initialization, not inside the dispatch loop, or guard with idempotency checks. Finally, always return API responses from wrapper functions so upstream callers can use `message_id`, `chat_id`, and other metadata.
+
+#### Reusable Rule
+
+**Before committing Telegram bot changes, verify:**
+
+1. Does the policy function return a `boolean` or an object? Use `typeof` or read the source.
+2. Are all computed variables consumed before the function returns? Search for "var x = ..." and confirm `x` is read.
+3. Are callback/event handlers registered outside the hot path? If inside, add a length/idempotency guard.
+4. Does every `sendMessage` wrapper return the raw API response so callers can access `message_id`?
+5. Do all outbound `fetch()` calls to external APIs have retry logic for 429/5xx?
+
+#### Tags
+
+telegram, bot, bugfix, policy, memory-leak, retry, api-wrapper, fetch
+
+---
