@@ -26,6 +26,7 @@ import {
 	RefreshCw,
 	Search,
 	X,
+	ArrowDown,
 } from "lucide-react"
 import type { ChatMessage, ChatAttachment, WorkspaceTask } from "@/lib/ide-store"
 import type { BrainTab } from "./types"
@@ -231,6 +232,67 @@ export default function AiChatPanel({
 	const [showSearch, setShowSearch] = useState(false)
 	const [searchQuery, setSearchQuery] = useState("")
 	const [currentMatch, setCurrentMatch] = useState(0)
+
+	// ─── Scroll-to-bottom state ──────────────────────────────────────────────
+	const messagesContainerRef = useRef<HTMLDivElement | null>(null)
+	const [isScrolledUp, setIsScrolledUp] = useState(false)
+	const [btnPos, setBtnPos] = useState({ x: 16, y: 16 })
+	const dragRef = useRef({ dragging: false, startX: 0, startY: 0, origX: 0, origY: 0 })
+
+	const handleScroll = useCallback(() => {
+		const el = messagesContainerRef.current
+		if (!el) return
+		const threshold = 100
+		const scrolledUp = el.scrollHeight - el.scrollTop - el.clientHeight > threshold
+		setIsScrolledUp(scrolledUp)
+	}, [])
+
+	const scrollToBottom = useCallback(() => {
+		const el = messagesContainerRef.current
+		if (!el) return
+		el.scrollTo({ top: el.scrollHeight, behavior: "smooth" })
+	}, [])
+
+	// Auto-scroll when new messages arrive (only if already near bottom)
+	useEffect(() => {
+		const el = messagesContainerRef.current
+		if (!el) return
+		const threshold = 100
+		const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= threshold
+		if (nearBottom) {
+			el.scrollTo({ top: el.scrollHeight, behavior: "smooth" })
+		}
+	}, [aiMessages])
+
+	// ─── Drag handlers for the floating button ───────────────────────────────
+	const onBtnMouseDown = useCallback(
+		(e: React.MouseEvent) => {
+			e.preventDefault()
+			dragRef.current.dragging = true
+			dragRef.current.startX = e.clientX
+			dragRef.current.startY = e.clientY
+			dragRef.current.origX = btnPos.x
+			dragRef.current.origY = btnPos.y
+
+			const onMouseMove = (ev: MouseEvent) => {
+				if (!dragRef.current.dragging) return
+				const dx = ev.clientX - dragRef.current.startX
+				const dy = ev.clientY - dragRef.current.startY
+				setBtnPos({
+					x: Math.max(0, dragRef.current.origX + dx),
+					y: Math.max(0, dragRef.current.origY + dy),
+				})
+			}
+			const onMouseUp = () => {
+				dragRef.current.dragging = false
+				window.removeEventListener("mousemove", onMouseMove)
+				window.removeEventListener("mouseup", onMouseUp)
+			}
+			window.addEventListener("mousemove", onMouseMove)
+			window.addEventListener("mouseup", onMouseUp)
+		},
+		[btnPos],
+	)
 
 	const matchCount = useMemo(() => {
 		if (!searchQuery.trim()) return 0
@@ -475,7 +537,22 @@ export default function AiChatPanel({
 					}}
 				/>
 			)}
-			<div className="flex-1 overflow-y-auto">
+			<div className="flex-1 overflow-y-auto relative" ref={messagesContainerRef} onScroll={handleScroll}>
+				{/* Floating scroll-to-bottom button — draggable */}
+				{isScrolledUp && (
+					<button
+						onMouseDown={onBtnMouseDown}
+						onClick={scrollToBottom}
+						className="fixed z-50 flex items-center justify-center w-8 h-8 rounded-full bg-[#1f6feb] text-white shadow-lg hover:bg-[#388bfd] transition-all duration-200 cursor-grab active:cursor-grabbing"
+						style={{
+							bottom: btnPos.y,
+							right: btnPos.x,
+							boxShadow: "0 2px 12px rgba(31,111,235,0.4)",
+						}}
+						title="Scroll to latest message (drag to move)">
+						<ArrowDown className="w-4 h-4" />
+					</button>
+				)}
 				{aiMessages.length === 0 ? (
 					<div className="flex flex-col items-center justify-center h-full text-center px-4">
 						<Bot className="w-8 h-8 text-[#30363d] mb-2" />

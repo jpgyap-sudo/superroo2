@@ -1,16 +1,16 @@
 {
-	"generatedAt": "2026-05-20T06:44:11.495Z",
+	"generatedAt": "2026-05-20T06:48:24.993Z",
 	"deepseekModel": "deepseek-chat",
 	"ollamaUrl": "http://100.64.175.88:11434",
 	"sourceFile": "memory/lessons-learned.md",
 	"count": 1,
 	"summaries": [
 		{
-			"title": "Systematic Telegram gap analysis — implement all 26 gaps across 6 phases",
+			"title": "E2E health scan after multi-file feature implementation — verify all test scripts run from correct working directory",
 			"date": "2026-05-20",
 			"model": "deepseek-chat",
 			"confidence": "high",
-			"summary": "When implementing a large batch of features across multiple files, create a regression test suite early to catch export mismatches and missing function references, as it caught 10 missing exports and 3 constant name mismatches in the first run. For any multi-file feature implementation, validate that all expected functions are exported, all expected constants exist, and all expected source code patterns are present before deployment.",
+			"summary": "After implementing multi-file features, run all test scripts from their correct working directory to catch pre-existing path issues. A test script using `readFileSync(\"./cloud/api/telegramBot.js\")` failed because it ran from the `cloud/` subdirectory, making the effective path `cloud/cloud/api/telegramBot.js`; the fix was changing it to `./api/telegramBot.js`. Always verify that relative paths in `readFileSync` and `require` resolve correctly for the intended working directory.",
 			"hasEmbeddings": true
 		}
 	]

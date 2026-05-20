@@ -1,77 +1,79 @@
 {
-  "commits": [
-    {
-      "agent": "Kimi Code CLI",
-      "type": "feature",
-      "title": "Docker hybrid migration: API/Dashboard/Mini-IDE containerized, TS errors fixed",
-      "filesChanged": [
-        "src/super-roo/product-memory/index.ts",
-        "webview-ui/src/components/chat/KimiTasksPanel.tsx",
-        "webview-ui/src/components/chat/ChatView.tsx",
-        "cloud/docker/docker-compose.yml",
-        "cloud/docker/Dockerfile.api",
-        "cloud/docker/Dockerfile.dashboard",
-        "cloud/docker/Dockerfile.mini-ide",
-        "cloud/docker/Dockerfile.worker",
-        "cloud/docker/Dockerfile.auto-deployer",
-        "cloud/dashboard/next.config.js",
-        "cloud/dashboard/package.json",
-        "cloud/dashboard/eslint.config.mjs",
-        "cloud/dashboard/src/components/ide-terminal/hooks/useExtensionState.ts",
-        "cloud/dashboard/src/components/ide-terminal/ExtensionsPanel.tsx",
-        "cloud/dashboard/src/components/views/ide-terminal.tsx"
-      ],
-      "featuresAffected": [
-        "Dashboard IDE",
-        "Extensions Panel",
-        "Docker Deployment",
-        "TypeScript Build"
-      ],
-      "modelsUsed": [],
-      "workflowCompliance": null,
-      "timestamp": "2026-05-18T13:31:43.074Z",
-      "id": "commit_repaired_0_1779241386026"
-    },
-    {
-      "sha": "8375e025c3822d9ef30ee23708c90027838bbefc",
-      "agent": "Kimi Code CLI",
-      "type": "feature",
-      "title": "Telegram frictionless coding improvements",
-      "filesChanged": [
-        "cloud/api/telegramBot.js",
-        "cloud/api/telegramClassifier.js",
-        "cloud/api/telegramLearner.js",
-        "cloud/api/telegramNotifier.js",
-        "cloud/worker/agentRunners.js"
-      ],
-      "featuresAffected": [
-        "Telegram Bot",
-        "Auto Mode",
-        "Intent Classification",
-        "Context Awareness"
-      ],
-      "timestamp": "2026-05-20T01:21:36.150Z",
-      "id": "commit_repaired_1_1779241386026",
-      "modelsUsed": [],
-      "workflowCompliance": null,
-      "commitSha": "8375e025c3822d9ef30ee23708c90027838bbefc"
-    }
-  ],
-  "deploys": [
-    {
-      "version": "3.53.3",
-      "commitSha": "05373f87b",
-      "agent": "Kimi Code CLI",
-      "status": "deploying",
-      "timestamp": 1779111103077
-    },
-    {
-      "version": "3.53.3+telegram",
-      "commitSha": "8375e025c3822d9ef30ee23708c90027838bbefc",
-      "agent": "Kimi Code CLI",
-      "target": "VPS (100.64.175.88)",
-      "timestamp": "2026-05-20T01:21:36.151Z",
-      "status": "healthy"
-    }
-  ]
+	"commits": [
+		{
+			"agent": "Kimi Code CLI",
+			"type": "feature",
+			"title": "Docker hybrid migration: API/Dashboard/Mini-IDE containerized, TS errors fixed",
+			"filesChanged": [
+				"src/super-roo/product-memory/index.ts",
+				"webview-ui/src/components/chat/KimiTasksPanel.tsx",
+				"webview-ui/src/components/chat/ChatView.tsx",
+				"cloud/docker/docker-compose.yml",
+				"cloud/docker/Dockerfile.api",
+				"cloud/docker/Dockerfile.dashboard",
+				"cloud/docker/Dockerfile.mini-ide",
+				"cloud/docker/Dockerfile.worker",
+				"cloud/docker/Dockerfile.auto-deployer",
+				"cloud/dashboard/next.config.js",
+				"cloud/dashboard/package.json",
+				"cloud/dashboard/eslint.config.mjs",
+				"cloud/dashboard/src/components/ide-terminal/hooks/useExtensionState.ts",
+				"cloud/dashboard/src/components/ide-terminal/ExtensionsPanel.tsx",
+				"cloud/dashboard/src/components/views/ide-terminal.tsx"
+			],
+			"featuresAffected": ["Dashboard IDE", "Extensions Panel", "Docker Deployment", "TypeScript Build"],
+			"modelsUsed": [],
+			"workflowCompliance": null,
+			"timestamp": "2026-05-18T13:31:43.074Z",
+			"id": "commit_repaired_0_1779241386026"
+		},
+		{
+			"sha": "8375e025c3822d9ef30ee23708c90027838bbefc",
+			"agent": "Kimi Code CLI",
+			"type": "feature",
+			"title": "Telegram frictionless coding improvements",
+			"filesChanged": [
+				"cloud/api/telegramBot.js",
+				"cloud/api/telegramClassifier.js",
+				"cloud/api/telegramLearner.js",
+				"cloud/api/telegramNotifier.js",
+				"cloud/worker/agentRunners.js"
+			],
+			"featuresAffected": ["Telegram Bot", "Auto Mode", "Intent Classification", "Context Awareness"],
+			"timestamp": "2026-05-20T01:21:36.150Z",
+			"id": "commit_repaired_1_1779241386026",
+			"modelsUsed": [],
+			"workflowCompliance": null,
+			"commitSha": "8375e025c3822d9ef30ee23708c90027838bbefc"
+		},
+		{
+			"commitSha": "3cbfb4b4bc51d8f6c5812ebcdcf8e8972d814eaf",
+			"agent": "Kimi Code CLI",
+			"type": "bugfix",
+			"title": "fix(webview): bound aggregatedCostsMap with LRUCache (max 50, 5min TTL)",
+			"filesChanged": ["webview-ui/src/components/chat/ChatView.tsx"],
+			"featuresAffected": ["webview-chat"],
+			"timestamp": "2026-05-20T06:49:47.537Z",
+			"id": "commit_1779259787541",
+			"modelsUsed": [],
+			"workflowCompliance": null
+		}
+	],
+	"deploys": [
+		{
+			"version": "3.53.3",
+			"commitSha": "05373f87b",
+			"agent": "Kimi Code CLI",
+			"status": "deploying",
+			"timestamp": 1779111103077
+		},
+		{
+			"version": "3.53.3+telegram",
+			"commitSha": "8375e025c3822d9ef30ee23708c90027838bbefc",
+			"agent": "Kimi Code CLI",
+			"target": "VPS (100.64.175.88)",
+			"timestamp": "2026-05-20T01:21:36.151Z",
+			"status": "healthy"
+		}
+	]
 }

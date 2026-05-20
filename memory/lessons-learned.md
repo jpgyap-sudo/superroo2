@@ -1234,3 +1234,66 @@ e2e, health-scan, testing, path-resolution, pre-existing-bug, telegram, gap-anal
 ui, api, bugfix
 
 ---
+
+### Lesson: Bound unbounded Maps in long-running webviews with LRUCache
+
+Date: 2026-05-20
+Source: Kimi Code CLI webview crash fixes
+Model/API used: Kimi Code CLI
+Confidence: high
+Related files: webview-ui/src/components/chat/ChatView.tsx
+
+#### Task Summary
+
+Fix memory leaks and performance bottlenecks in the VS Code webview extension that caused crashes under high load / long runtime. Applied 6 targeted fixes across the webview UI and extension host.
+
+#### Files Changed
+
+- `webview-ui/src/utils/sourceMapInitializer.ts` — dedupe guard to prevent leaking `<link>` DOM elements and event listeners on React re-renders
+- `webview-ui/src/components/chat/ChatView.tsx` — replaced unbounded `Map` with `LRUCache` (max 50, 5min TTL) for `aggregatedCostsMap`
+- `webview-ui/src/context/ExtensionStateContext.tsx` — debounced `vscode.setState` to 500ms to coalesce rapid streaming updates
+- `webview-ui/src/App.tsx` — capped `webviewDidLaunch` retry loop at 30 attempts (60s max)
+- `webview-ui/src/components/chat/ChatTextArea.tsx` — added unmount cleanup for `searchTimeoutRef`
+- `src/core/webview/ClineProvider.ts` — throttled `postStateToWebviewWithoutTaskHistory` to 150ms to avoid serializing full `clineMessages` array on every streaming chunk
+
+#### Bug Cause
+
+Multiple independent leak sources accumulated over long sessions:
+
+1. `aggregatedCostsMap` was a plain `Map` that grew forever as tasks were created.
+2. `sourceMapInitializer` added new `<link>` elements and event listeners every time it ran.
+3. `vscode.setState` serialized large JSON on every state update during streaming.
+4. `webviewDidLaunch` retry loop ran forever if the extension host never responded.
+5. `searchTimeoutRef` leaked timeouts when `ChatTextArea` unmounted.
+6. `postStateToWebviewWithoutTaskHistory` cloned and serialized the full `clineMessages` array on every streaming chunk.
+
+#### Fix Applied
+
+- `LRUCache` with TTL auto-evicts old entries.
+- Dedupe guards prevent duplicate initialization.
+- Debounce/throttle coalesces rapid updates.
+- Retry caps and cleanup effects prevent resource leaks.
+
+#### Test Result
+
+Type-check passes for both `src/` and `webview-ui/`. Lint shows only pre-existing warnings.
+
+#### Lesson Learned
+
+In long-running webviews with `retainContextWhenHidden: true`, every unbounded cache, un-cleared timeout, and unthrottled state serialization is a potential crash source. Use bounded data structures (LRUCache), dedupe guards, debounce/throttle, and strict cleanup effects.
+
+#### Reusable Rule
+
+When reviewing webview React code, audit for:
+
+1. Any `Map` or `Set` that accumulates over time → replace with `LRUCache` or periodic pruning.
+2. Any global side effect in initialization functions → add a dedupe guard.
+3. Any `postMessage` or `setState` called in a tight loop → debounce or throttle.
+4. Any `setTimeout`/`setInterval` → add cleanup in `useEffect` return or component unmount.
+5. Any retry loop → cap attempts and log failure.
+
+#### Tags
+
+webview, memory-leak, performance, LRUCache, debounce, throttle, react, vscode-extension
+
+---
