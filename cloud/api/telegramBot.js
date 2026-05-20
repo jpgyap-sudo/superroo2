@@ -82,6 +82,160 @@ const MINI_APP_URL = DASHBOARD_URL + "/telegram-miniapp"
 /** Telegram message length limit (Telegram API hard limit) */
 const TELEGRAM_MAX_MESSAGE_LENGTH = 4096
 
+// ─── Redis Session Persistence ─────────────────────────────────────────────
+/**
+ * Lazy Redis client for session persistence.
+ * If Redis is unavailable, gracefully falls back to pure in-memory Maps.
+ */
+var _redisClient = null
+var _redisAvailable = false
+
+function _getRedisClient() {
+	if (_redisClient) return _redisClient
+	try {
+		var IORedis = require("ioredis")
+		var redisUrl = process.env.REDIS_URL || "redis://127.0.0.1:6379"
+		_redisClient = new IORedis(redisUrl, {
+			maxRetriesPerRequest: 2,
+			enableOfflineQueue: false,
+			connectTimeout: 2000,
+		})
+		_redisClient.on("connect", function () {
+			_redisAvailable = true
+			console.log("[telegram] Redis session persistence connected")
+		})
+		_redisClient.on("error", function () {
+			_redisAvailable = false
+		})
+		return _redisClient
+	} catch (e) {
+		return null
+	}
+}
+
+/**
+ * A Map-like structure backed by Redis for session persistence.
+ * Uses an in-memory Map as L1 cache and Redis as L2 storage.
+ * Gracefully degrades to pure Map if Redis is unavailable.
+ */
+class RedisBackedMap {
+	constructor(redisKeyPrefix, ttlSeconds) {
+		this._map = new Map()
+		this._prefix = redisKeyPrefix
+		this._ttl = ttlSeconds || 7 * 24 * 60 * 60 // default 7 days
+		this._redis = null
+		this._flushTimeouts = new Map()
+	}
+
+	async _redisClient() {
+		if (!this._redis) this._redis = _getRedisClient()
+		return this._redis
+	}
+
+	_key(id) {
+		return this._prefix + ":" + id
+	}
+
+	async hydrate() {
+		var redis = await this._redisClient()
+		if (!redis || !_redisAvailable) return
+		try {
+			var keys = await redis.keys(this._prefix + ":*")
+			for (var i = 0; i < keys.length; i++) {
+				var key = keys[i]
+				var raw = await redis.get(key)
+				if (raw) {
+					var id = key.slice(this._prefix.length + 1)
+					this._map.set(id, JSON.parse(raw))
+				}
+			}
+			console.log("[telegram] Hydrated " + keys.length + " entries for " + this._prefix)
+		} catch (e) {
+			console.error("[telegram] Redis hydrate failed for " + this._prefix + ":", e.message)
+		}
+	}
+
+	has(id) {
+		return this._map.has(id)
+	}
+
+	get(id) {
+		return this._map.get(id)
+	}
+
+	set(id, value) {
+		this._map.set(id, value)
+		this._scheduleFlush(id, value)
+		return this
+	}
+
+	delete(id) {
+		this._map.delete(id)
+		this._scheduleFlush(id, null)
+		return true
+	}
+
+	get size() {
+		return this._map.size
+	}
+
+	entries() {
+		return this._map.entries()
+	}
+
+	keys() {
+		return this._map.keys()
+	}
+
+	values() {
+		return this._map.values()
+	}
+
+	forEach(fn) {
+		this._map.forEach(fn)
+	}
+
+	async _scheduleFlush(id, value) {
+		// Debounced flush: wait 2s after last mutation before writing to Redis
+		if (this._flushTimeouts.has(id)) {
+			clearTimeout(this._flushTimeouts.get(id))
+		}
+		var timeout = setTimeout(() => {
+			this._flushToRedis(id, value)
+			this._flushTimeouts.delete(id)
+		}, 2000)
+		this._flushTimeouts.set(id, timeout)
+	}
+
+	async _flushToRedis(id, value) {
+		var redis = await this._redisClient()
+		if (!redis || !_redisAvailable) return
+		try {
+			if (value === null) {
+				await redis.del(this._key(id))
+			} else {
+				await redis.setex(this._key(id), this._ttl, JSON.stringify(value))
+			}
+		} catch (e) {
+			console.error("[telegram] Redis flush failed for " + this._prefix + ":", e.message)
+		}
+	}
+
+	async flushAll() {
+		var redis = await this._redisClient()
+		if (!redis || !_redisAvailable) return
+		try {
+			var pipeline = redis.pipeline()
+			for (var [id, value] of this._map) {
+				pipeline.setex(this._key(id), this._ttl, JSON.stringify(value))
+			}
+			await pipeline.exec()
+		} catch (e) {
+			console.error("[telegram] Redis flushAll failed for " + this._prefix + ":", e.message)
+		}
+	}
+}
+
 // ─── Per-Chat Rate Limiting ────────────────────────────────────────────────
 
 /** Max commands per minute per chat (free tier) */
@@ -735,13 +889,13 @@ function getResponseCacheStats() {
 // ─── In-memory state ───────────────────────────────────────────────────────
 
 /** Map<chatId, { sessionId, authenticatedAt, otpVerified, otpSecret? }> */
-const activeSessions = new Map()
+const activeSessions = new RedisBackedMap("telegram:session", 7 * 24 * 60 * 60)
 
 /** Map<chatId, { pendingApprovalId, taskId, branchName, diff }> */
 const pendingApprovals = new Map()
 
 /** Map<chatId, CodingTask[]> */
-const userTasks = new Map()
+const userTasks = new RedisBackedMap("telegram:tasks", 30 * 24 * 60 * 60)
 
 const DEFAULT_DASHBOARD_URL = "https://dev.abcx124.xyz"
 
@@ -754,10 +908,10 @@ function getTelegramTaskDiffUrl(taskId) {
 }
 
 /** Map<chatId, { secret, verified }> — TOTP secrets awaiting verification */
-const pendingOtpSecrets = new Map()
+const pendingOtpSecrets = new RedisBackedMap("telegram:otp", 24 * 60 * 60)
 
 /** Map<chatId, { email, otp, createdAt, messageIds }> — Email OTP login states */
-const pendingEmailOtps = new Map()
+const pendingEmailOtps = new RedisBackedMap("telegram:emailotp", 24 * 60 * 60)
 
 /** Map<taskId, intervalId> — Active typing intervals for auto-mode jobs */
 const activeTypingIntervals = new Map()
@@ -877,7 +1031,7 @@ const GROUP_WORKSPACES_FILE = path.join(__dirname, "..", "data", "group-workspac
  * Persisted to disk so it survives PM2 restarts and deploys.
  * Each entry: { role: "user"|"assistant", content: string, timestamp: number }
  */
-const conversationHistory = new Map()
+const conversationHistory = new RedisBackedMap("telegram:conversation", 7 * 24 * 60 * 60)
 
 /** Path to persist conversation history */
 const CONVERSATION_HISTORY_FILE = path.join(__dirname, "..", "data", "conversation-history.json")
@@ -1985,6 +2139,17 @@ function registerShutdownHandlers() {
 			await persistState()
 		} catch (err) {
 			console.error("[telegram] Shutdown: failed to persist state:", err.message)
+		}
+		// Flush Redis-backed stores
+		try {
+			await activeSessions.flushAll()
+			await userTasks.flushAll()
+			await pendingOtpSecrets.flushAll()
+			await pendingEmailOtps.flushAll()
+			await conversationHistory.flushAll()
+			console.log("[telegram] Shutdown: Redis flush complete")
+		} catch (err) {
+			console.error("[telegram] Shutdown: Redis flush failed:", err.message)
 		}
 		console.log("[telegram] Shutdown: persistence complete")
 	}
@@ -10176,6 +10341,18 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 loadGroupWorkspaces()
 loadConversationHistory()
 loadState()
+// Hydrate Redis-backed session stores
+;(async function hydrateRedisStores() {
+	try {
+		await activeSessions.hydrate()
+		await userTasks.hydrate()
+		await pendingOtpSecrets.hydrate()
+		await pendingEmailOtps.hydrate()
+		await conversationHistory.hydrate()
+	} catch (e) {
+		console.error("[telegram] Redis hydration failed:", e.message)
+	}
+})()
 // Register shutdown handlers to persist data before PM2 restarts
 registerShutdownHandlers()
 
