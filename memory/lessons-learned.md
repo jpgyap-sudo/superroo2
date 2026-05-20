@@ -872,3 +872,57 @@ Any `withFallback()` pattern that proxies through an intermediate server must ch
 learning-layer, central-brain, mcp, fallback, lesson-storage, cross-project
 
 ---
+
+### Auto-Extracted Lesson: Detect MCP local_json_fallback in withFallback() so lessons are stored locall...
+
+Date: 2026-05-20
+Source: Git commit f78230e4
+Model/API used: unknown
+Confidence: medium
+Related files: memory/.stop-hook-last-run, memory/.sync-state.json, memory/lesson-index.jsonl, memory/lesson-summaries.json, memory/lessons-learned.md
+
+#### Task Summary
+
+fix: detect MCP local_json_fallback in withFallback() so lessons are stored locally + queued for retry
+
+#### Files Changed
+
+- `memory/.stop-hook-last-run`
+- `memory/.sync-state.json`
+- `memory/lesson-index.jsonl`
+- `memory/lesson-summaries.json`
+- `memory/lessons-learned.md`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit f78230e4.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit f78230e4 by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+bugfix
+
+---

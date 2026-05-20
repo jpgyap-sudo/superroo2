@@ -18,6 +18,10 @@ import {
 	Server,
 	Bot,
 	BarChart3,
+	Bell,
+	Settings,
+	Shield,
+	XCircle,
 } from "lucide-react"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -30,6 +34,14 @@ interface RamSnapshot {
 	totalMb: number
 	usedMb: number
 	timestamp: number
+	swap?: SwapUsage | null
+}
+
+interface SwapUsage {
+	totalMb: number
+	usedMb: number
+	freeMb: number
+	percent: number
 }
 
 interface RamTrend {
@@ -48,8 +60,11 @@ interface RamMonitorStats {
 		critical: number
 		danger: number
 		recovery: number
+		swapWarning: number
+		swapCritical: number
 	}
-	historySamples: number
+	swapEnabled: boolean
+	clusterMode: boolean
 }
 
 interface SchedulerStats {
@@ -65,21 +80,32 @@ interface PauseStats {
 	runningTasks: number
 }
 
+interface RamOrchestratorConfig {
+	warningPercent: number
+	criticalPercent: number
+	dangerPercent: number
+	recoveryPercent: number
+	pollIntervalMs: number
+	gracePeriodMs: number
+	cooldownMs: number
+	enableAlerts: boolean
+	enableHistoryPersistence: boolean
+	enableAutoScale: boolean
+	clusterMode: boolean
+}
+
 interface RamOrchestratorStatus {
 	status: string
 	service: string
-	config: {
-		warningPercent: number
-		criticalPercent: number
-		dangerPercent: number
-		recoveryPercent: number
-		pollIntervalMs: number
-		gracePeriodMs: number
-		cooldownMs: number
-	}
+	config: RamOrchestratorConfig
 	ramMonitor: RamMonitorStats | null
 	scheduler: SchedulerStats | null
 	workerPauseManager: PauseStats | null
+	swapUsage: SwapUsage | null
+	history: {
+		sampleCount: number
+		recentSamples: RamSnapshot[]
+	}
 	uptime: number
 	timestamp: number
 }
@@ -97,9 +123,33 @@ interface DeferredTasksResponse {
 	tasks: DeferredTask[]
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
+interface AlertItem {
+	type: string
+	oldState: string
+	newState: string
+	timestamp: number
+	snapshot?: RamSnapshot
+	swapUsage?: SwapUsage
+}
 
-const RAM_ORCHESTRATOR_URL = "http://127.0.0.1:3456"
+interface AlertsResponse {
+	count: number
+	alerts: AlertItem[]
+}
+
+interface HistoryResponse {
+	count: number
+	samples: RamSnapshot[]
+}
+
+interface ApiError {
+	message: string
+	endpoint: string
+}
+
+// ── Constants ──────────────────────────────────────────────────────────────────
+
+const API_BASE = "/ram-orchestrator"
 
 const STATE_COLORS: Record<RamState, string> = {
 	normal: "text-emerald-400",
@@ -122,6 +172,8 @@ const STATE_ICONS: Record<RamState, React.ReactNode> = {
 	danger: <AlertCircle className="h-5 w-5 text-red-400" />,
 }
 
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
 function formatUptime(seconds: number): string {
 	const d = Math.floor(seconds / 86400)
 	const h = Math.floor((seconds % 86400) / 3600)
@@ -139,6 +191,17 @@ function formatTime(ts: number): string {
 	return new Date(ts).toLocaleTimeString()
 }
 
+function formatDateTime(ts: number): string {
+	return new Date(ts).toLocaleString()
+}
+
+function getStateForSample(sample: RamSnapshot, thresholds: RamMonitorStats["thresholds"]): RamState {
+	if (sample.ramPercent >= thresholds.danger) return "danger"
+	if (sample.ramPercent >= thresholds.critical) return "critical"
+	if (sample.ramPercent >= thresholds.warning) return "warning"
+	return "normal"
+}
+
 function MiniProgressBar({ value, max, color }: { value: number; max: number; color: string }) {
 	const pct = Math.min((value / max) * 100, 100)
 	return (
@@ -148,32 +211,73 @@ function MiniProgressBar({ value, max, color }: { value: number; max: number; co
 	)
 }
 
+function StateBadge({ state }: { state: string }) {
+	const colorMap: Record<string, string> = {
+		normal: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+		warning: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+		critical: "bg-orange-500/10 text-orange-400 border-orange-500/20",
+		danger: "bg-red-500/10 text-red-400 border-red-500/20",
+	}
+	return (
+		<span
+			className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-semibold tracking-wide border ${colorMap[state] || colorMap.normal}`}>
+			{state}
+		</span>
+	)
+}
+
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export function RamOrchestratorView() {
 	const [status, setStatus] = useState<RamOrchestratorStatus | null>(null)
 	const [deferred, setDeferred] = useState<DeferredTasksResponse | null>(null)
+	const [history, setHistory] = useState<HistoryResponse | null>(null)
+	const [alerts, setAlerts] = useState<AlertsResponse | null>(null)
 	const [loading, setLoading] = useState(true)
-	const [error, setError] = useState<string | null>(null)
+	const [error, setError] = useState<ApiError | null>(null)
 	const [autoRefresh, setAutoRefresh] = useState(true)
+	const [actionError, setActionError] = useState<string | null>(null)
+	const [actionSuccess, setActionSuccess] = useState<string | null>(null)
+
+	const clearActionFeedback = useCallback(() => {
+		setActionError(null)
+		setActionSuccess(null)
+	}, [])
 
 	const fetchData = useCallback(async () => {
 		try {
-			const [statusRes, deferredRes] = await Promise.all([
-				fetch(`${RAM_ORCHESTRATOR_URL}/status`),
-				fetch(`${RAM_ORCHESTRATOR_URL}/deferred`),
+			const [statusRes, deferredRes, historyRes, alertsRes] = await Promise.all([
+				fetch(`${API_BASE}/status`),
+				fetch(`${API_BASE}/deferred`),
+				fetch(`${API_BASE}/history?count=60`),
+				fetch(`${API_BASE}/alerts?limit=20`),
 			])
+
 			if (statusRes.ok) {
 				const data = await statusRes.json()
 				setStatus(data)
+			} else {
+				setError({ message: `Status HTTP ${statusRes.status}`, endpoint: "/status" })
 			}
+
 			if (deferredRes.ok) {
 				const data = await deferredRes.json()
 				setDeferred(data)
 			}
-			setError(null)
+
+			if (historyRes.ok) {
+				const data = await historyRes.json()
+				setHistory(data)
+			}
+
+			if (alertsRes.ok) {
+				const data = await alertsRes.json()
+				setAlerts(data)
+			}
+
+			if (statusRes.ok) setError(null)
 		} catch (err) {
-			setError(`Cannot connect to RAM Orchestrator at ${RAM_ORCHESTRATOR_URL}`)
+			setError({ message: err instanceof Error ? err.message : "Network error", endpoint: "all" })
 		} finally {
 			setLoading(false)
 		}
@@ -187,28 +291,42 @@ export function RamOrchestratorView() {
 	}, [fetchData, autoRefresh])
 
 	const handlePauseWorker = async (workerId: string) => {
+		clearActionFeedback()
 		try {
-			await fetch(`${RAM_ORCHESTRATOR_URL}/pause`, {
+			const res = await fetch(`${API_BASE}/pause`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ workerId, reason: "manual from dashboard" }),
 			})
-			fetchData()
-		} catch {
-			// ignore
+			const data = await res.json()
+			if (res.ok && data.paused) {
+				setActionSuccess(`Paused worker: ${workerId}`)
+				fetchData()
+			} else {
+				setActionError(data.error || `Failed to pause ${workerId}`)
+			}
+		} catch (err) {
+			setActionError(err instanceof Error ? err.message : "Pause request failed")
 		}
 	}
 
 	const handleResumeWorker = async (workerId: string) => {
+		clearActionFeedback()
 		try {
-			await fetch(`${RAM_ORCHESTRATOR_URL}/resume`, {
+			const res = await fetch(`${API_BASE}/resume`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ workerId }),
 			})
-			fetchData()
-		} catch {
-			// ignore
+			const data = await res.json()
+			if (res.ok && data.resumed) {
+				setActionSuccess(`Resumed worker: ${workerId}`)
+				fetchData()
+			} else {
+				setActionError(data.error || `Failed to resume ${workerId}`)
+			}
+		} catch (err) {
+			setActionError(err instanceof Error ? err.message : "Resume request failed")
 		}
 	}
 
@@ -232,9 +350,10 @@ export function RamOrchestratorView() {
 						<AlertCircle className="h-5 w-5 text-red-400" />
 						<div>
 							<p className="text-sm font-medium text-red-300">Orchestrator Unreachable</p>
-							<p className="mt-1 text-xs text-red-400">{error}</p>
+							<p className="mt-1 text-xs text-red-400">{error.message}</p>
 							<p className="mt-1 text-xs text-gray-500">
-								Ensure the RAM Orchestrator is running on the VPS (PM2 process: superroo-ram-orchestrator)
+								Ensure the RAM Orchestrator is running on the VPS (PM2 process:
+								superroo-ram-orchestrator)
 							</p>
 						</div>
 					</div>
@@ -249,6 +368,29 @@ export function RamOrchestratorView() {
 	const state = ram?.state || "normal"
 	const scheduler = status?.scheduler
 	const pauseMgr = status?.workerPauseManager
+	const cfg = status?.config
+	const hist = history
+	const alertList = alerts
+	const swap = status?.swapUsage
+
+	// Build event log from history samples
+	const eventLog: Array<{ time: number; event: string; state: RamState; ramPercent: number }> = []
+	if (hist && hist.samples.length > 0 && ram) {
+		let prevState = getStateForSample(hist.samples[0], ram.thresholds)
+		for (let i = 1; i < hist.samples.length; i++) {
+			const s = hist.samples[i]
+			const st = getStateForSample(s, ram.thresholds)
+			if (st !== prevState) {
+				eventLog.push({
+					time: s.timestamp,
+					event: `RAM state changed: ${prevState} → ${st}`,
+					state: st,
+					ramPercent: s.ramPercent,
+				})
+				prevState = st
+			}
+		}
+	}
 
 	return (
 		<div className="space-y-6 p-6">
@@ -275,13 +417,26 @@ export function RamOrchestratorView() {
 					</label>
 					<button
 						onClick={fetchData}
-						className="inline-flex items-center gap-2 rounded-lg border border-[#1e2535] px-3 py-2 text-sm text-gray-400 hover:bg-[#1e2535] transition-colors"
-					>
+						className="inline-flex items-center gap-2 rounded-lg border border-[#1e2535] px-3 py-2 text-sm text-gray-400 hover:bg-[#1e2535] transition-colors">
 						<RefreshCw className="h-4 w-4" />
 						Refresh
 					</button>
 				</div>
 			</div>
+
+			{/* Action feedback */}
+			{actionError && (
+				<div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-300 flex items-center gap-2">
+					<XCircle className="h-4 w-4" />
+					{actionError}
+				</div>
+			)}
+			{actionSuccess && (
+				<div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-300 flex items-center gap-2">
+					<CheckCircle2 className="h-4 w-4" />
+					{actionSuccess}
+				</div>
+			)}
 
 			{/* RAM State Banner */}
 			<div className={`rounded-xl border p-4 ${STATE_BG[state]}`}>
@@ -372,105 +527,176 @@ export function RamOrchestratorView() {
 				/>
 			</div>
 
-			{/* Two-column layout */}
+			{/* RAM + Swap row */}
 			<div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-				{/* Thresholds & Config */}
+				{/* Configuration */}
 				<Card>
 					<div className="flex items-center gap-2 border-b border-[#1e2535] px-5 py-3">
-						<Server className="h-4 w-4 text-cyan-400" />
+						<Settings className="h-4 w-4 text-cyan-400" />
 						<span className="text-sm font-semibold text-[#e2e8f0]">Configuration</span>
 					</div>
 					<div className="space-y-3 p-5">
-						{status?.config && (
+						{cfg && (
 							<>
 								<div className="grid grid-cols-2 gap-3">
 									<div className="rounded-lg bg-[#0a0e1a] p-3">
 										<p className="text-[10px] text-gray-500 uppercase tracking-wider">Warning</p>
 										<p className="mt-1 text-lg font-semibold text-amber-400">
-											{status.config.warningPercent}%
+											{cfg.warningPercent}%
 										</p>
 									</div>
 									<div className="rounded-lg bg-[#0a0e1a] p-3">
 										<p className="text-[10px] text-gray-500 uppercase tracking-wider">Critical</p>
 										<p className="mt-1 text-lg font-semibold text-orange-400">
-											{status.config.criticalPercent}%
+											{cfg.criticalPercent}%
 										</p>
 									</div>
 									<div className="rounded-lg bg-[#0a0e1a] p-3">
 										<p className="text-[10px] text-gray-500 uppercase tracking-wider">Danger</p>
-										<p className="mt-1 text-lg font-semibold text-red-400">
-											{status.config.dangerPercent}%
-										</p>
+										<p className="mt-1 text-lg font-semibold text-red-400">{cfg.dangerPercent}%</p>
 									</div>
 									<div className="rounded-lg bg-[#0a0e1a] p-3">
 										<p className="text-[10px] text-gray-500 uppercase tracking-wider">Recovery</p>
 										<p className="mt-1 text-lg font-semibold text-emerald-400">
-											{status.config.recoveryPercent}%
+											{cfg.recoveryPercent}%
 										</p>
 									</div>
 								</div>
-								<div className="grid grid-cols-2 gap-3 text-xs text-gray-500">
+								<div className="grid grid-cols-2 gap-2 text-xs text-gray-500">
 									<div className="flex items-center gap-2">
 										<Clock className="h-3 w-3" />
-										<span>Poll: {status.config.pollIntervalMs}ms</span>
+										<span>Poll: {cfg.pollIntervalMs}ms</span>
 									</div>
 									<div className="flex items-center gap-2">
 										<Clock className="h-3 w-3" />
-										<span>Grace: {status.config.gracePeriodMs}ms</span>
+										<span>Grace: {cfg.gracePeriodMs}ms</span>
 									</div>
 									<div className="flex items-center gap-2">
 										<Clock className="h-3 w-3" />
-										<span>Cooldown: {status.config.cooldownMs}ms</span>
+										<span>Cooldown: {cfg.cooldownMs}ms</span>
 									</div>
 									<div className="flex items-center gap-2">
 										<BarChart3 className="h-3 w-3" />
-										<span>Samples: {ram?.historySamples ?? 0}</span>
+										<span>Samples: {hist?.sampleCount ?? 0}</span>
 									</div>
+								</div>
+								<div className="mt-2 flex flex-wrap gap-2">
+									{cfg.enableAlerts && (
+										<span className="inline-flex items-center gap-1 rounded border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-400">
+											<Bell className="h-3 w-3" /> Alerts
+										</span>
+									)}
+									{cfg.enableHistoryPersistence && (
+										<span className="inline-flex items-center gap-1 rounded border border-blue-500/20 bg-blue-500/10 px-2 py-0.5 text-[10px] text-blue-400">
+											<BarChart3 className="h-3 w-3" /> History
+										</span>
+									)}
+									{cfg.enableAutoScale && (
+										<span className="inline-flex items-center gap-1 rounded border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-400">
+											<TrendingUp className="h-3 w-3" /> Auto-scale
+										</span>
+									)}
+									{cfg.clusterMode && (
+										<span className="inline-flex items-center gap-1 rounded border border-purple-500/20 bg-purple-500/10 px-2 py-0.5 text-[10px] text-purple-400">
+											<Server className="h-3 w-3" /> Cluster
+										</span>
+									)}
 								</div>
 							</>
 						)}
 					</div>
 				</Card>
 
-				{/* Paused Workers */}
+				{/* Swap Usage */}
 				<Card>
 					<div className="flex items-center gap-2 border-b border-[#1e2535] px-5 py-3">
-						<Bot className="h-4 w-4 text-purple-400" />
-						<span className="text-sm font-semibold text-[#e2e8f0]">Worker Status</span>
-						<span className="ml-auto text-xs text-gray-500">
-							{pauseMgr?.runningTasks ?? 0} running · {pauseMgr?.pausedWorkers?.length ?? 0} paused
-						</span>
+						<Shield className="h-4 w-4 text-sky-400" />
+						<span className="text-sm font-semibold text-[#e2e8f0]">Swap Usage</span>
+						{ram?.swapEnabled === false && (
+							<span className="ml-auto text-[10px] text-gray-500">Monitoring disabled</span>
+						)}
 					</div>
 					<div className="p-5">
-						{pauseMgr?.pausedWorkers && pauseMgr.pausedWorkers.length > 0 ? (
-							<div className="space-y-2">
-								{pauseMgr.pausedWorkers.map((w) => (
-									<div
-										key={w.workerId}
-										className="flex items-center justify-between rounded-lg bg-[#0a0e1a] p-3"
-									>
-										<div>
-											<p className="text-sm font-medium text-[#e2e8f0]">{w.workerId}</p>
-											<p className="text-xs text-gray-500">
-												{w.criticality} · paused {formatTime(w.pausedAt)}
-											</p>
-										</div>
-										<button
-											onClick={() => handleResumeWorker(w.workerId)}
-											className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/30 px-2.5 py-1.5 text-xs text-emerald-400 hover:bg-emerald-500/10 transition-colors"
-										>
-											<PlayCircle className="h-3 w-3" />
-											Resume
-										</button>
+						{swap ? (
+							<div className="space-y-4">
+								<div className="flex items-center justify-between">
+									<span className="text-sm text-gray-400">Swap Used</span>
+									<span
+										className={`text-lg font-semibold ${swap.percent >= 75 ? "text-red-400" : swap.percent >= 50 ? "text-amber-400" : "text-emerald-400"}`}>
+										{swap.percent}%
+									</span>
+								</div>
+								<MiniProgressBar
+									value={swap.percent}
+									max={100}
+									color={
+										swap.percent >= 75
+											? "bg-red-500"
+											: swap.percent >= 50
+												? "bg-amber-500"
+												: "bg-emerald-500"
+									}
+								/>
+								<div className="grid grid-cols-3 gap-3 text-xs text-gray-500">
+									<div className="rounded-lg bg-[#0a0e1a] p-3 text-center">
+										<p className="text-[10px] uppercase tracking-wider">Total</p>
+										<p className="mt-1 font-semibold text-[#e2e8f0]">{swap.totalMb} MB</p>
 									</div>
-								))}
+									<div className="rounded-lg bg-[#0a0e1a] p-3 text-center">
+										<p className="text-[10px] uppercase tracking-wider">Used</p>
+										<p className="mt-1 font-semibold text-[#e2e8f0]">{swap.usedMb} MB</p>
+									</div>
+									<div className="rounded-lg bg-[#0a0e1a] p-3 text-center">
+										<p className="text-[10px] uppercase tracking-wider">Free</p>
+										<p className="mt-1 font-semibold text-[#e2e8f0]">{swap.freeMb} MB</p>
+									</div>
+								</div>
 							</div>
 						) : (
-							<p className="py-4 text-center text-xs text-gray-500">No workers currently paused</p>
+							<p className="py-4 text-center text-xs text-gray-500">
+								{ram?.swapEnabled ? "No swap data available" : "Swap monitoring is disabled"}
+							</p>
 						)}
 					</div>
 				</Card>
 			</div>
+
+			{/* Worker Status */}
+			<Card>
+				<div className="flex items-center gap-2 border-b border-[#1e2535] px-5 py-3">
+					<Bot className="h-4 w-4 text-purple-400" />
+					<span className="text-sm font-semibold text-[#e2e8f0]">Worker Status</span>
+					<span className="ml-auto text-xs text-gray-500">
+						{pauseMgr?.runningTasks ?? 0} running · {pauseMgr?.pausedWorkers?.length ?? 0} paused
+					</span>
+				</div>
+				<div className="p-5">
+					{pauseMgr?.pausedWorkers && pauseMgr.pausedWorkers.length > 0 ? (
+						<div className="space-y-2">
+							{pauseMgr.pausedWorkers.map((w) => (
+								<div
+									key={w.workerId}
+									className="flex items-center justify-between rounded-lg bg-[#0a0e1a] p-3">
+									<div>
+										<p className="text-sm font-medium text-[#e2e8f0]">{w.workerId}</p>
+										<p className="text-xs text-gray-500">
+											{w.criticality} · paused {formatTime(w.pausedAt)}
+										</p>
+									</div>
+									<button
+										onClick={() => handleResumeWorker(w.workerId)}
+										className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/30 px-2.5 py-1.5 text-xs text-emerald-400 hover:bg-emerald-500/10 transition-colors">
+										<PlayCircle className="h-3 w-3" />
+										Resume
+									</button>
+								</div>
+							))}
+						</div>
+					) : (
+						<p className="py-4 text-center text-xs text-gray-500">No workers currently paused</p>
+					)}
+				</div>
+			</Card>
 
 			{/* Deferred Tasks */}
 			<Card>
@@ -485,8 +711,7 @@ export function RamOrchestratorView() {
 							{deferred.tasks.map((t) => (
 								<div
 									key={t.taskId}
-									className="flex items-center justify-between rounded-lg bg-[#0a0e1a] p-3"
-								>
+									className="flex items-center justify-between rounded-lg bg-[#0a0e1a] p-3">
 									<div className="flex items-center gap-3">
 										<div>
 											<p className="text-sm font-medium text-[#e2e8f0]">{t.taskId}</p>
@@ -505,47 +730,93 @@ export function RamOrchestratorView() {
 				</div>
 			</Card>
 
-			{/* History Timeline (last 20 samples) */}
-			{ram?.historySamples && ram.historySamples > 0 && (
+			{/* RAM History — real data */}
+			{hist && hist.samples.length > 0 && (
 				<Card>
 					<div className="flex items-center gap-2 border-b border-[#1e2535] px-5 py-3">
 						<TrendingUp className="h-4 w-4 text-cyan-400" />
 						<span className="text-sm font-semibold text-[#e2e8f0]">RAM History</span>
-						<span className="ml-auto text-xs text-gray-500">{ram.historySamples} samples</span>
+						<span className="ml-auto text-xs text-gray-500">{hist.samples.length} real samples</span>
 					</div>
 					<div className="p-5">
 						<div className="flex items-end gap-0.5 h-24">
-							{/* Mini bar chart showing recent RAM history */}
-							{Array.from({ length: Math.min(ram.historySamples, 60) }).map((_, i) => {
-								// Approximate from current snapshot and trend
-								const basePct = snap?.ramPercent || 50
-								const trendOffset = trend?.ratePerMinute || 0
-								const idx = Math.min(i, ram.historySamples - 1)
-								const estimatedPct = Math.max(
-									5,
-									Math.min(100, basePct - trendOffset * ((ram.historySamples - idx) / 60)),
-								)
+							{hist.samples.map((s, i) => {
+								const barState = ram ? getStateForSample(s, ram.thresholds) : "normal"
 								const barColor =
-									estimatedPct >= (status?.config.dangerPercent ?? 90)
+									barState === "danger"
 										? "bg-red-500"
-										: estimatedPct >= (status?.config.criticalPercent ?? 80)
+										: barState === "critical"
 											? "bg-orange-500"
-											: estimatedPct >= (status?.config.warningPercent ?? 70)
+											: barState === "warning"
 												? "bg-amber-500"
 												: "bg-emerald-500"
 								return (
 									<div
 										key={i}
 										className={`flex-1 rounded-t ${barColor} opacity-70 hover:opacity-100 transition-opacity`}
-										style={{ height: `${estimatedPct}%` }}
-										title={`~${Math.round(estimatedPct)}%`}
+										style={{ height: `${Math.max(5, Math.min(100, s.ramPercent))}%` }}
+										title={`${formatTime(s.timestamp)} — ${s.ramPercent}% (${s.usedMb}MB used)`}
 									/>
 								)
 							})}
 						</div>
 						<div className="mt-2 flex justify-between text-[10px] text-gray-600">
-							<span>Oldest</span>
-							<span>Now</span>
+							<span>{formatTime(hist.samples[0].timestamp)}</span>
+							<span>{formatTime(hist.samples[hist.samples.length - 1].timestamp)}</span>
+						</div>
+					</div>
+				</Card>
+			)}
+
+			{/* Event Log */}
+			{eventLog.length > 0 && (
+				<Card>
+					<div className="flex items-center gap-2 border-b border-[#1e2535] px-5 py-3">
+						<Activity className="h-4 w-4 text-violet-400" />
+						<span className="text-sm font-semibold text-[#e2e8f0]">Event Log</span>
+						<span className="ml-auto text-xs text-gray-500">{eventLog.length} events</span>
+					</div>
+					<div className="p-5">
+						<div className="space-y-2 max-h-60 overflow-y-auto">
+							{eventLog.map((e, i) => (
+								<div key={i} className="flex items-center gap-3 rounded-lg bg-[#0a0e1a] p-3">
+									<StateBadge state={e.state} />
+									<div className="flex-1 min-w-0">
+										<p className="text-sm text-[#e2e8f0] truncate">{e.event}</p>
+										<p className="text-xs text-gray-500">{formatDateTime(e.time)}</p>
+									</div>
+									<span className="text-xs text-gray-500">{e.ramPercent}%</span>
+								</div>
+							))}
+						</div>
+					</div>
+				</Card>
+			)}
+
+			{/* Alerts */}
+			{alertList && alertList.alerts.length > 0 && (
+				<Card>
+					<div className="flex items-center gap-2 border-b border-[#1e2535] px-5 py-3">
+						<Bell className="h-4 w-4 text-rose-400" />
+						<span className="text-sm font-semibold text-[#e2e8f0]">Recent Alerts</span>
+						<span className="ml-auto text-xs text-gray-500">{alertList.count} alerts</span>
+					</div>
+					<div className="p-5">
+						<div className="space-y-2 max-h-60 overflow-y-auto">
+							{alertList.alerts.map((a, i) => (
+								<div key={i} className="flex items-center gap-3 rounded-lg bg-[#0a0e1a] p-3">
+									<StateBadge state={a.newState} />
+									<div className="flex-1 min-w-0">
+										<p className="text-sm text-[#e2e8f0]">
+											{a.oldState} → {a.newState}
+										</p>
+										<p className="text-xs text-gray-500">
+											{formatDateTime(a.timestamp)}
+											{a.snapshot ? ` · RAM ${a.snapshot.ramPercent}%` : ""}
+										</p>
+									</div>
+								</div>
+							))}
 						</div>
 					</div>
 				</Card>

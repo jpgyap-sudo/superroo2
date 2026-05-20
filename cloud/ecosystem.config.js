@@ -59,12 +59,16 @@ module.exports = {
 			restart_delay: 10000,
 			min_uptime: 30000,
 			kill_timeout: 30000,
-			env_file: "/opt/superroo2/cloud/.env",
+			// NOTE: env_file is NOT supported by PM2 v7 — all env vars must be in the env block
+			// See: https://github.com/Unitech/PM2/issues/5764
 			env: {
 				NODE_ENV: "production",
 				REDIS_URL: "redis://127.0.0.1:6379",
 				SUPERROO_QUEUE_NAME: "superroo-jobs",
 				API_PORT: "8787",
+				// Telegram Bot
+				TELEGRAM_BOT_TOKEN: "8645986629:AAGFH6aC6y_F39dLfAB2q95-1s-kKALm0RQ",
+				BOSS_TELEGRAM_CHAT_ID: "8485794779",
 				SUPERROO_VAULT_KEY: "D16PFwmjzXtmpEfFSYrAepsaveOB+fLuneeuQrvTYVw=",
 				SMTP_HOST: "smtp.gmail.com",
 				SMTP_PORT: "587",

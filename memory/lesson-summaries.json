@@ -1,25 +1,17 @@
 {
-	"generatedAt": "2026-05-20T03:03:46.274Z",
+	"generatedAt": "2026-05-20T03:15:25.967Z",
 	"deepseekModel": "deepseek-chat",
 	"ollamaUrl": "http://100.64.175.88:11434",
 	"sourceFile": "memory/lessons-learned.md",
 	"count": 1,
 	"summaries": [
 		{
-			"title": "VPS RAM Orchestrator Worker — multi-layer RAM pressure management with worker pausing and task deferral",
+			"title": "MCP server `local_json_fallback` silently drops lesson data — `withFallback()` must detect it",
 			"date": "2026-05-20",
-			"model": "deepseek-chat",
+			"model": "DeepSeek Chat",
 			"confidence": "high",
-			"summary": "The VPS RAM Orchestrator Worker implements multi-layer RAM pressure management by separating sensing (RAMMonitor), policy (RAMScheduler), and actuation (WorkerPauseManager) into independent modules. It uses a 4-state state machine with hysteresis to prevent oscillation and worker criticality levels for graceful degradation under increasing RAM pressure. Key takeaway: always decouple sensing, policy, and actuation in resource management systems, and use state machines with hysteresis and granular criticality levels instead of binary on/off controls.",
+			"summary": "The MCP server's `_handleLocalFallback` returns `{success:true, source:\"local_json_fallback\"}` even though it silently drops lesson data, so `withFallback()` must detect the `source` field and treat `local_json_fallback` as a failure to trigger real local storage and retry queuing. Never trust `success: true` from an upstream component without verifying the `source` field.",
 			"hasEmbeddings": true
-		},
-		{
-			"title": "MCP server local_json_fallback silently drops lesson data — withFallback() must detect it",
-			"date": "2026-05-20",
-			"model": "deepseek-chat",
-			"confidence": "high",
-			"summary": "The MCP server at port 3419 proxies hermes_learn to Central Brain daemon (3417) and REST API (8787), but both were unreachable. The MCP server's _proxyWithFallback fell through to _handleLocalFallback which returns success:true with source:local_json_fallback — the lesson data was silently dropped. Fixed by detecting local_json_fallback in withFallback() and falling through to local storage + retry queue. Key takeaway: never trust success:true from an upstream component — always inspect the source field to verify data was actually persisted.",
-			"hasEmbeddings": false
 		}
 	]
 }
