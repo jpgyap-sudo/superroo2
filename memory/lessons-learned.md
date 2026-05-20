@@ -1188,3 +1188,49 @@ For any multi-file feature implementation, create a structural regression test t
 telegram, gap-analysis, security, intelligence, reliability, monitoring, regression-testing, deployment
 
 ---
+
+### Lesson: E2E health scan after multi-file feature implementation — verify all test scripts run from correct working directory
+
+Date: 2026-05-20
+Source: Code agent e2e health scan
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/test-telegram-bot-updates.js, cloud/test-e2e-deploy.js, cloud/test-verify-fixes.js
+
+#### Task Summary
+
+Ran comprehensive e2e health scan after implementing all 26 Telegram gap analysis features. Verified VPS health (6 PM2 processes, nginx, disk, memory, API), ran all available test scripts, and fixed a pre-existing path issue in test-telegram-bot-updates.js.
+
+#### Files Changed
+
+- cloud/test-telegram-bot-updates.js (line 55: ./cloud/api/ -> ./api/)
+
+#### Bug Cause
+
+Pre-existing path issue: test-telegram-bot-updates.js used `readFileSync("./cloud/api/telegramBot.js")` but the test runs from the `cloud/` directory, making the effective path `cloud/cloud/api/telegramBot.js`. The correct path is `./api/telegramBot.js` (resolves to `cloud/api/telegramBot.js`).
+
+#### Fix Applied
+
+Changed `readFileSync("./cloud/api/telegramBot.js")` to `readFileSync("./api/telegramBot.js")` on line 55.
+
+#### Test Result
+
+pass — 13/13 tests pass locally and on VPS
+
+#### Lesson Learned
+
+When running test scripts from a subdirectory (e.g., `cd cloud && node test.js`), all relative paths in the script resolve relative to the current working directory, not the script's location. Always verify that `readFileSync` and `require` paths are correct for the intended working directory.
+
+#### Reusable Rule
+
+After implementing multi-file features, run ALL available test scripts from their correct working directory to catch pre-existing path issues. Test scripts using `readFileSync` with relative paths are especially prone to break when the project directory structure changes.
+
+#### Tags
+
+e2e, health-scan, testing, path-resolution, pre-existing-bug, telegram, gap-analysis
+
+#### Tags
+
+ui, api, bugfix
+
+---

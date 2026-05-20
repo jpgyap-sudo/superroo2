@@ -173,16 +173,12 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 	const autoApproveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 	const userRespondedRef = useRef<boolean>(false)
 	const [currentFollowUpTs, setCurrentFollowUpTs] = useState<number | null>(null)
-	const [aggregatedCostsMap, setAggregatedCostsMap] = useState<
-		Map<
-			string,
-			{
-				totalCost: number
-				ownCost: number
-				childrenCost: number
-			}
-		>
-	>(new Map())
+	const [aggregatedCostsMap, setAggregatedCostsMap] = useState(
+		new LRUCache<string, { totalCost: number; ownCost: number; childrenCost: number }>({
+			max: 50,
+			ttl: 1000 * 60 * 5,
+		}),
+	)
 
 	// Prune aggregatedCostsMap when tasks are deleted from history to prevent
 	// unbounded growth over long sessions.
@@ -190,7 +186,11 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 		const activeTaskIds = new Set(taskHistory.map((item) => item.id))
 		setAggregatedCostsMap((prev) => {
 			let changed = false
-			const next = new Map<string, { totalCost: number; ownCost: number; childrenCost: number }>()
+			const next = new LRUCache<string, { totalCost: number; ownCost: number; childrenCost: number }>({
+				...prev,
+				max: 50,
+				ttl: 1000 * 60 * 5,
+			})
 			for (const [id, cost] of prev) {
 				if (activeTaskIds.has(id)) {
 					next.set(id, cost)
@@ -1022,9 +1022,16 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 				case "taskWithAggregatedCosts":
 					if (message.text && message.aggregatedCosts) {
 						setAggregatedCostsMap((prev) => {
-							const newMap = new Map(prev)
-							newMap.set(message.text!, message.aggregatedCosts!)
-							return newMap
+							const next = new LRUCache<
+								string,
+								{ totalCost: number; ownCost: number; childrenCost: number }
+							>({
+								...prev,
+								max: 50,
+								ttl: 1000 * 60 * 5,
+							})
+							next.set(message.text!, message.aggregatedCosts!)
+							return next
 						})
 					}
 					break

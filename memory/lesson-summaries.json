@@ -1,16 +1,16 @@
 {
-	"generatedAt": "2026-05-20T06:19:08.503Z",
+	"generatedAt": "2026-05-20T06:44:11.495Z",
 	"deepseekModel": "deepseek-chat",
 	"ollamaUrl": "http://100.64.175.88:11434",
 	"sourceFile": "memory/lessons-learned.md",
 	"count": 1,
 	"summaries": [
 		{
-			"title": "PM2 v7 env_file directive does not load .env — env vars must be in env block",
+			"title": "Systematic Telegram gap analysis — implement all 26 gaps across 6 phases",
 			"date": "2026-05-20",
 			"model": "deepseek-chat",
 			"confidence": "high",
-			"summary": "PM2 v7's `env_file` directive does not load .env file contents into the process environment; all environment variables must be specified directly in the `env` block of ecosystem.config.js. Additionally, `pm2 restart` reuses the old environment, so you must use `pm2 delete` followed by `pm2 start` to apply new env vars.",
+			"summary": "When implementing a large batch of features across multiple files, create a regression test suite early to catch export mismatches and missing function references, as it caught 10 missing exports and 3 constant name mismatches in the first run. For any multi-file feature implementation, validate that all expected functions are exported, all expected constants exist, and all expected source code patterns are present before deployment.",
 			"hasEmbeddings": true
 		}
 	]
