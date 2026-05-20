@@ -138,7 +138,7 @@ function handleGetMetrics(req, res) {
  * Returns recent incidents with status, category, affected files.
  * Supports ?limit=N and ?status=open,closed query params.
  */
-function handleGetIncidents(req, res, parsedUrl) {
+function handleGetIncidents(req, res, rawUrl) {
 	const incidents = readJSON(INCIDENTS_PATH)
 
 	if (!incidents || !Array.isArray(incidents)) {
@@ -146,7 +146,7 @@ function handleGetIncidents(req, res, parsedUrl) {
 	}
 
 	// Parse query params
-	const params = new URL(parsedUrl, "http://localhost").searchParams
+	const params = new URL(rawUrl, "http://localhost").searchParams
 	const limit = Math.min(parseInt(params.get("limit") || "50", 10), 200)
 	const statusFilter = params.get("status")
 
@@ -206,6 +206,7 @@ function handleGetEscalated(req, res) {
 			status === "needs_human_approval" ||
 			status === "blocked" ||
 			status === "reopened" ||
+			status === "queued_for_fix" ||
 			(inc.fixAttempts || 0) >= 3
 		)
 	})
@@ -260,20 +261,24 @@ async function handleHealingRoute(method, url, req, res) {
 	const parsedUrl = new URL(url, "http://localhost")
 	const pathname = parsedUrl.pathname
 
-	// GET /api/healing/metrics
-	if (method === "GET" && pathname === "/api/healing/metrics") {
+	// Normalize pathname: strip /api prefix if present (Next.js rewrite strips /api,
+	// direct nginx proxy also strips /api, but some callers may include it)
+	const normalizedPath = pathname.startsWith("/api") ? pathname.slice(4) || "/" : pathname
+
+	// GET /api/healing/metrics or /healing/metrics
+	if (method === "GET" && (pathname === "/api/healing/metrics" || normalizedPath === "/healing/metrics")) {
 		handleGetMetrics(req, res)
 		return true
 	}
 
-	// GET /api/healing/incidents
-	if (method === "GET" && pathname === "/api/healing/incidents") {
+	// GET /api/healing/incidents or /healing/incidents
+	if (method === "GET" && (pathname === "/api/healing/incidents" || normalizedPath === "/healing/incidents")) {
 		handleGetIncidents(req, res, url)
 		return true
 	}
 
-	// GET /api/healing/escalated
-	if (method === "GET" && pathname === "/api/healing/escalated") {
+	// GET /api/healing/escalated or /healing/escalated
+	if (method === "GET" && (pathname === "/api/healing/escalated" || normalizedPath === "/healing/escalated")) {
 		handleGetEscalated(req, res)
 		return true
 	}

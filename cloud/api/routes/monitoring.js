@@ -747,46 +747,66 @@ async function handleMonitoringRoute(method, url, req, res) {
 	const parsedUrl = new URL(url, "http://localhost")
 	const pathname = parsedUrl.pathname
 
-	// GET /api/monitoring/logs
-	if (method === "GET" && pathname === "/api/monitoring/logs") {
+	// Normalize pathname: strip /api prefix if present (Next.js rewrite strips /api,
+	// direct nginx proxy also strips /api, but some callers may include it)
+	const normalizedPath = pathname.startsWith("/api") ? pathname.slice(4) || "/" : pathname
+
+	// GET /api/monitoring/logs or /monitoring/logs
+	if (method === "GET" && (pathname === "/api/monitoring/logs" || normalizedPath === "/monitoring/logs")) {
 		handleGetLogs(req, res, url)
 		return true
 	}
 
-	// GET /api/monitoring/stats
-	if (method === "GET" && pathname === "/api/monitoring/stats") {
+	// GET /api/monitoring/stats or /monitoring/stats
+	if (method === "GET" && (pathname === "/api/monitoring/stats" || normalizedPath === "/monitoring/stats")) {
 		await handleGetStats(req, res)
 		return true
 	}
 
-	// GET /api/monitoring/health-timeline
-	if (method === "GET" && pathname === "/api/monitoring/health-timeline") {
+	// GET /api/monitoring/health-timeline or /monitoring/health-timeline
+	if (
+		method === "GET" &&
+		(pathname === "/api/monitoring/health-timeline" || normalizedPath === "/monitoring/health-timeline")
+	) {
 		handleGetHealthTimeline(req, res)
 		return true
 	}
 
-	// POST /api/monitoring/health-timeline/record
-	if (method === "POST" && pathname === "/api/monitoring/health-timeline/record") {
+	// POST /api/monitoring/health-timeline/record or /monitoring/health-timeline/record
+	if (
+		method === "POST" &&
+		(pathname === "/api/monitoring/health-timeline/record" ||
+			normalizedPath === "/monitoring/health-timeline/record")
+	) {
 		// Body is already parsed by the caller
 		const body = req.body || {}
 		await handleRecordHealthCheck(req, res, body)
 		return true
 	}
 
-	// GET /api/monitoring/error-rate-buckets
-	if (method === "GET" && pathname === "/api/monitoring/error-rate-buckets") {
+	// GET /api/monitoring/error-rate-buckets or /monitoring/error-rate-buckets
+	if (
+		method === "GET" &&
+		(pathname === "/api/monitoring/error-rate-buckets" || normalizedPath === "/monitoring/error-rate-buckets")
+	) {
 		handleGetErrorRateBuckets(req, res)
 		return true
 	}
 
-	// GET /api/monitoring/aggregated-logs — query pgvector aggregated logs
-	if (method === "GET" && pathname === "/api/monitoring/aggregated-logs") {
+	// GET /api/monitoring/aggregated-logs or /monitoring/aggregated-logs
+	if (
+		method === "GET" &&
+		(pathname === "/api/monitoring/aggregated-logs" || normalizedPath === "/monitoring/aggregated-logs")
+	) {
 		await handleGetAggregatedLogs(req, res, url)
 		return true
 	}
 
-	// GET /api/monitoring/aggregated-stats — stats about aggregated logs
-	if (method === "GET" && pathname === "/api/monitoring/aggregated-stats") {
+	// GET /api/monitoring/aggregated-stats or /monitoring/aggregated-stats
+	if (
+		method === "GET" &&
+		(pathname === "/api/monitoring/aggregated-stats" || normalizedPath === "/monitoring/aggregated-stats")
+	) {
 		await handleGetAggregatedStats(req, res)
 		return true
 	}

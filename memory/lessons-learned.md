@@ -1851,3 +1851,446 @@ To be determined — this commit was auto-flagged as potentially containing a le
 api
 
 ---
+
+### Auto-Extracted Lesson: Docs: complete auto-extracted lesson for auth.js Hermes Claw exclusion fix
+
+Date: 2026-05-20
+Source: Git commit 37c1d09d
+Model/API used: unknown
+Confidence: medium
+Related files: memory/lessons-learned.md
+
+#### Task Summary
+
+docs: complete auto-extracted lesson for auth.js Hermes Claw exclusion fix
+
+#### Files Changed
+
+- `memory/lessons-learned.md`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 37c1d09d.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 37c1d09d by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+bugfix
+
+---
+
+### Auto-Extracted Lesson: Feat(telegram): Phase 5 — Unit tests
+
+Date: 2026-05-20
+Source: Git commit 4075ff3d
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/api/auth.js, cloud/api/telegramBot.js, cloud/package.json, cloud/test/telegramClassifier.test.js, cloud/test/telegramMetrics.test.js
+
+#### Task Summary
+
+feat(telegram): Phase 5 — Unit tests
+
+#### Files Changed
+
+- `cloud/api/auth.js`
+- `cloud/api/telegramBot.js`
+- `cloud/package.json`
+- `cloud/test/telegramClassifier.test.js`
+- `cloud/test/telegramMetrics.test.js`
+- `cloud/test/telegramPolicy.test.js`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 4075ff3d.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 4075ff3d by JPG Yap.
+
+#### Test Result
+
+Tests were included in this commit.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+testing, api, bugfix
+
+---
+
+### Lesson: Auth route exclusion for public Telegram metrics endpoint
+
+Date: 2026-05-20
+Source: Kimi Code CLI task completion
+Model/API used: Kimi Code CLI
+Confidence: high
+Related files: cloud/api/auth.js, cloud/api/api.js, cloud/api/telegramBot.js
+
+#### Task Summary
+
+Added `/telegram/metrics` to the auth bypass exclusion list in `auth.js` so that the `GET /api/telegram/metrics` observability endpoint is publicly accessible without Bearer token authentication.
+
+#### Files Changed
+
+- cloud/api/auth.js
+
+#### Bug Cause
+
+`auth.handleAuthRoute()` intercepts all HTTP requests before they reach `api.js` routing. Any route not explicitly excluded returns `401 Unauthorized` if no valid Bearer token is present. The new `/api/telegram/metrics` endpoint (added in Phase 1 of Telegram improvements) was not in the exclusion list, causing it to return 401.
+
+#### Fix Applied
+
+Added `if (normalizedPath === "/telegram/metrics") return false` in `handleAuthRoute()` before the `requireAuth()` call. `normalizedPath` already strips the `/api` prefix (line 770-771), so `/api/telegram/metrics` normalizes to `/telegram/metrics` and matches the exclusion.
+
+#### Test Result
+
+- `curl http://100.64.175.88:8787/api/telegram/metrics` → HTTP 200 with metrics JSON ✅
+- `curl http://100.64.175.88:8787/api/commits` → HTTP 401 ✅ (auth still active for protected routes)
+
+#### Lesson Learned
+
+Whenever adding a new public/unauthenticated API endpoint in this codebase, the route MUST be added to the exclusion list in `auth.js` `handleAuthRoute()`. The normalization strips `/api` prefix, so exclusions should not include `/api/`.
+
+#### Reusable Rule
+
+**Rule**: Before declaring a new public endpoint "done", verify it returns 200 without an Authorization header. If it returns 401, add it to `auth.js` exclusions using the normalized path (without `/api` prefix).
+
+#### Tags
+
+[auth, telegram, metrics, deployment, api-routing]
+
+---
+
+### Auto-Extracted Lesson: Add /visual-crawl/ auth exclusion + fix ML Engine data structure mismatches
+
+Date: 2026-05-20
+Source: Git commit 49ecf2e0
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/api/auth.js, cloud/dashboard/src/components/views/ml-engine.tsx
+
+#### Task Summary
+
+fix: add /visual-crawl/ auth exclusion + fix ML Engine data structure mismatches
+
+#### Files Changed
+
+- `cloud/api/auth.js`
+- `cloud/dashboard/src/components/views/ml-engine.tsx`
+
+#### Bug Cause
+
+Two separate root causes:
+
+1. **Visual Crawler 401**: `auth.js` `handleAuthRoute()` has a catch-all `requireAuth()` at the end. Any URL not in the exclusion list falls through to `requireAuth()` and returns 401. `/visual-crawl/` routes were missing from the exclusion list.
+
+2. **ML Engine data structure mismatches**: The component's `fetchAll` function stored raw API responses directly, but the API response shapes differed from the TypeScript interfaces:
+    - `/orchestrator/ml/learners` returns `{learners: [{name, status, samples}]}` but component expected `{code: {samples}, debug: {samples}, test: {samples}}`
+    - `/orchestrator/improvement/stats` returns `{success: true, stats: {loopsRun, ...}}` but component expected `{cyclesRun, lessonsExtracted, skillsCreated}` at top level
+
+#### Fix Applied
+
+1. Added `if (normalizedPath.startsWith("/visual-crawl/")) return false` to `auth.js` `handleAuthRoute()` exclusion list, right after the `/orchestrator/` exclusion.
+
+2. Updated `ml-engine.tsx` `fetchAll` to transform API responses:
+    - Learners: iterate `learnersRes.learners` array and build a map `{code: {samples}, debug: {samples}, test: {samples}}`
+    - Improvement: extract `improvementRes.stats` and map `loopsRun → cyclesRun`, `observationsCollected → lessonsExtracted`, `predictionsMade → skillsCreated`
+      See commit 49ecf2e0 by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+api, bugfix
+
+---
+
+### Auto-Extracted Lesson: Central brain offline detection — add live MCP health check to override stale...
+
+Date: 2026-05-20
+Source: Git commit cef985f5
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/api/api.js
+
+#### Task Summary
+
+fix: central brain offline detection — add live MCP health check to override stale store log
+
+#### Files Changed
+
+- `cloud/api/api.js`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit cef985f5.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit cef985f5 by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+api, bugfix
+
+---
+
+### Auto-Extracted Lesson: (webview): resolve vscode-jsonrpc version conflict in Vite build
+
+Date: 2026-05-20
+Source: Git commit 09e7efda
+Model/API used: unknown
+Confidence: medium
+Related files: webview-ui/vite.config.ts
+
+#### Task Summary
+
+fix(webview): resolve vscode-jsonrpc version conflict in Vite build
+
+#### Files Changed
+
+- `webview-ui/vite.config.ts`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 09e7efda.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 09e7efda by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+ui, bugfix
+
+### Lesson: Central Brain offline detection — add live MCP health check to override stale store log
+
+Date: 2026-05-20
+Source: Code task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/api/api.js, memory/central-brain-store-log.json
+
+#### Task Summary
+
+Fixed "Central Brain offline" false positive in the Intelligence Layer dashboard. The `brainSync.offline` flag was set to `true` because `memory/central-brain-store-log.json` contained a single failed store attempt from 3 days ago (`failedStores: 1, successfulStores: 0`), but the MCP memory server (port 3419) was actually healthy and running.
+
+#### Files Changed
+
+- `cloud/api/api.js` — Added live MCP health check to `/intelligence-layer` route
+
+#### Bug Cause
+
+The `offline` detection logic at line 3954 was:
+
+```javascript
+offline: failed > 0 && successful === 0,
+```
+
+This used only the stale `central-brain-store-log.json` data. A single failed store attempt from days ago would permanently mark the brain as offline, even if the MCP memory server was healthy.
+
+#### Fix Applied
+
+Added a live health check to the MCP memory server (`http://127.0.0.1:3419/health`) that runs when `brainSync.offline` is `true`. If the MCP server responds with `ok: true`, the `offline` flag is overridden to `false`. This ensures the dashboard reflects the actual current state of the Central Brain, not stale historical data.
+
+#### Test Result
+
+pass — Verified both direct API (`/intelligence-layer`) and Next.js proxy (`/api/intelligence-layer`) return `offline: false` after the fix.
+
+#### Lesson Learned
+
+Never rely solely on stale log files to determine service health. Always add a live health check to verify the actual current state of a service before reporting it as offline. Historical failure data should inform but not override real-time health signals.
+
+#### Reusable Rule
+
+**When determining if a service is offline, always perform a live health check against the service endpoint. Stale log data (days old) should not override a positive health check response.**
+
+#### Tags
+
+central-brain, intelligence-layer, health-check, mcp, monitoring, false-positive
+
+---
+
+### Lesson: VSIX build failed due to pnpm-hoisted vscode-jsonrpc version conflict
+
+Date: 2026-05-20
+Source: Kimi Code CLI task completion
+Model/API used: Kimi Code CLI
+Confidence: high
+Related files: webview-ui/vite.config.ts, webview-ui/package.json, pnpm-lock.yaml
+
+#### Task Summary
+
+Fixed the VSIX build which was failing with two Rollup resolution errors:
+
+1. `Rollup failed to resolve import "react/jsx-runtime"` — caused by empty pnpm store directory for react@18.3.1
+2. `Missing "./lib/common/events.js" specifier in "vscode-jsonrpc" package` — caused by pnpm hoisting vscode-jsonrpc@9.0.0-next.11 to `.pnpm/node_modules`, breaking langium/mermaid which need deep imports from 8.2.0
+
+#### Files Changed
+
+- webview-ui/vite.config.ts
+
+#### Fix Applied
+
+1. Ran `pnpm add react@18.3.1 react-dom@18.3.1 --force` to restore missing react store files (triggered full monorepo install)
+2. Added `resolve.alias` in `vite.config.ts` to force `vscode-jsonrpc` to the 8.2.0 version:
+    ```ts
+    "vscode-jsonrpc": resolve(__dirname, "../node_modules/.pnpm/vscode-jsonrpc@8.2.0/node_modules/vscode-jsonrpc")
+    ```
+
+#### Test Result
+
+- `pnpm build` in webview-ui → ✅ success (1m 34s)
+- `pnpm vsix` at root → ✅ success, `bin/superroo-3.53.3.vsix` (32.67 MB)
+
+#### Lesson Learned
+
+pnpm's `.pnpm/node_modules` acts as a shared hoist layer. When multiple versions of a package exist, the one used by root dependencies gets hoisted there. Packages deeper in the tree that need deep imports from an older version (without restrictive `exports` field) will break because Node resolution finds the hoisted newer version first.
+
+#### Reusable Rule
+
+**Rule**: If a Vite/Rollup build fails with "Missing specifier" for a deep import from a package that has multiple versions in pnpm, check `node_modules/.pnpm/node_modules/<pkg>` to see which version is hoisted. Add a `resolve.alias` in vite.config.ts to pin the correct version for the webview/extension bundle.
+
+#### Tags
+
+[vite, rollup, pnpm, vscode-jsonrpc, mermaid, langium, vsix, build]
+
+### Lesson: Route handler URL mismatch — Next.js rewrite strips /api prefix, handler must check both forms
+
+Date: 2026-05-20
+Source: Code task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/api/routes/healing-metrics.js, cloud/api/routes/monitoring.js, cloud/dashboard/src/components/views/healing.tsx
+
+#### Task Summary
+
+Investigated and fixed the Healing tab error in the Cloud Dashboard. The root cause was a URL mismatch between the Next.js rewrite proxy and the API route handlers. The Next.js rewrite (`/api/:path*` → `/:path*`) strips the `/api` prefix before forwarding to the API server, but the route handlers in `healing-metrics.js` and `monitoring.js` only checked for paths starting with `/api/healing/*` and `/api/monitoring/*` respectively. This caused all three healing endpoints (metrics, incidents, escalated) to return 404, which the dashboard displayed as an error.
+
+#### Files Changed
+
+- cloud/api/routes/healing-metrics.js — Added normalized path check (with and without /api prefix)
+- cloud/api/routes/monitoring.js — Added normalized path check (with and without /api prefix)
+- cloud/dashboard/src/components/views/healing.tsx — Fixed incident filter default and dropdown options
+
+#### Bug Cause
+
+The `handleHealingRoute` and `handleMonitoringRoute` functions checked `pathname === "/api/healing/metrics"` etc., but the Next.js rewrite at `cloud/dashboard/next.config.js` strips the `/api` prefix: `source: "/api/:path*"` → `destination: "${API_INTERNAL_URL}/:path*"`. So the API server receives `/healing/metrics` instead of `/api/healing/metrics`, causing all route checks to fail.
+
+#### Fix Applied
+
+1. Added pathname normalization in both route handlers: strip `/api` prefix if present, then check both the original pathname and the normalized path.
+2. Changed the dashboard's incident filter default from `"active"` (which matches no actual incident status) to `"all"` (which sends no status filter, returning all incidents).
+3. Updated the filter dropdown to include all actual status values from the data (`fixing`, `reopened`, `queued_for_fix`).
+4. Added `queued_for_fix` to the escalated incidents filter list.
+
+#### Test Result
+
+unknown
+
+#### Lesson Learned
+
+When a Next.js app uses `async rewrites()` with `source: "/api/:path*"` and `destination: "${API_URL}/:path*"`, the `/api` prefix is stripped before reaching the API server. API route handlers must check for both `/api/endpoint` (for direct calls) and `/endpoint` (for proxied calls). This is a common pitfall when mixing Next.js rewrites with a separate API server.
+
+#### Reusable Rule
+
+When building API route handlers behind a Next.js rewrite that strips the `/api` prefix, always normalize the pathname and check both forms: `pathname === "/api/endpoint" || normalizedPath === "/endpoint"`. Also ensure dashboard filter defaults match actual data values — never use a filter value like `"active"` that doesn't correspond to any real status in the data model.
+
+#### Tags
+
+[nextjs, api-routing, rewrite, healing, monitoring, dashboard, bugfix]
+
+---

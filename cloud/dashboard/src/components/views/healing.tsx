@@ -211,7 +211,7 @@ export function HealingView() {
 	const [escalated, setEscalated] = useState<EscalatedResponse | null>(null)
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState<string | null>(null)
-	const [incidentFilter, setIncidentFilter] = useState<string>("active")
+	const [incidentFilter, setIncidentFilter] = useState<string>("all")
 
 	async function fetchAll() {
 		try {
@@ -461,11 +461,13 @@ export function HealingView() {
 							value={incidentFilter}
 							onChange={(e) => setIncidentFilter(e.target.value)}
 							className="rounded-md border border-[#1e2535] bg-[#0f1117] px-2 py-1 text-[10px] text-gray-400 outline-none focus:border-[#3b82f6]">
-							<option value="active">Active</option>
 							<option value="all">All</option>
+							<option value="needs_human_approval">Needs Approval</option>
+							<option value="fixing">Fixing</option>
 							<option value="verified">Verified</option>
 							<option value="blocked">Blocked</option>
-							<option value="needs_human_approval">Needs Approval</option>
+							<option value="reopened">Reopened</option>
+							<option value="queued_for_fix">Queued</option>
 						</select>
 						<button
 							onClick={fetchAll}
