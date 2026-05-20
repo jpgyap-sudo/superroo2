@@ -3956,6 +3956,31 @@ const server = http.createServer(async (req, res) => {
 				} catch {
 					/* file may not exist */
 				}
+				// Live health check: if the MCP memory server is reachable, the brain is NOT offline
+				// even if the store log shows historical failures (e.g. stale log from days ago)
+				if (brainSync.offline) {
+					try {
+						const http = require("http")
+						const healthRes = await new Promise((resolve, reject) => {
+							const req = http.get("http://127.0.0.1:3419/health", { timeout: 3000 }, (res) => {
+								let body = ""
+								res.on("data", (chunk) => (body += chunk))
+								res.on("end", () => resolve(body))
+							})
+							req.on("error", reject)
+							req.on("timeout", () => {
+								req.destroy()
+								reject(new Error("timeout"))
+							})
+						})
+						const health = JSON.parse(healthRes)
+						if (health.ok === true) {
+							brainSync.offline = false
+						}
+					} catch {
+						/* MCP server unreachable — keep offline=true */
+					}
+				}
 
 				// ── Skills count — scan .roo/skills/ for SKILL.md files ──
 				let totalSkills = 0
@@ -8825,8 +8850,20 @@ const server = http.createServer(async (req, res) => {
 				return
 			}
 			try {
-				const stats = await orchestrator.hermesClaw.getStats()
-				sendJson(res, 200, { success: true, stats })
+				const raw = await orchestrator.hermesClaw.getStats()
+				const ks = raw.knowledgeStore || {}
+				sendJson(res, 200, {
+					success: true,
+					totalQueries: raw.operationCount || 0,
+					memoryEntries: raw.memoryEntries || 0,
+					avgLatencyMs: raw.averageDurationMs || 0,
+					totalBugFixes: ks.totalBugFixes || 0,
+					totalLessons: ks.totalLessons || 0,
+					ollamaReady: true,
+					modelLoaded: orchestrator.hermesClaw.config?.ollamaModel || "qwen2.5:0.5b",
+					knowledgeStore: ks,
+					stats: raw,
+				})
 			} catch (err) {
 				sendJson(res, 500, { success: false, error: err.message })
 			}
@@ -8843,8 +8880,20 @@ const server = http.createServer(async (req, res) => {
 				return
 			}
 			try {
-				const stats = await orchestrator.hermesClaw.getStats()
-				sendJson(res, 200, { success: true, stats })
+				const raw = await orchestrator.hermesClaw.getStats()
+				const ks = raw.knowledgeStore || {}
+				sendJson(res, 200, {
+					success: true,
+					totalQueries: raw.operationCount || 0,
+					memoryEntries: raw.memoryEntries || 0,
+					avgLatencyMs: raw.averageDurationMs || 0,
+					totalBugFixes: ks.totalBugFixes || 0,
+					totalLessons: ks.totalLessons || 0,
+					ollamaReady: true,
+					modelLoaded: orchestrator.hermesClaw.config?.ollamaModel || "qwen2.5:0.5b",
+					knowledgeStore: ks,
+					stats: raw,
+				})
 			} catch (err) {
 				sendJson(res, 500, { success: false, error: err.message })
 			}
