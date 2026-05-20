@@ -54,9 +54,33 @@ export function MLEngineView() {
 				fetch("/api/orchestrator/ml/learners").then((r) => r.json()),
 				fetch("/api/orchestrator/improvement/stats").then((r) => r.json()),
 			])
+
+			// Model stats — API returns {modelType, loopsRun, ...} directly
 			setModel(modelRes)
-			setLearners(learnersRes)
-			setImprovement(improvementRes)
+
+			// Learners — API returns {learners: [{name, status, samples}, ...]}
+			// Transform to {code: {samples}, debug: {samples}, test: {samples}}
+			const learnersMap: any = {
+				code: { samples: 0, lastTrained: "" },
+				debug: { samples: 0, lastTrained: "" },
+				test: { samples: 0, lastTrained: "" },
+			}
+			if (learnersRes.learners) {
+				learnersRes.learners.forEach((l: any) => {
+					learnersMap[l.name] = { samples: l.samples, lastTrained: l.lastTrained || "" }
+				})
+			}
+			setLearners(learnersMap)
+
+			// Improvement stats — API returns {success: true, stats: {loopsRun, ...}}
+			// Transform to {cyclesRun, lessonsExtracted, skillsCreated}
+			const stats = improvementRes.stats || improvementRes
+			setImprovement({
+				cyclesRun: stats.loopsRun || 0,
+				lessonsExtracted: stats.observationsCollected || 0,
+				skillsCreated: stats.predictionsMade || 0,
+			})
+
 			setError(null)
 		} catch (err: unknown) {
 			setError(err instanceof Error ? err.message : "Failed to fetch ML stats")

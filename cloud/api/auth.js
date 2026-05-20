@@ -935,6 +935,9 @@ async function handleAuthRoute(method, url, req, res) {
 	// Don't intercept Orchestrator routes — handled by api.js directly (ML Engine, Hermes Claw, improvement, status, etc.)
 	if (normalizedPath.startsWith("/orchestrator/")) return false
 
+	// Don't intercept Visual Crawler routes — handled by api.js directly
+	if (normalizedPath.startsWith("/visual-crawl/")) return false
+
 	// Don't intercept lessons sync — called by local dev machine sync script
 	if (normalizedPath === "/lessons/sync") return false
 
