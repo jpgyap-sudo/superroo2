@@ -126,27 +126,38 @@
 			"id": "commit_1779273297215",
 			"modelsUsed": [],
 			"workflowCompliance": null
-		}
-	],
-	"deploys": [
-		{
-			"version": "3.53.3",
-			"commitSha": "05373f87b",
-			"agent": "Kimi Code CLI",
-			"status": "deploying",
-			"timestamp": 1779111103077
 		},
 		{
-			"sha": "2ad4488cdd5a1ea1cd6ca2024283cb6c80bb9171",
+			"id": "commit_1779296389499",
+			"commitSha": "8be88a7f7",
 			"agent": "Kimi Code CLI",
 			"type": "bugfix",
-			"title": "fix(telegram): P0 bug fixes — shell policy boolean, /logs empty content, callback registry leak, sendMessage return message_id",
-			"filesChanged": ["cloud/api/telegramBot.js", "cloud/api/telegramNotifier.js"],
-			"featuresAffected": ["telegram-bot"],
-			"timestamp": "2026-05-20T11:41:10.000Z",
-			"id": "commit_1779277270000",
-			"modelsUsed": [],
-			"workflowCompliance": null
+			"title": "fix(ram-orchestrator): proxy routes, TypeError fixes, hysteresis logic, file rotation, null guards, abort signals",
+			"description": "Fixed RAM orchestrator audit issues: API proxy routes, string mutation TypeError, JSONL file rotation, WorkerPauseManager null guards, EADDRINUSE exit, hysteresis recovery zone, ramPercent rounding, pausedWorkers array return, dashboard AbortSignal timeouts.",
+			"filesChanged": [
+				"cloud/api/api.js",
+				"cloud/api/routes/monitoring.js",
+				"cloud/dashboard/src/components/views/ram-orchestrator.tsx",
+				"cloud/orchestrator/modules/RAMMonitor.js",
+				"cloud/orchestrator/modules/WorkerPauseManager.js",
+				"cloud/worker/vpsRamOrchestratorWorker.js"
+			],
+			"featuresAffected": ["ram-orchestrator", "monitoring", "dashboard"],
+			"bugsFixed": [],
+			"timestamp": "2026-05-20T16:59:49.499Z",
+			"modelsUsed": [
+				{
+					"phase": "coding",
+					"provider": "kimi",
+					"model": "kimi-code-cli"
+				}
+			],
+			"workflowCompliance": {
+				"isCompliant": true,
+				"deepseekUsed": false,
+				"lessonsRetrieved": true,
+				"testsRun": true
+			}
 		}
 	],
 	"deploys": [
@@ -165,6 +176,16 @@
 			"target": "VPS (100.64.175.88)",
 			"timestamp": "2026-05-20T11:47:53.000Z",
 			"status": "healthy"
+		},
+		{
+			"id": "deploy_1779296389513",
+			"version": "3.53.3",
+			"commitSha": "8be88a7f7",
+			"agent": "Kimi Code CLI",
+			"target": "100.64.175.88",
+			"services": ["superroo-api", "superroo-ram-orchestrator"],
+			"status": "healthy",
+			"timestamp": "2026-05-20T16:59:49.513Z"
 		}
 	]
 }
