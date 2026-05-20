@@ -5,98 +5,47 @@
   <a href="https://discord.gg/superroo"><img src="https://img.shields.io/badge/Join%20Discord-5865F2?style=flat&logo=discord&logoColor=white" alt="Join Discord"></a>
   <a href="https://www.reddit.com/r/SuperRoo/"><img src="https://img.shields.io/badge/Join%20r%2FSuperRoo-FF4500?style=flat&logo=reddit&logoColor=white" alt="Join r/SuperRoo"></a>
 </p>
-<p align="center">
-  <em>Get help fast → <a href="https://discord.gg/superroo">Join Discord</a> • Prefer async? → <a href="https://www.reddit.com/r/SuperRoo/">Join r/SuperRoo</a></em>
-</p>
 
 # SuperRoo
 
-> Your AI-Powered Dev Team, Right in Your Editor
+> Autonomous AI engineering platform with a Central Brain, Telegram control plane, cloud dashboard, learning layer, monitoring, and self-healing.
 
-## What's New in v3.53.0
+SuperRoo is not just an editor assistant. It is a full-stack AI engineering system that plans, codes, tests, deploys, observes, learns, and repairs with an auditable multi-agent workflow. The product combines a VS Code extension, cloud dashboard, Telegram operator interface, persistent Central Brain memory, deployment orchestration, and self-healing incident pipelines.
 
-> ### The SuperRoo plugin is not going away.
->
-> You may have seen the [recent announcement](https://x.com/mattrubens/status/2046636598859559114) that SuperRoo hit 3 million installs and the original team is going all-in on Roomote. We know that news was hard for a lot of you. This plugin means a lot to us and to you, and we hear you.
->
-> The good news: **a community team has stepped up to carry SuperRoo forward**, and we're working with them on an official handoff so the plugin you rely on keeps getting maintained and improved.
+## What Makes SuperRoo Different
 
-**What's new in this release:**
+| Layer                      | What it does                                                                                                                                 |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Central Brain**          | Stores cross-project lessons, task history, model decisions, and reusable engineering knowledge so agents stop repeating mistakes.           |
+| **Learning Layer**         | Captures lessons from commits and task completions, indexes them locally and centrally, and injects relevant memory before new work starts.  |
+| **Cloud Dashboard**        | Gives operators live views for agents, jobs, logs, monitoring, healing, deployments, model routing, product memory, and workflow compliance. |
+| **Telegram Control Plane** | Lets you command, approve, inspect, and improve the system from Telegram instead of staying inside the IDE.                                  |
+| **Self-Healing Engine**    | Detects incidents, classifies root causes, builds repair plans, tracks repair attempts, verifies outcomes, and escalates repeated failures.  |
+| **Unified Deploy System**  | Queues builds and deployments through a single orchestrator with health checks, rollback paths, and commit/deploy audit records.             |
 
-- Add GPT-5.5 support via the OpenAI Codex provider.
-- Add Claude Opus 4.7 support on Vertex AI.
-- Add previous checkpoint navigation controls in chat so you can step back through prior checkpoints more easily.
+## Core Capabilities
 
-<details>
-  <summary>🌐 Available languages</summary>
+- Multi-agent orchestration for coding, debugging, testing, product management, deployment, and repair.
+- Persistent product memory for features, bugs, updates, commits, deployments, and active Codex tasks.
+- Monitoring APIs and dashboards for logs, health timelines, service status, RAM/CPU signals, and healing proof metrics.
+- Self-healing telemetry including success rates, repair execution tracking, escalation counts, repeated-failure detection, and recent incident trends.
+- Model routing across provider-specific strengths, with DeepSeek for implementation, Codex for review, and Ollama for local embeddings/memory.
+- Safety controls for approval gates, autonomy levels, command restrictions, rollback, and deployment hygiene.
 
-- [English](README.md)
-- [Català](locales/ca/README.md)
-- [Deutsch](locales/de/README.md)
-- [Español](locales/es/README.md)
-- [Français](locales/fr/README.md)
-- [हिंदी](locales/hi/README.md)
-- [Bahasa Indonesia](locales/id/README.md)
-- [Italiano](locales/it/README.md)
-- [日本語](locales/ja/README.md)
-- [한국어](locales/ko/README.md)
-- [Nederlands](locales/nl/README.md)
-- [Polski](locales/pl/README.md)
-- [Português (BR)](locales/pt-BR/README.md)
-- [Русский](locales/ru/README.md)
-- [Türkçe](locales/tr/README.md)
-- [Tiếng Việt](locales/vi/README.md)
-- [简体中文](locales/zh-CN/README.md)
-- [繁體中文](locales/zh-TW/README.md)
-- ...
-    </details>
+## Operator Surfaces
 
----
+- **VS Code extension** - work where the code lives.
+- **Cloud dashboard** - inspect system state, jobs, logs, healing, deployments, memory, and compliance.
+- **Telegram bot** - operate the system remotely with alerting and approval workflows.
+- **Central Brain / learning CLI** - query and store lessons across projects with local-first fallback.
 
-## What Can SuperRoo Do For YOU?
+## Current Focus Areas
 
-- Generate Code from natural language descriptions and specs
-- Adapt with Modes: Code, Architect, Ask, Debug, and Custom Modes
-- Refactor & Debug existing code
-- Write & Update documentation
-- Answer Questions about your codebase
-- Automate repetitive tasks
-- Utilize MCP Servers
+SuperRoo already has strong primitives for monitoring and self-healing. The next proof milestones are:
 
-## Modes
-
-SuperRoo adapts to how you work:
-
-- Code Mode: everyday coding, edits, and file ops
-- Architect Mode: plan systems, specs, and migrations
-- Ask Mode: fast answers, explanations, and docs
-- Debug Mode: trace issues, add logs, isolate root causes
-- Custom Modes: build specialized modes for your team or workflow
-
-Learn more: [Using Modes](https://docs.superroo.com/basic-usage/using-modes) • [Custom Modes](https://docs.superroo.com/advanced-usage/custom-modes)
-
-## Tutorial & Feature Videos
-
-<div align="center">
-
-|                                                                                                                                                                           |                                                                                                                                                                            |                                                                                                                                                                          |
-| :-----------------------------------------------------------------------------------------------------------------------------------------------------------------------: | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------: | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------: |
-| <a href="https://www.youtube.com/watch?v=Mcq3r1EPZ-4"><img src="https://img.youtube.com/vi/Mcq3r1EPZ-4/maxresdefault.jpg" width="100%"></a><br><b>Installing SuperRoo</b> | <a href="https://www.youtube.com/watch?v=ZBML8h5cCgo"><img src="https://img.youtube.com/vi/ZBML8h5cCgo/maxresdefault.jpg" width="100%"></a><br><b>Configuring Profiles</b> | <a href="https://www.youtube.com/watch?v=r1bpod1VWhg"><img src="https://img.youtube.com/vi/r1bpod1VWhg/maxresdefault.jpg" width="100%"></a><br><b>Codebase Indexing</b>  |
-|    <a href="https://www.youtube.com/watch?v=iiAv1eKOaxk"><img src="https://img.youtube.com/vi/iiAv1eKOaxk/maxresdefault.jpg" width="100%"></a><br><b>Custom Modes</b>     |     <a href="https://www.youtube.com/watch?v=Ho30nyY332E"><img src="https://img.youtube.com/vi/Ho30nyY332E/maxresdefault.jpg" width="100%"></a><br><b>Checkpoints</b>      | <a href="https://www.youtube.com/watch?v=HmnNSasv7T8"><img src="https://img.youtube.com/vi/HmnNSasv7T8/maxresdefault.jpg" width="100%"></a><br><b>Context Management</b> |
-
-</div>
-<p align="center">
-<a href="https://docs.superroo.com/tutorial-videos">More quick tutorial and feature videos...</a>
-</p>
-
-## Resources
-
-- **[Documentation](https://docs.superroo.com):** The official guide to installing, configuring, and mastering SuperRoo.
-- **[YouTube Channel](https://youtube.com/@superrooyt?feature=shared):** Watch tutorials and see features in action.
-- **[Discord Server](https://discord.gg/superroo):** Join the community for real-time help and discussion.
-- **[Reddit Community](https://www.reddit.com/r/SuperRoo):** Share your experiences and see what others are building.
-- **[GitHub Issues](https://github.com/SuperRooInc/SuperRoo/issues):** Report bugs and track development.
-- **[Feature Requests](https://github.com/SuperRooInc/SuperRoo/discussions/categories/feature-requests?discussions_q=is%3Aopen+category%3A%22Feature+Requests%22+sort%3Atop):** Have an idea? Share it with the developers.
+1. Publish live success-rate and repair-attempt metrics from production runs, not only tests.
+2. Expand monitoring from dashboards into alert rules and notification routing.
+3. Keep README/docs aligned with the actual platform architecture instead of generic extension copy.
 
 ---
 
