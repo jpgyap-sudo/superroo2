@@ -314,10 +314,7 @@ async function sendProgressBar(botToken, chatId, taskId, label, progress, status
 	for (var fi = 0; fi < filled; fi++) bar += "🟩"
 	for (var ei = 0; ei < empty; ei++) bar += "⬜"
 	var pct = Math.round(clampedProgress * 100)
-	var text =
-		"*" + label + "*\n" +
-		bar + " " + pct + "%\n" +
-		(statusText || "_Working..._")
+	var text = "*" + label + "*\n" + bar + " " + pct + "%\n" + (statusText || "_Working..._")
 
 	var existing = _progressMessages.get(taskId)
 	if (existing && existing.messageId) {
@@ -363,8 +360,13 @@ async function updateProgressBar(botToken, taskId, progress, statusText) {
 	for (var ei = 0; ei < empty; ei++) bar += "⬜"
 	var pct = Math.round(clampedProgress * 100)
 	var text =
-		"*" + (statusText ? statusText.split("\n")[0] : "Progress") + "*\n" +
-		bar + " " + pct + "%\n" +
+		"*" +
+		(statusText ? statusText.split("\n")[0] : "Progress") +
+		"*\n" +
+		bar +
+		" " +
+		pct +
+		"%\n" +
 		(statusText || "_Working..._")
 
 	try {
@@ -390,7 +392,6 @@ async function updateProgressBar(botToken, taskId, progress, statusText) {
 
 async function clearProgressBar(taskId) {
 	_progressMessages.delete(taskId)
-}
 }
 
 // ---------------------------------------------------------------------------

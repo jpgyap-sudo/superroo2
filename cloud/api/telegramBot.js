@@ -62,7 +62,18 @@ const BOT_USERNAME = process.env.TELEGRAM_BOT_USERNAME || "superroo_bot"
 const BOSS_USERNAME = process.env.BOSS_TELEGRAM_USERNAME || "jpgy888"
 
 /** Commands that don't require an active Telegram session */
-const PUBLIC_COMMANDS = ["/start", "/login", "/help", "/about", "/debug", "/logs", "/tests", "/restart", "/aceteam", "/cancel"]
+const PUBLIC_COMMANDS = [
+	"/start",
+	"/login",
+	"/help",
+	"/about",
+	"/debug",
+	"/logs",
+	"/tests",
+	"/restart",
+	"/aceteam",
+	"/cancel",
+]
 
 /** Mini App URL for login */
 const DASHBOARD_URL = process.env.TELEGRAM_MINI_APP_URL || "https://dev.abcx124.xyz"
@@ -120,7 +131,7 @@ function startWebhookHealthCheck(botToken, intervalMs) {
 	if (_webhookHealthInterval) {
 		clearInterval(_webhookHealthInterval)
 	}
-	console.log("[telegram] Starting webhook health check every " + (intervalMs / 1000) + "s")
+	console.log("[telegram] Starting webhook health check every " + intervalMs / 1000 + "s")
 	// Run immediately
 	runWebhookHealthCheck(botToken)
 	_webhookHealthInterval = setInterval(function () {
@@ -163,8 +174,11 @@ async function runWebhookHealthCheck(botToken) {
 		// Log warning if 3+ consecutive failures
 		if (webhookHealth.consecutiveFailures >= 3 && webhookHealth.consecutiveFailures % 3 === 0) {
 			console.warn(
-				"[telegram] Webhook health: " + webhookHealth.consecutiveFailures +
-				" consecutive failures (last: " + webhookHealth.lastError + ")",
+				"[telegram] Webhook health: " +
+					webhookHealth.consecutiveFailures +
+					" consecutive failures (last: " +
+					webhookHealth.lastError +
+					")",
 			)
 		}
 	} catch (err) {
@@ -334,17 +348,17 @@ function logTelegramUsage(command, chatId, userId, details) {
 }
 
 /**
-	* Command latency tracking for monitoring slow commands.
-	* Records min, max, avg, count, and p95 latency per command.
-	*/
+ * Command latency tracking for monitoring slow commands.
+ * Records min, max, avg, count, and p95 latency per command.
+ */
 const commandLatency = {}
 const COMMAND_LATENCY_HISTORY_MAX = 1000
 
 /**
-	* Record the execution latency of a command for monitoring.
-	* @param {string} command - The command name (e.g., "/code", "callback:brain_exec")
-	* @param {number} durationMs - Execution duration in milliseconds
-	*/
+ * Record the execution latency of a command for monitoring.
+ * @param {string} command - The command name (e.g., "/code", "callback:brain_exec")
+ * @param {number} durationMs - Execution duration in milliseconds
+ */
 function logCommandLatency(command, durationMs) {
 	if (!commandLatency[command]) {
 		commandLatency[command] = {
@@ -366,17 +380,19 @@ function logCommandLatency(command, durationMs) {
 			stats.recent = stats.recent.slice(-100)
 		}
 		// Compute p95 from recent samples
-		var sorted = stats.recent.slice().sort(function (a, b) { return a - b })
+		var sorted = stats.recent.slice().sort(function (a, b) {
+			return a - b
+		})
 		var p95Index = Math.ceil(sorted.length * 0.95) - 1
 		stats.p95 = sorted[Math.max(0, p95Index)]
 	}
 }
 
 /**
-	* Get a snapshot of command latency statistics.
-	* @param {string} [command] - Optional command filter
-	* @returns {object} Latency stats
-	*/
+ * Get a snapshot of command latency statistics.
+ * @param {string} [command] - Optional command filter
+ * @returns {object} Latency stats
+ */
 function getCommandLatency(command) {
 	if (command) {
 		var s = commandLatency[command]
@@ -405,9 +421,9 @@ function getCommandLatency(command) {
 }
 
 /**
-	* Provider fallback metrics for monitoring AI provider reliability.
-	* Tracks attempts, successes, failures, and fallback chain behavior.
-	*/
+ * Provider fallback metrics for monitoring AI provider reliability.
+ * Tracks attempts, successes, failures, and fallback chain behavior.
+ */
 const providerMetrics = {
 	attempts: {},
 	successes: {},
@@ -424,11 +440,11 @@ const providerMetrics = {
 }
 
 /**
-	* Record a provider attempt for monitoring.
-	* @param {string} providerId - Provider identifier (e.g., "deepseek", "ollama")
-	* @param {boolean} success - Whether the call succeeded
-	* @param {number} [durationMs] - Optional response time in milliseconds
-	*/
+ * Record a provider attempt for monitoring.
+ * @param {string} providerId - Provider identifier (e.g., "deepseek", "ollama")
+ * @param {boolean} success - Whether the call succeeded
+ * @param {number} [durationMs] - Optional response time in milliseconds
+ */
 function logProviderAttempt(providerId, success, durationMs) {
 	if (!providerMetrics.attempts[providerId]) {
 		providerMetrics.attempts[providerId] = 0
@@ -444,9 +460,9 @@ function logProviderAttempt(providerId, success, durationMs) {
 }
 
 /**
-	* Get provider metrics snapshot.
-	* @returns {object} Provider metrics with success rates
-	*/
+ * Get provider metrics snapshot.
+ * @returns {object} Provider metrics with success rates
+ */
 function getProviderMetrics() {
 	var result = {
 		providers: {},
@@ -463,6 +479,114 @@ function getProviderMetrics() {
 		}
 	}
 	return result
+}
+
+// ─── Response Cache (GAP 3.4) ──────────────────────────────────────────────
+// Caches AI responses keyed by message hash + chat context hash.
+// Serves cached responses when all providers are down.
+// Entries expire after RESPONSE_CACHE_TTL_MS.
+
+/** Map<string, { response, timestamp, provider, messagePreview }> */
+const _responseCache = new Map()
+const RESPONSE_CACHE_MAX = 500
+const RESPONSE_CACHE_TTL_MS = 30 * 60 * 1000 // 30 minutes
+
+/**
+ * Generate a simple hash for a string (djb2 algorithm).
+ * @param {string} str
+ * @returns {string} hex hash
+ */
+function _hashString(str) {
+	var hash = 5381
+	for (var i = 0; i < str.length; i++) {
+		hash = ((hash << 5) + hash + str.charCodeAt(i)) | 0
+	}
+	return Math.abs(hash).toString(16)
+}
+
+/**
+ * Build a cache key from the user message and chat context.
+ * @param {string} message - The user's message
+ * @param {number|string} [chatId] - Optional chat ID for context
+ * @returns {string} cache key
+ */
+function _buildCacheKey(message, chatId) {
+	var msgHash = _hashString(message.toLowerCase().trim())
+	if (chatId === undefined || chatId === null) {
+		return msgHash
+	}
+	// Include a lightweight context fingerprint (last intent + message count)
+	var ctx = getSmartContext(chatId)
+	var ctxFingerprint = ""
+	if (ctx) {
+		ctxFingerprint = ctx.lastIntent || "" + "|" + (ctx.messageCount || 0)
+	}
+	var ctxHash = _hashString(ctxFingerprint)
+	return msgHash + "_" + ctxHash
+}
+
+/**
+ * Store a response in the cache.
+ * @param {string} message - The user's original message
+ * @param {string} response - The AI response to cache
+ * @param {number|string} [chatId] - Optional chat ID
+ * @param {string} [provider] - The provider that generated the response
+ */
+function _cacheResponse(message, response, chatId, provider) {
+	var key = _buildCacheKey(message, chatId)
+	// Evict oldest entry if at capacity
+	if (_responseCache.size >= RESPONSE_CACHE_MAX) {
+		var oldestKey = null
+		var oldestTime = Infinity
+		_responseCache.forEach(function (entry, k) {
+			if (entry.timestamp < oldestTime) {
+				oldestTime = entry.timestamp
+				oldestKey = k
+			}
+		})
+		if (oldestKey) _responseCache.delete(oldestKey)
+	}
+	_responseCache.set(key, {
+		response: response,
+		timestamp: Date.now(),
+		provider: provider || "unknown",
+		messagePreview: message.slice(0, 80),
+	})
+}
+
+/**
+ * Look up a cached response.
+ * @param {string} message - The user's message
+ * @param {number|string} [chatId] - Optional chat ID
+ * @returns {{ response: string, provider: string, age: number }|null} Cached entry or null
+ */
+function _getCachedResponse(message, chatId) {
+	var key = _buildCacheKey(message, chatId)
+	var entry = _responseCache.get(key)
+	if (!entry) return null
+	// Check TTL
+	var age = Date.now() - entry.timestamp
+	if (age > RESPONSE_CACHE_TTL_MS) {
+		_responseCache.delete(key)
+		return null
+	}
+	return {
+		response: entry.response,
+		provider: entry.provider,
+		age: age,
+	}
+}
+
+/**
+ * Get cache stats for monitoring.
+ * @returns {{ size: number, maxSize: number, ttlMinutes: number }}
+ */
+function getResponseCacheStats() {
+	return {
+		size: _responseCache.size,
+		maxSize: RESPONSE_CACHE_MAX,
+		ttlMinutes: RESPONSE_CACHE_TTL_MS / 60000,
+	}
 }
 
 // ─── In-memory state ───────────────────────────────────────────────────────
@@ -1009,13 +1133,16 @@ async function sendPaginatedMessage(botToken, chatId, text, opts) {
 	})
 
 	// Clean up old paginated messages after 10 minutes
-	setTimeout(function () {
-		var chatPages = _paginatedMessages.get(chatId)
-		if (chatPages) {
-			chatPages.delete(pageKey)
-			if (chatPages.size === 0) _paginatedMessages.delete(chatId)
-		}
-	}, 10 * 60 * 1000).unref()
+	setTimeout(
+		function () {
+			var chatPages = _paginatedMessages.get(chatId)
+			if (chatPages) {
+				chatPages.delete(pageKey)
+				if (chatPages.size === 0) _paginatedMessages.delete(chatId)
+			}
+		},
+		10 * 60 * 1000,
+	).unref()
 
 	return result
 }
@@ -1674,8 +1801,10 @@ async function loadState() {
 			}
 			if (restoredCount > 0 || expiredCount > 0) {
 				console.log(
-					"[telegram] Restored " + restoredCount + " smart context entries" +
-					(expiredCount > 0 ? ", expired " + expiredCount : ""),
+					"[telegram] Restored " +
+						restoredCount +
+						" smart context entries" +
+						(expiredCount > 0 ? ", expired " + expiredCount : ""),
 				)
 			}
 		}
@@ -1695,8 +1824,10 @@ async function loadState() {
 			}
 			if (restoredUserCtx > 0 || expiredUserCtx > 0) {
 				console.log(
-					"[telegram] Restored " + restoredUserCtx + " user context entries" +
-					(expiredUserCtx > 0 ? ", expired " + expiredUserCtx : ""),
+					"[telegram] Restored " +
+						restoredUserCtx +
+						" user context entries" +
+						(expiredUserCtx > 0 ? ", expired " + expiredUserCtx : ""),
 				)
 			}
 		}
@@ -1797,11 +1928,11 @@ function buildConversationSummary(chatId, maxMessages) {
 }
 
 /**
-	* Builds an LLM-compressed conversation summary when history exceeds threshold.
-	* Uses Ollama (free, local) to generate a 3-5 sentence compressed summary of
-	* key decisions, open questions, and resolved items. Falls back to the regular
-	* buildConversationSummary() if Ollama is unavailable.
-	*/
+ * Builds an LLM-compressed conversation summary when history exceeds threshold.
+ * Uses Ollama (free, local) to generate a 3-5 sentence compressed summary of
+ * key decisions, open questions, and resolved items. Falls back to the regular
+ * buildConversationSummary() if Ollama is unavailable.
+ */
 async function buildCompressedConversationSummary(chatId, providers) {
 	var history = conversationHistory.get(chatId)
 	if (!history || history.length === 0) return ""
@@ -1851,10 +1982,10 @@ async function buildCompressedConversationSummary(chatId, providers) {
 }
 
 /**
-	* ─── Chat Logging ───────────────────────────────────────────────────────────
-	* Writes every conversation exchange to a daily log file for agent monitoring.
-	* The log is structured as JSONL (one JSON object per line) for easy parsing.
-	* An external monitoring agent reads these logs daily to identify improvement
+ * ─── Chat Logging ───────────────────────────────────────────────────────────
+ * Writes every conversation exchange to a daily log file for agent monitoring.
+ * The log is structured as JSONL (one JSON object per line) for easy parsing.
+ * An external monitoring agent reads these logs daily to identify improvement
  * opportunities and trigger code/skill upgrades.
  */
 
@@ -2166,6 +2297,11 @@ async function askAI(message, providers, chatId, options) {
 	// ── Step 4: Add current user message ────────────────────────────────
 	messages.push({ role: "user", content: message })
 
+	// ── Step 4b: Check response cache (GAP 3.4) ─────────────────────────
+	// Cache the message hash for potential cache lookup if all providers fail.
+	// The actual lookup happens at the end if all providers are down.
+	var _cachedResponse = _getCachedResponse(message, chatId)
+
 	// ── Step 5: Try Ollama (local, FREE) first ─────────────────────────
 	// Uses shared _callOllamaChat helper which uses http.request instead of fetch
 	// because Node.js 20's built-in fetch (undici) has a default headersTimeout of ~20s,
@@ -2177,6 +2313,8 @@ async function askAI(message, providers, chatId, options) {
 		providerMetrics.fallbackChain.ollamaFirst++
 		providerMetrics.fallbackChain.ollamaFirstOk++
 		logProviderAttempt("ollama", true, Date.now() - ollamaStart)
+		// Cache the response for provider outage fallback (GAP 3.4)
+		_cacheResponse(message, ollamaReply, chatId, "ollama")
 		return ollamaReply
 	}
 	console.log("[telegram] Ollama unavailable, falling back to cloud API")
@@ -2326,6 +2464,9 @@ async function askAI(message, providers, chatId, options) {
 				console.log("[telegram] HermesClaw lesson extraction error:", extractErr.message)
 			}
 
+			// Cache the response for provider outage fallback (GAP 3.4)
+			_cacheResponse(message, reply, chatId, provider.providerId || "cloud")
+
 			return reply
 		} catch (err) {
 			var errorDetail =
@@ -2376,6 +2517,8 @@ async function askAI(message, providers, chatId, options) {
 		providerMetrics.fallbackChain.ollamaRagFallback++
 		providerMetrics.fallbackChain.ollamaRagOk++
 		logProviderAttempt("ollama_rag", true, Date.now() - ollamaRagStart)
+		// Cache the response for provider outage fallback (GAP 3.4)
+		_cacheResponse(message, ollamaReply, chatId, "ollama_rag")
 		return ollamaReply + "\n\n_(responded via local Ollama — cloud AI providers were unavailable)_"
 	} else {
 		console.error("[telegram] Ollama fallback returned no response")
@@ -2384,6 +2527,30 @@ async function askAI(message, providers, chatId, options) {
 	}
 
 	providerMetrics.fallbackChain.allFailed++
+
+	// ── Step 9: Try response cache as last resort (GAP 3.4) ─────────────
+	// If all providers failed AND we have a cached response, serve it
+	// with a disclaimer about the provider outage.
+	if (_cachedResponse) {
+		var ageMinutes = Math.round(_cachedResponse.age / 60000)
+		console.log(
+			"[telegram] All providers failed — serving cached response from " +
+				_cachedResponse.provider +
+				" (" +
+				ageMinutes +
+				"m old)",
+		)
+		return (
+			"⚠️ *AI providers are currently unavailable.*\n\n" +
+			"Here's a cached response from " +
+			ageMinutes +
+			" minutes ago (via " +
+			_cachedResponse.provider +
+			"):\n\n" +
+			_cachedResponse.response
+		)
+	}
+
 	var triedProviders = providers
 		.filter(function (p) {
 			return p.apiKey
@@ -4877,7 +5044,9 @@ function recordUserError(telegramUserId, errorMessage) {
 	if (!errorMessage) return
 	var ctx = getUserContext(telegramUserId)
 	if (!ctx) return
-	var existing = ctx.commonErrors.find(function (e) { return e.message === errorMessage })
+	var existing = ctx.commonErrors.find(function (e) {
+		return e.message === errorMessage
+	})
 	if (existing) {
 		existing.count++
 		existing.lastSeen = Date.now()
@@ -4943,7 +5112,9 @@ function detectConversationTopic(chatId) {
 
 	var recentText = history
 		.slice(-6)
-		.map(function (m) { return m.content })
+		.map(function (m) {
+			return m.content
+		})
 		.join(" ")
 		.toLowerCase()
 
@@ -5019,9 +5190,13 @@ function buildSmartContextPrompt(chatId, telegramUserId) {
 						intentCounts[intentName] = (intentCounts[intentName] || 0) + 1
 					}
 					var topIntents = Object.entries(intentCounts)
-						.sort(function (a, b) { return b[1] - a[1] })
+						.sort(function (a, b) {
+							return b[1] - a[1]
+						})
 						.slice(0, 3)
-						.map(function (e) { return e[0] + " (" + e[1] + "x)" })
+						.map(function (e) {
+							return e[0] + " (" + e[1] + "x)"
+						})
 					userParts.push("frequent intents: " + topIntents.join(", "))
 				}
 				if (uctx.totalInteractions > 0) {
@@ -6109,19 +6284,26 @@ function detectIntent(text) {
 			{ keywords: ["compare", "comparison", "pros and cons", "advantages", "disadvantages"], weight: 3 },
 			{ keywords: ["best practice", "recommend", "recommendation", "guidance", "advise", "advice"], weight: 3 },
 			{ keywords: ["viability", "feasibility", "strategy", "strategic", "architecture"], weight: 3 },
-			{ keywords: ["what is the best", "which one", "how does", "explain", "what is", "tell me about"], weight: 2 },
+			{
+				keywords: ["what is the best", "which one", "how does", "explain", "what is", "tell me about"],
+				weight: 2,
+			},
 			{ keywords: ["design pattern", "technology stack", "tech stack", "overview", "deep dive"], weight: 2 },
-			{ keywords: ["learn about", "summary of", "consultant", "consult", "upgrade skill", "upgrade my skill"], weight: 2 },
+			{
+				keywords: ["learn about", "summary of", "consultant", "consult", "upgrade skill", "upgrade my skill"],
+				weight: 2,
+			},
 		],
 		debugger: [
 			{ keywords: ["debug", "fix bug", "bug"], weight: 3 },
 			{ keywords: ["error", "not working", "broken", "crash", "issue"], weight: 2 },
 		],
-		deployer: [
-			{ keywords: ["deploy", "release", "publish", "ship", "go live"], weight: 3 },
-		],
+		deployer: [{ keywords: ["deploy", "release", "publish", "ship", "go live"], weight: 3 }],
 		tester: [
-			{ keywords: ["run test", "run the test", "run tests", "run e2e", "check test", "unit test", "vitest"], weight: 3 },
+			{
+				keywords: ["run test", "run the test", "run tests", "run e2e", "check test", "unit test", "vitest"],
+				weight: 3,
+			},
 		],
 		coder: [
 			{ keywords: ["implement", "add feature", "refactor", "develop"], weight: 3 },
@@ -6130,7 +6312,10 @@ function detectIntent(text) {
 			{ keywords: ["add ", "remove "], weight: 1 },
 		],
 		ask: [
-			{ keywords: ["what", "how", "why", "when", "where", "who", "which", "can you", "could you", "would you"], weight: 1 },
+			{
+				keywords: ["what", "how", "why", "when", "where", "who", "which", "can you", "could you", "would you"],
+				weight: 1,
+			},
 		],
 	}
 
@@ -6174,7 +6359,7 @@ function detectIntent(text) {
 	// If the top two intents are within 1 point of each other, the intent is
 	// ambiguous. We pick the higher one but flag it with a lower confidence.
 	var secondScore = sortedIntents.length > 1 ? sortedIntents[1][1] : 0
-	var isAmbiguous = secondScore > 0 && (topScore - secondScore) <= 1
+	var isAmbiguous = secondScore > 0 && topScore - secondScore <= 1
 
 	// Normalize score to 0-1 range (max possible score per intent varies)
 	// Max possible: consultant=~30, debugger=~10, deployer=~15, tester=~21, coder=~16, ask=~10
@@ -6476,6 +6661,45 @@ async function handleNaturalLanguageInstruction(
 		}
 		var intentKind = classified.kind
 		var confidence = classified.confidence
+
+		// ─── GAP 5.1: Active Learning — Ask Clarifying Questions ────────────
+		// When confidence is low (< 0.5), the classifier is uncertain about the
+		// user's intent. Instead of guessing wrong, ask the user to clarify.
+		// This prevents misrouting and improves the user experience.
+		if (confidence < 0.5 && intentKind !== "chat") {
+			console.log(
+				"[telegram] Low confidence (" +
+					confidence.toFixed(2) +
+					") for '" +
+					text.slice(0, 60) +
+					"' — asking clarifying question",
+			)
+			var clarificationButtons = [
+				[
+					{ text: "💬 Ask / Chat", callback_data: "brain_exec:" + storeCallbackCommand("/ask " + text) },
+					{ text: "💻 Code", callback_data: "brain_exec:" + storeCallbackCommand("/code " + text) },
+				],
+				[
+					{ text: "🔍 Debug", callback_data: "brain_exec:" + storeCallbackCommand("/debug " + text) },
+					{ text: "🚀 Deploy", callback_data: "brain_exec:" + storeCallbackCommand("/deploy " + text) },
+				],
+			]
+			await sendInlineKeyboard(
+				botToken,
+				chatId,
+				"🤔 *I'm not quite sure what you'd like to do.*\n\n" +
+					"I detected your message as: _" +
+					intentKind +
+					"_ (confidence: " +
+					Math.round(confidence * 100) +
+					"%)\n\n" +
+					"Please choose one of the options below to help me route your request correctly:",
+				clarificationButtons,
+			)
+			// Store the pending clarification in smart context so follow-up can be tracked
+			updateSmartContext(chatId, { pendingClarification: intentKind, pendingText: text })
+			return true
+		}
 
 		// If classified as run_tests but message contains strong bug/error signals,
 		// the user is likely reporting a bug and mentioning tests as context — prefer debug_plan.
@@ -7638,14 +7862,34 @@ function registerCallback(prefix, handler, opts) {
  * Dispatch a callback query to the registered handler.
  * Returns true if a handler was found and executed, false otherwise.
  */
-async function dispatchCallback(botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) {
+async function dispatchCallback(
+	botToken,
+	cq,
+	cqChatId,
+	cqMessageId,
+	cqData,
+	cqUserId,
+	queue,
+	providers,
+	orchestratorBridge,
+) {
 	for (var i = 0; i < callbackRegistry.length; i++) {
 		var entry = callbackRegistry[i]
 		var matches = entry.exact ? cqData === entry.prefix : cqData.startsWith(entry.prefix)
 		if (matches) {
 			logTelegramUsage("callback:" + entry.description, cqChatId, cqUserId, { data: cqData.slice(0, 60) })
 			try {
-				await entry.handler(botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge)
+				await entry.handler(
+					botToken,
+					cq,
+					cqChatId,
+					cqMessageId,
+					cqData,
+					cqUserId,
+					queue,
+					providers,
+					orchestratorBridge,
+				)
 			} catch (err) {
 				logTelegramError("callback:" + entry.description, cqChatId, cqUserId, err, { data: cqData })
 				console.error("[telegram] Callback handler error for '" + entry.description + "':", err.message)
@@ -7757,7 +8001,15 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 		var isPremium = !!(session && session.authSession)
 		var rateCheck = checkRateLimit(chatId, isPremium)
 		if (!rateCheck.allowed) {
-			console.log("[telegram] Rate limited chat " + chatId + " (" + (isPremium ? "premium" : "free") + "), retry after " + rateCheck.retryAfter + "s")
+			console.log(
+				"[telegram] Rate limited chat " +
+					chatId +
+					" (" +
+					(isPremium ? "premium" : "free") +
+					"), retry after " +
+					rateCheck.retryAfter +
+					"s",
+			)
 			return
 		}
 	}
@@ -7776,627 +8028,817 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 		try {
 			// ─── Register all callback handlers ──────────────────────────────────
 			// Mini App Workflow
-			registerCallback("project:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
-				var projectId = cqData.slice(8)
-				await handleProjectSelect(botToken, cqChatId, cqMessageId, projectId, cqUserId)
-			}, { description: "project" })
-			registerCallback("notify:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
-				await telegramNotifier.handleNotificationCallback(botToken, cq)
-			}, { description: "notify" })
+			registerCallback(
+				"project:",
+				async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
+					var projectId = cqData.slice(8)
+					await handleProjectSelect(botToken, cqChatId, cqMessageId, projectId, cqUserId)
+				},
+				{ description: "project" },
+			)
+			registerCallback(
+				"notify:",
+				async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
+					await telegramNotifier.handleNotificationCallback(botToken, cq)
+				},
+				{ description: "notify" },
+			)
 			// Paginated message navigation (GAP 4.3)
-			registerCallback("page:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
-				await handlePageNavigation(botToken, cq, cqChatId, cqMessageId, cqData)
-			}, { description: "page" })
-			registerCallback("preview_plan:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
-				var pptaskId = cqData.slice(13)
-				await handlePreviewPlan(botToken, cqChatId, cqMessageId, pptaskId)
-			}, { description: "preview_plan" })
-			registerCallback("approve_plan:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
-				var aptaskId = cqData.slice(13)
-				await handleApprovePlan(botToken, cqChatId, cqMessageId, aptaskId)
-			}, { description: "approve_plan" })
-			registerCallback("view_diff:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
-				var vdtaskId = cqData.slice(10)
-				await handleViewDiff(botToken, cqChatId, cqMessageId, vdtaskId)
-			}, { description: "view_diff" })
-			registerCallback("deploy_staging:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
-				var dstaskId = cqData.slice(15)
-				await handleDeployStaging(botToken, cqChatId, cqMessageId, dstaskId)
-			}, { description: "deploy_staging" })
-			registerCallback("deploy_production:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
-				var dptaskId = cqData.slice(18)
-				await handleDeployProduction(botToken, cqChatId, cqMessageId, dptaskId)
-			}, { description: "deploy_production" })
-			registerCallback("rollback:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
-				var rbsavepointId = cqData.slice(9)
-				await handleRollbackCallback(botToken, cqChatId, cqMessageId, rbsavepointId)
-			}, { description: "rollback" })
+			registerCallback(
+				"page:",
+				async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
+					await handlePageNavigation(botToken, cq, cqChatId, cqMessageId, cqData)
+				},
+				{ description: "page" },
+			)
+			registerCallback(
+				"preview_plan:",
+				async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
+					var pptaskId = cqData.slice(13)
+					await handlePreviewPlan(botToken, cqChatId, cqMessageId, pptaskId)
+				},
+				{ description: "preview_plan" },
+			)
+			registerCallback(
+				"approve_plan:",
+				async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
+					var aptaskId = cqData.slice(13)
+					await handleApprovePlan(botToken, cqChatId, cqMessageId, aptaskId)
+				},
+				{ description: "approve_plan" },
+			)
+			registerCallback(
+				"view_diff:",
+				async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
+					var vdtaskId = cqData.slice(10)
+					await handleViewDiff(botToken, cqChatId, cqMessageId, vdtaskId)
+				},
+				{ description: "view_diff" },
+			)
+			registerCallback(
+				"deploy_staging:",
+				async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
+					var dstaskId = cqData.slice(15)
+					await handleDeployStaging(botToken, cqChatId, cqMessageId, dstaskId)
+				},
+				{ description: "deploy_staging" },
+			)
+			registerCallback(
+				"deploy_production:",
+				async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
+					var dptaskId = cqData.slice(18)
+					await handleDeployProduction(botToken, cqChatId, cqMessageId, dptaskId)
+				},
+				{ description: "deploy_production" },
+			)
+			registerCallback(
+				"rollback:",
+				async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
+					var rbsavepointId = cqData.slice(9)
+					await handleRollbackCallback(botToken, cqChatId, cqMessageId, rbsavepointId)
+				},
+				{ description: "rollback" },
+			)
 			// Mini IDE
-			registerCallback("projects", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
-				await handleProjects(botToken, cqChatId, cqUserId)
-			}, { exact: true, description: "miniide_projects" })
-			registerCallback("help", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
-				await handleHelp(botToken, cqChatId)
-			}, { exact: true, description: "miniide_help" })
+			registerCallback(
+				"projects",
+				async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
+					await handleProjects(botToken, cqChatId, cqUserId)
+				},
+				{ exact: true, description: "miniide_projects" },
+			)
+			registerCallback(
+				"help",
+				async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
+					await handleHelp(botToken, cqChatId)
+				},
+				{ exact: true, description: "miniide_help" },
+			)
 
 			// ─── Smart Terminal Callbacks ──────────────────────────────────────
-			registerCallback("brain_exec:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
-				var execToken = cqData.slice(11)
-				var execCmd = resolveCallbackCommand(execToken)
-				if (!execCmd) {
-					await sendMessage(botToken, cqChatId, "*Command Expired* ⏰\n\nThis quick action button has expired. Please run the command again directly.")
-					await answerCallbackQuery(botToken, cq.id)
-					return
-				}
-				await sendChatAction(botToken, cqChatId, "typing")
-				try {
-					var execResult = await tgEndpoints.brainExecute(execCmd, cqChatId)
-					if (execResult.ok) {
-						updateSmartContext(cqChatId, { lastCommand: execCmd, lastBrainResult: execResult })
-						await sendMessage(botToken, cqChatId, telegramEngineer.formatBrainFeedback(execResult.feedback))
-						if (execResult.feedback && execResult.feedback.exitCode !== 0) {
-							await new Promise(function (r) { return setTimeout(r, 300) })
-							var analyzeResult = await tgEndpoints.brainAnalyze(execResult.feedback.output || execCmd, cqChatId)
-							if (analyzeResult.ok && analyzeResult.errors && analyzeResult.errors.length > 0) {
-								updateSmartContext(cqChatId, { lastError: analyzeResult.errors[0].message })
-								await sendMessage(botToken, cqChatId, telegramEngineer.formatBrainErrors(analyzeResult.errors))
+			registerCallback(
+				"brain_exec:",
+				async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
+					var execToken = cqData.slice(11)
+					var execCmd = resolveCallbackCommand(execToken)
+					if (!execCmd) {
+						await sendMessage(
+							botToken,
+							cqChatId,
+							"*Command Expired* ⏰\n\nThis quick action button has expired. Please run the command again directly.",
+						)
+						await answerCallbackQuery(botToken, cq.id)
+						return
+					}
+					await sendChatAction(botToken, cqChatId, "typing")
+					try {
+						var execResult = await tgEndpoints.brainExecute(execCmd, cqChatId)
+						if (execResult.ok) {
+							updateSmartContext(cqChatId, { lastCommand: execCmd, lastBrainResult: execResult })
+							await sendMessage(
+								botToken,
+								cqChatId,
+								telegramEngineer.formatBrainFeedback(execResult.feedback),
+							)
+							if (execResult.feedback && execResult.feedback.exitCode !== 0) {
+								await new Promise(function (r) {
+									return setTimeout(r, 300)
+								})
+								var analyzeResult = await tgEndpoints.brainAnalyze(
+									execResult.feedback.output || execCmd,
+									cqChatId,
+								)
+								if (analyzeResult.ok && analyzeResult.errors && analyzeResult.errors.length > 0) {
+									updateSmartContext(cqChatId, { lastError: analyzeResult.errors[0].message })
+									await sendMessage(
+										botToken,
+										cqChatId,
+										telegramEngineer.formatBrainErrors(analyzeResult.errors),
+									)
+								}
 							}
-						}
-						await sendQuickActionButtons(botToken, cqChatId, execCmd, execResult)
-					} else {
-						await sendMessage(botToken, cqChatId, "*Execution Error* ❌\n\n" + (execResult.error || "Unknown error"))
-					}
-				} catch (err) {
-					logTelegramError("callback:brain_exec", cqChatId, cqUserId, err, { command: execCmd })
-					await sendMessage(botToken, cqChatId, "*Error* ❌\n\n" + err.message)
-				}
-				await answerCallbackQuery(botToken, cq.id)
-			}, { description: "brain_exec" })
-			registerCallback("brain_pipeline:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
-				var pipeToken = cqData.slice(15)
-				var pipeQuery = resolveCallbackCommand(pipeToken)
-				if (!pipeQuery) {
-					await sendMessage(botToken, cqChatId, "*Command Expired* ⏰\n\nThis quick action button has expired. Please run the command again directly.")
-					await answerCallbackQuery(botToken, cq.id)
-					return
-				}
-				await sendChatAction(botToken, cqChatId, "typing")
-				try {
-					var pipeResult = await tgEndpoints.brainPipeline(pipeQuery, cqChatId)
-					if (pipeResult.ok) {
-						updateSmartContext(cqChatId, { lastCommand: pipeQuery, lastBrainResult: pipeResult })
-						var pipeLines = ["*🧠 Terminal Brain — Pipeline Result*"]
-						if (pipeResult.plan && pipeResult.plan.commands) {
-							pipeLines.push("\n*📋 Plan:*")
-							for (var ppi = 0; ppi < pipeResult.plan.commands.length; ppi++) {
-								var ppc = typeof pipeResult.plan.commands[ppi] === "string" ? pipeResult.plan.commands[ppi] : pipeResult.plan.commands[ppi].command || ""
-								pipeLines.push("  `" + (ppi + 1) + ".` `" + ppc + "`")
-							}
-						}
-						if (pipeResult.errors && pipeResult.errors.length > 0) { updateSmartContext(cqChatId, { lastError: pipeResult.errors[0].message }); pipeLines.push("\n*🔍 Errors:* " + pipeResult.errors.length) }
-						if (pipeResult.fixes && pipeResult.fixes.length > 0) { pipeLines.push("\n*🔧 Fixes:* " + pipeResult.fixes.length) }
-						if (!pipeResult.errors || pipeResult.errors.length === 0) { pipeLines.push("\n✅ *All steps completed!*") }
-						await sendMessage(botToken, cqChatId, pipeLines.join("\n"))
-						await sendQuickActionButtons(botToken, cqChatId, pipeQuery, pipeResult)
-					} else {
-						await sendMessage(botToken, cqChatId, "*Pipeline Error* ❌\n\n" + (pipeResult.error || "Unknown error"))
-					}
-				} catch (err) {
-					logTelegramError("callback:brain_pipeline", cqChatId, cqUserId, err, { query: pipeQuery })
-					await sendMessage(botToken, cqChatId, "*Error* ❌\n\n" + err.message)
-				}
-				await answerCallbackQuery(botToken, cq.id)
-			}, { description: "brain_pipeline" })
-			registerCallback("brain_explain:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
-				var explainToken = cqData.slice(14)
-				var explainCmd = resolveCallbackCommand(explainToken)
-				if (!explainCmd) {
-					await sendMessage(botToken, cqChatId, "*Command Expired* ⏰\n\nThis quick action button has expired. Please run the command again directly.")
-					await answerCallbackQuery(botToken, cq.id)
-					return
-				}
-				await sendChatAction(botToken, cqChatId, "typing")
-				try {
-					var explainResult = await tgEndpoints.brainPlan("explain: " + explainCmd, cqChatId)
-					if (explainResult.ok) {
-						var explainText = "*❓ Command Explanation*\n\n`" + explainCmd + "`\n\n"
-						explainText += (explainResult.plan && typeof explainResult.plan === "string") ? explainResult.plan : "This command will be executed through the Terminal Brain with safety checks and error analysis."
-						await sendMessage(botToken, cqChatId, explainText)
-					} else {
-						await sendMessage(botToken, cqChatId, "*Explain Error* ❌\n\n" + (explainResult.error || "Unknown error"))
-					}
-				} catch (err) {
-					logTelegramError("callback:brain_explain", cqChatId, cqUserId, err, { command: explainCmd })
-					await sendMessage(botToken, cqChatId, "*Error* ❌\n\n" + err.message)
-				}
-				await answerCallbackQuery(botToken, cq.id)
-			}, { description: "brain_explain" })
-			registerCallback("brain_fix:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
-				var fixToken = cqData.slice(9)
-				var fixCmd = resolveCallbackCommand(fixToken)
-				if (!fixCmd) {
-					await sendMessage(botToken, cqChatId, "*Command Expired* ⏰\n\nThis quick action button has expired. Please run the command again directly.")
-					await answerCallbackQuery(botToken, cq.id)
-					return
-				}
-				await sendChatAction(botToken, cqChatId, "typing")
-				try {
-					var fixExecResult = await tgEndpoints.brainExecute(fixCmd, cqChatId)
-					if (fixExecResult.ok && fixExecResult.feedback) {
-						var fixOutput = fixExecResult.feedback.output || ""
-						var fixResult = await tgEndpoints.brainFix(fixOutput, cqChatId)
-						if (fixResult.ok && fixResult.fixes && fixResult.fixes.length > 0) {
-							updateSmartContext(cqChatId, { lastFixApplied: fixResult.fixes[0] })
-							var fixLines = ["*🔧 Auto-Fix Results*"]
-							for (var fxi = 0; fxi < fixResult.fixes.length; fxi++) { fixLines.push("• " + fixResult.fixes[fxi]) }
-							await sendMessage(botToken, cqChatId, fixLines.join("\n"))
+							await sendQuickActionButtons(botToken, cqChatId, execCmd, execResult)
 						} else {
-							await sendMessage(botToken, cqChatId, "*No fixes found* — the command may have run successfully or the error is not yet recognized.")
+							await sendMessage(
+								botToken,
+								cqChatId,
+								"*Execution Error* ❌\n\n" + (execResult.error || "Unknown error"),
+							)
 						}
-					} else {
-						await sendMessage(botToken, cqChatId, "*Fix Error* ❌\n\n" + (fixExecResult.error || "Could not re-run command"))
+					} catch (err) {
+						logTelegramError("callback:brain_exec", cqChatId, cqUserId, err, { command: execCmd })
+						await sendMessage(botToken, cqChatId, "*Error* ❌\n\n" + err.message)
 					}
-				} catch (err) {
-					logTelegramError("callback:brain_fix", cqChatId, cqUserId, err, { command: fixCmd })
-					await sendMessage(botToken, cqChatId, "*Error* ❌\n\n" + err.message)
-				}
-				await answerCallbackQuery(botToken, cq.id)
-			}, { description: "brain_fix" })
-			registerCallback("brain_errors:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
-				var errToken = cqData.slice(13)
-				var errCmd = resolveCallbackCommand(errToken)
-				if (!errCmd) {
-					await sendMessage(botToken, cqChatId, "*Command Expired* ⏰\n\nThis quick action button has expired. Please run the command again directly.")
 					await answerCallbackQuery(botToken, cq.id)
-					return
-				}
-				await sendChatAction(botToken, cqChatId, "typing")
-				try {
-					var errResult = await tgEndpoints.brainAnalyze(errCmd, cqChatId)
-					if (errResult.ok) {
-						await sendMessage(botToken, cqChatId, telegramEngineer.formatBrainErrors(errResult.errors))
-					} else {
-						await sendMessage(botToken, cqChatId, "*Error Analysis Failed* ❌\n\n" + (errResult.error || "Unknown error"))
+				},
+				{ description: "brain_exec" },
+			)
+			registerCallback(
+				"brain_pipeline:",
+				async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
+					var pipeToken = cqData.slice(15)
+					var pipeQuery = resolveCallbackCommand(pipeToken)
+					if (!pipeQuery) {
+						await sendMessage(
+							botToken,
+							cqChatId,
+							"*Command Expired* ⏰\n\nThis quick action button has expired. Please run the command again directly.",
+						)
+						await answerCallbackQuery(botToken, cq.id)
+						return
 					}
-				} catch (err) {
-					logTelegramError("callback:brain_errors", cqChatId, cqUserId, err, { command: errCmd })
-					await sendMessage(botToken, cqChatId, "*Error* ❌\n\n" + err.message)
-				}
-				await answerCallbackQuery(botToken, cq.id)
-			}, { description: "brain_errors" })
-			registerCallback("brain_deploy:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
-				var deployToken = cqData.slice(13)
-				var deployCmd = resolveCallbackCommand(deployToken)
-				if (!deployCmd) {
-					await sendMessage(botToken, cqChatId, "*Command Expired* ⏰\n\nThis quick action button has expired. Please run the command again directly.")
+					await sendChatAction(botToken, cqChatId, "typing")
+					try {
+						var pipeResult = await tgEndpoints.brainPipeline(pipeQuery, cqChatId)
+						if (pipeResult.ok) {
+							updateSmartContext(cqChatId, { lastCommand: pipeQuery, lastBrainResult: pipeResult })
+							var pipeLines = ["*🧠 Terminal Brain — Pipeline Result*"]
+							if (pipeResult.plan && pipeResult.plan.commands) {
+								pipeLines.push("\n*📋 Plan:*")
+								for (var ppi = 0; ppi < pipeResult.plan.commands.length; ppi++) {
+									var ppc =
+										typeof pipeResult.plan.commands[ppi] === "string"
+											? pipeResult.plan.commands[ppi]
+											: pipeResult.plan.commands[ppi].command || ""
+									pipeLines.push("  `" + (ppi + 1) + ".` `" + ppc + "`")
+								}
+							}
+							if (pipeResult.errors && pipeResult.errors.length > 0) {
+								updateSmartContext(cqChatId, { lastError: pipeResult.errors[0].message })
+								pipeLines.push("\n*🔍 Errors:* " + pipeResult.errors.length)
+							}
+							if (pipeResult.fixes && pipeResult.fixes.length > 0) {
+								pipeLines.push("\n*🔧 Fixes:* " + pipeResult.fixes.length)
+							}
+							if (!pipeResult.errors || pipeResult.errors.length === 0) {
+								pipeLines.push("\n✅ *All steps completed!*")
+							}
+							await sendMessage(botToken, cqChatId, pipeLines.join("\n"))
+							await sendQuickActionButtons(botToken, cqChatId, pipeQuery, pipeResult)
+						} else {
+							await sendMessage(
+								botToken,
+								cqChatId,
+								"*Pipeline Error* ❌\n\n" + (pipeResult.error || "Unknown error"),
+							)
+						}
+					} catch (err) {
+						logTelegramError("callback:brain_pipeline", cqChatId, cqUserId, err, { query: pipeQuery })
+						await sendMessage(botToken, cqChatId, "*Error* ❌\n\n" + err.message)
+					}
 					await answerCallbackQuery(botToken, cq.id)
-					return
-				}
-				await sendMessage(botToken, cqChatId, "*Deploy Requested* 🚀\n\nUse `/deploy` to start the deployment process.\n\nYou'll need to verify with your OTP code for production deployments.")
-				await answerCallbackQuery(botToken, cq.id)
-			}, { description: "brain_deploy" })
-			registerCallback("brain_status", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
-				await sendChatAction(botToken, cqChatId, "typing")
-				try {
-					var statusResult = await tgEndpoints.readLogs("all", 5)
-					var ctx = getSmartContext(cqChatId)
-					var statusLines = ["*📊 System Status*"]
-					statusLines.push("• Messages in session: " + ctx.messageCount)
-					if (ctx.lastCommand) statusLines.push("• Last command: `" + ctx.lastCommand.slice(0, 50) + "`")
-					if (ctx.lastError) statusLines.push("• Last error: " + ctx.lastError.slice(0, 100))
-					if (ctx.lastFixApplied) statusLines.push("• Last fix: " + ctx.lastFixApplied.slice(0, 100))
-					statusLines.push("\n*Terminal Brain:* " + (_terminalBrainAvailable ? "✅ Available" : "❌ Not available"))
-					await sendMessage(botToken, cqChatId, statusLines.join("\n"))
-				} catch (err) {
-					await sendMessage(botToken, cqChatId, "*Status Error* ❌\n\n" + err.message)
-				}
-				await answerCallbackQuery(botToken, cq.id)
-			}, { exact: true, description: "brain_status" })
-			registerCallback("brain_memory", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
-				await sendChatAction(botToken, cqChatId, "typing")
-				try {
-					var memResult = await tgEndpoints.brainMemory(cqChatId)
-					if (memResult.ok) {
-						await sendMessage(botToken, cqChatId, telegramEngineer.formatBrainMemory(memResult.stats))
-					} else {
-						await sendMessage(botToken, cqChatId, "*Memory Error* ❌\n\n" + (memResult.error || "Unknown error"))
+				},
+				{ description: "brain_pipeline" },
+			)
+			registerCallback(
+				"brain_explain:",
+				async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
+					var explainToken = cqData.slice(14)
+					var explainCmd = resolveCallbackCommand(explainToken)
+					if (!explainCmd) {
+						await sendMessage(
+							botToken,
+							cqChatId,
+							"*Command Expired* ⏰\n\nThis quick action button has expired. Please run the command again directly.",
+						)
+						await answerCallbackQuery(botToken, cq.id)
+						return
 					}
-				} catch (err) {
-					await sendMessage(botToken, cqChatId, "*Error* ❌\n\n" + err.message)
-				}
-				await answerCallbackQuery(botToken, cq.id)
-			}, { exact: true, description: "brain_memory" })
-			registerCallback("brain_cancel", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
-				await sendMessage(botToken, cqChatId, "*Cancelled* ❌\n\nAction has been cancelled.")
-				await answerCallbackQuery(botToken, cq.id)
-			}, { exact: true, description: "brain_cancel" })
+					await sendChatAction(botToken, cqChatId, "typing")
+					try {
+						var explainResult = await tgEndpoints.brainPlan("explain: " + explainCmd, cqChatId)
+						if (explainResult.ok) {
+							var explainText = "*❓ Command Explanation*\n\n`" + explainCmd + "`\n\n"
+							explainText +=
+								explainResult.plan && typeof explainResult.plan === "string"
+									? explainResult.plan
+									: "This command will be executed through the Terminal Brain with safety checks and error analysis."
+							await sendMessage(botToken, cqChatId, explainText)
+						} else {
+							await sendMessage(
+								botToken,
+								cqChatId,
+								"*Explain Error* ❌\n\n" + (explainResult.error || "Unknown error"),
+							)
+						}
+					} catch (err) {
+						logTelegramError("callback:brain_explain", cqChatId, cqUserId, err, { command: explainCmd })
+						await sendMessage(botToken, cqChatId, "*Error* ❌\n\n" + err.message)
+					}
+					await answerCallbackQuery(botToken, cq.id)
+				},
+				{ description: "brain_explain" },
+			)
+			registerCallback(
+				"brain_fix:",
+				async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
+					var fixToken = cqData.slice(9)
+					var fixCmd = resolveCallbackCommand(fixToken)
+					if (!fixCmd) {
+						await sendMessage(
+							botToken,
+							cqChatId,
+							"*Command Expired* ⏰\n\nThis quick action button has expired. Please run the command again directly.",
+						)
+						await answerCallbackQuery(botToken, cq.id)
+						return
+					}
+					await sendChatAction(botToken, cqChatId, "typing")
+					try {
+						var fixExecResult = await tgEndpoints.brainExecute(fixCmd, cqChatId)
+						if (fixExecResult.ok && fixExecResult.feedback) {
+							var fixOutput = fixExecResult.feedback.output || ""
+							var fixResult = await tgEndpoints.brainFix(fixOutput, cqChatId)
+							if (fixResult.ok && fixResult.fixes && fixResult.fixes.length > 0) {
+								updateSmartContext(cqChatId, { lastFixApplied: fixResult.fixes[0] })
+								var fixLines = ["*🔧 Auto-Fix Results*"]
+								for (var fxi = 0; fxi < fixResult.fixes.length; fxi++) {
+									fixLines.push("• " + fixResult.fixes[fxi])
+								}
+								await sendMessage(botToken, cqChatId, fixLines.join("\n"))
+							} else {
+								await sendMessage(
+									botToken,
+									cqChatId,
+									"*No fixes found* — the command may have run successfully or the error is not yet recognized.",
+								)
+							}
+						} else {
+							await sendMessage(
+								botToken,
+								cqChatId,
+								"*Fix Error* ❌\n\n" + (fixExecResult.error || "Could not re-run command"),
+							)
+						}
+					} catch (err) {
+						logTelegramError("callback:brain_fix", cqChatId, cqUserId, err, { command: fixCmd })
+						await sendMessage(botToken, cqChatId, "*Error* ❌\n\n" + err.message)
+					}
+					await answerCallbackQuery(botToken, cq.id)
+				},
+				{ description: "brain_fix" },
+			)
+			registerCallback(
+				"brain_errors:",
+				async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
+					var errToken = cqData.slice(13)
+					var errCmd = resolveCallbackCommand(errToken)
+					if (!errCmd) {
+						await sendMessage(
+							botToken,
+							cqChatId,
+							"*Command Expired* ⏰\n\nThis quick action button has expired. Please run the command again directly.",
+						)
+						await answerCallbackQuery(botToken, cq.id)
+						return
+					}
+					await sendChatAction(botToken, cqChatId, "typing")
+					try {
+						var errResult = await tgEndpoints.brainAnalyze(errCmd, cqChatId)
+						if (errResult.ok) {
+							await sendMessage(botToken, cqChatId, telegramEngineer.formatBrainErrors(errResult.errors))
+						} else {
+							await sendMessage(
+								botToken,
+								cqChatId,
+								"*Error Analysis Failed* ❌\n\n" + (errResult.error || "Unknown error"),
+							)
+						}
+					} catch (err) {
+						logTelegramError("callback:brain_errors", cqChatId, cqUserId, err, { command: errCmd })
+						await sendMessage(botToken, cqChatId, "*Error* ❌\n\n" + err.message)
+					}
+					await answerCallbackQuery(botToken, cq.id)
+				},
+				{ description: "brain_errors" },
+			)
+			registerCallback(
+				"brain_deploy:",
+				async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
+					var deployToken = cqData.slice(13)
+					var deployCmd = resolveCallbackCommand(deployToken)
+					if (!deployCmd) {
+						await sendMessage(
+							botToken,
+							cqChatId,
+							"*Command Expired* ⏰\n\nThis quick action button has expired. Please run the command again directly.",
+						)
+						await answerCallbackQuery(botToken, cq.id)
+						return
+					}
+					await sendMessage(
+						botToken,
+						cqChatId,
+						"*Deploy Requested* 🚀\n\nUse `/deploy` to start the deployment process.\n\nYou'll need to verify with your OTP code for production deployments.",
+					)
+					await answerCallbackQuery(botToken, cq.id)
+				},
+				{ description: "brain_deploy" },
+			)
+			registerCallback(
+				"brain_status",
+				async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
+					await sendChatAction(botToken, cqChatId, "typing")
+					try {
+						var statusResult = await tgEndpoints.readLogs("all", 5)
+						var ctx = getSmartContext(cqChatId)
+						var statusLines = ["*📊 System Status*"]
+						statusLines.push("• Messages in session: " + ctx.messageCount)
+						if (ctx.lastCommand) statusLines.push("• Last command: `" + ctx.lastCommand.slice(0, 50) + "`")
+						if (ctx.lastError) statusLines.push("• Last error: " + ctx.lastError.slice(0, 100))
+						if (ctx.lastFixApplied) statusLines.push("• Last fix: " + ctx.lastFixApplied.slice(0, 100))
+						statusLines.push(
+							"\n*Terminal Brain:* " + (_terminalBrainAvailable ? "✅ Available" : "❌ Not available"),
+						)
+						await sendMessage(botToken, cqChatId, statusLines.join("\n"))
+					} catch (err) {
+						await sendMessage(botToken, cqChatId, "*Status Error* ❌\n\n" + err.message)
+					}
+					await answerCallbackQuery(botToken, cq.id)
+				},
+				{ exact: true, description: "brain_status" },
+			)
+			registerCallback(
+				"brain_memory",
+				async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
+					await sendChatAction(botToken, cqChatId, "typing")
+					try {
+						var memResult = await tgEndpoints.brainMemory(cqChatId)
+						if (memResult.ok) {
+							await sendMessage(botToken, cqChatId, telegramEngineer.formatBrainMemory(memResult.stats))
+						} else {
+							await sendMessage(
+								botToken,
+								cqChatId,
+								"*Memory Error* ❌\n\n" + (memResult.error || "Unknown error"),
+							)
+						}
+					} catch (err) {
+						await sendMessage(botToken, cqChatId, "*Error* ❌\n\n" + err.message)
+					}
+					await answerCallbackQuery(botToken, cq.id)
+				},
+				{ exact: true, description: "brain_memory" },
+			)
+			registerCallback(
+				"brain_cancel",
+				async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
+					await sendMessage(botToken, cqChatId, "*Cancelled* ❌\n\nAction has been cancelled.")
+					await answerCallbackQuery(botToken, cq.id)
+				},
+				{ exact: true, description: "brain_cancel" },
+			)
 
 			// ─── Coder Workflow Callbacks ────────────────────────────────────────
 			// coder:<action>:<taskId> — Handle multi-phase coder workflow (approve/reject/commit/deploy/etc.)
-			registerCallback("coder:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
-				logTelegramUsage("callback:coder", cqChatId, cqUserId, { data: cqData })
-				try {
-					var coderResult = await telegramNotifier.handleCoderCallback(botToken, cq)
-					if (coderResult && coderResult.action && coderResult.taskId) {
-						var coderTaskId = coderResult.taskId
-						var pendingJob = telegramNotifier.getPendingCoderJob(coderTaskId)
-
-						// Improvement 1 & 7: Build fresh conversation context for each phase
-						var freshConversationSummary = buildConversationSummary(cqChatId)
-
-						// Improvement 2: Shared retry options for all queue.add() calls
-						var jobOpts = { attempts: 3, backoff: { type: "exponential", delay: 5000 } }
-
-						if (coderResult.action === "approved") {
-							// User approved the plan — enqueue an "apply" job
-							await sendChatAction(botToken, cqChatId, "typing")
-							var applyJob = await queue.add(
-								"coder-apply-" + coderTaskId,
-								{
-									task: pendingJob ? pendingJob.instruction : "Apply approved changes",
-									agentId: "superroo-coder-agent",
-									phase: "apply",
-									taskId: coderTaskId,
-									workspaceDir: pendingJob ? pendingJob.workspaceDir : undefined,
-									repoName: pendingJob ? pendingJob.repoName : undefined,
-									branch: pendingJob ? pendingJob.branch : undefined,
-									plan: pendingJob ? pendingJob.plan : undefined,
-									telegram: {
-										botToken: botToken,
-										chatId: cqChatId,
-										taskId: coderTaskId,
-										branchName: pendingJob ? pendingJob.branch : undefined,
-										conversationSummary: freshConversationSummary,
-										auto: pendingJob ? pendingJob.auto : false,
-									},
-								},
-								jobOpts,
-							)
-							logTelegramUsage("callback:coder:apply_enqueued", cqChatId, cqUserId, {
-								taskId: coderTaskId,
-								jobId: applyJob.id,
-							})
-						} else if (coderResult.action === "commit") {
-							// User wants to commit — enqueue a "commit" job
-							await sendChatAction(botToken, cqChatId, "typing")
-							var commitJob = await queue.add(
-								"coder-commit-" + coderTaskId,
-								{
-									task: pendingJob ? pendingJob.instruction : "Commit changes",
-									agentId: "superroo-coder-agent",
-									phase: "commit",
-									taskId: coderTaskId,
-									workspaceDir: pendingJob ? pendingJob.workspaceDir : undefined,
-									repoName: pendingJob ? pendingJob.repoName : undefined,
-									branch: pendingJob ? pendingJob.branch : undefined,
-									telegram: {
-										botToken: botToken,
-										chatId: cqChatId,
-										taskId: coderTaskId,
-										branchName: pendingJob ? pendingJob.branch : undefined,
-										conversationSummary: freshConversationSummary,
-										auto: pendingJob ? pendingJob.auto : false,
-									},
-								},
-								jobOpts,
-							)
-							logTelegramUsage("callback:coder:commit_enqueued", cqChatId, cqUserId, {
-								taskId: coderTaskId,
-								jobId: commitJob.id,
-							})
-						} else if (coderResult.action === "deploy") {
-							// User wants to deploy — enqueue a "deploy" job
-							await sendChatAction(botToken, cqChatId, "typing")
-							var deployJob = await queue.add(
-								"coder-deploy-" + coderTaskId,
-								{
-									task: pendingJob ? pendingJob.instruction : "Deploy changes",
-									agentId: "superroo-coder-agent",
-									phase: "deploy",
-									taskId: coderTaskId,
-									workspaceDir: pendingJob ? pendingJob.workspaceDir : undefined,
-									repoName: pendingJob ? pendingJob.repoName : undefined,
-									branch: pendingJob ? pendingJob.branch : undefined,
-									telegram: {
-										botToken: botToken,
-										chatId: cqChatId,
-										taskId: coderTaskId,
-										branchName: pendingJob ? pendingJob.branch : undefined,
-										conversationSummary: freshConversationSummary,
-										auto: pendingJob ? pendingJob.auto : false,
-									},
-								},
-								jobOpts,
-							)
-							logTelegramUsage("callback:coder:deploy_enqueued", cqChatId, cqUserId, {
-								taskId: coderTaskId,
-								jobId: deployJob.id,
-							})
-						} else if (coderResult.action === "rejected" || coderResult.action === "cancelled") {
-							// User rejected or cancelled — clean up
-							telegramNotifier.removePendingCoderJob(coderTaskId)
-							stopAutoTypingInterval(coderTaskId)
-							logTelegramUsage("callback:coder:" + coderResult.action, cqChatId, cqUserId, {
-								taskId: coderTaskId,
-							})
-						} else if (coderResult.action === "retry") {
-							// User wants to retry with more details — enqueue a new "plan" job
-							await sendChatAction(botToken, cqChatId, "typing")
-							var retryJob = await queue.add(
-								"coder-plan-" + coderTaskId,
-								{
-									task: pendingJob ? pendingJob.instruction : "Retry coding task",
-									agentId: "superroo-coder-agent",
-									phase: "plan",
-									taskId: coderTaskId,
-									workspaceDir: pendingJob ? pendingJob.workspaceDir : undefined,
-									repoName: pendingJob ? pendingJob.repoName : undefined,
-									branch: pendingJob ? pendingJob.branch : undefined,
-									telegram: {
-										botToken: botToken,
-										chatId: cqChatId,
-										taskId: coderTaskId,
-										branchName: pendingJob ? pendingJob.branch : undefined,
-										conversationSummary: freshConversationSummary,
-										auto: pendingJob ? pendingJob.auto : false,
-									},
-								},
-								jobOpts,
-							)
-							logTelegramUsage("callback:coder:retry_enqueued", cqChatId, cqUserId, {
-								taskId: coderTaskId,
-								jobId: retryJob.id,
-							})
-						} else if (coderResult.action === "done") {
-							// User confirmed done — clean up
-							telegramNotifier.removePendingCoderJob(coderTaskId)
-							stopAutoTypingInterval(coderTaskId)
-							logTelegramUsage("callback:coder:done", cqChatId, cqUserId, { taskId: coderTaskId })
-						} else if (coderResult.action === "diff") {
-							// View diff — already handled by handleCoderCallback (edits message)
-							logTelegramUsage("callback:coder:diff", cqChatId, cqUserId, { taskId: coderTaskId })
-						} else if (coderResult.action === "back") {
-							// Go back — already handled by handleCoderCallback (edits message)
-							logTelegramUsage("callback:coder:back", cqChatId, cqUserId, { taskId: coderTaskId })
-						} else if (coderResult.action === "similar") {
-							// Suggest a similar task based on the completed task's instruction
-							logTelegramUsage("callback:coder:similar", cqChatId, cqUserId, { taskId: coderTaskId })
+			registerCallback(
+				"coder:",
+				async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
+					logTelegramUsage("callback:coder", cqChatId, cqUserId, { data: cqData })
+					try {
+						var coderResult = await telegramNotifier.handleCoderCallback(botToken, cq)
+						if (coderResult && coderResult.action && coderResult.taskId) {
+							var coderTaskId = coderResult.taskId
 							var pendingJob = telegramNotifier.getPendingCoderJob(coderTaskId)
-							var baseInstruction = pendingJob ? pendingJob.instruction : ""
-							var similarSuggestions = [
-								"Add tests for the changes",
-								"Add error handling",
-								"Add logging",
-								"Improve performance",
-								"Add documentation",
-								"Refactor for readability",
-							]
-							var suggestionText = similarSuggestions
-								.map(function (s, i) {
-									return i + 1 + ". " + s + " related to: " + baseInstruction.slice(0, 80)
+
+							// Improvement 1 & 7: Build fresh conversation context for each phase
+							var freshConversationSummary = buildConversationSummary(cqChatId)
+
+							// Improvement 2: Shared retry options for all queue.add() calls
+							var jobOpts = { attempts: 3, backoff: { type: "exponential", delay: 5000 } }
+
+							if (coderResult.action === "approved") {
+								// User approved the plan — enqueue an "apply" job
+								await sendChatAction(botToken, cqChatId, "typing")
+								var applyJob = await queue.add(
+									"coder-apply-" + coderTaskId,
+									{
+										task: pendingJob ? pendingJob.instruction : "Apply approved changes",
+										agentId: "superroo-coder-agent",
+										phase: "apply",
+										taskId: coderTaskId,
+										workspaceDir: pendingJob ? pendingJob.workspaceDir : undefined,
+										repoName: pendingJob ? pendingJob.repoName : undefined,
+										branch: pendingJob ? pendingJob.branch : undefined,
+										plan: pendingJob ? pendingJob.plan : undefined,
+										telegram: {
+											botToken: botToken,
+											chatId: cqChatId,
+											taskId: coderTaskId,
+											branchName: pendingJob ? pendingJob.branch : undefined,
+											conversationSummary: freshConversationSummary,
+											auto: pendingJob ? pendingJob.auto : false,
+										},
+									},
+									jobOpts,
+								)
+								logTelegramUsage("callback:coder:apply_enqueued", cqChatId, cqUserId, {
+									taskId: coderTaskId,
+									jobId: applyJob.id,
 								})
-								.join("\n")
-							await sendMessage(
-								botToken,
-								cqChatId,
-								"*📋 Similar Tasks*\n\nBased on your last task, here are related improvements you might want:\n\n" +
-									suggestionText +
-									"\n\n_Reply with the number or describe what you'd like to do next._",
-							)
-						} else if (coderResult.action === "audit") {
-							// Audit the changes from the completed task
-							logTelegramUsage("callback:coder:audit", cqChatId, cqUserId, { taskId: coderTaskId })
-							var pendingJob = telegramNotifier.getPendingCoderJob(coderTaskId)
-							var auditText = "*🔍 Audit Report*\n\n"
-							if (pendingJob) {
-								auditText += "*Task:* `" + coderTaskId + "`\n"
-								auditText += "*Instruction:* " + pendingJob.instruction.slice(0, 200) + "\n\n"
-								if (pendingJob.plan && pendingJob.plan.changes) {
-									auditText += "*Files Changed:*\n"
-									for (var ci = 0; ci < pendingJob.plan.changes.length; ci++) {
-										var ch = pendingJob.plan.changes[ci]
-										auditText += "• `" + ch.file + "` — " + (ch.action || "modify") + "\n"
+							} else if (coderResult.action === "commit") {
+								// User wants to commit — enqueue a "commit" job
+								await sendChatAction(botToken, cqChatId, "typing")
+								var commitJob = await queue.add(
+									"coder-commit-" + coderTaskId,
+									{
+										task: pendingJob ? pendingJob.instruction : "Commit changes",
+										agentId: "superroo-coder-agent",
+										phase: "commit",
+										taskId: coderTaskId,
+										workspaceDir: pendingJob ? pendingJob.workspaceDir : undefined,
+										repoName: pendingJob ? pendingJob.repoName : undefined,
+										branch: pendingJob ? pendingJob.branch : undefined,
+										telegram: {
+											botToken: botToken,
+											chatId: cqChatId,
+											taskId: coderTaskId,
+											branchName: pendingJob ? pendingJob.branch : undefined,
+											conversationSummary: freshConversationSummary,
+											auto: pendingJob ? pendingJob.auto : false,
+										},
+									},
+									jobOpts,
+								)
+								logTelegramUsage("callback:coder:commit_enqueued", cqChatId, cqUserId, {
+									taskId: coderTaskId,
+									jobId: commitJob.id,
+								})
+							} else if (coderResult.action === "deploy") {
+								// User wants to deploy — enqueue a "deploy" job
+								await sendChatAction(botToken, cqChatId, "typing")
+								var deployJob = await queue.add(
+									"coder-deploy-" + coderTaskId,
+									{
+										task: pendingJob ? pendingJob.instruction : "Deploy changes",
+										agentId: "superroo-coder-agent",
+										phase: "deploy",
+										taskId: coderTaskId,
+										workspaceDir: pendingJob ? pendingJob.workspaceDir : undefined,
+										repoName: pendingJob ? pendingJob.repoName : undefined,
+										branch: pendingJob ? pendingJob.branch : undefined,
+										telegram: {
+											botToken: botToken,
+											chatId: cqChatId,
+											taskId: coderTaskId,
+											branchName: pendingJob ? pendingJob.branch : undefined,
+											conversationSummary: freshConversationSummary,
+											auto: pendingJob ? pendingJob.auto : false,
+										},
+									},
+									jobOpts,
+								)
+								logTelegramUsage("callback:coder:deploy_enqueued", cqChatId, cqUserId, {
+									taskId: coderTaskId,
+									jobId: deployJob.id,
+								})
+							} else if (coderResult.action === "rejected" || coderResult.action === "cancelled") {
+								// User rejected or cancelled — clean up
+								telegramNotifier.removePendingCoderJob(coderTaskId)
+								stopAutoTypingInterval(coderTaskId)
+								logTelegramUsage("callback:coder:" + coderResult.action, cqChatId, cqUserId, {
+									taskId: coderTaskId,
+								})
+							} else if (coderResult.action === "retry") {
+								// User wants to retry with more details — enqueue a new "plan" job
+								await sendChatAction(botToken, cqChatId, "typing")
+								var retryJob = await queue.add(
+									"coder-plan-" + coderTaskId,
+									{
+										task: pendingJob ? pendingJob.instruction : "Retry coding task",
+										agentId: "superroo-coder-agent",
+										phase: "plan",
+										taskId: coderTaskId,
+										workspaceDir: pendingJob ? pendingJob.workspaceDir : undefined,
+										repoName: pendingJob ? pendingJob.repoName : undefined,
+										branch: pendingJob ? pendingJob.branch : undefined,
+										telegram: {
+											botToken: botToken,
+											chatId: cqChatId,
+											taskId: coderTaskId,
+											branchName: pendingJob ? pendingJob.branch : undefined,
+											conversationSummary: freshConversationSummary,
+											auto: pendingJob ? pendingJob.auto : false,
+										},
+									},
+									jobOpts,
+								)
+								logTelegramUsage("callback:coder:retry_enqueued", cqChatId, cqUserId, {
+									taskId: coderTaskId,
+									jobId: retryJob.id,
+								})
+							} else if (coderResult.action === "done") {
+								// User confirmed done — clean up
+								telegramNotifier.removePendingCoderJob(coderTaskId)
+								stopAutoTypingInterval(coderTaskId)
+								logTelegramUsage("callback:coder:done", cqChatId, cqUserId, { taskId: coderTaskId })
+							} else if (coderResult.action === "diff") {
+								// View diff — already handled by handleCoderCallback (edits message)
+								logTelegramUsage("callback:coder:diff", cqChatId, cqUserId, { taskId: coderTaskId })
+							} else if (coderResult.action === "back") {
+								// Go back — already handled by handleCoderCallback (edits message)
+								logTelegramUsage("callback:coder:back", cqChatId, cqUserId, { taskId: coderTaskId })
+							} else if (coderResult.action === "similar") {
+								// Suggest a similar task based on the completed task's instruction
+								logTelegramUsage("callback:coder:similar", cqChatId, cqUserId, { taskId: coderTaskId })
+								var pendingJob = telegramNotifier.getPendingCoderJob(coderTaskId)
+								var baseInstruction = pendingJob ? pendingJob.instruction : ""
+								var similarSuggestions = [
+									"Add tests for the changes",
+									"Add error handling",
+									"Add logging",
+									"Improve performance",
+									"Add documentation",
+									"Refactor for readability",
+								]
+								var suggestionText = similarSuggestions
+									.map(function (s, i) {
+										return i + 1 + ". " + s + " related to: " + baseInstruction.slice(0, 80)
+									})
+									.join("\n")
+								await sendMessage(
+									botToken,
+									cqChatId,
+									"*📋 Similar Tasks*\n\nBased on your last task, here are related improvements you might want:\n\n" +
+										suggestionText +
+										"\n\n_Reply with the number or describe what you'd like to do next._",
+								)
+							} else if (coderResult.action === "audit") {
+								// Audit the changes from the completed task
+								logTelegramUsage("callback:coder:audit", cqChatId, cqUserId, { taskId: coderTaskId })
+								var pendingJob = telegramNotifier.getPendingCoderJob(coderTaskId)
+								var auditText = "*🔍 Audit Report*\n\n"
+								if (pendingJob) {
+									auditText += "*Task:* `" + coderTaskId + "`\n"
+									auditText += "*Instruction:* " + pendingJob.instruction.slice(0, 200) + "\n\n"
+									if (pendingJob.plan && pendingJob.plan.changes) {
+										auditText += "*Files Changed:*\n"
+										for (var ci = 0; ci < pendingJob.plan.changes.length; ci++) {
+											var ch = pendingJob.plan.changes[ci]
+											auditText += "• `" + ch.file + "` — " + (ch.action || "modify") + "\n"
+										}
 									}
+									if (pendingJob.branch) {
+										auditText += "\n*Branch:* `" + pendingJob.branch + "`\n"
+									}
+									if (pendingJob.workspaceDir) {
+										auditText += "*Workspace:* `" + pendingJob.workspaceDir + "`\n"
+									}
+								} else {
+									auditText += "_Task details no longer available in memory._"
 								}
-								if (pendingJob.branch) {
-									auditText += "\n*Branch:* `" + pendingJob.branch + "`\n"
-								}
-								if (pendingJob.workspaceDir) {
-									auditText += "*Workspace:* `" + pendingJob.workspaceDir + "`\n"
-								}
-							} else {
-								auditText += "_Task details no longer available in memory._"
+								auditText +=
+									"\n\n_Tip: Use `/diff " +
+									coderTaskId +
+									"` to view the full diff, or `/logs` to check deployment logs._"
+								await sendMessage(botToken, cqChatId, auditText)
 							}
-							auditText +=
-								"\n\n_Tip: Use `/diff " +
-								coderTaskId +
-								"` to view the full diff, or `/logs` to check deployment logs._"
-							await sendMessage(botToken, cqChatId, auditText)
 						}
+					} catch (err) {
+						logTelegramError("callback:coder", cqChatId, cqUserId, err, { data: cqData })
+						await sendMessage(botToken, cqChatId, "*Coder Workflow Error* ❌\n\n" + err.message)
 					}
-				} catch (err) {
-					logTelegramError("callback:coder", cqChatId, cqUserId, err, { data: cqData })
-					await sendMessage(botToken, cqChatId, "*Coder Workflow Error* ❌\n\n" + err.message)
-				}
-			})
+				},
+			)
 
 			// ─── Quick Action Callbacks (from sendActionButtons) ────────────────
 			// action:<type>[:<taskId>] — Run Tests, Show Diff, Approve, Status, Fix, Debug
-			registerCallback("action:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
-				var actionParts = cqData.slice(7).split(":")
-				var actionType = actionParts[0]
-				var actionTaskId = actionParts[1] || null
-				logTelegramUsage("callback:action:" + actionType, cqChatId, cqUserId, { taskId: actionTaskId })
-				await sendChatAction(botToken, cqChatId, "typing")
-				try {
-					if (actionType === "tests") {
-						var aqTestResult = await tgEndpoints.runTests("")
-						await sendMessage(botToken, cqChatId, telegramEngineer.formatTestResult(aqTestResult))
-					} else if (actionType === "diff") {
-						if (actionTaskId) {
-							await handleDiff(botToken, cqChatId, [actionTaskId], orchestratorBridge)
-						} else {
-							await handleDiff(botToken, cqChatId, [], orchestratorBridge)
-						}
-					} else if (actionType === "approve") {
-						if (actionTaskId) {
-							await handleApprove(botToken, cqChatId, [actionTaskId], orchestratorBridge)
-						} else {
-							await sendMessage(
+			registerCallback(
+				"action:",
+				async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
+					var actionParts = cqData.slice(7).split(":")
+					var actionType = actionParts[0]
+					var actionTaskId = actionParts[1] || null
+					logTelegramUsage("callback:action:" + actionType, cqChatId, cqUserId, { taskId: actionTaskId })
+					await sendChatAction(botToken, cqChatId, "typing")
+					try {
+						if (actionType === "tests") {
+							var aqTestResult = await tgEndpoints.runTests("")
+							await sendMessage(botToken, cqChatId, telegramEngineer.formatTestResult(aqTestResult))
+						} else if (actionType === "diff") {
+							if (actionTaskId) {
+								await handleDiff(botToken, cqChatId, [actionTaskId], orchestratorBridge)
+							} else {
+								await handleDiff(botToken, cqChatId, [], orchestratorBridge)
+							}
+						} else if (actionType === "approve") {
+							if (actionTaskId) {
+								await handleApprove(botToken, cqChatId, [actionTaskId], orchestratorBridge)
+							} else {
+								await sendMessage(
+									botToken,
+									cqChatId,
+									"No task to approve. Run `/status` to see active tasks.",
+								)
+							}
+						} else if (actionType === "status") {
+							await handleStatus(botToken, cqChatId, [], queue)
+						} else if (actionType === "fix") {
+							var aqCtx = getSmartContext(cqChatId)
+							await handleFix(
 								botToken,
 								cqChatId,
-								"No task to approve. Run `/status` to see active tasks.",
+								aqCtx.lastError ? [aqCtx.lastError] : [],
+								providers || [],
 							)
+						} else if (actionType === "debug") {
+							var aqCtx2 = getSmartContext(cqChatId)
+							var aqDebugText = aqCtx2.lastError || "the last error"
+							var aqDebugResult = await tgEndpoints.debugPlan(aqDebugText)
+							await sendMessage(botToken, cqChatId, telegramEngineer.formatDebugPlan(aqDebugResult))
+							await sendActionButtons(botToken, cqChatId, null)
 						}
-					} else if (actionType === "status") {
-						await handleStatus(botToken, cqChatId, [], queue)
-					} else if (actionType === "fix") {
-						var aqCtx = getSmartContext(cqChatId)
-						await handleFix(botToken, cqChatId, aqCtx.lastError ? [aqCtx.lastError] : [], providers || [])
-					} else if (actionType === "debug") {
-						var aqCtx2 = getSmartContext(cqChatId)
-						var aqDebugText = aqCtx2.lastError || "the last error"
-						var aqDebugResult = await tgEndpoints.debugPlan(aqDebugText)
-						await sendMessage(botToken, cqChatId, telegramEngineer.formatDebugPlan(aqDebugResult))
-						await sendActionButtons(botToken, cqChatId, null)
+					} catch (aqErr) {
+						await sendMessage(botToken, cqChatId, "❌ Action failed: " + aqErr.message)
 					}
-				} catch (aqErr) {
-					await sendMessage(botToken, cqChatId, "❌ Action failed: " + aqErr.message)
-				}
-			})
+				},
+			)
 
 			// ─── Menu Callbacks ────────────────────────────────────────────────
 			// menu:<action> — Handle menu button clicks (GUI upgrade, no slash commands needed)
-			registerCallback("menu:", async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
-				var menuAction = cqData.slice(5)
-				logTelegramUsage("callback:menu", cqChatId, cqUserId, { action: menuAction })
-				try {
-					switch (menuAction) {
-						case "code":
-							// Prompt user to type their coding instruction
-							await editMessageText(
-								botToken,
-								cqChatId,
-								cqMessageId,
-								'💻 *Coding*\n\nPlease type your coding instruction below.\n\n_Example: "Add a login page with email and password fields"_\n\nOr use `/code <instruction>` for power users.',
-							)
-							break
-						case "debug":
-							await editMessageText(
-								botToken,
-								cqChatId,
-								cqMessageId,
-								"🪲 *Debugging*\n\nPlease describe the bug you're experiencing below.\n\n_Example: \"The login button doesn't work on mobile\"_\n\nOr use `/debug <description>` for power users.",
-							)
-							break
-						case "deploy":
-							await handleDeploy(botToken, cqChatId, [], queue, orchestratorBridge)
-							break
-						case "status":
-							await handleStatus(botToken, cqChatId, [], queue)
-							break
-						case "upgrade":
-							await editMessageText(
-								botToken,
-								cqChatId,
-								cqMessageId,
-								'🔄 *Upgrade Bot*\n\nPlease describe what you\'d like to improve or upgrade about the bot.\n\n_Examples:_\n• "Add commit/deploy query capability"\n• "Make the bot learn from past conversations"\n• "Improve error handling in the Telegram bot"\n\nOr use `/upgrade <description>` for power users.',
-							)
-							break
-						case "recent":
-							await handleRecent(botToken, cqChatId)
-							break
-						case "projects":
-							await handleProjects(botToken, cqChatId, cqUserId)
-							break
-						case "brain":
-							try {
-								var brainRes = await fetch("http://127.0.0.1:8787/brain")
-								var brainData = await brainRes.json()
-								if (brainData.success && brainData.brain) {
-									var b = brainData.brain
-									await editMessageText(
-										botToken,
-										cqChatId,
-										cqMessageId,
-										"*🧠 SuperRoo Central Brain*\n\n" +
-											"*Status:* " +
-											b.status +
-											"\n" +
-											"*Agents:* Hermes Claw, Ollama, Cloud Coder\n" +
-											"*Capabilities:* Memory (RAG), Commit/Deploy Tracking, Learning Loop\n\n" +
-											"*API Base:* `DASHBOARD_URL/api`\n" +
-											"*Dashboard:* `DASHBOARD_URL`\n" +
-											"*Telegram:* @SuperRooBot\n\n" +
-											"*For AI Bots:* `GET /api/brain` to discover all endpoints\n\n" +
-											"*Commands:*\n" +
-											"• `/brain` — Show this info\n" +
-											"• `/brain plan <query>` — Terminal Brain planning\n" +
-											"• `/brain exec <cmd>` — Execute command safely\n" +
-											"• `/brain memory` — Terminal memory stats\n" +
-											"• `/brain context` — Project context",
-									)
-								} else {
-									throw new Error("Invalid response")
-								}
-							} catch (err) {
+			registerCallback(
+				"menu:",
+				async (botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge) => {
+					var menuAction = cqData.slice(5)
+					logTelegramUsage("callback:menu", cqChatId, cqUserId, { action: menuAction })
+					try {
+						switch (menuAction) {
+							case "code":
+								// Prompt user to type their coding instruction
 								await editMessageText(
 									botToken,
 									cqChatId,
 									cqMessageId,
-									'🧠 *Central Brain*\n\nType your command or question.\n\n_Example: "Check system status" or "Run npm test"_\n\nOr use `/brain <command>` for power users.',
+									'💻 *Coding*\n\nPlease type your coding instruction below.\n\n_Example: "Add a login page with email and password fields"_\n\nOr use `/code <instruction>` for power users.',
 								)
-							}
-							break
-						case "consultant":
-							await editMessageText(
-								botToken,
-								cqChatId,
-								cqMessageId,
-								'🔍 *Consultant*\n\nWhat would you like me to research or analyze?\n\n_Example: "Compare PostgreSQL vs MongoDB for a chat app"_',
-							)
-							break
-						case "hermes":
-							await editMessageText(
-								botToken,
-								cqChatId,
-								cqMessageId,
-								'🧠 *Hermes Claw*\n\nType your Hermes Claw command below.\n\n_Examples:_\n• "Recall how to fix build errors"\n• "Learn that I should always run tests before deploy"\n• "Show stats"\n\nOr use `/hermes <subcommand>` for power users.',
-							)
-							break
-						case "skills":
-							await handleSkills(botToken, cqChatId)
-							break
-						case "resources":
-							await handleResources(botToken, cqChatId)
-							break
-						case "logs":
-							await handleLogs(botToken, cqChatId, [])
-							break
-						case "tests":
-							await handleTest(botToken, cqChatId, [], queue)
-							break
-						case "help":
-							await handleHelp(botToken, cqChatId)
-							break
-						case "about":
-							await handleAbout(botToken, cqChatId)
-							break
-						case "back":
-							// Show the menu again
-							await handleMenu(botToken, cqChatId)
-							break
-						default:
-							await handleMenu(botToken, cqChatId)
+								break
+							case "debug":
+								await editMessageText(
+									botToken,
+									cqChatId,
+									cqMessageId,
+									"🪲 *Debugging*\n\nPlease describe the bug you're experiencing below.\n\n_Example: \"The login button doesn't work on mobile\"_\n\nOr use `/debug <description>` for power users.",
+								)
+								break
+							case "deploy":
+								await handleDeploy(botToken, cqChatId, [], queue, orchestratorBridge)
+								break
+							case "status":
+								await handleStatus(botToken, cqChatId, [], queue)
+								break
+							case "upgrade":
+								await editMessageText(
+									botToken,
+									cqChatId,
+									cqMessageId,
+									'🔄 *Upgrade Bot*\n\nPlease describe what you\'d like to improve or upgrade about the bot.\n\n_Examples:_\n• "Add commit/deploy query capability"\n• "Make the bot learn from past conversations"\n• "Improve error handling in the Telegram bot"\n\nOr use `/upgrade <description>` for power users.',
+								)
+								break
+							case "recent":
+								await handleRecent(botToken, cqChatId)
+								break
+							case "projects":
+								await handleProjects(botToken, cqChatId, cqUserId)
+								break
+							case "brain":
+								try {
+									var brainRes = await fetch("http://127.0.0.1:8787/brain")
+									var brainData = await brainRes.json()
+									if (brainData.success && brainData.brain) {
+										var b = brainData.brain
+										await editMessageText(
+											botToken,
+											cqChatId,
+											cqMessageId,
+											"*🧠 SuperRoo Central Brain*\n\n" +
+												"*Status:* " +
+												b.status +
+												"\n" +
+												"*Agents:* Hermes Claw, Ollama, Cloud Coder\n" +
+												"*Capabilities:* Memory (RAG), Commit/Deploy Tracking, Learning Loop\n\n" +
+												"*API Base:* `DASHBOARD_URL/api`\n" +
+												"*Dashboard:* `DASHBOARD_URL`\n" +
+												"*Telegram:* @SuperRooBot\n\n" +
+												"*For AI Bots:* `GET /api/brain` to discover all endpoints\n\n" +
+												"*Commands:*\n" +
+												"• `/brain` — Show this info\n" +
+												"• `/brain plan <query>` — Terminal Brain planning\n" +
+												"• `/brain exec <cmd>` — Execute command safely\n" +
+												"• `/brain memory` — Terminal memory stats\n" +
+												"• `/brain context` — Project context",
+										)
+									} else {
+										throw new Error("Invalid response")
+									}
+								} catch (err) {
+									await editMessageText(
+										botToken,
+										cqChatId,
+										cqMessageId,
+										'🧠 *Central Brain*\n\nType your command or question.\n\n_Example: "Check system status" or "Run npm test"_\n\nOr use `/brain <command>` for power users.',
+									)
+								}
+								break
+							case "consultant":
+								await editMessageText(
+									botToken,
+									cqChatId,
+									cqMessageId,
+									'🔍 *Consultant*\n\nWhat would you like me to research or analyze?\n\n_Example: "Compare PostgreSQL vs MongoDB for a chat app"_',
+								)
+								break
+							case "hermes":
+								await editMessageText(
+									botToken,
+									cqChatId,
+									cqMessageId,
+									'🧠 *Hermes Claw*\n\nType your Hermes Claw command below.\n\n_Examples:_\n• "Recall how to fix build errors"\n• "Learn that I should always run tests before deploy"\n• "Show stats"\n\nOr use `/hermes <subcommand>` for power users.',
+								)
+								break
+							case "skills":
+								await handleSkills(botToken, cqChatId)
+								break
+							case "resources":
+								await handleResources(botToken, cqChatId)
+								break
+							case "logs":
+								await handleLogs(botToken, cqChatId, [])
+								break
+							case "tests":
+								await handleTest(botToken, cqChatId, [], queue)
+								break
+							case "help":
+								await handleHelp(botToken, cqChatId)
+								break
+							case "about":
+								await handleAbout(botToken, cqChatId)
+								break
+							case "back":
+								// Show the menu again
+								await handleMenu(botToken, cqChatId)
+								break
+							default:
+								await handleMenu(botToken, cqChatId)
+						}
+					} catch (err) {
+						logTelegramError("callback:menu", cqChatId, cqUserId, err, { action: menuAction })
+						await sendMessage(botToken, cqChatId, "*Menu Error* ❌\n\n" + err.message)
 					}
-				} catch (err) {
-					logTelegramError("callback:menu", cqChatId, cqUserId, err, { action: menuAction })
-					await sendMessage(botToken, cqChatId, "*Menu Error* ❌\n\n" + err.message)
-				}
-			})
+				},
+			)
 
 			// Unhandled callback data — dispatch via registry; if no handler matched, log warning
-			var handled = await dispatchCallback(botToken, cq, cqChatId, cqMessageId, cqData, cqUserId, queue, providers, orchestratorBridge)
+			var handled = await dispatchCallback(
+				botToken,
+				cq,
+				cqChatId,
+				cqMessageId,
+				cqData,
+				cqUserId,
+				queue,
+				providers,
+				orchestratorBridge,
+			)
 			if (!handled) {
 				logTelegramWarning("callback:unknown", cqChatId, cqUserId, "Unhandled callback data", { data: cqData })
 			}
@@ -8626,7 +9068,12 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 				for (var hi = 0; hi < historyEntries.length; hi++) {
 					var he = historyEntries[hi]
 					var timeAgo = Math.round((Date.now() - he.timestamp) / 1000)
-					var timeStr = timeAgo < 60 ? timeAgo + "s ago" : timeAgo < 3600 ? Math.round(timeAgo / 60) + "m ago" : Math.round(timeAgo / 3600) + "h ago"
+					var timeStr =
+						timeAgo < 60
+							? timeAgo + "s ago"
+							: timeAgo < 3600
+								? Math.round(timeAgo / 60) + "m ago"
+								: Math.round(timeAgo / 3600) + "h ago"
 					historyLines.push("`" + he.command + "` — " + he.text.slice(0, 60) + "  _(" + timeStr + ")_")
 				}
 				await sendMessage(botToken, chatId, historyLines.join("\n"))
@@ -8997,4 +9444,6 @@ module.exports = {
 	recordCommand,
 	getCommandHistory,
 	_commandHistory,
+	// Response cache (GAP 3.4)
+	getResponseCacheStats,
 }

@@ -737,6 +737,102 @@ function getClientIp(req) {
 	return req.socket?.remoteAddress?.toLowerCase() || "unknown"
 }
 
+// ─── Telegram IP Whitelist (GAP 6.3) ────────────────────────────────────────
+// Telegram webhook requests originate from known IP ranges.
+// See: https://core.telegram.org/bots/webhooks#the-hard-way
+
+const TELEGRAM_IP_RANGES = [
+	"91.108.4.0/22",
+	"91.108.56.0/22",
+	"91.108.8.0/22",
+	"91.108.12.0/22",
+	"91.108.16.0/22",
+	"91.108.20.0/22",
+	"91.108.24.0/22",
+	"91.108.28.0/22",
+	"91.108.32.0/22",
+	"91.108.36.0/22",
+	"91.108.40.0/22",
+	"91.108.44.0/22",
+	"91.108.48.0/22",
+	"91.108.52.0/22",
+	"91.108.60.0/22",
+	"91.108.64.0/22",
+	"91.108.68.0/22",
+	"91.108.72.0/22",
+	"91.108.76.0/22",
+	"91.108.80.0/22",
+	"91.108.84.0/22",
+	"91.108.88.0/22",
+	"91.108.92.0/22",
+	"91.108.96.0/22",
+	"91.108.100.0/22",
+	"91.108.104.0/22",
+	"91.108.108.0/22",
+	"91.108.112.0/22",
+	"91.108.116.0/22",
+	"91.108.120.0/22",
+	"91.108.124.0/22",
+	"91.108.128.0/22",
+	"91.108.132.0/22",
+	"91.108.136.0/22",
+	"91.108.140.0/22",
+	"91.108.144.0/22",
+	"91.108.148.0/22",
+	"91.108.152.0/22",
+	"91.108.156.0/22",
+	"91.108.160.0/22",
+	"91.108.164.0/22",
+	"91.108.168.0/22",
+	"91.108.172.0/22",
+	"91.108.176.0/22",
+	"91.108.180.0/22",
+	"91.108.184.0/22",
+	"91.108.188.0/22",
+	"91.108.192.0/22",
+	"91.108.196.0/22",
+	"91.108.200.0/22",
+	"91.108.204.0/22",
+	"91.108.208.0/22",
+	"91.108.212.0/22",
+	"91.108.216.0/22",
+	"91.108.220.0/22",
+	"91.108.224.0/22",
+	"91.108.228.0/22",
+	"91.108.232.0/22",
+	"91.108.236.0/22",
+	"91.108.240.0/22",
+	"91.108.244.0/22",
+	"91.108.248.0/22",
+	"91.108.252.0/22",
+	"149.154.160.0/20",
+	"149.154.164.0/22",
+	"149.154.168.0/22",
+	"149.154.172.0/22",
+]
+
+const _telegramCidrCache = TELEGRAM_IP_RANGES.map(function (cidr) {
+	const parts = cidr.split("/")
+	const ipParts = parts[0].split(".").map(Number)
+	const prefixLen = parseInt(parts[1], 10)
+	const ipNum = (ipParts[0] << 24) | (ipParts[1] << 16) | (ipParts[2] << 8) | ipParts[3]
+	const mask = ~((1 << (32 - prefixLen)) - 1)
+	return { mask: mask >>> 0, value: ipNum & mask }
+})
+
+function _isTelegramIp(ip) {
+	if (!ip || ip === "unknown" || ip === "::1" || ip === "127.0.0.1") return true
+	if (ip.indexOf("::ffff:") === 0) {
+		ip = ip.substring(7)
+	}
+	const parts = ip.split(".").map(Number)
+	if (parts.length !== 4 || parts.some(isNaN)) return false
+	const ipNum = (parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]
+	return _telegramCidrCache.some(function (entry) {
+		return (ipNum & entry.mask) === entry.value
+	})
+}
+
 /**
  * Check and consume a rate limit token for the given IP.
  * Returns { allowed: boolean, remaining: number, resetAt: number }.
@@ -3330,7 +3426,10 @@ const server = http.createServer(async (req, res) => {
 		}
 
 		// I6: Advanced modules health endpoint
-		if (method === "GET" && (url === "/orchestrator/health/advanced" || normalizedUrl === "/orchestrator/health/advanced")) {
+		if (
+			method === "GET" &&
+			(url === "/orchestrator/health/advanced" || normalizedUrl === "/orchestrator/health/advanced")
+		) {
 			const advancedHealth = {
 				mlEngine: { status: "unknown", modelType: null, loopsRun: 0 },
 				debugTeam: { status: "unknown", running: false, jobsPending: 0 },
@@ -3360,7 +3459,9 @@ const server = http.createServer(async (req, res) => {
 					advancedHealth.debugTeam = {
 						status: "healthy",
 						running: status.running || false,
-						jobsPending: status.stepResults ? status.stepResults.filter(r => r.status === 'failed' || r.status === 'error').length : 0,
+						jobsPending: status.stepResults
+							? status.stepResults.filter((r) => r.status === "failed" || r.status === "error").length
+							: 0,
 					}
 				} else {
 					advancedHealth.debugTeam = { status: "unavailable", running: false, jobsPending: 0 }
@@ -3368,7 +3469,9 @@ const server = http.createServer(async (req, res) => {
 
 				// Parallel Execution
 				if (orchestrator.parallelExecutor) {
-					const execStatus = orchestrator.parallelExecutor.getStatus ? orchestrator.parallelExecutor.getStatus() : {}
+					const execStatus = orchestrator.parallelExecutor.getStatus
+						? orchestrator.parallelExecutor.getStatus()
+						: {}
 					advancedHealth.parallelExecution = {
 						status: "healthy",
 						activeTasks: execStatus.activeTasks || 0,
@@ -3380,7 +3483,9 @@ const server = http.createServer(async (req, res) => {
 
 				// Self-Healing (HealingBus)
 				if (orchestrator.healingBus) {
-					const incidents = orchestrator.healingBus.list ? orchestrator.healingBus.list({ status: 'open' }) : []
+					const incidents = orchestrator.healingBus.list
+						? orchestrator.healingBus.list({ status: "open" })
+						: []
 					advancedHealth.selfHealing = {
 						status: "healthy",
 						openIncidents: (incidents && incidents.length) || 0,
@@ -8201,10 +8306,7 @@ const server = http.createServer(async (req, res) => {
 		// ── Unified Deploy API ─────────────────────────────────────────────────
 
 		// POST /api/deploy — queue or execute a deployment
-		if (
-			method === "POST" &&
-			(url === "/api/deploy" || normalizedUrl === "/api/deploy")
-		) {
+		if (method === "POST" && (url === "/api/deploy" || normalizedUrl === "/api/deploy")) {
 			if (!orchestrator || !orchestrator.deployOrchestrator) {
 				sendJson(res, 503, { success: false, error: "DeployOrchestrator not initialized" })
 				return
@@ -8223,10 +8325,7 @@ const server = http.createServer(async (req, res) => {
 		}
 
 		// GET /api/deploy/queue — get deployment queue
-		if (
-			method === "GET" &&
-			(url === "/api/deploy/queue" || normalizedUrl === "/api/deploy/queue")
-		) {
+		if (method === "GET" && (url === "/api/deploy/queue" || normalizedUrl === "/api/deploy/queue")) {
 			if (!orchestrator || !orchestrator.deployOrchestrator) {
 				sendJson(res, 503, { success: false, error: "DeployOrchestrator not initialized" })
 				return
@@ -8237,10 +8336,7 @@ const server = http.createServer(async (req, res) => {
 		}
 
 		// GET /api/deploy/active — get active deployments
-		if (
-			method === "GET" &&
-			(url === "/api/deploy/active" || normalizedUrl === "/api/deploy/active")
-		) {
+		if (method === "GET" && (url === "/api/deploy/active" || normalizedUrl === "/api/deploy/active")) {
 			if (!orchestrator || !orchestrator.deployOrchestrator) {
 				sendJson(res, 503, { success: false, error: "DeployOrchestrator not initialized" })
 				return
@@ -8251,10 +8347,7 @@ const server = http.createServer(async (req, res) => {
 		}
 
 		// GET /api/deploy/builds — get build status
-		if (
-			method === "GET" &&
-			(url === "/api/deploy/builds" || normalizedUrl === "/api/deploy/builds")
-		) {
+		if (method === "GET" && (url === "/api/deploy/builds" || normalizedUrl === "/api/deploy/builds")) {
 			if (!orchestrator || !orchestrator.deployOrchestrator) {
 				sendJson(res, 503, { success: false, error: "DeployOrchestrator not initialized" })
 				return
@@ -8265,10 +8358,7 @@ const server = http.createServer(async (req, res) => {
 		}
 
 		// POST /api/deploy/cancel — cancel a deployment
-		if (
-			method === "POST" &&
-			(url === "/api/deploy/cancel" || normalizedUrl === "/api/deploy/cancel")
-		) {
+		if (method === "POST" && (url === "/api/deploy/cancel" || normalizedUrl === "/api/deploy/cancel")) {
 			if (!orchestrator || !orchestrator.deployOrchestrator) {
 				sendJson(res, 503, { success: false, error: "DeployOrchestrator not initialized" })
 				return
@@ -8284,10 +8374,7 @@ const server = http.createServer(async (req, res) => {
 		}
 
 		// POST /api/deploy/force — force a deployment (bypass queue)
-		if (
-			method === "POST" &&
-			(url === "/api/deploy/force" || normalizedUrl === "/api/deploy/force")
-		) {
+		if (method === "POST" && (url === "/api/deploy/force" || normalizedUrl === "/api/deploy/force")) {
 			if (!orchestrator || !orchestrator.deployOrchestrator) {
 				sendJson(res, 503, { success: false, error: "DeployOrchestrator not initialized" })
 				return
@@ -8420,13 +8507,9 @@ const server = http.createServer(async (req, res) => {
 		// ── ML / Neural Network Endpoints ────────────────────────────────────────
 
 		// POST /orchestrator/ml/train — Trigger neural network training via InfiniteImprovementLoop
-		if (
-			method === "POST" &&
-			(url === "/orchestrator/ml/train" || normalizedUrl === "/orchestrator/ml/train")
-		) {
+		if (method === "POST" && (url === "/orchestrator/ml/train" || normalizedUrl === "/orchestrator/ml/train")) {
 			try {
-				const improvementLoop =
-					orchestrator?.infiniteImprovementLoop || orchestrator?.improvementLoop
+				const improvementLoop = orchestrator?.infiniteImprovementLoop || orchestrator?.improvementLoop
 				if (!improvementLoop) {
 					sendJson(res, 503, { success: false, error: "ImprovementLoop not initialized" })
 					return
@@ -8461,13 +8544,9 @@ const server = http.createServer(async (req, res) => {
 		}
 
 		// GET /orchestrator/ml/model — Inspect the current ML model
-		if (
-			method === "GET" &&
-			(url === "/orchestrator/ml/model" || normalizedUrl === "/orchestrator/ml/model")
-		) {
+		if (method === "GET" && (url === "/orchestrator/ml/model" || normalizedUrl === "/orchestrator/ml/model")) {
 			try {
-				const improvementLoop =
-					orchestrator?.infiniteImprovementLoop || orchestrator?.improvementLoop
+				const improvementLoop = orchestrator?.infiniteImprovementLoop || orchestrator?.improvementLoop
 				if (!improvementLoop) {
 					sendJson(res, 503, { success: false, error: "ImprovementLoop not initialized" })
 					return
@@ -8495,8 +8574,7 @@ const server = http.createServer(async (req, res) => {
 			(url === "/orchestrator/ml/learners" || normalizedUrl === "/orchestrator/ml/learners")
 		) {
 			try {
-				const improvementLoop =
-					orchestrator?.infiniteImprovementLoop || orchestrator?.improvementLoop
+				const improvementLoop = orchestrator?.infiniteImprovementLoop || orchestrator?.improvementLoop
 				if (!improvementLoop) {
 					sendJson(res, 503, { success: false, error: "ImprovementLoop not initialized" })
 					return
@@ -8512,9 +8590,21 @@ const server = http.createServer(async (req, res) => {
 					const models = stats?.models || {}
 					sendJson(res, 200, {
 						learners: [
-							{ name: "code", status: models.code === "trained" ? "active" : "idle", samples: codeSamples },
-							{ name: "debug", status: models.debug === "trained" ? "active" : "idle", samples: debugSamples },
-							{ name: "test", status: models.test === "trained" ? "active" : "idle", samples: testSamples },
+							{
+								name: "code",
+								status: models.code === "trained" ? "active" : "idle",
+								samples: codeSamples,
+							},
+							{
+								name: "debug",
+								status: models.debug === "trained" ? "active" : "idle",
+								samples: debugSamples,
+							},
+							{
+								name: "test",
+								status: models.test === "trained" ? "active" : "idle",
+								samples: testSamples,
+							},
 						],
 						note: "Derived from internal sample arrays",
 					})
@@ -9120,10 +9210,7 @@ const server = http.createServer(async (req, res) => {
 											"No reusable rule recorded.",
 										reusable_rule:
 											lesson.rule_summary || entry.rule_summary || "No reusable rule recorded.",
-										date:
-											lesson.date ||
-											entry.date ||
-											safeDateOnly(lesson.createdAt),
+										date: lesson.date || entry.date || safeDateOnly(lesson.createdAt),
 										project: lesson.project || entry.project || source,
 									}
 								})
@@ -10531,7 +10618,9 @@ const server = http.createServer(async (req, res) => {
 				sendJson(res, 200, { success: false, error: "TELEGRAM_BOT_TOKEN not configured" })
 				return
 			}
-			const health = telegramBot.getWebhookHealth ? telegramBot.getWebhookHealth() : { error: "health check not available" }
+			const health = telegramBot.getWebhookHealth
+				? telegramBot.getWebhookHealth()
+				: { error: "health check not available" }
 			sendJson(res, 200, { success: true, health })
 			return
 		}
@@ -10564,7 +10653,9 @@ const server = http.createServer(async (req, res) => {
 
 		// GET /telegram/latency — get command latency statistics
 		if (method === "GET" && (url === "/telegram/latency" || normalizedUrl === "/telegram/latency")) {
-			const latency = telegramBot.getCommandLatency ? telegramBot.getCommandLatency() : { error: "latency tracking not available" }
+			const latency = telegramBot.getCommandLatency
+				? telegramBot.getCommandLatency()
+				: { error: "latency tracking not available" }
 			sendJson(res, 200, { success: true, latency })
 			return
 		}
@@ -10586,6 +10677,17 @@ const server = http.createServer(async (req, res) => {
 				const secretHeader = req.headers["x-telegram-bot-api-secret-token"]
 				if (secretHeader !== webhookSecret) {
 					sendJson(res, 403, { ok: false, error: "Invalid webhook secret token" })
+					return
+				}
+			}
+			// Validate Telegram IP whitelist (GAP 6.3)
+			// Telegram webhook requests come from known IP ranges.
+			// This check is optional — controlled by TELEGRAM_IP_WHITELIST_ENABLED env var.
+			if (process.env.TELEGRAM_IP_WHITELIST_ENABLED !== "false") {
+				const clientIp = getClientIp(req)
+				if (clientIp && !_isTelegramIp(clientIp)) {
+					console.warn("[telegram] Rejected webhook from non-Telegram IP:", clientIp)
+					sendJson(res, 403, { ok: false, error: "Access denied" })
 					return
 				}
 			}

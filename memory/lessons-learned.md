@@ -1033,7 +1033,6 @@ bugfix
 
 ---
 
-
 ### Lesson: PM2 v7 env_file directive does not load .env — env vars must be in env block
 
 Date: 2026-05-20
@@ -1078,5 +1077,71 @@ Never use `env_file` in PM2 ecosystem.config.js — PM2 v7 does not support it. 
 #### Tags
 
 pm2, env_file, environment-variables, telegram-bot, deployment, ecosystem-config
+
+---
+
+### Auto-Extracted Lesson: Telegram Learner cold start, Badge/StatCard docs, HTTP→HTTPS redirect
+
+Date: 2026-05-20
+Source: Git commit 622f623b
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/api/api.js, cloud/api/telegramBot.js, cloud/api/telegramLearner.js, cloud/api/telegramNotifier.js, cloud/dashboard/src/components/ui/badge.tsx
+
+#### Task Summary
+
+fix: Telegram Learner cold start, Badge/StatCard docs, HTTP→HTTPS redirect
+
+#### Files Changed
+
+- `cloud/api/api.js`
+- `cloud/api/telegramBot.js`
+- `cloud/api/telegramLearner.js`
+- `cloud/api/telegramNotifier.js`
+- `cloud/dashboard/src/components/ui/badge.tsx`
+- `cloud/dashboard/src/components/ui/card.tsx`
+- `cloud/nginx-dashboard.conf`
+- `cloud/test-consultant-deploy.js`
+- `cloud/test-e2e-deploy.js`
+- `cloud/test-e2e-quick.js`
+- `docs/super-roo/TELEGRAM_GAP_ANALYSIS.md`
+- `memory/.stop-hook-last-run`
+- `memory/.sync-state.json`
+- `memory/lesson-index.jsonl`
+- `memory/lesson-summaries.json`
+- `memory/lessons-learned.md`
+- `temp-lesson.md`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 622f623b.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 622f623b by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+testing, ui, api, deployment, bugfix
 
 ---
