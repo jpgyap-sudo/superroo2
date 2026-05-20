@@ -2,15 +2,19 @@
  * SuperRoo Cloud — Debug Job Runner
  *
  * Cloud-native Super Debug Team execution engine.
- * Runs multi-phase debug/fix loops directly on the VPS host.
+ * Runs multi-phase debug/fix loops with sandboxed command execution.
  *
  * Phases per attempt:
  *   1. triage   — Read git log + recent error logs for context
  *   2. plan     — LLM (HermesClaw via vault key) generates hypothesis + fix commands
  *   3. snapshot — Create a git branch for this attempt
- *   4. execute  — Apply fix commands in project directory
- *   5. test     — Run test command to verify fix
+ *   4. execute  — Apply fix commands in project directory (sandboxed)
+ *   5. test     — Run test command to verify fix (sandboxed)
  *   6. commit   — Commit on success; rollback branch and retry on failure
+ *
+ * Fix commands and test commands run inside an isolated Docker sandbox
+ * with the project directory mounted as a volume. Git operations and
+ * LLM calls remain on the host for filesystem access.
  *
  * Triggered by BullMQ jobs with agentId === "superroo-debugger-agent".
  */
@@ -23,6 +27,59 @@ const crypto = require("crypto")
 const http = require("http")
 
 const execAsync = promisify(exec)
+
+// ── Global Sandbox Manager Singleton ──────────────────────────────────────────
+
+/**
+ * Get the global SandboxManager singleton.
+ * Uses the shared singleton from ../orchestrator/sandbox to avoid
+ * the triple-singleton problem (multiple independent SandboxManager instances).
+ */
+async function getSandboxManager() {
+	const { getGlobalSandboxManager } = require("../orchestrator/sandbox")
+	return getGlobalSandboxManager()
+}
+
+/**
+ * Run a command inside the sandbox with the project directory mounted.
+ * Falls back to host execution if sandbox is unavailable.
+ */
+async function runInSandbox(cmd, projectPath, timeout = 120000) {
+	try {
+		const manager = await getSandboxManager()
+		if (!manager.isReady()) {
+			// Fallback to host execution
+			const { stdout, stderr } = await execAsync(cmd, { cwd: projectPath, timeout })
+			return { stdout, stderr, exitCode: 0 }
+		}
+
+		const result = await manager.executeJob(
+			{
+				id: `debug-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+				task: "debug-exec",
+				commands: [cmd],
+			},
+			{
+				network: "none",
+				usePool: false,
+				timeout,
+				volumes: [`${projectPath}:/workspace/project`],
+				workDir: "/workspace/project",
+			},
+		)
+
+		return {
+			stdout: result.stdout || "",
+			stderr: result.stderr || "",
+			exitCode: result.exitCode ?? 1,
+		}
+	} catch (err) {
+		// Fallback to host execution on sandbox error
+		console.log(`[debug] Sandbox unavailable (${err.message}), falling back to host`)
+		const { stdout, stderr } = await execAsync(cmd, { cwd: projectPath, timeout })
+		return { stdout, stderr, exitCode: 0 }
+	}
+}
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
@@ -62,7 +119,12 @@ async function getProviderKey(providerId) {
 
 async function callLLM(systemPrompt, userPrompt) {
 	const providers = [
-		{ envKey: process.env.OPENAI_API_KEY, vaultId: "openai", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
+		{
+			envKey: process.env.OPENAI_API_KEY,
+			vaultId: "openai",
+			baseUrl: "https://api.openai.com/v1",
+			model: "gpt-4o-mini",
+		},
 		{ envKey: null, vaultId: "deepseek", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat" },
 	]
 
@@ -189,7 +251,9 @@ async function runDebugJob(job) {
 				triage += `(git triage unavailable: ${e.message})`
 			}
 			try {
-				const { stdout } = await execAsync("tail -50 /opt/superroo2/cloud/logs/api-error.log", { timeout: 10000 })
+				const { stdout } = await execAsync("tail -50 /opt/superroo2/cloud/logs/api-error.log", {
+					timeout: 10000,
+				})
 				triage += `\n\nRecent API errors:\n${stdout}`
 			} catch {
 				// log file may not exist yet
@@ -246,15 +310,23 @@ async function runDebugJob(job) {
 				}
 			}
 
-			// ── Phase 4: Execute fix ──────────────────────────────────────────
+			// ── Phase 4: Execute fix (sandboxed) ──────────────────────────────
 			if (fixCommands.length > 0) {
-				sendNotification(chatId, "🔧 Applying Fix", `Running ${fixCommands.length} fix command(s)...`)
+				sendNotification(
+					chatId,
+					"🔧 Applying Fix",
+					`Running ${fixCommands.length} fix command(s) in sandbox...`,
+				)
 				for (const cmd of fixCommands) {
-					console.log(`${tag} Exec: ${cmd}`)
+					console.log(`${tag} Exec (sandboxed): ${cmd}`)
 					try {
-						const { stdout, stderr } = await execAsync(cmd, { cwd: projectPath, timeout: 60000 })
+						const { stdout, stderr, exitCode } = await runInSandbox(cmd, projectPath, 60000)
 						if (stdout) console.log(`${tag} stdout: ${stdout.slice(0, 300)}`)
 						if (stderr) console.log(`${tag} stderr: ${stderr.slice(0, 200)}`)
+						if (exitCode !== 0) {
+							console.log(`${tag} Fix cmd exited with code ${exitCode}`)
+							lastError = stderr || `exit code ${exitCode}`
+						}
 					} catch (e) {
 						console.log(`${tag} Fix cmd failed: ${e.message}`)
 						lastError = e.message
@@ -262,17 +334,23 @@ async function runDebugJob(job) {
 				}
 			}
 
-			// ── Phase 5: Test ─────────────────────────────────────────────────
-			sendNotification(chatId, "🧪 Running Tests", `\`${testCommand}\``)
+			// ── Phase 5: Test (sandboxed) ─────────────────────────────────────
+			sendNotification(chatId, "🧪 Running Tests", `\`${testCommand}\` (sandboxed)`)
 			let testPassed = false
 
 			try {
-				const { stdout, stderr } = await execAsync(testCommand, { cwd: projectPath, timeout: 120000 })
-				testPassed = true
-				lastError = null
-				console.log(`${tag} Tests passed`)
-				const out = (stdout + "\n" + stderr).trim().slice(0, 500)
-				if (out) console.log(`${tag} Test output: ${out}`)
+				const { stdout, stderr, exitCode } = await runInSandbox(testCommand, projectPath, 120000)
+				testPassed = exitCode === 0
+				if (testPassed) {
+					lastError = null
+					console.log(`${tag} Tests passed`)
+					const out = (stdout + "\n" + stderr).trim().slice(0, 500)
+					if (out) console.log(`${tag} Test output: ${out}`)
+				} else {
+					const out = (stdout + "\n" + stderr).trim().slice(0, 800)
+					lastError = out || `exit code ${exitCode}`
+					console.log(`${tag} Tests failed: ${lastError.slice(0, 200)}`)
+				}
 			} catch (e) {
 				const out = ((e.stdout || "") + "\n" + (e.stderr || "")).trim().slice(0, 800)
 				lastError = out || e.message

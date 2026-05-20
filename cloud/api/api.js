@@ -27,6 +27,19 @@ const { CloudOrchestrator, SafetyMode } = require("../orchestrator")
 const { AutonomousLoop } = require("../orchestrator/modules/AutonomousLoop")
 const { CodexTaskLog } = require("../orchestrator/modules/CodexTaskLog")
 const TelegramOrchestratorBridge = require("../orchestrator/TelegramOrchestratorBridge")
+const { eventBus } = require("../orchestrator/modules/SuperRooEventBus")
+
+// ── Sandbox Manager (lazy init) ────────────────────────────────────────────────
+
+/**
+ * Get the global SandboxManager singleton for API routes.
+ * Uses the shared singleton from ../orchestrator/sandbox to avoid
+ * the triple-singleton problem (multiple independent SandboxManager instances).
+ */
+async function getSandboxManager() {
+	const { getGlobalSandboxManager } = require("../orchestrator/sandbox")
+	return getGlobalSandboxManager()
+}
 
 // ── Auth & Telegram Bot ───────────────────────────────────────────────────────
 
@@ -69,6 +82,34 @@ const {
 } = require("../orchestrator/ml/ModelSerializer")
 const { federatedMerge, mergeLocalAndCloud } = require("../orchestrator/ml/FederatedMerge")
 const { fromLocal, fromCloud, toLocal, toCloud, UNIFIED_DIMENSIONS } = require("../orchestrator/ml/FeatureMapper")
+
+/**
+ * Send a Telegram alert to the boss chat when the self-healing loop escalates.
+ * Fires silently on failure — never crashes the API.
+ * @param {object} payload - repair_result event payload
+ */
+async function _alertBossEscalation(payload) {
+	const botToken = process.env.TELEGRAM_BOT_TOKEN
+	const bossChatId = process.env.BOSS_TELEGRAM_CHAT_ID || "8485794779"
+	if (!botToken) return
+	const fp = payload.fingerprint || "unknown"
+	const title = payload.title || "unknown failure"
+	const threshold = payload.threshold || 3
+	const text =
+		`🚨 *Self-Healing Escalation*\n\n` +
+		`Fingerprint: \`${fp}\`\n` +
+		`Failure: ${title}\n` +
+		`Seen *${threshold}+* times without a fix\n\n` +
+		`Manual investigation required.`
+	try {
+		await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ chat_id: bossChatId, text, parse_mode: "Markdown" }),
+			signal: AbortSignal.timeout(8000),
+		})
+	} catch {}
+}
 
 async function loadWorkspaceStore() {
 	try {
@@ -665,6 +706,23 @@ async function initOrchestrator() {
 				projectRoot: path.join(__dirname, "..", ".."),
 			}),
 		)
+
+		// ── Wire SuperRooEventBus to EventLog for SQLite persistence ─────────
+		if (orchestrator.eventLog) {
+			eventBus.attachEventLog(orchestrator.eventLog)
+		}
+
+		// ── Subscribe to repair_result escalation events → Telegram alert ────
+		// Intercept all events emitted through the bus; filter to escalated repair
+		// results and fire a Telegram message to the boss chat.
+		const _origEmit = eventBus.emit.bind(eventBus)
+		eventBus.emit = function (taskId, type, payload = {}) {
+			const event = _origEmit(taskId, type, payload)
+			if (type === "repair_result" && payload.escalated) {
+				_alertBossEscalation(payload).catch(() => {})
+			}
+			return event
+		}
 
 		// ── Expose orchestrator globally for Telegram bot HermesClaw access ──
 		global.__orchestrator = orchestrator
@@ -3631,6 +3689,18 @@ const server = http.createServer(async (req, res) => {
 			}
 
 			sendJson(res, 200, advancedHealth)
+			return
+		}
+
+		// EventBus stats — active task count and total buffered events
+		if (
+			method === "GET" &&
+			(url === "/orchestrator/event-bus/stats" || normalizedUrl === "/orchestrator/event-bus/stats")
+		) {
+			const allEvents = eventBus.list()
+			const taskIds = new Set(allEvents.map((e) => e.taskId))
+			const activeTasks = taskIds.size
+			sendJson(res, 200, { activeTasks, totalEvents: allEvents.length })
 			return
 		}
 
@@ -7744,6 +7814,415 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// GET /orchestrator/tasks/:id/events — SSE stream of task events (OpenHands-style real-time)
+		if (method === "GET" && url.match(/^\/orchestrator\/tasks\/([^/]+)\/events$/)) {
+			const taskId = url.match(/^\/orchestrator\/tasks\/([^/]+)\/events$/)[1]
+			eventBus.subscribe(taskId, res)
+			return
+		}
+
+		// POST /runtime/exec — sandboxed command execution proxy
+		if (method === "POST" && normalizedUrl === "/runtime/exec") {
+			const runtimeUrl = process.env.SUPERROO_RUNTIME_URL || "http://127.0.0.1:3418"
+			try {
+				const body = await parseBody(req)
+				const runtimeRes = await fetch(`${runtimeUrl}/runtime/exec`, {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify(body),
+					signal: AbortSignal.timeout(125000),
+				})
+				const result = await runtimeRes.json()
+				sendJson(res, runtimeRes.status, result)
+			} catch (err) {
+				sendJson(res, 502, { ok: false, error: `Runtime unreachable: ${err.message}` })
+			}
+			return
+		}
+
+		// ── Sandbox API Routes ─────────────────────────────────────────────────
+
+		// GET /api/sandbox/health — sandbox manager health check
+		if (method === "GET" && normalizedUrl === "/api/sandbox/health") {
+			try {
+				const manager = await getSandboxManager()
+				const health = await manager.healthCheck()
+				sendJson(res, 200, { success: true, health })
+			} catch (err) {
+				sendJson(res, 503, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /api/sandbox/execute — execute a job in the sandbox
+		if (method === "POST" && normalizedUrl === "/api/sandbox/execute") {
+			try {
+				const body = await parseBody(req)
+				const manager = await getSandboxManager()
+				const result = await manager.executeJob(
+					{
+						id: body.jobId || `api-${Date.now()}`,
+						task: body.task || "api-execute",
+						commands: body.commands || [],
+					},
+					{
+						image: body.image,
+						network: body.network,
+						memory: body.memory,
+						cpus: body.cpus,
+						timeout: body.timeout,
+						usePool: body.usePool !== false,
+						env: body.env,
+						volumes: body.volumes,
+					},
+				)
+				sendJson(res, result.success ? 200 : 400, { success: result.success, ...result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /api/sandbox/containers — list active sandbox containers
+		if (method === "GET" && normalizedUrl === "/api/sandbox/containers") {
+			try {
+				const manager = await getSandboxManager()
+				const containers = manager.listActive()
+				sendJson(res, 200, { success: true, containers })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// DELETE /api/sandbox/containers — destroy all sandbox containers
+		if (method === "DELETE" && normalizedUrl === "/api/sandbox/containers") {
+			try {
+				const manager = await getSandboxManager()
+				const result = await manager.destroyAll()
+				sendJson(res, 200, { success: true, ...result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// DELETE /api/sandbox/containers/:name — destroy a specific container
+		if (method === "DELETE" && url.match(/^\/api\/sandbox\/containers\/([^/]+)$/)) {
+			try {
+				const containerName = url.match(/^\/api\/sandbox\/containers\/([^/]+)$/)[1]
+				const manager = await getSandboxManager()
+				const result = await manager.destroyContainer(containerName)
+				sendJson(res, result.success ? 200 : 404, { success: result.success, ...result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /api/sandbox/containers/:name/exec — execute a command in a running container
+		if (method === "POST" && url.match(/^\/api\/sandbox\/containers\/([^/]+)\/exec$/)) {
+			try {
+				const containerName = url.match(/^\/api\/sandbox\/containers\/([^/]+)\/exec$/)[1]
+				const body = await parseBody(req)
+				const manager = await getSandboxManager()
+				const result = await manager.execInContainer(containerName, body.command, {
+					timeout: body.timeout,
+				})
+				sendJson(res, result.success ? 200 : 400, { success: result.success, ...result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /api/sandbox/images — list sandbox Docker images
+		if (method === "GET" && normalizedUrl === "/api/sandbox/images") {
+			try {
+				const manager = await getSandboxManager()
+				const images = await manager.listImages()
+				sendJson(res, 200, { success: true, images })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /api/sandbox/images/build — build the sandbox Docker image
+		if (method === "POST" && normalizedUrl === "/api/sandbox/images/build") {
+			try {
+				const body = await parseBody(req)
+				const manager = await getSandboxManager()
+				const result = await manager.buildImage(body.dockerfileDir, body.tag)
+				sendJson(res, result ? 200 : 500, { success: result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// DELETE /api/sandbox/images/:tag — remove a sandbox Docker image
+		if (method === "DELETE" && url.match(/^\/api\/sandbox\/images\/([^/]+)$/)) {
+			try {
+				const tag = url.match(/^\/api\/sandbox\/images\/([^/]+)$/)[1]
+				const manager = await getSandboxManager()
+				const result = await manager.removeImage(tag)
+				sendJson(res, result ? 200 : 404, { success: result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /api/sandbox/pool — sandbox pool status
+		if (method === "GET" && normalizedUrl === "/api/sandbox/pool") {
+			try {
+				const manager = await getSandboxManager()
+				const poolStatus = manager.pool.getStatus()
+				sendJson(res, 200, { success: true, pool: poolStatus })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /api/sandbox/metrics — sandbox metrics
+		if (method === "GET" && normalizedUrl === "/api/sandbox/metrics") {
+			try {
+				const manager = await getSandboxManager()
+				const metrics = manager.getMetrics()
+				sendJson(res, 200, { success: true, metrics })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// ── Sandbox Advanced API Routes (snapshot, restore, network, self-heal, audit, compose, resource) ──
+
+		// POST /api/sandbox/containers/:name/snapshot — create a container snapshot
+		if (method === "POST" && url.match(/^\/api\/sandbox\/containers\/([^/]+)\/snapshot$/)) {
+			try {
+				const containerName = url.match(/^\/api\/sandbox\/containers\/([^/]+)\/snapshot$/)[1]
+				const body = await parseBody(req)
+				const manager = await getSandboxManager()
+				const result = await manager.snapshotContainer(containerName, body.tag || `snapshot-${Date.now()}`)
+				sendJson(res, result.success ? 200 : 404, { success: result.success, ...result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /api/sandbox/containers/:name/restore — restore a container from a snapshot
+		if (method === "POST" && url.match(/^\/api\/sandbox\/containers\/([^/]+)\/restore$/)) {
+			try {
+				const containerName = url.match(/^\/api\/sandbox\/containers\/([^/]+)\/restore$/)[1]
+				const body = await parseBody(req)
+				const manager = await getSandboxManager()
+				const result = await manager.restoreContainer(containerName, body.snapshotTag)
+				sendJson(res, result.success ? 200 : 404, { success: result.success, ...result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /api/sandbox/containers/:name/network-simulate — apply network simulation rules
+		if (method === "POST" && url.match(/^\/api\/sandbox\/containers\/([^/]+)\/network-simulate$/)) {
+			try {
+				const containerName = url.match(/^\/api\/sandbox\/containers\/([^/]+)\/network-simulate$/)[1]
+				const body = await parseBody(req)
+				const manager = await getSandboxManager()
+				const sandbox = manager._active.get(containerName)?.sandbox
+				if (!sandbox) {
+					sendJson(res, 404, { success: false, error: `Container ${containerName} not found` })
+					return
+				}
+				const result = await sandbox.simulateNetwork({
+					latencyMs: body.latencyMs,
+					jitterMs: body.jitterMs,
+					lossPercent: body.lossPercent,
+					bandwidthKbps: body.bandwidthKbps,
+				})
+				sendJson(res, 200, { success: true, ...result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// DELETE /api/sandbox/containers/:name/network-simulate — clear network simulation rules
+		if (method === "DELETE" && url.match(/^\/api\/sandbox\/containers\/([^/]+)\/network-simulate$/)) {
+			try {
+				const containerName = url.match(/^\/api\/sandbox\/containers\/([^/]+)\/network-simulate$/)[1]
+				const manager = await getSandboxManager()
+				const sandbox = manager._active.get(containerName)?.sandbox
+				if (!sandbox) {
+					sendJson(res, 404, { success: false, error: `Container ${containerName} not found` })
+					return
+				}
+				await sandbox.clearNetworkSimulation()
+				sendJson(res, 200, { success: true })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /api/sandbox/containers/:name/heal — self-heal a specific container
+		if (method === "POST" && url.match(/^\/api\/sandbox\/containers\/([^/]+)\/heal$/)) {
+			try {
+				const containerName = url.match(/^\/api\/sandbox\/containers\/([^/]+)\/heal$/)[1]
+				const manager = await getSandboxManager()
+				const result = await manager.healContainer(containerName)
+				sendJson(res, result.success ? 200 : 404, { success: result.success, ...result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /api/sandbox/heal-all — self-heal all containers
+		if (method === "POST" && normalizedUrl === "/api/sandbox/heal-all") {
+			try {
+				const manager = await getSandboxManager()
+				const results = await manager.healAll()
+				sendJson(res, 200, { success: true, results })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /api/sandbox/audit — get audit trail
+		if (method === "GET" && normalizedUrl === "/api/sandbox/audit") {
+			try {
+				const urlObj = new URL(url, `http://localhost:${PORT}`)
+				const limit = parseInt(urlObj.searchParams.get("limit") || "100", 10)
+				const action = urlObj.searchParams.get("action") || undefined
+				const manager = await getSandboxManager()
+				const entries = await manager.getAuditTrail({ limit, action })
+				sendJson(res, 200, { success: true, entries, count: entries.length })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /api/sandbox/resource-pressure — get current resource pressure
+		if (method === "GET" && normalizedUrl === "/api/sandbox/resource-pressure") {
+			try {
+				const manager = await getSandboxManager()
+				const pressure = await manager.getResourcePressure()
+				sendJson(res, 200, { success: true, pressure })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /api/sandbox/compose/up — start a Docker Compose project
+		if (method === "POST" && normalizedUrl === "/api/sandbox/compose/up") {
+			try {
+				const body = await parseBody(req)
+				const { ComposeSandbox } = require("../orchestrator/sandbox")
+				const compose = new ComposeSandbox({
+					projectName: body.projectName || `compose-${Date.now()}`,
+					services: body.services || [],
+					workDir: body.workDir,
+				})
+				await compose.init()
+				const result = await compose.up(body.timeout)
+				sendJson(res, 200, { success: true, ...result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /api/sandbox/compose/down — stop a Docker Compose project
+		if (method === "POST" && normalizedUrl === "/api/sandbox/compose/down") {
+			try {
+				const body = await parseBody(req)
+				const { ComposeSandbox } = require("../orchestrator/sandbox")
+				const compose = new ComposeSandbox({
+					projectName: body.projectName || "compose-default",
+					services: [],
+					workDir: body.workDir,
+				})
+				await compose.init()
+				const result = await compose.down()
+				sendJson(res, 200, { success: true, ...result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /api/sandbox/compose/:service/exec — execute a command in a compose service
+		if (method === "POST" && url.match(/^\/api\/sandbox\/compose\/([^/]+)\/exec$/)) {
+			try {
+				const serviceName = url.match(/^\/api\/sandbox\/compose\/([^/]+)\/exec$/)[1]
+				const body = await parseBody(req)
+				const { ComposeSandbox } = require("../orchestrator/sandbox")
+				const compose = new ComposeSandbox({
+					projectName: body.projectName || "compose-default",
+					services: [],
+					workDir: body.workDir,
+				})
+				await compose.init()
+				const result = await compose.exec(serviceName, body.command)
+				sendJson(res, result.success ? 200 : 400, { success: result.success, ...result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /api/sandbox/compose/logs — get logs from a compose service
+		if (method === "GET" && normalizedUrl === "/api/sandbox/compose/logs") {
+			try {
+				const urlObj = new URL(url, `http://localhost:${PORT}`)
+				const serviceName = urlObj.searchParams.get("service") || undefined
+				const projectName = urlObj.searchParams.get("projectName") || "compose-default"
+				const workDir = urlObj.searchParams.get("workDir") || undefined
+				const { ComposeSandbox } = require("../orchestrator/sandbox")
+				const compose = new ComposeSandbox({
+					projectName,
+					services: [],
+					workDir,
+				})
+				await compose.init()
+				const logs = await compose.logs(serviceName)
+				sendJson(res, 200, { success: true, logs })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /api/sandbox/compose/ps — list compose services
+		if (method === "GET" && normalizedUrl === "/api/sandbox/compose/ps") {
+			try {
+				const urlObj = new URL(url, `http://localhost:${PORT}`)
+				const projectName = urlObj.searchParams.get("projectName") || "compose-default"
+				const workDir = urlObj.searchParams.get("workDir") || undefined
+				const { ComposeSandbox } = require("../orchestrator/sandbox")
+				const compose = new ComposeSandbox({
+					projectName,
+					services: [],
+					workDir,
+				})
+				await compose.init()
+				const services = await compose.ps()
+				sendJson(res, 200, { success: true, services })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
 		// GET /orchestrator/events — list events
 		if (method === "GET" && (url === "/orchestrator/events" || normalizedUrl === "/orchestrator/events")) {
 			if (!orchestrator) {
@@ -10732,35 +11211,82 @@ const server = http.createServer(async (req, res) => {
 		}
 
 		// GET /telegram/logs — get recent activity logs
-		if (method === "GET" && (url === "/telegram/logs" || normalizedUrl === "/telegram/logs")) {
-			const logs = [
-				{
+		if (
+			method === "GET" &&
+			(url.split("?")[0] === "/telegram/logs" || normalizedUrl.split("?")[0] === "/telegram/logs")
+		) {
+			const limitParam = parseInt(new URL("http://x" + url).searchParams.get("limit") || "50", 10)
+			const logs = []
+			try {
+				// Try recent chat-log files (best source for telegram activity)
+				const chatLogDir = path.join(__dirname, "..", "data", "chat-logs")
+				const candidateDates = [0, -1].map((offset) => {
+					const d = new Date()
+					d.setDate(d.getDate() + offset)
+					return d.toISOString().slice(0, 10)
+				})
+				for (const dt of candidateDates) {
+					const f = path.join(chatLogDir, `${dt}.jsonl`)
+					if (fsSync.existsSync(f)) {
+						const raw = fsSync.readFileSync(f, "utf-8").trim().split("\n").filter(Boolean)
+						// Chat log format: { t, c, r, msg, m } or { ts, chatId, message, intent }
+						const entries = raw
+							.slice(-limitParam)
+							.map((l) => {
+								try {
+									const e = JSON.parse(l)
+									const ts = e.t
+										? new Date(e.t).toLocaleTimeString()
+										: e.ts
+											? new Date(e.ts).toLocaleTimeString()
+											: "—"
+									const role = e.r || e.role || "msg"
+									const text = (e.msg || e.message || "").slice(0, 120)
+									const intent = e.m?.intent || e.intent || role
+									return text
+										? { timestamp: ts, level: "info", message: `[${intent}] ${text}` }
+										: null
+								} catch {
+									return null
+								}
+							})
+							.filter(Boolean)
+						logs.push(...entries)
+						if (logs.length) break
+					}
+				}
+				// Fallback: pm2 log tail via recent superroo jsonl
+				if (logs.length === 0) {
+					const logDir = path.join(__dirname, "..", "logs")
+					for (const dt of candidateDates) {
+						const f = path.join(logDir, `superroo-${dt}.jsonl`)
+						if (fsSync.existsSync(f)) {
+							const raw = fsSync.readFileSync(f, "utf-8").trim().split("\n").filter(Boolean)
+							const recent = raw.slice(-limitParam).map((l) => {
+								try {
+									const e = JSON.parse(l)
+									return {
+										timestamp: e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : "—",
+										level: e.level || "info",
+										message: e.message || JSON.stringify(e),
+									}
+								} catch {
+									return { timestamp: "—", level: "info", message: l.slice(0, 200) }
+								}
+							})
+							logs.push(...recent)
+							if (logs.length) break
+						}
+					}
+				}
+			} catch (err) {
+				logs.push({
 					timestamp: new Date().toLocaleTimeString(),
-					level: "info",
-					message: "TG-1287: Task created - Add Diff Viewer GUI",
-				},
-				{
-					timestamp: new Date(Date.now() - 60000).toLocaleTimeString(),
-					level: "info",
-					message: "TG-1287: Agent assigned - Coder Agent",
-				},
-				{
-					timestamp: new Date(Date.now() - 120000).toLocaleTimeString(),
-					level: "success",
-					message: "TG-1286: Approved by John Padilla",
-				},
-				{
-					timestamp: new Date(Date.now() - 300000).toLocaleTimeString(),
-					level: "warn",
-					message: "TG-1285: Deploy warnings - 2 tests flaky",
-				},
-				{
-					timestamp: new Date(Date.now() - 600000).toLocaleTimeString(),
-					level: "info",
-					message: "TG-1284: Coding started - Database migration",
-				},
-			]
-			sendJson(res, 200, { success: true, logs })
+					level: "error",
+					message: "Failed to read logs: " + err.message,
+				})
+			}
+			sendJson(res, 200, { success: true, logs, count: logs.length })
 			return
 		}
 

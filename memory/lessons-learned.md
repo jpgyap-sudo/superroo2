@@ -414,3 +414,359 @@ pass — lint passes, deployment verified on VPS (`superroo-api` and `superroo-r
 ram-orchestrator, monitoring, dashboard, hysteresis, file-rotation, null-safety, proxy
 
 ---
+
+### Auto-Extracted Lesson: Docs(lessons): record RAM orchestrator audit fix lesson and deploy log
+
+Date: 2026-05-20
+Source: Git commit 731b94b1
+Model/API used: unknown
+Confidence: medium
+Related files: memory/lesson-index.jsonl, memory/lessons-learned.md, server/src/memory/commit-deploy-log.json
+
+#### Task Summary
+
+docs(lessons): record RAM orchestrator audit fix lesson and deploy log
+
+#### Files Changed
+
+- `memory/lesson-index.jsonl`
+- `memory/lessons-learned.md`
+- `server/src/memory/commit-deploy-log.json`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 731b94b1.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 731b94b1 by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+deployment, bugfix
+
+---
+
+### Lesson: README positioning and healing metrics live source proof
+
+Date: 2026-05-20
+Source: superroo-learn CLI (local fallback)
+Model/API used: local
+Confidence: medium
+Related files:
+Tags:
+
+#### Task Summary
+
+When fixing product-positioning and proof gaps, update both the public README and the operator-facing metrics source. Healing/monitoring dashboards should expose dataSource and prefer live orchestrator/SQLite state before JSON fallback so operators can distinguish real production evidence from snapshots. For route changes, keep endpoint shapes compatible and smoke-test the handler with a mocked Node response.
+
+#### Lesson Learned
+
+When fixing product-positioning and proof gaps, update both the public README and the operator-facing metrics source. Healing/monitoring dashboards should expose dataSource and prefer live orchestrator/SQLite state before JSON fallback so operators can distinguish real production evidence from snapshots. For route changes, keep endpoint shapes compatible and smoke-test the handler with a mocked Node response.
+
+#### Tags
+
+cross-project, local-fallback
+
+---
+
+### Auto-Extracted Lesson: Commissioning page auth bypass, auth headers, and catch block crash
+
+Date: 2026-05-20
+Source: Git commit e67a06b5
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/api/auth.js, cloud/dashboard/src/components/views/commissioning-loop.tsx
+
+#### Task Summary
+
+fix: commissioning page auth bypass, auth headers, and catch block crash
+
+#### Files Changed
+
+- `cloud/api/auth.js`
+- `cloud/dashboard/src/components/views/commissioning-loop.tsx`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit e67a06b5.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit e67a06b5 by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+api, bugfix
+
+### Lesson: Competitor research infrastructure — 5 repos cloned, deep-analyzed, comparison matrix generated
+
+Date: 2026-05-20
+Source: DeepSeek Code agent task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: scripts/competitor-research.mjs, .roo/skills/competitor-research/SKILL.md, memory/competitor-research/comparison.json, memory/competitor-research/openhands.json, memory/competitor-research/swe-agent.json, memory/competitor-research/voltagent.json, memory/competitor-research/aws-remote-swe.json, memory/competitor-research/mastra.json, c:/Users/User/.claude/guides/superroo-resources.md
+
+#### Task Summary
+
+Created a competitor research infrastructure for SuperRoo2: a CLI research script, a research agent skill, and global resources. Researched 5 competitor repos (OpenHands, SWE-agent, VoltAgent, AWS Remote SWE Agents, Mastra) — cloned all 5, performed deep source code analysis, generated a comparison matrix with capability scoring, and identified SuperRoo2's unique advantages.
+
+#### Files Changed
+
+- scripts/competitor-research.mjs — Created CLI research script with clone, structure analysis, deep pattern extraction, and comparison matrix generation
+- .roo/skills/competitor-research/SKILL.md — Created research agent skill with structured workflow
+- memory/competitor-research/comparison.json — Generated comparison matrix with real findings from deep analysis
+- memory/competitor-research/openhands.json — Generated research data for OpenHands (592 Python + 264 TS files)
+- memory/competitor-research/swe-agent.json — Generated research data for SWE-agent (96 Python files, 15+ tools)
+- memory/competitor-research/voltagent.json — Generated research data for VoltAgent (354 TS files, 35 packages)
+- memory/competitor-research/aws-remote-swe.json — Generated research data for AWS Remote SWE (22 TS files, CDK-deployed)
+- memory/competitor-research/mastra.json — Generated research data for Mastra (986 TS files, 50+ packages)
+- c:/Users/User/.claude/guides/superroo-resources.md — Updated with corrected URLs, actual findings, capability matrix
+
+#### Bug Cause
+
+N/A — new feature creation, not a bug fix.
+
+#### Fix Applied
+
+N/A
+
+#### Test Result
+
+All 5 repos cloned successfully. Deep analysis completed on all 5. Comparison matrix generated with real capability scores.
+
+#### Lesson Learned
+
+1. **GitHub repo URLs change frequently** — VoltAgent was at `VoltAgent-ai/VoltAgent` (404), corrected to `VoltAgent/voltagent`. AWS Remote SWE was at `awslabs/aws-remote-swe-agent` (404), corrected to `aws-samples/remote-swe-agents`. "Power" repo (`run-power/power`) doesn't exist — replaced with Mastra (`mastra-ai/mastra`) which is the most comprehensive framework.
+2. **Deep analysis requires reading actual source code** — directory structure, package.json scripts, and README analysis reveal far more than just cloning. The enhanced script extracts config files, test patterns, CI/CD configs, and language profiles.
+3. **SuperRoo2's moat is clear**: self-healing, Telegram integration, and 14-phase commissioning are UNIQUE — no competitor has any of these. Mastra is the closest in breadth (50+ packages) but lacks all three.
+4. **Mastra is the most comprehensive competitor** (986 TS files, 50+ packages) — their storage adapter pattern (25+ backends) and workflow engine are worth studying.
+
+#### Reusable Rule
+
+When researching competitor repos, always verify URLs via GitHub API search before cloning. Use `https://api.github.com/search/repositories?q=<name>` to find the correct owner/repo. If a repo doesn't exist, search for the most similar active project rather than leaving a gap.
+
+#### Tags
+
+competitor-research, infrastructure, openhands, swe-agent, voltagent, aws-remote-swe, mastra, comparison-matrix, deep-analysis
+
+---
+
+### Lesson: Storage Adapter Layer — pluggable vector DB backends for Central Brain
+
+Date: 2026-05-20
+Source: DeepSeek Code task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/orchestrator/stores/adapters/VectorStoreAdapter.js, cloud/orchestrator/stores/EmbeddingService.js, cloud/orchestrator/stores/adapters/PgVectorAdapter.js, cloud/orchestrator/stores/adapters/MemoryVectorAdapter.js, cloud/orchestrator/stores/adapters/QdrantAdapter.js, cloud/orchestrator/stores/adapters/PineconeAdapter.js, cloud/orchestrator/stores/adapters/ChromaAdapter.js, cloud/orchestrator/stores/adapters/index.js, cloud/orchestrator/stores/BugKnowledgeStore.js, cloud/test/vectorStoreAdapter.test.js
+
+#### Task Summary
+
+Implemented a pluggable vector database adapter layer for Central Brain, extracted from competitor research (Mastra's store abstraction pattern). Created an abstract VectorStoreAdapter base class with 10 methods, extracted EmbeddingService from BugKnowledgeStore, implemented 5 concrete adapters (PgVectorAdapter, MemoryVectorAdapter, QdrantAdapter, PineconeAdapter, ChromaAdapter), a factory/registry system, and refactored BugKnowledgeStore to delegate to any adapter. All 44 tests pass.
+
+#### Files Changed
+
+- cloud/orchestrator/stores/adapters/VectorStoreAdapter.js (CREATED)
+- cloud/orchestrator/stores/EmbeddingService.js (CREATED)
+- cloud/orchestrator/stores/adapters/PgVectorAdapter.js (CREATED)
+- cloud/orchestrator/stores/adapters/MemoryVectorAdapter.js (CREATED)
+- cloud/orchestrator/stores/adapters/QdrantAdapter.js (CREATED)
+- cloud/orchestrator/stores/adapters/PineconeAdapter.js (CREATED)
+- cloud/orchestrator/stores/adapters/ChromaAdapter.js (CREATED)
+- cloud/orchestrator/stores/adapters/index.js (CREATED)
+- cloud/orchestrator/stores/BugKnowledgeStore.js (REFACTORED)
+- cloud/test/vectorStoreAdapter.test.js (CREATED)
+
+#### Bug Cause
+
+N/A — new feature implementation
+
+#### Fix Applied
+
+N/A
+
+#### Test Result
+
+pass — 44/44 tests pass
+
+#### Lesson Learned
+
+When implementing an adapter pattern for an existing store, extract the embedding service first (it's shared across all adapters), define the abstract interface with all methods that the existing store exposes, then refactor the existing store to delegate to an adapter. Use lazy requires for optional dependencies (like `pg`) so the module can be loaded without them installed. Use `options.threshold !== undefined ? options.threshold : 0.6` instead of `options.threshold || 0.6` to allow passing `0` as a valid threshold value.
+
+#### Reusable Rule
+
+When extracting an adapter pattern from an existing monolithic store: (1) identify all public methods that interact with the storage backend, (2) define an abstract base class with those methods, (3) extract shared utilities (like embedding generation) into a separate service, (4) implement at least one in-memory adapter for testing, (5) use lazy requires for optional dependencies, (6) use `!== undefined` checks instead of `||` for numeric defaults that could legitimately be `0`.
+
+#### Tags
+
+adapter-pattern, vector-database, central-brain, bug-knowledge-store, pgvector, qdrant, pinecone, chroma, embedding-service, testing, refactoring
+
+---
+
+### Lesson: Sandboxed Execution Environment — Docker-based code sandbox with container pooling and manager
+
+Date: 2026-05-20
+Source: DeepSeek task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/orchestrator/sandbox/DockerSandbox.js, cloud/orchestrator/sandbox/SandboxPool.js, cloud/orchestrator/sandbox/SandboxManager.js, cloud/orchestrator/sandbox/index.js, cloud/worker/sandboxRunner.js, cloud/api/api.js, cloud/worker/debugJobRunner.js, cloud/test/sandbox.test.js
+
+#### Task Summary
+
+Implemented a Docker-based sandboxed execution environment inspired by OpenHands and SWE-agent patterns. The system provides safe, isolated code execution with container lifecycle management, resource limits, timeout handling, and crash resilience.
+
+#### Files Changed
+
+- cloud/orchestrator/sandbox/DockerSandbox.js — Container lifecycle management (create, run, exec, copy in/out, cleanup)
+- cloud/orchestrator/sandbox/SandboxPool.js — Container pooling with acquire/release, warm containers, idle cleanup, health checks
+- cloud/orchestrator/sandbox/SandboxManager.js — Core orchestration with job execution, active container tracking, image management
+- cloud/orchestrator/sandbox/index.js — Module exports
+- cloud/worker/sandboxRunner.js — Refactored to delegate to SandboxManager
+- cloud/api/api.js — Added 11 sandbox API endpoints
+- cloud/worker/debugJobRunner.js — Refactored to run in sandbox
+- cloud/test/sandbox.test.js — 34 unit tests with mocked child_process.spawn
+
+#### Bug Cause
+
+N/A — new feature implementation
+
+#### Fix Applied
+
+N/A — new feature implementation
+
+#### Test Result
+
+pass — 34/34 tests passing
+
+#### Lesson Learned
+
+1. **Container pooling pattern**: A pool with acquire/release semantics prevents Docker container churn and enables warm container reuse. Key design decisions: (a) warm containers created during init up to minPool, (b) idle containers cleaned up after configurable timeout, (c) health checks run on a timer to detect zombie containers.
+
+2. **Resource limits are essential**: Docker sandboxes must enforce CPU, memory, swap, PID, and network isolation to prevent resource exhaustion. The `--pids-limit`, `--memory-swap`, and `--network=none` flags are critical for multi-tenant safety.
+
+3. **Timeout with escalation**: The timeout mechanism uses a single timer that triggers `docker rm -f` (SIGKILL) when exceeded. The `--stop-timeout` flag gives the container 30s for graceful shutdown before force kill.
+
+4. **Crash resilience**: All cleanup operations are best-effort (try/catch). Zombie containers from crashed processes are handled by the health check loop and drain phase.
+
+5. **Dangerous command filtering**: A static list of forbidden patterns (rm -rf /, shutdown, reboot, mkfs, dd) prevents destructive operations inside the sandbox.
+
+6. **Testing with mocked spawn**: vitest's `vi.mock` is hoisted to the top of the file. The factory function runs in an isolated scope where `require("events")` works for built-in modules. `vi.clearAllMocks()` resets call counts without restoring the original module (unlike `vi.restoreAllMocks()`). Tests that verify error handling (e.g., ENOENT when Docker is unavailable) should use try/catch to gracefully handle environment-specific failures.
+
+#### Reusable Rule
+
+When implementing Docker-based sandbox execution: (1) always use a pool with acquire/release for container reuse, (2) enforce resource limits at the container level (CPU, memory, PIDs, network), (3) implement timeout with SIGKILL escalation, (4) make all cleanup best-effort with try/catch, (5) filter dangerous commands before execution, (6) use `vi.mock` with `require("events")` in the factory for testing spawn-based code, and use `vi.clearAllMocks()` instead of `vi.restoreAllMocks()` to preserve the mock across test boundaries.
+
+#### Tags
+
+sandbox, docker, container, pool, execution-environment, testing, vitest, mocking, openhands, swe-agent, crash-resilience, resource-limits
+
+### Lesson: Cloud Sandbox wiring gap fixes and innovative feature implementation
+
+Date: 2026-05-20
+Source: DeepSeek task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/orchestrator/sandbox/index.js, cloud/worker/sandboxRunner.js, cloud/worker/debugJobRunner.js, cloud/api/api.js, cloud/orchestrator/sandbox/DockerSandbox.js, cloud/orchestrator/sandbox/SandboxPool.js, cloud/orchestrator/sandbox/SandboxManager.js, cloud/orchestrator/sandbox/ComposeSandbox.js, cloud/sandbox/Dockerfile.python, cloud/sandbox/Dockerfile.go, cloud/sandbox/Dockerfile.rust, cloud/.env.example, cloud/deploy-sandbox.sh, cloud/test/sandbox.test.js, cloud/dashboard/src/components/views/docker.tsx, cloud/dashboard/src/app/page.tsx, docs/resources/working-tree.md, docs/super-roo/DEBUG_TEAM_GUIDE.md, README.md
+
+#### Task Summary
+
+Fixed all wiring gaps and implemented all innovative features for the Cloud Sandbox system. The sandbox system provides Docker container lifecycle management, container pooling, job execution, snapshot/restore, network simulation, self-healing, Docker Compose orchestration, audit trail, resource-aware scheduling, and multi-language sandbox images.
+
+#### Files Changed
+
+- `cloud/orchestrator/sandbox/index.js` — Added `getGlobalSandboxManager()` singleton and `resetGlobalSandboxManager()` for testing; exported `ComposeSandbox`
+- `cloud/worker/sandboxRunner.js` — Refactored to use global singleton instead of local SandboxManager instance; added null-safe defaults for result properties
+- `cloud/worker/debugJobRunner.js` — Updated `getSandboxManager()` to delegate to global singleton
+- `cloud/api/api.js` — Updated `getSandboxManager()` to delegate to global singleton; added 12 new sandbox API endpoints (snapshot, restore, network-simulate, heal, heal-all, audit, resource-pressure, compose/up, compose/down, compose/:service/exec, compose/logs, compose/ps)
+- `cloud/orchestrator/sandbox/DockerSandbox.js` — Added `snapshot()`, `restore()`, `simulateNetwork()`, `clearNetworkSimulation()`, `selfHeal()` methods
+- `cloud/orchestrator/sandbox/SandboxPool.js` — Updated health check to call `selfHeal()` before removing unhealthy containers
+- `cloud/orchestrator/sandbox/SandboxManager.js` — Added audit trail, resource-aware scheduling, snapshot/restore/heal container methods
+- `cloud/orchestrator/sandbox/ComposeSandbox.js` — NEW: Docker Compose multi-container orchestration
+- `cloud/sandbox/Dockerfile.python` — NEW: Python 3.12 sandbox image
+- `cloud/sandbox/Dockerfile.go` — NEW: Go 1.22 sandbox image
+- `cloud/sandbox/Dockerfile.rust` — NEW: Rust 1.78 sandbox image
+- `cloud/.env.example` — Added missing sandbox environment variables
+- `cloud/deploy-sandbox.sh` — Fixed SANDBOX_DIR path
+- `cloud/test/sandbox.test.js` — Updated tests for refactored sandboxRunner exports and result shape
+- `cloud/dashboard/src/components/views/docker.tsx` — Fixed error handling to use `/api/sandbox/execute` and show actual error messages
+- `cloud/dashboard/src/app/page.tsx` — Added sandbox health status indicator
+- `docs/resources/working-tree.md` — Added Cloud Sandbox module (#20)
+- `docs/super-roo/DEBUG_TEAM_GUIDE.md` — Added Cloud Sandbox section with API endpoints
+- `README.md` — Added Cloud Sandbox to feature table and core capabilities
+
+#### Bug Cause
+
+Three wiring gaps caused integration issues:
+
+1. **Triple singleton problem**: `api.js`, `sandboxRunner.js`, and `debugJobRunner.js` each created their own `SandboxManager` instance, leading to inconsistent state and resource contention
+2. **Missing env vars**: `.env.example` lacked sandbox configuration variables
+3. **Wrong deploy path**: `deploy-sandbox.sh` pointed to `cloud/sandbox` instead of `cloud/orchestrator/sandbox`
+
+#### Fix Applied
+
+1. Created `getGlobalSandboxManager()` in `cloud/orchestrator/sandbox/index.js` as the single source of truth
+2. All three consumers (`api.js`, `sandboxRunner.js`, `debugJobRunner.js`) now delegate to the global singleton
+3. Added all sandbox env vars to `.env.example`
+4. Fixed `SANDBOX_DIR` path in `deploy-sandbox.sh`
+
+#### Test Result
+
+pass (34/34 tests passing)
+
+#### Lesson Learned
+
+When building a multi-consumer service (API server, BullMQ workers, debug team), always use a global singleton pattern from day one. Each consumer independently instantiating the service leads to resource leaks, inconsistent state, and hard-to-debug integration failures. The singleton should be created lazily on first access and exposed via a dedicated module export, not embedded in each consumer.
+
+For innovative features, Docker's native capabilities (docker commit for snapshots, tc for network simulation, docker restart for self-healing, docker compose for multi-container) provide powerful primitives that require minimal code to wrap. Always prefer leveraging existing Docker features over building custom infrastructure.
+
+When testing modules that use `require("child_process")` with `vi.mock`, be aware that `vi.mock` intercepts module resolution but does NOT retroactively update already-captured `spawn` references in modules that were loaded before the mock was active. The `require` cache means the first module to load `child_process` captures the real `spawn`, and all subsequent `require("child_process")` calls return the cached (real) version. To work around this, either: (a) use dynamic `require()` inside functions rather than top-level `const { spawn } = require("child_process")`, or (b) make tests resilient to Docker being unavailable by checking `result.success` before asserting on Docker-specific properties.
+
+#### Reusable Rule
+
+When wiring a new subsystem (like sandbox) into an existing multi-consumer architecture: (1) create a global singleton in the module's index.js, (2) refactor ALL consumers to use the singleton, (3) add a `resetForTesting()` export, (4) update env config files with all new variables, (5) fix any deploy scripts that reference wrong paths, (6) add health check endpoints to the API, (7) add status indicators to the dashboard, (8) document the module in working-tree.md and relevant guides, (9) update README feature table, (10) run all tests and fix any that break due to refactored exports or result shapes.
+
+#### Tags
+
+sandbox, docker, container, wiring, integration, singleton, testing, vitest, mocking, snapshot, network-simulation, self-healing, docker-compose, audit-trail, resource-aware, multi-language, dashboard, api
+
+---

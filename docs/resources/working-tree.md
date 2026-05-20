@@ -4,7 +4,7 @@
 
 ## Overview
 
-The SuperRoo system is organized into **18 core modules** spanning orchestration, agent execution, safety, persistence, self-healing, machine learning, product memory, commit/deploy tracking, parallel execution, and infrastructure. Each module has a status, owner, connections to other modules, and specific product features it enables.
+The SuperRoo system is organized into **21 core modules** spanning orchestration, agent execution, safety, persistence, self-healing, machine learning, product memory, commit/deploy tracking, parallel execution, cloud sandbox, and infrastructure. Each module has a status, owner, connections to other modules, and specific product features it enables.
 
 ## Module Map
 
@@ -63,6 +63,12 @@ The SuperRoo system is organized into **18 core modules** spanning orchestration
          ├──► CRAWLER AGENT (Data crawling & extraction)
          ├──► FILE IMPORTER (Filesystem import)
          ├──► REMOTE SHELL (SSH remote execution)
+         │
+         ├──► CLOUD SANDBOX (Docker container orchestration)
+         │     ├── DockerSandbox (container lifecycle, snapshot/restore, network sim, self-heal)
+         │     ├── SandboxPool (container pooling, warm containers, health checks)
+         │     ├── SandboxManager (job execution, audit trail, resource-aware scheduling)
+         │     └── ComposeSandbox (multi-container Docker Compose orchestration)
          │
          ├──► SETTINGS & API KEYS SYSTEM
          │     ├── API Keys View (Provider key management)
@@ -257,7 +263,22 @@ The SuperRoo system is organized into **18 core modules** spanning orchestration
 - **Features**: SSH command execution, Remote file operations
 - **Source**: [`src/super-roo/remote/`](../src/super-roo/remote/)
 
-### 20. Settings & API Keys System
+### 20. Cloud Sandbox
+
+- **Owner**: `SandboxManager`
+- **Status**: `active`
+- **Connections**: API Server, Worker System, Debug Team, Deploy System
+- **Features**: Docker container lifecycle management, Container pooling with warm containers, Job execution with resource limits, Container snapshot/restore (docker commit), Network simulation (tc traffic control), Self-healing containers (restart/recreate), Multi-container Docker Compose orchestration, Audit trail (JSONL), Resource-aware scheduling (CPU Guard integration), Multi-language sandbox images (Node.js, Python, Go, Rust)
+- **Sub-modules**:
+    - **DockerSandbox** ([`cloud/orchestrator/sandbox/DockerSandbox.js`](../cloud/orchestrator/sandbox/DockerSandbox.js)) - Container lifecycle (init, run, exec, cleanup), snapshot/restore via docker commit, network simulation via tc, self-healing (restart → recreate)
+    - **SandboxPool** ([`cloud/orchestrator/sandbox/SandboxPool.js`](../cloud/orchestrator/sandbox/SandboxPool.js)) - Container pooling with warm containers, idle cleanup, health checks with self-healing, acquire/release pattern
+    - **SandboxManager** ([`cloud/orchestrator/sandbox/SandboxManager.js`](../cloud/orchestrator/sandbox/SandboxManager.js)) - Job execution orchestration, audit trail (JSONL), resource-aware scheduling, snapshot/restore/heal API, global singleton pattern
+    - **ComposeSandbox** ([`cloud/orchestrator/sandbox/ComposeSandbox.js`](../cloud/orchestrator/sandbox/ComposeSandbox.js)) - Docker Compose multi-container orchestration, service lifecycle, health check waiting, per-service exec/logs
+    - **Sandbox API** ([`cloud/api/api.js`](../cloud/api/api.js)) - REST endpoints for execute, containers, images, pool, metrics, snapshot, restore, network simulation, self-heal, audit trail, compose, resource pressure
+    - **Sandbox Runner** ([`cloud/worker/sandboxRunner.js`](../cloud/worker/sandboxRunner.js)) - BullMQ worker integration for sandbox job execution
+    - **Multi-language Dockerfiles** ([`cloud/sandbox/Dockerfile`](../cloud/sandbox/Dockerfile), [`cloud/sandbox/Dockerfile.python`](../cloud/sandbox/Dockerfile.python), [`cloud/sandbox/Dockerfile.go`](../cloud/sandbox/Dockerfile.go), [`cloud/sandbox/Dockerfile.rust`](../cloud/sandbox/Dockerfile.rust)) - Base Node.js, Python 3.12, Go 1.22, Rust 1.78 sandbox images
+
+### 21. Settings & API Keys System
 
 - **Owner**: `SettingsService / SecretVault`
 - **Status**: `active`

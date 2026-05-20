@@ -15,7 +15,7 @@ set -euo pipefail
 
 PROJECT_ROOT="/opt/superroo2"
 CLOUD_DIR="${PROJECT_ROOT}/cloud"
-SANDBOX_DIR="${CLOUD_DIR}/sandbox"
+SANDBOX_DIR="${CLOUD_DIR}/orchestrator/sandbox"
 LOGS_DIR="${CLOUD_DIR}/logs/jobs"
 IMAGE_NAME="superroo-sandbox:latest"
 

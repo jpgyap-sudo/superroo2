@@ -1,0 +1,35 @@
+# SuperRoo Cloud — Rust Sandbox Image
+# Multi-language sandbox with Rust 1.78 for systems programming workflows.
+#
+# Build:
+#   docker build -t superroo-sandbox:rust -f Dockerfile.rust .
+#
+# Usage:
+#   docker run --rm superroo-sandbox:rust rustc --version
+
+FROM rust:1.78-slim-bookworm
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+	git \
+	curl \
+	bash \
+	tini \
+	ca-certificates \
+	pkg-config \
+	libssl-dev \
+	&& rm -rf /var/lib/apt/lists/*
+
+# Create sandbox user
+RUN useradd -m -s /bin/bash sandbox && \
+	mkdir -p /workspace && \
+	chown -R sandbox:sandbox /workspace
+
+WORKDIR /workspace
+USER sandbox
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+	CMD rustc --version
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["rustc", "--version"]

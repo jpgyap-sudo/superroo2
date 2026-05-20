@@ -41,6 +41,7 @@ import { DeployOrchestratorView } from "@/components/views/deploy-orchestrator"
 import { MLEngineView } from "@/components/views/ml-engine"
 import { ProductMemoryView } from "@/components/views/product-memory"
 import { RamOrchestratorView } from "@/components/views/ram-orchestrator"
+import { TaskTimelineView } from "@/components/views/task-timeline"
 import { LoginPage } from "@/components/auth/login"
 
 const PAGES: Record<string, React.FC> = {
@@ -82,6 +83,7 @@ const PAGES: Record<string, React.FC> = {
 	"ml-engine": MLEngineView,
 	"ram-orchestrator": RamOrchestratorView,
 	"product-memory": ProductMemoryView,
+	"task-timeline": TaskTimelineView,
 }
 
 function StatusDot({ online }: { online: boolean }) {
@@ -252,6 +254,10 @@ export default function Dashboard() {
 						<div className="flex items-center gap-1.5">
 							<StatusDot online={true} />
 							<span className="text-[11px] text-gray-500">Docker</span>
+						</div>
+						<div className="flex items-center gap-1.5">
+							<StatusDot online={health?.sandbox?.healthy !== false} />
+							<span className="text-[11px] text-gray-500">Sandbox</span>
 						</div>
 						<div className="flex items-center gap-1.5">
 							<StatusDot online={health?.ollama?.ok === true} />

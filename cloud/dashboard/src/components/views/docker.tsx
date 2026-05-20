@@ -161,11 +161,26 @@ const MOCK_LOGS: LogEntry[] = [
 	{ container: "superoo-api", message: "GET /api/v1/jobs 200 45ms", timestamp: "14:08:01", level: "info" },
 	{ container: "superoo-api", message: "GET /api/v1/agents 200 12ms", timestamp: "14:07:58", level: "info" },
 	{ container: "superoo-worker", message: "Job j-42 completed successfully", timestamp: "14:07:55", level: "info" },
-	{ container: "superoo-dashboard", message: "WebSocket connection established", timestamp: "14:07:52", level: "info" },
-	{ container: "product-image-studio", message: "FATAL: OutOfMemoryError: Java heap space", timestamp: "14:07:48", level: "error" },
+	{
+		container: "superoo-dashboard",
+		message: "WebSocket connection established",
+		timestamp: "14:07:52",
+		level: "info",
+	},
+	{
+		container: "product-image-studio",
+		message: "FATAL: OutOfMemoryError: Java heap space",
+		timestamp: "14:07:48",
+		level: "error",
+	},
 	{ container: "redis", message: "Ready to accept connections", timestamp: "14:07:45", level: "info" },
 	{ container: "superoo-api", message: "POST /api/v1/deploy 500 120ms", timestamp: "14:07:40", level: "error" },
-	{ container: "superoo-worker", message: "WARN: Queue backlog at 85% capacity", timestamp: "14:07:35", level: "warn" },
+	{
+		container: "superoo-worker",
+		message: "WARN: Queue backlog at 85% capacity",
+		timestamp: "14:07:35",
+		level: "warn",
+	},
 	{ container: "superoo-api", message: "Rate limit exceeded for IP 10.0.0.42", timestamp: "14:07:30", level: "warn" },
 	{ container: "superoo-dashboard", message: "Static asset cache refreshed", timestamp: "14:07:25", level: "info" },
 ]
@@ -281,9 +296,7 @@ function LogStream() {
 							onClick={() => setFilter(l)}
 							className={cn(
 								"rounded px-2 py-0.5 text-[10px] uppercase tracking-wider transition-colors",
-								filter === l
-									? "bg-blue-500/20 text-blue-400"
-									: "text-slate-500 hover:text-slate-300",
+								filter === l ? "bg-blue-500/20 text-blue-400" : "text-slate-500 hover:text-slate-300",
 							)}>
 							{l}
 						</button>
@@ -302,7 +315,9 @@ function LogStream() {
 				ref={scrollRef}
 				className="h-48 overflow-y-auto rounded-lg border border-[#1e2535] bg-[#060810] p-3 font-mono text-[11px] leading-relaxed">
 				{filteredLogs.length === 0 ? (
-					<div className="flex h-full items-center justify-center text-slate-600">No matching log entries</div>
+					<div className="flex h-full items-center justify-center text-slate-600">
+						No matching log entries
+					</div>
 				) : (
 					filteredLogs.map((log, i) => (
 						<div key={i} className="flex gap-3">
@@ -443,19 +458,31 @@ export function DockerView() {
 	const runSandboxTest = async () => {
 		setSandboxRunning(true)
 		try {
-			const res = await fetch("/api/job", {
+			const res = await fetch("/api/sandbox/execute", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
+					jobId: `dashboard-test-${Date.now()}`,
 					task: "dashboard sandbox test",
 					commands: ["node -v", "npm -v", "pnpm -v", "git --version"],
-					network: "host",
+					network: "none",
+					timeout: 30000,
 				}),
 			})
 			const data = await res.json()
-			setSandboxResult([`Job ${data.jobId} queued successfully`, "Check Jobs tab for progress"])
-		} catch {
-			setSandboxResult(["Error: Could not reach VPS API"])
+			if (data.success) {
+				setSandboxResult([
+					`Sandbox job completed successfully`,
+					`Exit code: ${data.exitCode}`,
+					...(data.stdout ? [`Output: ${data.stdout.substring(0, 500)}`] : []),
+				])
+			} else {
+				setSandboxResult([`Sandbox job failed: ${data.error || "Unknown error"}`])
+			}
+		} catch (err) {
+			setSandboxResult([
+				`Error: Could not reach sandbox API — ${err instanceof Error ? err.message : "Unknown error"}`,
+			])
 		}
 		setSandboxRunning(false)
 	}
@@ -502,7 +529,9 @@ export function DockerView() {
 			<div className="flex items-center justify-between">
 				<div>
 					<h1 className="text-lg font-bold text-slate-200">Docker Control Center</h1>
-					<p className="text-[11px] text-slate-500">Manage containers, monitor resources, and diagnose issues</p>
+					<p className="text-[11px] text-slate-500">
+						Manage containers, monitor resources, and diagnose issues
+					</p>
 				</div>
 				<button
 					onClick={() => {
@@ -634,11 +663,7 @@ export function DockerView() {
 											<Badge status={statusBadgeMap[container.status]} label={container.status} />
 										</td>
 										<td className="px-4 py-3">
-											<MiniProgressBar
-												value={container.cpu}
-												max={100}
-												color="bg-blue-500"
-											/>
+											<MiniProgressBar value={container.cpu} max={100} color="bg-blue-500" />
 										</td>
 										<td className="px-4 py-3">
 											<MiniProgressBar
@@ -720,7 +745,9 @@ export function DockerView() {
 								</div>
 							</div>
 							<div className="rounded-lg border border-[#1e2535] bg-[#060810] p-3">
-								<div className="mb-2 text-[10px] uppercase tracking-widest text-gray-500">Logs Path</div>
+								<div className="mb-2 text-[10px] uppercase tracking-widest text-gray-500">
+									Logs Path
+								</div>
 								<div className="font-mono text-[11px] text-blue-400">
 									/opt/superroo2/cloud/logs/jobs/
 								</div>

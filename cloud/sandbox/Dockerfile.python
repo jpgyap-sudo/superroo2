@@ -1,0 +1,43 @@
+# SuperRoo Cloud — Python Sandbox Image
+# Multi-language sandbox with Python 3.12 for data science and ML workflows.
+#
+# Build:
+#   docker build -t superroo-sandbox:python -f Dockerfile.python .
+#
+# Usage:
+#   docker run --rm superroo-sandbox:python python3 -c "print('hello')"
+
+FROM python:3.12-slim
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+	git \
+	curl \
+	bash \
+	tini \
+	ca-certificates \
+	&& rm -rf /var/lib/apt/lists/*
+
+# Install common Python packages
+RUN pip install --no-cache-dir \
+	pytest \
+	numpy \
+	pandas \
+	requests \
+	httpx \
+	pyyaml \
+	jsonschema
+
+# Create sandbox user
+RUN useradd -m -s /bin/bash sandbox && \
+	mkdir -p /workspace && \
+	chown -R sandbox:sandbox /workspace
+
+WORKDIR /workspace
+USER sandbox
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+	CMD python3 -c "import sys; sys.exit(0)"
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["python3"]

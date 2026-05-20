@@ -79,9 +79,9 @@ import { PhaseBreakdownEngine } from "./engines/PhaseBreakdownEngine"
 
 const engine = new PhaseBreakdownEngine()
 const breakdown = await engine.breakdown({
-  goal: "Fix login endpoint returning 500",
-  repo: "superroo2",
-  context: { files: ["api/routes/auth.js"] },
+	goal: "Fix login endpoint returning 500",
+	repo: "superroo2",
+	context: { files: ["api/routes/auth.js"] },
 })
 // Returns ordered phases with descriptions and verification steps
 ```
@@ -94,17 +94,17 @@ Generates and tests hypotheses about root causes. Maintains a hypothesis tree wi
 import { HypothesisEngine } from "./engines/HypothesisEngine"
 
 const engine = new HypothesisEngine(orchestrator, {
-  confidenceThreshold: 0.7,
+	confidenceThreshold: 0.7,
 })
 
 const hypothesis = await engine.generateHypothesis({
-  symptom: "GET /login returns 500",
-  evidence: { statusCode: 500, stackTrace: "..." },
+	symptom: "GET /login returns 500",
+	evidence: { statusCode: 500, stackTrace: "..." },
 })
 // { id, description, confidence, assumptions, verificationSteps }
 ```
 
-### ContainerSandbox
+### ContainerSandbox (TypeScript — Debug Team)
 
 Executes code changes in an isolated Docker container before applying them to the main workspace.
 
@@ -112,18 +112,86 @@ Executes code changes in an isolated Docker container before applying them to th
 import { ContainerSandbox } from "./sandbox/ContainerSandbox"
 
 const sandbox = new ContainerSandbox({
-  image: "node:20-bookworm",
-  networkMode: "none", // No network access for safety
-  workspaceRoot: "/srv/superroo/workspaces",
+	image: "node:20-bookworm",
+	networkMode: "none", // No network access for safety
+	workspaceRoot: "/srv/superroo/workspaces",
 })
 
 const result = await sandbox.runTests({
-  repo: "superroo2",
-  commitSha: "abc123",
-  testCommand: "npm test",
+	repo: "superroo2",
+	commitSha: "abc123",
+	testCommand: "npm test",
 })
 // { passed: true, output: "...", coverage: 0.87 }
 ```
+
+### Cloud Sandbox (Node.js — API / Worker)
+
+The Cloud Sandbox ([`cloud/orchestrator/sandbox/`](../cloud/orchestrator/sandbox/)) is the production-grade Docker sandbox system used by the API server and BullMQ workers. It provides container pooling, job execution, snapshot/restore, network simulation, self-healing, audit trail, and multi-container Compose orchestration.
+
+**Architecture:**
+
+| Component          | File                                                                                              | Purpose                                                                                            |
+| ------------------ | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| **DockerSandbox**  | [`cloud/orchestrator/sandbox/DockerSandbox.js`](../cloud/orchestrator/sandbox/DockerSandbox.js)   | Container lifecycle (init, run, exec, cleanup), snapshot/restore, network simulation, self-healing |
+| **SandboxPool**    | [`cloud/orchestrator/sandbox/SandboxPool.js`](../cloud/orchestrator/sandbox/SandboxPool.js)       | Warm container pool, idle cleanup, health checks with self-healing                                 |
+| **SandboxManager** | [`cloud/orchestrator/sandbox/SandboxManager.js`](../cloud/orchestrator/sandbox/SandboxManager.js) | Job orchestration, audit trail, resource-aware scheduling, global singleton                        |
+| **ComposeSandbox** | [`cloud/orchestrator/sandbox/ComposeSandbox.js`](../cloud/orchestrator/sandbox/ComposeSandbox.js) | Multi-container Docker Compose orchestration                                                       |
+
+**Usage:**
+
+```javascript
+const { getGlobalSandboxManager } = require("../orchestrator/sandbox")
+
+const manager = await getGlobalSandboxManager()
+
+// Execute a job
+const result = await manager.executeJob(
+	{ id: "job-1", task: "run-tests", commands: ["npm test"] },
+	{ image: "node:20-bookworm", network: "none", timeout: 120000 },
+)
+
+// Snapshot a container
+await manager.snapshotContainer("container-name", "pre-fix-snapshot")
+
+// Restore from snapshot
+await manager.restoreContainer("container-name", "pre-fix-snapshot")
+
+// Self-heal a container
+await manager.healContainer("container-name")
+
+// Get audit trail
+const audit = await manager.getAuditTrail({ limit: 50, action: "execute-complete" })
+```
+
+**API Endpoints:**
+
+| Method | Endpoint                                         | Description                  |
+| ------ | ------------------------------------------------ | ---------------------------- |
+| GET    | `/api/sandbox/health`                            | Sandbox manager health check |
+| POST   | `/api/sandbox/execute`                           | Execute a job in the sandbox |
+| GET    | `/api/sandbox/containers`                        | List active containers       |
+| DELETE | `/api/sandbox/containers`                        | Destroy all containers       |
+| DELETE | `/api/sandbox/containers/:name`                  | Destroy specific container   |
+| POST   | `/api/sandbox/containers/:name/exec`             | Execute command in container |
+| POST   | `/api/sandbox/containers/:name/snapshot`         | Create container snapshot    |
+| POST   | `/api/sandbox/containers/:name/restore`          | Restore from snapshot        |
+| POST   | `/api/sandbox/containers/:name/network-simulate` | Apply network rules          |
+| DELETE | `/api/sandbox/containers/:name/network-simulate` | Clear network rules          |
+| POST   | `/api/sandbox/containers/:name/heal`             | Self-heal container          |
+| POST   | `/api/sandbox/heal-all`                          | Heal all containers          |
+| GET    | `/api/sandbox/images`                            | List Docker images           |
+| POST   | `/api/sandbox/images/build`                      | Build sandbox image          |
+| DELETE | `/api/sandbox/images/:tag`                       | Remove image                 |
+| GET    | `/api/sandbox/pool`                              | Pool status                  |
+| GET    | `/api/sandbox/metrics`                           | Sandbox metrics              |
+| GET    | `/api/sandbox/audit`                             | Get audit trail              |
+| GET    | `/api/sandbox/resource-pressure`                 | Get resource pressure        |
+| POST   | `/api/sandbox/compose/up`                        | Start Compose project        |
+| POST   | `/api/sandbox/compose/down`                      | Stop Compose project         |
+| POST   | `/api/sandbox/compose/:service/exec`             | Exec in compose service      |
+| GET    | `/api/sandbox/compose/logs`                      | Get compose logs             |
+| GET    | `/api/sandbox/compose/ps`                        | List compose services        |
 
 ### RollbackManager
 
@@ -133,7 +201,7 @@ Automatically rolls back changes if tests fail in the sandbox. Uses git revert t
 import { RollbackManager } from "./sandbox/RollbackManager"
 
 const rollback = new RollbackManager({
-  workspaceRoot: "/srv/superroo/workspaces",
+	workspaceRoot: "/srv/superroo/workspaces",
 })
 
 await rollback.snapshot("pre-fix-snapshot")
@@ -153,14 +221,14 @@ Generates reusable `.roo/skills/` files from repeated failures and successful fi
 import { SkillsGenerator } from "./engines/SkillsGenerator"
 
 const generator = new SkillsGenerator({
-  skillsDir: ".roo/skills",
+	skillsDir: ".roo/skills",
 })
 
 const artifact = await generator.generateFromLesson({
-  failureType: "BROKEN_ROUTE",
-  rootCause: "Missing route handler",
-  solution: "Added route handler for /api/users",
-  filesInvolved: ["api/routes/users.js"],
+	failureType: "BROKEN_ROUTE",
+	rootCause: "Missing route handler",
+	solution: "Added route handler for /api/users",
+	filesInvolved: ["api/routes/users.js"],
 })
 // Creates .roo/skills/broken-route-fix/SKILL.md
 ```
@@ -248,23 +316,23 @@ The [`SuperDebugLoop`](src/super-roo/debug-team/SuperDebugLoop.ts) uses a 12-sta
 
 ### Status Transitions
 
-| Status | Description | Next States |
-|---|---|---|
-| `idle` | Waiting for jobs | `queued` |
-| `queued` | Job waiting for slot | `analyzing` |
-| `analyzing` | OpenClaw repo investigation | `planning` |
-| `planning` | Phase breakdown + hypothesis | `snapshotting` |
-| `snapshotting` | Git snapshot taken | `patching` |
-| `patching` | Fix applied in sandbox | `testing` |
-| `testing` | Tests running in sandbox | `critic_review` |
-| `critic_review` | Review results | `committing` / `rolled_back` / `stopped` |
-| `committing` | Git commit | `deploying` / `success` |
-| `deploying` | Auto-deploy | `success` |
-| `success` | Job completed | `idle` |
-| `failed` | Job failed permanently | `idle` |
-| `rolled_back` | Changes reverted | `analyzing` (retry) |
-| `stopped` | Manually stopped | `idle` |
-| `blocked` | Blocked by dependency | `idle` |
+| Status          | Description                  | Next States                              |
+| --------------- | ---------------------------- | ---------------------------------------- |
+| `idle`          | Waiting for jobs             | `queued`                                 |
+| `queued`        | Job waiting for slot         | `analyzing`                              |
+| `analyzing`     | OpenClaw repo investigation  | `planning`                               |
+| `planning`      | Phase breakdown + hypothesis | `snapshotting`                           |
+| `snapshotting`  | Git snapshot taken           | `patching`                               |
+| `patching`      | Fix applied in sandbox       | `testing`                                |
+| `testing`       | Tests running in sandbox     | `critic_review`                          |
+| `critic_review` | Review results               | `committing` / `rolled_back` / `stopped` |
+| `committing`    | Git commit                   | `deploying` / `success`                  |
+| `deploying`     | Auto-deploy                  | `success`                                |
+| `success`       | Job completed                | `idle`                                   |
+| `failed`        | Job failed permanently       | `idle`                                   |
+| `rolled_back`   | Changes reverted             | `analyzing` (retry)                      |
+| `stopped`       | Manually stopped             | `idle`                                   |
+| `blocked`       | Blocked by dependency        | `idle`                                   |
 
 ---
 
@@ -280,9 +348,9 @@ A debug job flows through these stages:
 6. **Patching**: The fix is applied inside a Docker sandbox container
 7. **Testing**: Tests run inside the sandbox; results are collected
 8. **Critic Review**: Results are evaluated:
-   - **Pass**: Changes are committed and optionally deployed
-   - **Fail**: Changes are rolled back, a new hypothesis is generated, and the cycle retries (up to 12 attempts)
-   - **Danger**: The job is stopped immediately
+    - **Pass**: Changes are committed and optionally deployed
+    - **Fail**: Changes are rolled back, a new hypothesis is generated, and the cycle retries (up to 12 attempts)
+    - **Danger**: The job is stopped immediately
 9. **Skill Generation**: If the job failed, a skill is generated from the failure pattern
 10. **Lesson Extraction**: Lessons are extracted and fed to the LearningGateway
 
@@ -300,9 +368,9 @@ When the debug team is **ACTIVE**, all approvals are auto-approved and all deplo
 
 ```typescript
 const config: SuperDebugConfig = {
-  autoApprovalMode: true,  // Auto-approve everything
-  autoDeploy: false,       // Auto-deploy after commit (optional)
-  deployTarget: "staging", // "staging" | "production"
+	autoApprovalMode: true, // Auto-approve everything
+	autoDeploy: false, // Auto-deploy after commit (optional)
+	deployTarget: "staging", // "staging" | "production"
 }
 ```
 
@@ -314,13 +382,13 @@ const config: SuperDebugConfig = {
 
 All debug team endpoints are served from the cloud API.
 
-| Method | Endpoint | Description | Request Body | Response |
-|---|---|---|---|---|
-| `GET` | `/api/debug-team/status` | Get current status | — | `{ success, status, running, currentStep, progress }` |
-| `POST` | `/api/debug-team/start` | Start debug loop | `{ target, branch, durationMs, stepTimeoutMs }` | `{ success, jobId, status }` |
-| `POST` | `/api/debug-team/stop` | Stop debug loop | — | `{ success, status, completedSteps }` |
-| `GET` | `/api/debug-team/jobs` | List recent jobs | `?limit=20` | `{ success, jobs: [{ id, goal, status, createdAt }] }` |
-| `POST` | `/api/debug-team/test-telegram` | Test Telegram config | `{ chatId, message }` | `{ success }` |
+| Method | Endpoint                        | Description          | Request Body                                    | Response                                               |
+| ------ | ------------------------------- | -------------------- | ----------------------------------------------- | ------------------------------------------------------ |
+| `GET`  | `/api/debug-team/status`        | Get current status   | —                                               | `{ success, status, running, currentStep, progress }`  |
+| `POST` | `/api/debug-team/start`         | Start debug loop     | `{ target, branch, durationMs, stepTimeoutMs }` | `{ success, jobId, status }`                           |
+| `POST` | `/api/debug-team/stop`          | Stop debug loop      | —                                               | `{ success, status, completedSteps }`                  |
+| `GET`  | `/api/debug-team/jobs`          | List recent jobs     | `?limit=20`                                     | `{ success, jobs: [{ id, goal, status, createdAt }] }` |
+| `POST` | `/api/debug-team/test-telegram` | Test Telegram config | `{ chatId, message }`                           | `{ success }`                                          |
 
 ### POST `/api/debug-team/start`
 
@@ -337,13 +405,14 @@ curl -X POST http://localhost:8787/api/debug-team/start \
 ```
 
 Response:
+
 ```json
 {
-  "success": true,
-  "jobId": "debug-1712345678901",
-  "status": "running",
-  "target": "superroo2",
-  "durationMs": 18000000
+	"success": true,
+	"jobId": "debug-1712345678901",
+	"status": "running",
+	"target": "superroo2",
+	"durationMs": 18000000
 }
 ```
 
@@ -355,23 +424,24 @@ curl http://localhost:8787/api/debug-team/status \
 ```
 
 Response:
+
 ```json
 {
-  "success": true,
-  "status": "running",
-  "running": true,
-  "jobId": "debug-1712345678901",
-  "currentStep": 3,
-  "currentStepName": "Test",
-  "totalSteps": 10,
-  "progress": 30,
-  "elapsedFormatted": "5m 23s",
-  "remainingFormatted": "4h 54m 37s",
-  "stepResults": [
-    { "step": 1, "name": "Audit", "status": "completed" },
-    { "step": 2, "name": "Fix", "status": "completed" },
-    { "step": 3, "name": "Test", "status": "running" }
-  ]
+	"success": true,
+	"status": "running",
+	"running": true,
+	"jobId": "debug-1712345678901",
+	"currentStep": 3,
+	"currentStepName": "Test",
+	"totalSteps": 10,
+	"progress": 30,
+	"elapsedFormatted": "5m 23s",
+	"remainingFormatted": "4h 54m 37s",
+	"stepResults": [
+		{ "step": 1, "name": "Audit", "status": "completed" },
+		{ "step": 2, "name": "Fix", "status": "completed" },
+		{ "step": 3, "name": "Test", "status": "running" }
+	]
 }
 ```
 
@@ -388,6 +458,7 @@ The Debug Team dashboard view (`debug-team.tsx`) provides:
 - **Auto-Approval Status**: Badge showing whether auto-approval mode is active
 
 The dashboard does **not** yet show:
+
 - Phase breakdown details per job
 - Hypothesis tree visualization
 - Snapshot diffs
@@ -423,24 +494,24 @@ The debug team can use the [`ParallelExecutor`](src/super-roo/parallel/ParallelE
 
 ```typescript
 interface SuperDebugConfig {
-  maxAttemptsPerJob: number      // Max attempts before permanent failure (default: 12)
-  cycleIntervalMs: number        // Loop cycle interval (default: 5000)
-  maxConcurrentJobs: number      // Max concurrent jobs (default: 2)
-  autoGenerateSkills: boolean    // Auto-generate skills from failures (default: true)
-  useSandbox: boolean            // Use Docker sandbox (default: true)
-  autoRollback: boolean          // Auto-rollback on failure (default: true)
-  featureSyncEnabled: boolean    // Sync features on success (default: true)
-  confidenceThreshold: number    // Hypothesis confidence threshold (default: 0.7)
-  sandboxImage: string           // Docker image (default: "node:20-bookworm")
-  sandboxNetwork: string         // Docker network mode (default: "none")
-  workspaceRoot: string          // Workspace root (default: "/srv/superroo/workspaces")
-  autoApprovalMode: boolean      // Auto-approve all (default: true)
-  autoDeploy: boolean            // Auto-deploy after commit (default: false)
-  deployTarget: string           // "staging" | "production" (default: "staging")
-  enableOpenClaw: boolean        // Use OpenClaw analysis (default: true)
-  enableHermesClaw: boolean      // Use HermesClaw memory (default: true)
-  enableML: boolean              // Enable ML integration (default: true)
-  aceTeamMode: boolean           // Ace Team comprehensive logging (default: false)
+	maxAttemptsPerJob: number // Max attempts before permanent failure (default: 12)
+	cycleIntervalMs: number // Loop cycle interval (default: 5000)
+	maxConcurrentJobs: number // Max concurrent jobs (default: 2)
+	autoGenerateSkills: boolean // Auto-generate skills from failures (default: true)
+	useSandbox: boolean // Use Docker sandbox (default: true)
+	autoRollback: boolean // Auto-rollback on failure (default: true)
+	featureSyncEnabled: boolean // Sync features on success (default: true)
+	confidenceThreshold: number // Hypothesis confidence threshold (default: 0.7)
+	sandboxImage: string // Docker image (default: "node:20-bookworm")
+	sandboxNetwork: string // Docker network mode (default: "none")
+	workspaceRoot: string // Workspace root (default: "/srv/superroo/workspaces")
+	autoApprovalMode: boolean // Auto-approve all (default: true)
+	autoDeploy: boolean // Auto-deploy after commit (default: false)
+	deployTarget: string // "staging" | "production" (default: "staging")
+	enableOpenClaw: boolean // Use OpenClaw analysis (default: true)
+	enableHermesClaw: boolean // Use HermesClaw memory (default: true)
+	enableML: boolean // Enable ML integration (default: true)
+	aceTeamMode: boolean // Ace Team comprehensive logging (default: false)
 }
 ```
 
@@ -454,12 +525,12 @@ import { SuperRooOrchestrator } from "../orchestrator/SuperRooOrchestrator"
 
 // 1. Create the debug loop
 const debugLoop = new SuperDebugLoop(orchestrator, {
-  maxAttemptsPerJob: 5,
-  cycleIntervalMs: 3000,
-  maxConcurrentJobs: 2,
-  autoApprovalMode: true,
-  useSandbox: true,
-  sandboxImage: "node:20-bookworm",
+	maxAttemptsPerJob: 5,
+	cycleIntervalMs: 3000,
+	maxConcurrentJobs: 2,
+	autoApprovalMode: true,
+	useSandbox: true,
+	sandboxImage: "node:20-bookworm",
 })
 
 // 2. Start the loop

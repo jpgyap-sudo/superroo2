@@ -22,6 +22,7 @@ SuperRoo is not just an editor assistant. It is a full-stack AI engineering syst
 | **Telegram Control Plane** | Lets you command, approve, inspect, and improve the system from Telegram instead of staying inside the IDE.                                  |
 | **Self-Healing Engine**    | Detects incidents, classifies root causes, builds repair plans, tracks repair attempts, verifies outcomes, and escalates repeated failures.  |
 | **Unified Deploy System**  | Queues builds and deployments through a single orchestrator with health checks, rollback paths, and commit/deploy audit records.             |
+| **Cloud Sandbox**          | Docker container orchestration with pooling, snapshot/restore, network simulation, self-healing, audit trail, and multi-language support.    |
 
 ## Core Capabilities
 
@@ -31,6 +32,7 @@ SuperRoo is not just an editor assistant. It is a full-stack AI engineering syst
 - Self-healing telemetry including success rates, repair execution tracking, escalation counts, repeated-failure detection, and recent incident trends.
 - Model routing across provider-specific strengths, with DeepSeek for implementation, Codex for review, and Ollama for local embeddings/memory.
 - Safety controls for approval gates, autonomy levels, command restrictions, rollback, and deployment hygiene.
+- **Sandboxed execution** via Docker containers with pooling, snapshot/restore, network simulation, self-healing, audit trail, resource-aware scheduling, and multi-language support (Node.js, Python, Go, Rust).
 
 ## Operator Surfaces
 
