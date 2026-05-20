@@ -1,16 +1,16 @@
 {
-	"generatedAt": "2026-05-20T11:41:41.734Z",
+	"generatedAt": "2026-05-20T11:49:50.642Z",
 	"deepseekModel": "deepseek-chat",
 	"ollamaUrl": "http://100.64.175.88:11434",
 	"sourceFile": "memory/lessons-learned.md",
 	"count": 1,
 	"summaries": [
 		{
-			"title": "Always await async method calls — missing `await` on HermesClaw.getStats() caused silent Promise-object bugs",
+			"title": "Telegram Bot P0 Bug Fixes — Policy Boolean, Logs Empty, Callback Leak, Retry Wrapper",
 			"date": "2026-05-20",
-			"model": "deepseek-chat",
+			"model": "DeepSeek",
 			"confidence": "high",
-			"summary": "Missing `await` on async method calls silently returns Promise objects instead of resolved data, causing bugs that are hard to detect. Always verify `await` is present at every call site, and confirm field names match the actual method implementation.",
+			"summary": "Four P0 bugs in a Telegram bot were fixed: a boolean type mismatch blocked all shell commands, logs were never appended to the message, callback handlers leaked causing O(N) degradation, and auto-delete failed because sendMessage didn't return the API response. The fixes included correcting the boolean check, appending logs, guarding callback registration to run once, and returning the response for message ID tracking. A retry wrapper with exponential backoff and rate-limit cleanup were added as bonus improvements.",
 			"hasEmbeddings": true
 		}
 	]

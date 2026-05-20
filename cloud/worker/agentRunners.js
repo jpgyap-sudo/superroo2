@@ -86,6 +86,7 @@ async function callLLM(systemPrompt, userPrompt, options = {}) {
 		}
 
 		console.log(`[callLLM] Trying ${p.providerId} with model ${p.model}...`)
+		const startMs = Date.now()
 		const res = await fetch(`${p.baseUrl}/chat/completions`, {
 			method: "POST",
 			headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -97,6 +98,7 @@ async function callLLM(systemPrompt, userPrompt, options = {}) {
 			}),
 			signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
 		})
+		const latencyMs = Date.now() - startMs
 		if (!res.ok) {
 			const errText = await res.text().catch(() => "unknown")
 			throw new Error(`${p.providerId} returned ${res.status}: ${errText.substring(0, 200)}`)
@@ -106,7 +108,12 @@ async function callLLM(systemPrompt, userPrompt, options = {}) {
 		if (!content) {
 			throw new Error(`${p.providerId} returned empty content`)
 		}
-		console.log(`[callLLM] ${p.providerId} succeeded`)
+		console.log(`[callLLM] ${p.providerId} succeeded in ${latencyMs}ms`)
+		// Record latency for metrics
+		try {
+			const tgb = require("../api/telegramBot")
+			if (tgb.recordLlmProviderLatency) tgb.recordLlmProviderLatency(p.providerId, latencyMs)
+		} catch (_) {}
 		return content
 	})
 
@@ -288,6 +295,12 @@ async function runCoder(job) {
 			} catch (e) {
 				log("coder", jobId, `Auto mode: failed to enqueue ${nextPhase}: ${e.message}`)
 			}
+		} else if (effectivePhase === "deploy") {
+			// Auto-mode chain completed successfully
+			try {
+				const tgb = require("../api/telegramBot")
+				if (tgb.recordAutoModeChainCompleted) tgb.recordAutoModeChainCompleted()
+			} catch (_) {}
 		}
 	}
 

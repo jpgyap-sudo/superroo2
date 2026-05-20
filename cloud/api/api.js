@@ -11015,6 +11015,17 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// GET /api/telegram/metrics — Telegram bot metrics export
+		if (method === "GET" && (url === "/api/telegram/metrics" || normalizedUrl === "/api/telegram/metrics")) {
+			try {
+				const metrics = telegramBot.getTelegramMetrics()
+				sendJson(res, 200, { success: true, data: metrics })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
 		// ── Auto-Deployer API ───────────────────────────────────────────────────────
 		// Proxies to the auto-deployer worker running on port 8790
 

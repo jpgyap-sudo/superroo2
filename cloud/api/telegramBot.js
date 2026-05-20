@@ -413,6 +413,7 @@ function logTelegramUsage(command, chatId, userId, details) {
 		timestamp: new Date().toISOString(),
 	}
 	console.log("[ace-usage] " + JSON.stringify(usageEntry))
+	recordMessageReceived(command)
 }
 
 /**
@@ -505,6 +506,80 @@ const providerMetrics = {
 		ollamaRagOk: 0,
 		allFailed: 0,
 	},
+}
+
+// ─── Telegram Bot Metrics ──────────────────────────────────────────────────
+/**
+ * Lightweight metrics collection for the Telegram bot.
+ * No external prom-client dependency — exposed as JSON via /api/telegram/metrics.
+ */
+const telegramMetrics = {
+	messagesReceived: {},
+	messagesSent: {},
+	errors: {},
+	autoModeChainsCompleted: 0,
+	llmProviderLatency: {},
+}
+
+function recordMessageReceived(command) {
+	telegramMetrics.messagesReceived[command] = (telegramMetrics.messagesReceived[command] || 0) + 1
+}
+
+function recordMessageSent(type) {
+	telegramMetrics.messagesSent[type] = (telegramMetrics.messagesSent[type] || 0) + 1
+}
+
+function recordError(type) {
+	telegramMetrics.errors[type] = (telegramMetrics.errors[type] || 0) + 1
+}
+
+function recordAutoModeChainCompleted() {
+	telegramMetrics.autoModeChainsCompleted++
+}
+
+function recordLlmProviderLatency(providerId, durationMs) {
+	if (!telegramMetrics.llmProviderLatency[providerId]) {
+		telegramMetrics.llmProviderLatency[providerId] = { total: 0, count: 0, recent: [] }
+	}
+	var entry = telegramMetrics.llmProviderLatency[providerId]
+	entry.total += durationMs
+	entry.count++
+	entry.recent.push(durationMs)
+	if (entry.recent.length > 100) entry.recent = entry.recent.slice(-100)
+}
+
+function getTelegramMetrics() {
+	var llmLatencies = {}
+	for (var pid in telegramMetrics.llmProviderLatency) {
+		var e = telegramMetrics.llmProviderLatency[pid]
+		var sorted = e.recent.slice().sort(function (a, b) {
+			return a - b
+		})
+		var p95Index = Math.ceil(sorted.length * 0.95) - 1
+		llmLatencies[pid] = {
+			avg: e.count > 0 ? Math.round(e.total / e.count) : 0,
+			count: e.count,
+			p95: sorted[Math.max(0, p95Index)] || 0,
+		}
+	}
+	return {
+		timestamp: new Date().toISOString(),
+		messagesReceived: { ...telegramMetrics.messagesReceived },
+		messagesSent: { ...telegramMetrics.messagesSent },
+		errors: { ...telegramMetrics.errors },
+		autoModeChainsCompleted: telegramMetrics.autoModeChainsCompleted,
+		llmProviderLatency: llmLatencies,
+		commandLatency: getCommandLatency(),
+		providerMetrics: getProviderMetrics(),
+		activeSessions: activeSessions.size,
+		conversationHistorySize: conversationHistory.size,
+		callbackRegistrySize: callbackRegistry.length,
+		pendingCoderJobs: pendingCoderJobs.size,
+		userTasks: userTasks.size,
+		processedUpdateIds: processedUpdateIds.size,
+		rateLimitMapSize: rateLimitMap.size,
+		webhookHealth: getWebhookHealth(),
+	}
 }
 
 /**
@@ -1091,6 +1166,7 @@ function stripMarkdown(text) {
 
 async function sendMessage(botToken, chatId, text, opts) {
 	opts = opts || {}
+	recordMessageSent("message")
 	var chunks = splitLongMessage(text)
 	const url = TELEGRAM_API_BASE + botToken + "/sendMessage"
 	var lastResponse = null
@@ -10150,4 +10226,11 @@ module.exports = {
 	checkRateLimit,
 	// Known commands
 	KNOWN_COMMANDS,
+	// Telegram bot metrics exporter
+	getTelegramMetrics,
+	recordMessageReceived,
+	recordMessageSent,
+	recordError,
+	recordAutoModeChainCompleted,
+	recordLlmProviderLatency,
 }
