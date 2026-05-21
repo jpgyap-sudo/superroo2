@@ -587,7 +587,7 @@ export function FeaturesView() {
 							>
 								{stats.byStatus.map((_, i) => (
 									<Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-								)}
+								))}
 							</Pie>
 							<Tooltip
 								contentStyle={{
