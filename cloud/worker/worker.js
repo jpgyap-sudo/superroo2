@@ -254,8 +254,8 @@ async function processJob(job) {
 							id: job.id,
 							data: {
 								instruction: job.data.task || job.data.agentId,
-								workspaceDir: process.env.SUPERROO_ROOT || "/opt/superroo2",
-								repoName: "superroo2",
+								workspaceDir: job.data.workspaceDir || process.env.SUPERROO_ROOT || "/opt/superroo2",
+								repoName: job.data.repoName || "superroo2",
 								branch: job.data.branch || "main",
 								// Multi-phase coder workflow support
 								phase: job.data.phase || undefined,

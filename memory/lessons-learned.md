@@ -1083,3 +1083,164 @@ After pushing to GitHub, verify the commit reached the remote with git log origi
 #### Tags
 
 deployment, vps, pm2, git, devops
+
+### Auto-Extracted Lesson: Add missing closing parenthesis in PieChart Cell map
+
+Date: 2026-05-21
+Source: Git commit 69e7e06d
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/dashboard/src/components/views/features.tsx
+
+#### Task Summary
+
+fix: add missing closing parenthesis in PieChart Cell map
+
+#### Files Changed
+
+- `cloud/dashboard/src/components/views/features.tsx`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 69e7e06d.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 69e7e06d by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+bugfix
+
+---
+
+### Auto-Extracted Lesson: Use Array.from instead of Set spread for TS downlevelIteration compat
+
+Date: 2026-05-21
+Source: Git commit e733b878
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/dashboard/src/components/views/events.tsx
+
+#### Task Summary
+
+fix: use Array.from instead of Set spread for TS downlevelIteration compat
+
+#### Files Changed
+
+- `cloud/dashboard/src/components/views/events.tsx`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit e733b878.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit e733b878 by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+bugfix
+
+---
+
+### Lesson: 5 new dashboard views deployed — Feature Registry, Crawler Agent, File Importer, Savepoints, Events
+
+Date: 2026-05-21
+Source: Codex task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/dashboard/src/components/views/features.tsx, cloud/dashboard/src/components/views/crawler.tsx, cloud/dashboard/src/components/views/file-importer.tsx, cloud/dashboard/src/components/views/savepoints.tsx, cloud/dashboard/src/components/views/events.tsx, cloud/dashboard/src/app/page.tsx, cloud/dashboard/src/components/sidebar.tsx
+
+#### Task Summary
+
+Built and deployed 5 new dashboard views that wire backend API endpoints to the SuperRoo Cloud Dashboard:
+
+1. **Feature Registry** — Full CRUD for feature lifecycle tracking with status/health charts (PieChart, BarChart), search/filter, create/edit/delete
+2. **Crawler Agent** — Source management with add/remove/crawl actions, signals display with confidence bars
+3. **File Importer** — Path-based import UI with stats and result display
+4. **Savepoints/Deployments** — Tabbed view showing Telegram savepoints and deployment history
+5. **Event Log** — Filtered event viewer with severity icons, auto-refresh, expandable payload display
+
+#### Files Changed
+
+- `cloud/dashboard/src/components/views/features.tsx` (created, 737 lines)
+- `cloud/dashboard/src/components/views/crawler.tsx` (created, 473 lines)
+- `cloud/dashboard/src/components/views/file-importer.tsx` (created, 294 lines)
+- `cloud/dashboard/src/components/views/savepoints.tsx` (created, 364 lines)
+- `cloud/dashboard/src/components/views/events.tsx` (created, 341 lines)
+- `cloud/dashboard/src/app/page.tsx` (added 5 imports + PAGES entries)
+- `cloud/dashboard/src/components/sidebar.tsx` (added 5 NAV entries with lucide-react icons)
+
+#### Bug Cause
+
+1. Missing closing parenthesis in PieChart Cell map (`)}` instead of `))}`) caused SWC compiler to report confusing "Unexpected token `div`" error at wrong line
+2. `Set` spread (`[...new Set()]`) not supported by Next.js 14.2.3's TypeScript config without `downlevelIteration` flag — must use `Array.from()` instead
+
+#### Fix Applied
+
+1. Added missing `)` in `features.tsx` line 590: `)}` → `))}`
+2. Changed `[...new Set(...)]` to `Array.from(new Set(...))` in `events.tsx`
+
+#### Test Result
+
+pass — build compiles successfully, dashboard returns HTTP 200, all 6 PM2 services restarted
+
+#### Lesson Learned
+
+When creating new dashboard views for Next.js projects:
+
+- Always use `Array.from()` instead of `[...Set]` spread for TypeScript compatibility
+- JSX map callbacks with parenthesized expression bodies need careful parenthesis counting: `.map((x) => (<Comp />))` — the closing `))}` is easy to get wrong
+- SWC compiler error locations are unreliable with JSX — the reported line may not match the actual error
+- All new `.tsx` files must use LF line endings (not CRLF) for Linux VPS compatibility
+
+#### Reusable Rule
+
+When adding new dashboard views: (1) use `Array.from(new Set(...))` not spread, (2) verify JSX map parenthesis balance with `))}`, (3) ensure LF line endings before committing, (4) test build locally or on VPS before deploying
+
+#### Tags
+
+dashboard, feature-registry, crawler, file-importer, savepoints, events, deployment, nextjs, typescript
+
+---

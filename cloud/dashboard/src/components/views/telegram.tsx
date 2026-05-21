@@ -715,7 +715,32 @@ export function TelegramView() {
 	}
 
 	const handleSendTest = async () => {
-		await tgFetch("/telegram/test", { method: "POST", body: JSON.stringify({ message }) })
+		const raw = message.trim()
+		if (!raw) return
+
+		if (!raw.toLowerCase().startsWith("/code")) {
+			window.alert("Use /code <instruction> from this console. Bot connectivity tests need a Telegram chat ID.")
+			return
+		}
+
+		const parts = raw.split(/\s+/)
+		const auto = parts.includes("--auto")
+		const instruction = parts
+			.slice(1)
+			.filter((part) => part !== "--auto")
+			.join(" ")
+			.trim()
+
+		if (instruction.length < 10) {
+			window.alert("Please provide a more detailed /code instruction (at least 10 characters).")
+			return
+		}
+
+		await tgFetch("/telegram/tasks/create", {
+			method: "POST",
+			body: JSON.stringify({ instruction, agent: "coder", auto }),
+		})
+		await fetchData()
 	}
 
 	const handleAlertToggle = async (label: string, enabled: boolean) => {

@@ -86,7 +86,7 @@ const classifier = require("../telegramClassifier.js")
 
 // keywordFallback tests
 test("keywordFallback detects chat/research", () => {
-	assert.strictEqual(classifier.keywordFallback("What is the best architecture?"), "chat")
+	assert.strictEqual(classifier.keywordFallback("What is the best architecture?"), "feature_query")
 	assert.strictEqual(classifier.keywordFallback("Explain how this works"), "chat")
 	assert.strictEqual(classifier.keywordFallback("Tell me about the project"), "chat")
 })

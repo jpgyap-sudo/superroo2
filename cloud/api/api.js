@@ -66,6 +66,8 @@ function getLspBridge() {
 	return lspBridge
 }
 const lspWss = new WebSocketServer({ noServer: true })
+const collaborationWss = new WebSocketServer({ noServer: true })
+global.__collaborationWss = collaborationWss
 
 // ── IDE Workspace Persistence ─────────────────────────────────────────────────
 
@@ -580,6 +582,61 @@ async function initOrchestrator() {
 		// Module registrations below depend on orchestrator.memory and orchestrator.eventLog
 		// being non-null, which requires start() to have been called.
 		await orchestrator.start()
+
+		// ── Wire Phase 4+7: Provider Registry Bridge ────────────────────
+		// Connects the new modular provider system (cloud/providers/) with the
+		// legacy PROVIDERS array, providerMeta Map, and encrypted secrets store.
+		try {
+			const { createProviderBridge } = safeRequire("../providers/bridge")
+			global.__providerBridge = await createProviderBridge({
+				legacyProviders: PROVIDERS,
+				legacyProviderMeta: providerMeta,
+				legacyEncryptedSecrets: encryptedSecrets,
+				legacyResolveProviderForTask: resolveProviderForTask,
+				legacyResolveProviderById: resolveProviderById,
+			})
+			console.log(
+				`[orchestrator] Provider Registry Bridge initialized | ${global.__providerBridge.getStatus().registryProviderCount} providers`,
+			)
+			writeApiLog("info", "cloud-provider-bridge", "Provider Registry Bridge initialized", {
+				providerCount: global.__providerBridge.getStatus().registryProviderCount,
+			})
+		} catch (err) {
+			console.warn(`[orchestrator] Provider Registry Bridge unavailable: ${err.message}`)
+		}
+
+		// ── Wire Phase 3: MCP Server Manager ────────────────────────────
+		// Manages MCP server lifecycle with health checks, auto-recovery, and tool caching.
+		try {
+			const { MCPServerManager } = safeRequire("../orchestrator/mcp/MCPServerManager")
+			const mcpServerManager = new MCPServerManager()
+			await mcpServerManager.initialize({
+				configPath: require("path").join(__dirname, "..", "..", ".mcp.json"),
+			})
+			orchestrator.mcpServerManager = mcpServerManager
+			global.__mcpServerManager = mcpServerManager
+			console.log(
+				`[orchestrator] MCP Server Manager initialized | ${mcpServerManager.getServers().length} servers`,
+			)
+			writeApiLog("info", "cloud-mcp-manager", "MCP Server Manager initialized", {
+				serverCount: mcpServerManager.getServers().length,
+			})
+		} catch (err) {
+			console.warn(`[orchestrator] MCP Server Manager unavailable: ${err.message}`)
+		}
+
+		// ── Wire Phase 6: Collaboration System ──────────────────────────
+		// Real-time collaboration with WebSocket sync, cursor sync, and file sync.
+		try {
+			const { createCollaborationSystem } = safeRequire("../collaboration/index")
+			const collaborationSystem = createCollaborationSystem()
+			orchestrator.collaborationSystem = collaborationSystem
+			global.__collaborationSystem = collaborationSystem
+			console.log(`[orchestrator] Collaboration System initialized`)
+			writeApiLog("info", "cloud-collaboration", "Collaboration System initialized")
+		} catch (err) {
+			console.warn(`[orchestrator] Collaboration System unavailable: ${err.message}`)
+		}
 
 		// ── Register all Phase 2-6 modules ──────────────────────────────
 		// Use safeRequire to clear module cache and prevent "X is not a constructor"
@@ -3165,6 +3222,119 @@ lspWss.on("connection", (ws, req) => {
 	})
 })
 
+// ── Collaboration WebSocket Handler ──────────────────────────────────────────
+// Real-time collaboration: cursor sync, file sync, session management.
+// Messages are routed through the collaboration system (if initialized).
+collaborationWss.on("connection", (ws, req) => {
+	const collaborationSystem = global.__collaborationSystem
+	if (!collaborationSystem) {
+		ws.send(JSON.stringify({ type: "error", message: "Collaboration system not available" }))
+		ws.close()
+		return
+	}
+
+	writeApiLog("info", "collab-ws", "Collaboration WebSocket client connected")
+
+	// Send welcome with available actions
+	ws.send(
+		JSON.stringify({
+			type: "connected",
+			message: "Connected to SuperRoo Collaboration",
+			version: "1.0.0",
+			supportedActions: [
+				"create_session",
+				"join_session",
+				"leave_session",
+				"get_sessions",
+				"get_collaborators",
+				"cursor_update",
+				"file_change",
+				"get_summary",
+			],
+			timestamp: Date.now(),
+		}),
+	)
+
+	ws.on("message", async (raw) => {
+		try {
+			const msg = JSON.parse(raw.toString())
+			const { action, params = {}, id } = msg
+
+			switch (action) {
+				case "create_session": {
+					const session = collaborationSystem.createSession(params.workspaceId)
+					ws.send(JSON.stringify({ type: "result", id, action, result: session, timestamp: Date.now() }))
+					break
+				}
+				case "join_session": {
+					const result = collaborationSystem.joinSession(params.sessionId, {
+						userId: params.userId,
+						userName: params.userName,
+					})
+					ws.send(JSON.stringify({ type: "result", id, action, result, timestamp: Date.now() }))
+					break
+				}
+				case "leave_session": {
+					collaborationSystem.leaveSession(params.sessionId, params.userId)
+					ws.send(JSON.stringify({ type: "result", id, action, result: true, timestamp: Date.now() }))
+					break
+				}
+				case "get_sessions": {
+					const sessions = collaborationSystem.getSessionsForWorkspace(params.workspaceId)
+					ws.send(JSON.stringify({ type: "result", id, action, result: sessions, timestamp: Date.now() }))
+					break
+				}
+				case "get_collaborators": {
+					const collaborators = collaborationSystem.getCollaborators(params.sessionId)
+					ws.send(
+						JSON.stringify({ type: "result", id, action, result: collaborators, timestamp: Date.now() }),
+					)
+					break
+				}
+				case "cursor_update": {
+					collaborationSystem.updateCursor(params.sessionId, params.userId, params.position, params.selection)
+					ws.send(JSON.stringify({ type: "result", id, action, result: true, timestamp: Date.now() }))
+					break
+				}
+				case "file_change": {
+					collaborationSystem.broadcastFileChange(
+						params.sessionId,
+						params.userId,
+						params.filePath,
+						params.changes,
+					)
+					ws.send(JSON.stringify({ type: "result", id, action, result: true, timestamp: Date.now() }))
+					break
+				}
+				case "get_summary": {
+					const summary = collaborationSystem.getSummary()
+					ws.send(JSON.stringify({ type: "result", id, action, result: summary, timestamp: Date.now() }))
+					break
+				}
+				default:
+					ws.send(
+						JSON.stringify({
+							type: "error",
+							id,
+							error: `Unknown action: ${action}`,
+							timestamp: Date.now(),
+						}),
+					)
+			}
+		} catch (err) {
+			ws.send(JSON.stringify({ type: "error", id: null, error: err.message, timestamp: Date.now() }))
+		}
+	})
+
+	ws.on("close", () => {
+		writeApiLog("info", "collab-ws", "Collaboration WebSocket client disconnected")
+	})
+
+	ws.on("error", (err) => {
+		writeApiLog("error", "collab-ws", "Collaboration WebSocket error", { error: err.message })
+	})
+})
+
 /**
  * Broadcast an event to all connected Brain WebSocket clients.
  * Used by the SSE endpoint and internal event emitters.
@@ -4741,6 +4911,168 @@ const server = http.createServer(async (req, res) => {
 			// Persist overrides to disk so they survive restarts
 			await saveEncryptedSecrets()
 			sendJson(res, 200, { success: true, providerId, meta })
+			return
+		}
+
+		// ── Collaboration REST API Endpoints ──────────────────────────────────────
+		// These endpoints provide REST access to the collaboration system.
+		// Real-time collaboration (cursor sync, file sync) is handled via WebSocket.
+
+		// GET /collaboration/sessions — list all active collaboration sessions
+		if (method === "GET" && normalizedUrl === "/collaboration/sessions") {
+			const collabSystem = global.__collaborationSystem
+			if (!collabSystem) {
+				sendJson(res, 503, { success: false, error: "Collaboration system not available" })
+				return
+			}
+			const summary = collabSystem.getSummary()
+			sendJson(res, 200, { success: true, sessions: summary })
+			return
+		}
+
+		// POST /collaboration/sessions — create a new collaboration session
+		if (method === "POST" && normalizedUrl === "/collaboration/sessions") {
+			const collabSystem = global.__collaborationSystem
+			if (!collabSystem) {
+				sendJson(res, 503, { success: false, error: "Collaboration system not available" })
+				return
+			}
+			const data = await parseBody(req)
+			if (!data.workspaceId) {
+				sendJson(res, 400, { success: false, error: "workspaceId is required" })
+				return
+			}
+			const session = collabSystem.createSession(data.workspaceId)
+			sendJson(res, 200, { success: true, session })
+			return
+		}
+
+		// GET /collaboration/sessions/:workspaceId — get sessions for a workspace
+		if (method === "GET" && normalizedUrl.match(/^\/collaboration\/sessions\/[^/]+$/)) {
+			const collabSystem = global.__collaborationSystem
+			if (!collabSystem) {
+				sendJson(res, 503, { success: false, error: "Collaboration system not available" })
+				return
+			}
+			const workspaceId = normalizedUrl.split("/")[3]
+			const sessions = collabSystem.getSessionsForWorkspace(workspaceId)
+			sendJson(res, 200, { success: true, sessions })
+			return
+		}
+
+		// DELETE /collaboration/sessions/:sessionId — close a session
+		if (method === "DELETE" && normalizedUrl.match(/^\/collaboration\/sessions\/[^/]+$/)) {
+			const collabSystem = global.__collaborationSystem
+			if (!collabSystem) {
+				sendJson(res, 503, { success: false, error: "Collaboration system not available" })
+				return
+			}
+			const sessionId = normalizedUrl.split("/")[3]
+			collabSystem.closeSession(sessionId)
+			sendJson(res, 200, { success: true, message: "Session closed" })
+			return
+		}
+
+		// GET /collaboration/collaborators/:sessionId — get collaborators in a session
+		if (method === "GET" && normalizedUrl.match(/^\/collaboration\/collaborators\/[^/]+$/)) {
+			const collabSystem = global.__collaborationSystem
+			if (!collabSystem) {
+				sendJson(res, 503, { success: false, error: "Collaboration system not available" })
+				return
+			}
+			const sessionId = normalizedUrl.split("/")[3]
+			const collaborators = collabSystem.getCollaborators(sessionId)
+			sendJson(res, 200, { success: true, collaborators })
+			return
+		}
+
+		// GET /collaboration/status — get collaboration system health
+		if (method === "GET" && normalizedUrl === "/collaboration/status") {
+			const collabSystem = global.__collaborationSystem
+			sendJson(res, 200, {
+				success: true,
+				available: !!collabSystem,
+				sessions: collabSystem ? collabSystem.getSummary() : [],
+			})
+			return
+		}
+
+		// ── Provider API Endpoints (for dashboard) ────────────────────────────────
+
+		// GET /providers — list all providers with usage stats and connection meta
+		if (method === "GET" && normalizedUrl === "/providers") {
+			const bridge = global.__providerBridge
+			if (!bridge) {
+				// Fall back to legacy provider list
+				const entries = PROVIDERS.map((p) => {
+					const meta = providerMeta.get(p.id) || { hasKey: false, status: "not_tested" }
+					return {
+						id: p.id,
+						name: p.name,
+						status: meta.status,
+						hasKey: meta.hasKey,
+						models: p.models.map((m) => m.id),
+						capabilities: p.capabilities,
+						defaultModel: p.defaultModel,
+						local: !!p.local,
+					}
+				})
+				sendJson(res, 200, { success: true, providers: entries, bridgeAvailable: false })
+				return
+			}
+			const providers = bridge.getAllProviders()
+			sendJson(res, 200, { success: true, providers, bridgeAvailable: true })
+			return
+		}
+
+		// GET /providers/usage — get provider usage statistics
+		if (method === "GET" && normalizedUrl === "/providers/usage") {
+			const bridge = global.__providerBridge
+			if (!bridge) {
+				sendJson(res, 200, { success: true, usageStats: {}, bridgeAvailable: false })
+				return
+			}
+			const status = bridge.getStatus()
+			sendJson(res, 200, {
+				success: true,
+				usageStats: status.usageStats,
+				connectionMeta: status.connectionMeta,
+			})
+			return
+		}
+
+		// GET /providers/bridge/status — get provider bridge health
+		if (method === "GET" && normalizedUrl === "/providers/bridge/status") {
+			const bridge = global.__providerBridge
+			if (!bridge) {
+				sendJson(res, 200, { success: true, available: false })
+				return
+			}
+			sendJson(res, 200, { success: true, available: true, status: bridge.getStatus() })
+			return
+		}
+
+		// GET /mcp/status — get MCP Server Manager status
+		if (method === "GET" && normalizedUrl === "/mcp/status") {
+			const mcpManager = global.__mcpServerManager
+			if (!mcpManager) {
+				sendJson(res, 200, { success: true, available: false })
+				return
+			}
+			const summary = mcpManager.getSummary()
+			sendJson(res, 200, { success: true, available: true, servers: summary })
+			return
+		}
+
+		// GET /mcp/servers — list all MCP servers
+		if (method === "GET" && normalizedUrl === "/mcp/servers") {
+			const mcpManager = global.__mcpServerManager
+			if (!mcpManager) {
+				sendJson(res, 200, { success: true, servers: [], available: false })
+				return
+			}
+			const servers = mcpManager.getServers()
+			sendJson(res, 200, { success: true, servers, available: true })
 			return
 		}
 
@@ -10964,47 +11296,82 @@ const server = http.createServer(async (req, res) => {
 		// POST /telegram/tasks/create — create a new task from Mini App
 		if (method === "POST" && (url === "/telegram/tasks/create" || normalizedUrl === "/telegram/tasks/create")) {
 			const data = await parseBody(req)
-			const instruction = data.instruction || ""
+			const instruction = String(data.instruction || "").trim()
 			const agent = data.agent || "coder"
+			const isCoderAgent = agent === "coder" || agent === "superroo-coder-agent"
+			const auto = data.auto === true || data.auto === "true"
 			if (!instruction) {
 				sendJson(res, 400, { success: false, error: "instruction is required" })
 				return
 			}
-			// Create task via telegramBot
+			if (isCoderAgent && instruction.length < 10) {
+				sendJson(res, 400, { success: false, error: "instruction must be at least 10 characters" })
+				return
+			}
+
 			const taskId =
 				"TG-" +
 				Date.now().toString(36).toUpperCase() +
 				"-" +
 				Math.random().toString(36).slice(2, 6).toUpperCase()
 			const branchName = "tg/" + taskId.toLowerCase()
+			const workspaceDir = data.workspaceDir || process.env.SUPERROO_ROOT || "/opt/superroo2"
+			const repoName = data.repoName || "superroo2"
 			if (!telegramBot.userTasks) telegramBot.userTasks = new Map()
 			const chatId = data.chatId || 0
 			if (!telegramBot.userTasks.has(chatId)) telegramBot.userTasks.set(chatId, [])
-			telegramBot.userTasks.get(chatId).push({
+			const taskRecord = {
 				id: taskId,
 				instruction: instruction,
 				status: "queued",
-				agentId: agent,
+				agentId: isCoderAgent ? "superroo-coder-agent" : agent,
 				branchName: branchName,
 				changedFiles: 0,
 				linesAdded: 0,
 				createdAt: new Date().toISOString(),
-			})
+				auto,
+				workspaceDir,
+				repoName,
+			}
+			telegramBot.userTasks.get(chatId).push(taskRecord)
+
 			// Enqueue to BullMQ if available
+			let job = null
 			try {
 				if (queue) {
-					await queue.add("telegram-" + taskId, {
-						task: instruction,
-						agentId: agent,
-						commands: [],
-						network: "none",
-						telegram: { chatId: chatId, taskId: taskId, branchName: branchName },
-					})
+					if (isCoderAgent) {
+						job = await queue.add(
+							"coder-plan-" + taskId,
+							{
+								task: instruction,
+								agentId: "superroo-coder-agent",
+								phase: "plan",
+								taskId,
+								workspaceDir,
+								repoName,
+								branch: branchName,
+								telegram: { chatId, taskId, branchName, auto },
+							},
+							{
+								attempts: 3,
+								backoff: { type: "exponential", delay: 5000 },
+							},
+						)
+					} else {
+						job = await queue.add("telegram-" + taskId, {
+							task: instruction,
+							agentId: agent,
+							commands: [],
+							network: "none",
+							telegram: { chatId: chatId, taskId: taskId, branchName: branchName },
+						})
+					}
+					taskRecord.jobId = job && job.id
 				}
 			} catch (qErr) {
 				console.error("[api] Failed to enqueue task:", qErr.message)
 			}
-			sendJson(res, 200, { success: true, taskId, branchName })
+			sendJson(res, 200, { success: true, taskId, branchName, jobId: job && job.id, auto })
 			return
 		}
 
@@ -11016,18 +11383,67 @@ const server = http.createServer(async (req, res) => {
 		) {
 			const taskId = (url.match(/^\/telegram\/tasks\/([^/]+)\/approve$/) ||
 				normalizedUrl.match(/^\/telegram\/tasks\/([^/]+)\/approve$/))[1]
-			// Update task status in memory
+			const pending = getNotifierPendingJob(taskId)
+			if (!pending || !pending.plan) {
+				sendJson(res, 409, {
+					success: false,
+					taskId,
+					error: "No generated coder plan is ready for this task yet. Wait for planning to finish, then approve again.",
+				})
+				return
+			}
+
+			let applyJob = null
+			try {
+				if (queue) {
+					applyJob = await queue.add(
+						"coder-apply-" + taskId,
+						{
+							task: pending.instruction || "Apply approved changes",
+							agentId: "superroo-coder-agent",
+							phase: "apply",
+							taskId,
+							workspaceDir: pending.workspaceDir,
+							repoName: pending.repoName,
+							branch: pending.branch,
+							plan: pending.plan,
+							telegram: {
+								chatId: pending.chatId,
+								taskId,
+								branchName: pending.branch,
+								auto: pending.auto === true,
+							},
+						},
+						{ attempts: 3, backoff: { type: "exponential", delay: 5000 } },
+					)
+				}
+			} catch (qErr) {
+				console.error("[api] Failed to enqueue coder apply job:", qErr.message)
+				sendJson(res, 500, { success: false, taskId, error: "Failed to enqueue apply job" })
+				return
+			}
+
+			const taskNotifier = telegramBot.telegramNotifier
+			if (taskNotifier && typeof taskNotifier.setPendingCoderJob === "function") {
+				taskNotifier.setPendingCoderJob(taskId, {
+					...pending,
+					status: "applying",
+					updatedAt: new Date().toISOString(),
+				})
+			}
+
 			if (telegramBot.userTasks) {
 				for (const [, chatTasks] of telegramBot.userTasks.entries()) {
 					for (const t of chatTasks) {
 						if (t.id === taskId) {
-							t.status = "approved"
+							t.status = "applying"
+							t.applyJobId = applyJob && applyJob.id
 							break
 						}
 					}
 				}
 			}
-			sendJson(res, 200, { success: true, taskId, nextState: "approved" })
+			sendJson(res, 200, { success: true, taskId, jobId: applyJob && applyJob.id, nextState: "applying" })
 			return
 		}
 
@@ -11039,6 +11455,10 @@ const server = http.createServer(async (req, res) => {
 		) {
 			const taskId = (url.match(/^\/telegram\/tasks\/([^/]+)\/reject$/) ||
 				normalizedUrl.match(/^\/telegram\/tasks\/([^/]+)\/reject$/))[1]
+			const taskNotifier = telegramBot.telegramNotifier
+			if (taskNotifier && typeof taskNotifier.removePendingCoderJob === "function") {
+				taskNotifier.removePendingCoderJob(taskId)
+			}
 			if (telegramBot.userTasks) {
 				for (const [, chatTasks] of telegramBot.userTasks.entries()) {
 					for (const t of chatTasks) {
@@ -12322,7 +12742,8 @@ const server = http.createServer(async (req, res) => {
 })
 
 // ── WebSocket Upgrade Handler ────────────────────────────────────────────────
-// Intercept HTTP upgrade requests for /api/ws/chat and /api/brain/ws paths
+// Intercept HTTP upgrade requests for /api/ws/chat, /api/brain/ws, /api/ws/lsp,
+// and /api/ws/collaboration paths
 // NOTE: Must be placed AFTER server declaration to avoid TDZ ReferenceError
 server.on("upgrade", (request, socket, head) => {
 	const url = request.url || ""
@@ -12341,6 +12762,16 @@ server.on("upgrade", (request, socket, head) => {
 		lspWss.handleUpgrade(request, socket, head, (ws) => {
 			lspWss.emit("connection", ws, request)
 		})
+	} else if (normalizedUrl.startsWith("/ws/collaboration")) {
+		// Collaboration WebSocket — real-time cursor sync, file sync, session management
+		const collaborationWss = global.__collaborationWss
+		if (collaborationWss) {
+			collaborationWss.handleUpgrade(request, socket, head, (ws) => {
+				collaborationWss.emit("connection", ws, request)
+			})
+		} else {
+			socket.destroy()
+		}
 	} else {
 		socket.destroy()
 	}
