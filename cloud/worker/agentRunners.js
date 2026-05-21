@@ -337,12 +337,21 @@ function getNextAutoPhase(currentPhase, result) {
  * Returns early with { phase: "awaiting_approval", taskId }.
  */
 async function runCoderPlan(job, jobId, taskId, telegram) {
-	const { instruction, workspaceDir, repoName, branch, files } = job.data
+	const { instruction, workspaceDir, repoName, branch, files, brainLessons } = job.data
 
 	log("coder", jobId, "Phase: plan — gathering context and calling LLM")
 
 	// Step 1: Gather context — rich multi-source context for the LLM
 	let context = ""
+
+	// 1a-0. Central Brain lessons recalled before job was queued (OpenHands BrainClient)
+	if (Array.isArray(brainLessons) && brainLessons.length > 0) {
+		const lessonText = brainLessons
+			.map((l, i) => `${i + 1}. [${(l.tags || []).join(", ")}] ${l.title || ""}: ${l.content || ""}`)
+			.join("\n")
+		context += `=== Central Brain Lessons (relevant to this task) ===\n${lessonText}\n\n`
+		log("coder", jobId, `Injected ${brainLessons.length} Central Brain lessons into plan context`)
+	}
 
 	// 1a. Conversation history from Telegram (passed via job.data.telegram)
 	if (telegram && telegram.conversationSummary) {
@@ -1284,10 +1293,16 @@ async function runCoderDeploy(job, jobId, taskId, telegram) {
 	let healthUrl = ""
 	try {
 		const apiPort = process.env.API_PORT || "8790"
-		healthUrl = `http://127.0.0.1:${apiPort}/api/health`
-		const healthRes = await fetch(healthUrl, { signal: AbortSignal.timeout(15000) })
+		const healthCheckUrl = `http://127.0.0.1:${apiPort}/api/health`
+		const publicBaseUrl = (
+			process.env.PUBLIC_DASHBOARD_URL ||
+			process.env.DASHBOARD_URL ||
+			"https://dev.abcx124.xyz"
+		).replace(/\/+$/, "")
+		healthUrl = `${publicBaseUrl}/api/health`
+		const healthRes = await fetch(healthCheckUrl, { signal: AbortSignal.timeout(15000) })
 		healthOk = healthRes.ok
-		output.push(`  ${healthOk ? "✅" : "❌"} Health check: ${healthUrl} → ${healthRes.status}`)
+		output.push(`  ${healthOk ? "✅" : "❌"} Health check: ${healthCheckUrl} → ${healthRes.status}`)
 	} catch (err) {
 		output.push(`  ❌ Health check failed: ${err.message}`)
 		allSuccess = false

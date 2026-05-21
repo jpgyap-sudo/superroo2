@@ -1,10 +1,23 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { Eye, Play, RefreshCw, CheckCircle, XCircle, AlertTriangle, Image, FileText, ChevronRight } from "lucide-react"
+import {
+	Eye,
+	Play,
+	RefreshCw,
+	CheckCircle,
+	XCircle,
+	AlertTriangle,
+	Image,
+	FileText,
+	ChevronRight,
+	Plus,
+	Trash2,
+} from "lucide-react"
 
 interface CrawlReportSummary {
 	crawlId: string
+	projectName?: string
 	url: string
 	timestamp: string
 	viewportsTested: number
@@ -25,11 +38,20 @@ interface CrawlResult {
 
 interface CrawlReportDetail {
 	crawlId: string
+	projectName?: string
 	url: string
 	timestamp: string
 	viewportsTested: number
 	issuesFound: number
 	results: CrawlResult[]
+}
+
+interface ProjectEntry {
+	name: string
+	label: string
+	baseUrl: string
+	authToken?: string
+	pages: { id: string; label: string }[]
 }
 
 export function VisualCrawlerView() {
@@ -41,11 +63,33 @@ export function VisualCrawlerView() {
 	const [url, setUrl] = useState("http://localhost:3001")
 	const [error, setError] = useState<string | null>(null)
 
+	// Multi-project state
+	const [projects, setProjects] = useState<ProjectEntry[]>([])
+	const [selectedProject, setSelectedProject] = useState<string>("")
+	const [showAddProject, setShowAddProject] = useState(false)
+	const [newProject, setNewProject] = useState({ name: "", label: "", baseUrl: "", authToken: "" })
+
+	const fetchProjects = useCallback(async () => {
+		try {
+			const res = await fetch("/visual-crawl/projects")
+			if (!res.ok) return
+			const data = await res.json()
+			if (data.projects) {
+				setProjects(data.projects)
+				if (!selectedProject && data.projects.length > 0) {
+					setSelectedProject(data.projects[0].name)
+					setUrl(data.projects[0].baseUrl)
+				}
+			}
+		} catch {}
+	}, [selectedProject])
+
 	const fetchReports = useCallback(async () => {
 		setLoading(true)
 		setError(null)
 		try {
-			const res = await fetch("/visual-crawl/reports")
+			const query = selectedProject ? `?project=${encodeURIComponent(selectedProject)}` : ""
+			const res = await fetch(`/visual-crawl/reports${query}`)
 			if (!res.ok) throw new Error(`HTTP ${res.status}`)
 			const data = await res.json()
 			setReports(data.reports || [])
@@ -54,6 +98,10 @@ export function VisualCrawlerView() {
 		} finally {
 			setLoading(false)
 		}
+	}, [selectedProject])
+
+	useEffect(() => {
+		fetchProjects()
 	}, [])
 
 	useEffect(() => {
@@ -81,7 +129,11 @@ export function VisualCrawlerView() {
 			const res = await fetch("/visual-crawl/run", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ url, thresholdPercent: 1.0 }),
+				body: JSON.stringify({
+					url,
+					thresholdPercent: 1.0,
+					projectName: selectedProject || undefined,
+				}),
 			})
 			if (!res.ok) throw new Error(`HTTP ${res.status}`)
 			await fetchReports()
@@ -89,6 +141,60 @@ export function VisualCrawlerView() {
 			setError(e.message)
 		} finally {
 			setRunning(false)
+		}
+	}
+
+	const handleProjectChange = (projectName: string) => {
+		setSelectedProject(projectName)
+		const project = projects.find((p) => p.name === projectName)
+		if (project) {
+			setUrl(project.baseUrl)
+		}
+		setSelectedReport(null)
+	}
+
+	const handleAddProject = async () => {
+		if (!newProject.name || !newProject.baseUrl) return
+		try {
+			const res = await fetch("/visual-crawl/projects", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(newProject),
+			})
+			if (!res.ok) throw new Error(`HTTP ${res.status}`)
+			const data = await res.json()
+			if (data.projects) {
+				setProjects(data.projects)
+				setSelectedProject(newProject.name)
+				setUrl(newProject.baseUrl)
+			}
+			setShowAddProject(false)
+			setNewProject({ name: "", label: "", baseUrl: "", authToken: "" })
+		} catch (e: any) {
+			setError(e.message)
+		}
+	}
+
+	const handleDeleteProject = async (name: string) => {
+		try {
+			const res = await fetch(`/visual-crawl/projects/${name}`, { method: "DELETE" })
+			if (!res.ok) throw new Error(`HTTP ${res.status}`)
+			const data = await res.json()
+			if (data.projects) {
+				setProjects(data.projects)
+				if (selectedProject === name) {
+					const next = data.projects[0]
+					if (next) {
+						setSelectedProject(next.name)
+						setUrl(next.baseUrl)
+					} else {
+						setSelectedProject("")
+						setUrl("http://localhost:3001")
+					}
+				}
+			}
+		} catch (e: any) {
+			setError(e.message)
 		}
 	}
 
@@ -108,7 +214,7 @@ export function VisualCrawlerView() {
 						Visual Crawler
 					</h1>
 					<p className="text-[11px] text-[#8b949e] mt-0.5">
-						E2E visual regression detection across viewport matrix
+						Multi-project E2E visual regression detection across viewport matrix
 					</p>
 				</div>
 				<button
@@ -119,6 +225,86 @@ export function VisualCrawlerView() {
 					Refresh
 				</button>
 			</div>
+
+			{/* Project selector */}
+			<div className="flex items-center gap-2 p-3 bg-[#0f1117] border border-[#1e2535] rounded">
+				<label className="text-[11px] text-[#8b949e] whitespace-nowrap">Project:</label>
+				<select
+					value={selectedProject}
+					onChange={(e) => handleProjectChange(e.target.value)}
+					className="flex-1 bg-[#161b22] text-[12px] text-[#e6edf3] border border-[#30363d] rounded px-2 py-1.5 outline-none focus:border-[#1f6feb]">
+					{projects.length === 0 && <option value="">No projects</option>}
+					{projects.map((p) => (
+						<option key={p.name} value={p.name}>
+							{p.label} ({p.name})
+						</option>
+					))}
+				</select>
+				<button
+					onClick={() => setShowAddProject(!showAddProject)}
+					className="flex items-center gap-1 px-2 py-1.5 text-[11px] bg-[#1e2535] text-[#8b949e] rounded hover:bg-[#30363d] hover:text-[#e6edf3] transition-colors">
+					<Plus className="w-3 h-3" />
+					Add
+				</button>
+				{selectedProject && (
+					<button
+						onClick={() => handleDeleteProject(selectedProject)}
+						className="flex items-center gap-1 px-2 py-1.5 text-[11px] bg-[#f8514911] text-[#f85149] rounded hover:bg-[#f8514933] transition-colors">
+						<Trash2 className="w-3 h-3" />
+					</button>
+				)}
+			</div>
+
+			{/* Add project form */}
+			{showAddProject && (
+				<div className="p-3 bg-[#0f1117] border border-[#1e2535] rounded space-y-2">
+					<div className="flex items-center gap-2">
+						<input
+							type="text"
+							value={newProject.name}
+							onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
+							placeholder="Project name (e.g., my-app)"
+							className="flex-1 bg-[#161b22] text-[12px] text-[#e6edf3] border border-[#30363d] rounded px-2 py-1.5 outline-none focus:border-[#1f6feb]"
+						/>
+						<input
+							type="text"
+							value={newProject.label}
+							onChange={(e) => setNewProject({ ...newProject, label: e.target.value })}
+							placeholder="Display label"
+							className="flex-1 bg-[#161b22] text-[12px] text-[#e6edf3] border border-[#30363d] rounded px-2 py-1.5 outline-none focus:border-[#1f6feb]"
+						/>
+					</div>
+					<div className="flex items-center gap-2">
+						<input
+							type="text"
+							value={newProject.baseUrl}
+							onChange={(e) => setNewProject({ ...newProject, baseUrl: e.target.value })}
+							placeholder="Base URL (e.g., http://myapp.com)"
+							className="flex-1 bg-[#161b22] text-[12px] text-[#e6edf3] border border-[#30363d] rounded px-2 py-1.5 outline-none focus:border-[#1f6feb]"
+						/>
+						<input
+							type="text"
+							value={newProject.authToken}
+							onChange={(e) => setNewProject({ ...newProject, authToken: e.target.value })}
+							placeholder="Auth token (optional)"
+							className="flex-1 bg-[#161b22] text-[12px] text-[#e6edf3] border border-[#30363d] rounded px-2 py-1.5 outline-none focus:border-[#1f6feb]"
+						/>
+					</div>
+					<div className="flex justify-end gap-2">
+						<button
+							onClick={() => setShowAddProject(false)}
+							className="px-3 py-1.5 text-[11px] bg-[#1e2535] text-[#8b949e] rounded hover:bg-[#30363d] transition-colors">
+							Cancel
+						</button>
+						<button
+							onClick={handleAddProject}
+							disabled={!newProject.name || !newProject.baseUrl}
+							className="px-3 py-1.5 text-[11px] bg-[#1f6feb] text-white rounded hover:bg-[#388bfd] transition-colors disabled:opacity-50">
+							Add Project
+						</button>
+					</div>
+				</div>
+			)}
 
 			{/* Run crawl bar */}
 			<div className="flex items-center gap-2 p-3 bg-[#0f1117] border border-[#1e2535] rounded">
@@ -157,7 +343,14 @@ export function VisualCrawlerView() {
 					</button>
 					<div className="p-3 bg-[#0f1117] border border-[#1e2535] rounded">
 						<div className="flex items-center justify-between">
-							<h2 className="text-[13px] font-medium text-[#e6edf3]">{selectedReport.url}</h2>
+							<div>
+								<h2 className="text-[13px] font-medium text-[#e6edf3]">{selectedReport.url}</h2>
+								{selectedReport.projectName && (
+									<span className="text-[10px] text-[#58a6ff] mt-0.5 block">
+										Project: {selectedReport.projectName}
+									</span>
+								)}
+							</div>
 							<StatusBadge
 								status={statusFromIssues(selectedReport.issuesFound, selectedReport.viewportsTested)}
 							/>
@@ -212,7 +405,11 @@ export function VisualCrawlerView() {
 						<div className="flex flex-col items-center justify-center h-64 text-[#484f58]">
 							<Image className="w-10 h-10 mb-3" />
 							<p className="text-[12px]">No crawl reports yet</p>
-							<p className="text-[11px] mt-1">Run a crawl to capture baseline screenshots</p>
+							<p className="text-[11px] mt-1">
+								{selectedProject
+									? `Select a project and run a crawl to capture baseline screenshots`
+									: `Add a project first, then run a crawl`}
+							</p>
 						</div>
 					) : (
 						<div className="space-y-2">
@@ -222,13 +419,16 @@ export function VisualCrawlerView() {
 									onClick={() => loadReportDetail(r.crawlId)}
 									className="w-full text-left p-3 bg-[#0f1117] border border-[#1e2535] rounded hover:border-[#30363d] transition-colors">
 									<div className="flex items-center justify-between">
-										<div className="flex items-center gap-2">
-											<FileText className="w-4 h-4 text-[#8b949e]" />
+										<div className="flex items-center gap-2 min-w-0">
+											<FileText className="w-4 h-4 text-[#8b949e] shrink-0" />
 											<span className="text-[12px] text-[#e6edf3] truncate">{r.url}</span>
 										</div>
 										<StatusBadge status={statusFromIssues(r.issuesFound, r.viewportsTested)} />
 									</div>
 									<div className="flex items-center gap-3 mt-1.5">
+										{r.projectName && (
+											<span className="text-[10px] text-[#58a6ff]">{r.projectName}</span>
+										)}
 										<span className="text-[10px] text-[#8b949e]">
 											{new Date(r.timestamp).toLocaleString()}
 										</span>

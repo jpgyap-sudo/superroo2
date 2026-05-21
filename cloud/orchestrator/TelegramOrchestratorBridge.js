@@ -10,7 +10,11 @@
  *   - telegramBot.userTasks → orchestrator.taskQueue.list() for task listing
  *   - Task status updates → orchestrator.taskQueue.update()
  *   - Event logging → orchestrator.eventLog.record()
+ *   - TaskStateMachine → validated status transitions with event bus fan-out
  */
+
+const { assertTransition, isTerminal } = require("./modules/TaskStateMachine")
+const { eventBus } = require("./modules/SuperRooEventBus")
 
 class TelegramOrchestratorBridge {
 	/**
@@ -38,7 +42,7 @@ class TelegramOrchestratorBridge {
 		const resolvedAgent = input.agentId || input.agentType || "coder"
 		const taskId =
 			input.tgTaskId ||
-			("TG-" + Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).slice(2, 6).toUpperCase())
+			"TG-" + Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).slice(2, 6).toUpperCase()
 		const branchName = input.branchName || "tg/" + taskId.toLowerCase()
 
 		// Submit to orchestrator's task queue
@@ -54,6 +58,14 @@ class TelegramOrchestratorBridge {
 				branchName,
 				tgTaskId: input.tgTaskId || null,
 			},
+		})
+
+		// Emit task creation event to SuperRooEventBus (SSE subscribers + EventLog)
+		eventBus.emit(taskId, "user_message", {
+			goal: input.instruction,
+			source: "telegram",
+			chatId: input.chatId,
+			agentId: resolvedAgent,
 		})
 
 		// Return in telegramBot-compatible format
@@ -131,7 +143,35 @@ class TelegramOrchestratorBridge {
 		if (!found) return false
 
 		const mappedStatus = this._reverseMapStatus(status)
+
+		// Validate transition via TaskStateMachine.
+		// Map the current orchestrator status back to a SuperRoo TaskStatus for validation.
+		const currentSuperRooStatus = this._toSuperRooStatus(found.status)
+		const targetSuperRooStatus = this._toSuperRooStatus(mappedStatus)
+		try {
+			if (currentSuperRooStatus && targetSuperRooStatus) {
+				assertTransition(currentSuperRooStatus, targetSuperRooStatus)
+			}
+		} catch (err) {
+			console.warn(`[TelegramOrchestratorBridge] ${err.message} — proceeding anyway for legacy compat`)
+		}
+
+		// Skip update if already in a terminal state
+		if (isTerminal(currentSuperRooStatus)) {
+			console.warn(
+				`[TelegramOrchestratorBridge] Task ${tgTaskId} is in terminal state "${currentSuperRooStatus}", ignoring status update to "${status}"`,
+			)
+			return false
+		}
+
 		this.orchestrator.taskQueue.update(found.id, { status: mappedStatus })
+
+		// Emit transition event to SuperRooEventBus for real-time dashboard updates
+		eventBus.emit(tgTaskId, "task_transition", {
+			from: currentSuperRooStatus || found.status,
+			to: targetSuperRooStatus || mappedStatus,
+			orchestratorTaskId: found.id,
+		})
 
 		this.orchestrator.eventLog.record({
 			type: "telegram.task_status_changed",
@@ -143,6 +183,32 @@ class TelegramOrchestratorBridge {
 		})
 
 		return true
+	}
+
+	/**
+	 * Map an orchestrator task status string to a SuperRoo TaskStatus enum value.
+	 * Returns null if no mapping exists (avoids crashing on unknown statuses).
+	 * @param {string} status
+	 * @returns {string|null}
+	 */
+	_toSuperRooStatus(status) {
+		const map = {
+			pending: "queued",
+			queued: "queued",
+			running: "running",
+			completed: "completed",
+			failed: "failed",
+			cancelled: "failed",
+			// SuperRoo-native statuses pass through unchanged
+			preparing: "preparing",
+			loading_context: "loading_context",
+			planning: "planning",
+			testing: "testing",
+			reviewing: "reviewing",
+			repairing: "repairing",
+			needs_user_approval: "needs_user_approval",
+		}
+		return map[status] ?? null
 	}
 
 	/**

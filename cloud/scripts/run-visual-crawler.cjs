@@ -1,73 +1,40 @@
 /**
- * Run Visual Crawler — Capture baselines for all dashboard views
+ * Run Visual Crawler — Multi-project visual regression detection (CJS version)
  *
  * Usage:
  *   node cloud/scripts/run-visual-crawler.cjs
+ *   node cloud/scripts/run-visual-crawler.cjs --project superroo-dashboard
+ *   node cloud/scripts/run-visual-crawler.cjs --project my-other-app --url http://myapp.com
  *
  * Environment variables:
- *   DASHBOARD_URL  - Dashboard URL (default: http://100.64.175.88:3001)
+ *   PROJECT_NAME   - Project name from registry (default: superroo-dashboard)
+ *   DASHBOARD_URL  - Override base URL for the project
  *   AUTH_TOKEN     - Optional auth token for protected pages
  *   UPDATE_BASELINES - Set to "true" to update baselines instead of comparing
  *   VIEWPORTS      - Comma-separated list of viewport names (default: all)
+ *   PAGES          - Comma-separated list of page IDs to crawl (default: all pages for project)
  *   SKIP_OLLAMA    - Set to "true" to skip Ollama analysis (faster)
  */
 
-const { runCrawl, listReports, DEFAULT_VIEWPORTS } = require("../api/visual-crawler.js")
+const { runCrawl, listReports, DEFAULT_VIEWPORTS, getProjectRegistry } = require("../api/visual-crawler.js")
 
-const DASHBOARD_URL = process.env.DASHBOARD_URL || "http://100.64.175.88:3001"
+// Parse CLI args
+const args = process.argv.slice(2)
+const cliProjectIndex = args.indexOf("--project")
+const cliProject = cliProjectIndex >= 0 ? args[cliProjectIndex + 1] : null
+const cliUrlIndex = args.indexOf("--url")
+const cliUrl = cliUrlIndex >= 0 ? args[cliUrlIndex + 1] : null
+
+const PROJECT_NAME = cliProject || process.env.PROJECT_NAME || "superroo-dashboard"
 const AUTH_TOKEN = process.env.AUTH_TOKEN || ""
 const UPDATE_BASELINES = process.env.UPDATE_BASELINES === "true"
 const SKIP_OLLAMA = process.env.SKIP_OLLAMA === "true"
 const VIEWPORT_FILTER = process.env.VIEWPORTS
   ? process.env.VIEWPORTS.split(",").map((v) => v.trim())
   : null
-
-// All dashboard pages to crawl
-const DASHBOARD_PAGES = [
-  { id: "overview", label: "Overview" },
-  { id: "working-tree", label: "Working Tree" },
-  { id: "provider-dashboard", label: "Provider Dashboard" },
-  { id: "jobs", label: "Jobs" },
-  { id: "queue", label: "Queue" },
-  { id: "agents", label: "Agents" },
-  { id: "bugs", label: "Bugs" },
-  { id: "healing", label: "Healing" },
-  { id: "monitoring", label: "Monitoring" },
-  { id: "workflow-compliance", label: "Workflow Compliance" },
-  { id: "skill-generator", label: "Skill Generator" },
-  { id: "logs", label: "Logs" },
-  { id: "docker", label: "Docker" },
-  { id: "approvals", label: "Approvals" },
-  { id: "api-keys", label: "API Keys" },
-  { id: "settings", label: "Settings" },
-  { id: "ai", label: "AI Assistant" },
-  { id: "model-router", label: "Model Router" },
-  { id: "github", label: "GitHub" },
-  { id: "ide-terminal", label: "IDE Terminal" },
-  { id: "projects", label: "Projects" },
-  { id: "telegram", label: "Telegram" },
-  { id: "deploy", label: "Deploy" },
-  { id: "auto-deploy", label: "Auto Deploy" },
-  { id: "commit-deploy", label: "Commit & Deploy" },
-  { id: "debug-team", label: "Debug Team" },
-  { id: "intelligence-layer", label: "Intelligence Layer" },
-  { id: "brain", label: "Brain" },
-  { id: "ollama-growth", label: "Ollama Growth" },
-  { id: "memory-explorer", label: "Memory Explorer" },
-  { id: "visual-crawler", label: "Visual Crawler" },
-  { id: "parallel-execution", label: "Parallel Execution" },
-  { id: "autonomous-loop", label: "Autonomous Loop" },
-  { id: "commissioning-loop", label: "Commissioning Loop" },
-  { id: "hermes-claw", label: "Hermes Claw" },
-  { id: "deploy-orchestrator", label: "Deploy Orchestrator" },
-  { id: "ml-engine", label: "ML Engine" },
-  { id: "ram-orchestrator", label: "RAM Orchestrator" },
-  { id: "product-memory", label: "Product Memory" },
-  { id: "task-timeline", label: "Task Timeline" },
-  { id: "collaboration", label: "Collaboration" },
-  { id: "mcp-servers", label: "MCP Servers" },
-  { id: "sandbox", label: "Sandbox" },
-]
+const PAGE_FILTER = process.env.PAGES
+  ? process.env.PAGES.split(",").map((p) => p.trim())
+  : null
 
 // Filter viewports
 const viewports = VIEWPORT_FILTER
@@ -75,21 +42,49 @@ const viewports = VIEWPORT_FILTER
   : DEFAULT_VIEWPORTS
 
 async function main() {
+  // Load project from registry
+  const registry = await getProjectRegistry()
+  const project = registry.projects.find((p) => p.name === PROJECT_NAME)
+
+  if (!project) {
+    console.error(`✗ Project "${PROJECT_NAME}" not found in registry.`)
+    console.error(`  Available projects: ${registry.projects.map((p) => p.name).join(", ")}`)
+    process.exit(1)
+  }
+
+  const baseUrl = cliUrl || process.env.DASHBOARD_URL || project.baseUrl
+  const authToken = AUTH_TOKEN || project.authToken
+
+  // Filter pages
+  const pages = PAGE_FILTER
+    ? project.pages.filter((p) => PAGE_FILTER.includes(p.id))
+    : project.pages
+
+  if (pages.length === 0) {
+    console.error(`✗ No pages to crawl for project "${PROJECT_NAME}".`)
+    console.error(`  Project has ${project.pages.length} pages defined.`)
+    if (PAGE_FILTER) {
+      console.error(`  Page filter matched none: ${PAGE_FILTER.join(", ")}`)
+    }
+    process.exit(1)
+  }
+
   console.log("=".repeat(60))
-  console.log("Visual Crawler — Dashboard E2E")
+  console.log(`Visual Crawler — ${project.label} (${project.name})`)
   console.log("=".repeat(60))
-  console.log(`Dashboard URL: ${DASHBOARD_URL}`)
+  console.log(`Base URL: ${baseUrl}`)
+  console.log(`Pages: ${pages.length}`)
   console.log(`Viewports: ${viewports.map((v) => v.name).join(", ")}`)
   console.log(`Update Baselines: ${UPDATE_BASELINES}`)
   console.log(`Skip Ollama: ${SKIP_OLLAMA}`)
-  console.log(`Auth Token: ${AUTH_TOKEN ? "✓ provided" : "✗ not provided"}`)
+  console.log(`Auth Token: ${authToken ? "✓ provided" : "✗ not provided"}`)
   console.log("")
 
   const results = []
   let totalIssues = 0
 
-  for (const page of DASHBOARD_PAGES) {
-    const url = `${DASHBOARD_URL}/?page=${page.id}`
+  for (const page of pages) {
+    const url = `${baseUrl}/?page=${page.id}`
     console.log(`\n📄 Crawling: ${page.label} (${page.id})`)
     console.log(`   URL: ${url}`)
 
@@ -97,9 +92,10 @@ async function main() {
       const report = await runCrawl({
         url,
         viewports,
-        authToken: AUTH_TOKEN || undefined,
+        authToken: authToken || undefined,
         updateBaselines: UPDATE_BASELINES,
         thresholdPercent: 0.5,
+        projectName: project.name,
       })
 
       const issues = report.results.filter((r) => r.analysis && r.analysis.isBug)
@@ -151,7 +147,8 @@ async function main() {
   console.log("\n" + "=".repeat(60))
   console.log("SUMMARY")
   console.log("=".repeat(60))
-  console.log(`Total pages crawled: ${results.filter((r) => !r.error).length}/${DASHBOARD_PAGES.length}`)
+  console.log(`Project: ${project.label} (${project.name})`)
+  console.log(`Total pages crawled: ${results.filter((r) => !r.error).length}/${pages.length}`)
   console.log(`Total issues found: ${totalIssues}`)
   console.log(`Pages with errors: ${results.filter((r) => r.error).length}`)
   console.log("")
@@ -169,10 +166,10 @@ async function main() {
     }
   }
 
-  // List all reports
+  // List recent reports for this project
   console.log("\n" + "─".repeat(60))
-  console.log("All saved reports:")
-  const reports = await listReports()
+  console.log(`Recent reports for "${project.name}":`)
+  const reports = await listReports(project.name)
   for (const r of reports.slice(0, 10)) {
     console.log(`  ${r.timestamp} | ${r.url} | ${r.viewportsTested} viewports | ${r.issuesFound} issues`)
   }

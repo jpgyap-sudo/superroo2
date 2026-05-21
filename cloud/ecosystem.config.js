@@ -25,7 +25,7 @@ function readEnvValue(name) {
 			if (!trimmed || trimmed.startsWith("#")) continue
 			const match = trimmed.match(/^([^=]+)=(.*)$/)
 			if (match && match[1].trim() === name) {
-				return match[2].trim().replace(/^[ '\"]|[ '\"]$/g, "")
+				return match[2].trim().replace(/^['"]|['"]$/g, "")
 			}
 		}
 	} catch {
@@ -108,6 +108,8 @@ module.exports = {
 				PGDATABASE: "superroo",
 				PGHOST: "127.0.0.1",
 				PGPORT: "5432",
+				// OpenHands-style runtime server
+				SUPERROO_RUNTIME_URL: "http://127.0.0.1:3418",
 				// Cloud Orchestrator
 				ORCHESTRATOR_DB_PATH: "/opt/superroo2/cloud/orchestrator/data/orchestrator.db",
 				ORCHESTRATOR_MODE: "safe",
@@ -154,6 +156,8 @@ module.exports = {
 				SUPERROO_VAULT_KEY: process.env.SUPERROO_VAULT_KEY || "",
 				OLLAMA_BASE_URL: "http://127.0.0.1:11434",
 				OLLAMA_CHAT_MODEL: "qwen2.5:0.5b",
+				// Central Brain (BrainClient lesson recall in agentRunners)
+				CENTRAL_BRAIN_URL: "http://127.0.0.1:3417",
 				// Telegram notification config
 				API_BASE_URL: "http://127.0.0.1:8787",
 			},
@@ -184,6 +188,31 @@ module.exports = {
 			log_file: "/opt/superroo2/cloud/logs/dashboard-combined.log",
 			out_file: "/opt/superroo2/cloud/logs/dashboard-out.log",
 			error_file: "/opt/superroo2/cloud/logs/dashboard-error.log",
+			log_date_format: "YYYY-MM-DD HH:mm:ss Z",
+			merge_logs: true,
+		},
+		{
+			name: "superroo-runtime",
+			script: "./runtime/server.js",
+			cwd: "/opt/superroo2/cloud",
+			instances: 1,
+			exec_mode: "fork",
+			autorestart: true,
+			watch: false,
+			max_memory_restart: "128M",
+			exp_backoff_restart_delay: 1000,
+			max_restarts: 10,
+			restart_delay: 5000,
+			min_uptime: 10000,
+			kill_timeout: 15000,
+			env: {
+				NODE_ENV: "production",
+				SUPERROO_RUNTIME_PORT: "3418",
+				CENTRAL_BRAIN_URL: "http://127.0.0.1:3417",
+			},
+			log_file: "/opt/superroo2/cloud/logs/runtime-combined.log",
+			out_file: "/opt/superroo2/cloud/logs/runtime-out.log",
+			error_file: "/opt/superroo2/cloud/logs/runtime-error.log",
 			log_date_format: "YYYY-MM-DD HH:mm:ss Z",
 			merge_logs: true,
 		},

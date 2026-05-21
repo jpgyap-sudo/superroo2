@@ -328,6 +328,10 @@ export function DeployView() {
 	const [cdError, setCdError] = useState<string | null>(null)
 	const [cdLimit, setCdLimit] = useState(10)
 
+	// Project filter for cross-project support
+	const [projectFilter, setProjectFilter] = useState<string>("")
+	const [availableProjects, setAvailableProjects] = useState<string[]>([])
+
 	// Pipeline stages
 	const [pipelineStages, setPipelineStages] = useState<PipelineStage[]>(PIPELINE_STAGES)
 
@@ -415,7 +419,8 @@ export function DeployView() {
 		setCdLoading(true)
 		setCdError(null)
 		try {
-			const res = await fetch(`/api/orchestrator/commit-deploy-status?limit=${cdLimit}`)
+			const projectParam = projectFilter ? `&project=${encodeURIComponent(projectFilter)}` : ""
+			const res = await fetch(`/api/orchestrator/commit-deploy-status?limit=${cdLimit}${projectParam}`)
 			if (!res.ok) throw new Error(`HTTP ${res.status}`)
 			const json = await res.json()
 			setCdData(json)
@@ -436,7 +441,7 @@ export function DeployView() {
 		} finally {
 			setCdLoading(false)
 		}
-	}, [cdLimit])
+	}, [cdLimit, projectFilter])
 
 	// ── Fetch health metrics ───────────────────────────────────────────────
 
@@ -479,6 +484,22 @@ export function DeployView() {
 
 	// ── Effects ────────────────────────────────────────────────────────────
 
+	// ── Fetch available projects ───────────────────────────────────────────
+
+	const fetchProjects = useCallback(async () => {
+		try {
+			const res = await fetch("/api/projects")
+			if (!res.ok) return
+			const json = await res.json()
+			if (json.success && json.data?.projects) {
+				const names = json.data.projects.map((p: any) => p.repoName || p.name).filter(Boolean)
+				setAvailableProjects(names)
+			}
+		} catch {
+			// ignore
+		}
+	}, [])
+
 	useEffect(() => {
 		fetchDeployStatus()
 		const iv = setInterval(fetchDeployStatus, 5000)
@@ -490,6 +511,10 @@ export function DeployView() {
 		const iv = setInterval(fetchCdData, 15000)
 		return () => clearInterval(iv)
 	}, [fetchCdData])
+
+	useEffect(() => {
+		fetchProjects()
+	}, [fetchProjects])
 
 	useEffect(() => {
 		fetchHealthMetrics()
@@ -572,6 +597,18 @@ export function DeployView() {
 					{deployStatus?.inCooldown && (
 						<span className="text-[10px] text-amber-400">Cooldown: {deployStatus.cooldownRemaining}s</span>
 					)}
+					{/* Project selector */}
+					<select
+						value={projectFilter}
+						onChange={(e) => setProjectFilter(e.target.value)}
+						className="ml-2 rounded-lg border border-[#1e2535] bg-[#0f1117] px-2 py-1 text-[10px] text-gray-400 hover:text-[#e2e8f0] focus:outline-none focus:border-violet-500">
+						<option value="">All Projects</option>
+						{availableProjects.map((name) => (
+							<option key={name} value={name}>
+								{name}
+							</option>
+						))}
+					</select>
 				</div>
 				<div className="flex items-center gap-2">
 					{/* Environment toggle */}

@@ -98,6 +98,7 @@ const NAV = [
 	{ id: "file-importer", icon: Upload, label: "File Importer" },
 	{ id: "savepoints", icon: History, label: "Savepoints" },
 	{ id: "events", icon: Activity, label: "Events" },
+	{ id: "build-queue", icon: Layers, label: "Build Queue" },
 ]
 
 export function Sidebar({ page, setPage }: { page: string; setPage: (p: string) => void }) {

@@ -59,6 +59,8 @@ interface MetricsResponse {
 	byCategory: CategoryMetric[]
 	activeIncidents: number
 	lastUpdated: string | null
+	dataSource?: string
+	dbPath?: string
 }
 
 interface IncidentsResponse {
@@ -70,6 +72,20 @@ interface IncidentsResponse {
 interface EscalatedResponse {
 	escalated: EscalatedIncident[]
 	total: number
+}
+
+interface RepairRun {
+	id: string
+	triggered_at: string
+	incident_id: string | null
+	failure_signature: string | null
+	title: string | null
+	severity: string | null
+	attempts_count: number
+	final_status: "fixed" | "escalated" | "failed" | "in_progress"
+	fix_applied: string | null
+	escalated_at: string | null
+	cycle_count: number
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -209,16 +225,18 @@ export function HealingView() {
 	const [metrics, setMetrics] = useState<MetricsResponse | null>(null)
 	const [incidents, setIncidents] = useState<IncidentsResponse | null>(null)
 	const [escalated, setEscalated] = useState<EscalatedResponse | null>(null)
+	const [repairRuns, setRepairRuns] = useState<RepairRun[]>([])
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState<string | null>(null)
 	const [incidentFilter, setIncidentFilter] = useState<string>("all")
 
 	async function fetchAll() {
 		try {
-			const [metricsRes, incidentsRes, escalatedRes] = await Promise.all([
+			const [metricsRes, incidentsRes, escalatedRes, repairRunsRes] = await Promise.all([
 				fetch("/api/healing/metrics"),
 				fetch(`/api/healing/incidents?limit=50${incidentFilter !== "all" ? `&status=${incidentFilter}` : ""}`),
 				fetch("/api/healing/escalated"),
+				fetch("/api/healing/repair-runs?limit=20"),
 			])
 
 			if (!metricsRes.ok) throw new Error(`Metrics API error: ${metricsRes.status}`)
@@ -228,6 +246,10 @@ export function HealingView() {
 			setMetrics(await metricsRes.json())
 			setIncidents(await incidentsRes.json())
 			setEscalated(await escalatedRes.json())
+			if (repairRunsRes.ok) {
+				const rr = await repairRunsRes.json()
+				setRepairRuns(rr.runs ?? [])
+			}
 			setError(null)
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Failed to fetch healing data")
@@ -270,9 +292,41 @@ export function HealingView() {
 	const activeIncidents = metrics?.activeIncidents || 0
 	const escalatedList = escalated?.escalated || []
 	const incidentList = incidents?.incidents || []
+	const dataSource = metrics?.dataSource || "unknown"
+
+	const dataSourceColor =
+		dataSource === "orchestrator"
+			? "bg-emerald-900/40 text-emerald-300 border-emerald-700"
+			: dataSource === "sqlite"
+				? "bg-blue-900/40 text-blue-300 border-blue-700"
+				: "bg-amber-900/40 text-amber-300 border-amber-700"
+
+	const dataSourceLabel =
+		dataSource === "orchestrator"
+			? "Live (Orchestrator Bus)"
+			: dataSource === "sqlite"
+				? "SQLite"
+				: "Fallback (JSON)"
 
 	return (
 		<div className="space-y-6">
+			{/* ── Data Source Banner ─────────────────────────────────────────── */}
+			{dataSource !== "orchestrator" && (
+				<div
+					className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${dataSourceColor}`}
+					title={metrics?.dbPath ? `DB: ${metrics.dbPath}` : undefined}>
+					<Server className="h-3.5 w-3.5 shrink-0" />
+					<span>
+						<strong>Data source:</strong> {dataSourceLabel}
+						{dataSource === "json" && (
+							<span className="ml-1 text-amber-400">
+								— Metrics may be stale. Connect orchestrator bus for live data.
+							</span>
+						)}
+					</span>
+				</div>
+			)}
+
 			{/* ── Summary Stats ──────────────────────────────────────────────── */}
 			<div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
 				<StatCard
@@ -518,6 +572,70 @@ export function HealingView() {
 										<td className="py-2.5 pr-3 text-gray-500">{inc.fixAttempts}</td>
 										<td className="py-2.5 text-gray-600 whitespace-nowrap">
 											{timeAgo(inc.updatedAt)}
+										</td>
+									</tr>
+								))}
+							</tbody>
+						</table>
+					</div>
+				)}
+			</Panel>
+
+			{/* Repair Runs — fingerprint trajectory log */}
+			<Panel title={`Repair Runs (${repairRuns.length})`}>
+				{repairRuns.length === 0 ? (
+					<div className="flex flex-col items-center gap-2 py-6 text-gray-600">
+						<CheckCircle2 className="h-6 w-6" />
+						<p className="text-xs">No repair runs recorded yet.</p>
+					</div>
+				) : (
+					<div className="overflow-x-auto">
+						<table className="w-full text-xs">
+							<thead>
+								<tr className="text-left text-gray-500 border-b border-[#1e2535]">
+									<th className="pb-2 pr-4">Status</th>
+									<th className="pb-2 pr-4">Title</th>
+									<th className="pb-2 pr-4">Fingerprint</th>
+									<th className="pb-2 pr-4">Attempts</th>
+									<th className="pb-2 pr-4">Cycles</th>
+									<th className="pb-2">Triggered</th>
+								</tr>
+							</thead>
+							<tbody>
+								{repairRuns.map((run) => (
+									<tr key={run.id} className="border-b border-[#0f1420] hover:bg-[#0f1420]">
+										<td className="py-2 pr-4">
+											<span
+												className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+													run.final_status === "fixed"
+														? "bg-green-900 text-green-300"
+														: run.final_status === "escalated"
+															? "bg-red-900 text-red-300"
+															: run.final_status === "failed"
+																? "bg-orange-900 text-orange-300"
+																: "bg-blue-900 text-blue-300"
+												}`}>
+												{run.final_status}
+											</span>
+										</td>
+										<td className="py-2 pr-4 max-w-[200px] truncate text-gray-300">
+											{run.title ?? "—"}
+										</td>
+										<td className="py-2 pr-4 font-mono text-gray-500">
+											{run.failure_signature ? run.failure_signature.slice(0, 8) : "—"}
+										</td>
+										<td className="py-2 pr-4 text-gray-400">{run.attempts_count}</td>
+										<td className="py-2 pr-4">
+											<span
+												className={`font-mono ${run.cycle_count >= 10 ? "text-red-400" : run.cycle_count >= 5 ? "text-yellow-400" : "text-gray-400"}`}
+												title={
+													run.cycle_count >= 10 ? "Agent thrashing — consider escalation" : ""
+												}>
+												{run.cycle_count}
+											</span>
+										</td>
+										<td className="py-2 text-gray-500">
+											{run.triggered_at ? timeAgo(run.triggered_at) : "—"}
 										</td>
 									</tr>
 								))}

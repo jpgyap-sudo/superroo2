@@ -7,6 +7,7 @@ import {
 	Bug,
 	CheckCircle2,
 	CircleAlert,
+	GitBranch,
 	GitCommit,
 	HeartPulse,
 	RefreshCw,
@@ -18,6 +19,7 @@ import { Area, AreaChart, Cell, Pie, PieChart, ResponsiveContainer } from "recha
 
 type SystemMetrics = { cpu: number; ram: number; disk: number }
 type JobStats = { waiting: number; active: number; completed: number; failed: number; total: number }
+type EventBusStats = { activeTasks: number; totalEvents: number }
 type Health = { status: string; redis: boolean; worker: boolean }
 type Agent = {
 	id?: string
@@ -137,6 +139,7 @@ export function Overview() {
 	const [activity, setActivity] = useState<ActivityItem[]>([])
 	const [attention, setAttention] = useState<AttentionItem[]>([])
 	const [timeline, setTimeline] = useState<TimelinePoint[]>([])
+	const [eventBusStats, setEventBusStats] = useState<EventBusStats>({ activeTasks: 0, totalEvents: 0 })
 	const [loading, setLoading] = useState(true)
 	const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
@@ -146,7 +149,14 @@ export function Overview() {
 			const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
 
 			try {
-				const res = await fetch("/api/overview/summary", { headers }).catch(() => null)
+				const [res, ebRes] = await Promise.all([
+					fetch("/api/overview/summary", { headers }).catch(() => null),
+					fetch("/api/orchestrator/event-bus/stats", { headers }).catch(() => null),
+				])
+				if (ebRes?.ok) {
+					const ebData = (await ebRes.json()) as EventBusStats
+					setEventBusStats(ebData)
+				}
 				if (res?.ok) {
 					const data = (await res.json()) as OverviewSummary
 					setSystem(data.system)
@@ -236,6 +246,7 @@ export function Overview() {
 		{ label: "Deploy History", icon: GitCommit, target: "deploy", disabled: deploys.length === 0 },
 		{ label: "Monitor Health", icon: HeartPulse, target: "monitoring", disabled: false },
 		{ label: "Review Agents", icon: Bot, target: "agents", disabled: agents.length === 0 },
+		{ label: "Task Timeline", icon: GitBranch, target: "task-timeline", disabled: eventBusStats.activeTasks === 0 },
 	]
 
 	const successRate = jobStats.total > 0 ? Math.round((jobStats.completed / jobStats.total) * 1000) / 10 : 0
@@ -310,7 +321,17 @@ export function Overview() {
 					)}
 				</Panel>
 
-				<Panel title="Work In Motion" className="col-span-12 lg:col-span-5">
+				<Panel
+					title="Work In Motion"
+					action={
+						<button
+							onClick={() => navigate("task-timeline")}
+							className="flex items-center gap-1.5 rounded bg-slate-800 px-2 py-1 text-xs text-slate-300 hover:bg-slate-700">
+							<GitBranch className="h-3 w-3" />
+							<span>{eventBusStats.activeTasks} tracked</span>
+						</button>
+					}
+					className="col-span-12 lg:col-span-5">
 					<div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
 						<Stat label="Waiting" value={String(jobStats.waiting)} />
 						<Stat label="Active" value={String(jobStats.active)} />

@@ -40,11 +40,18 @@ const {
 } = require("./modules/CPUGuard")
 const { RAMMonitor, DEFAULT_THRESHOLDS } = require("./modules/RAMMonitor")
 const { RAMScheduler, PRIORITY } = require("./modules/RAMScheduler")
+const { WorkerPauseManager, WORKER_CRITICALITY, DEFAULT_WORKER_CRITICALITY } = require("./modules/WorkerPauseManager")
+
+// ── OpenHands-style upgrade modules ────────────────────────────────────────────
 const {
-	WorkerPauseManager,
-	WORKER_CRITICALITY,
-	DEFAULT_WORKER_CRITICALITY,
-} = require("./modules/WorkerPauseManager")
+	assertTransition,
+	nextAllowed,
+	isTerminal,
+	transition: taskTransition,
+	ALLOWED: TASK_TRANSITIONS,
+} = require("./modules/TaskStateMachine")
+const { SuperRooEventBus, eventBus } = require("./modules/SuperRooEventBus")
+const { BrainClient, brainClient } = require("./modules/BrainClient")
 
 module.exports = {
 	CloudOrchestrator,
@@ -86,4 +93,14 @@ module.exports = {
 	WorkerPauseManager,
 	WORKER_CRITICALITY,
 	DEFAULT_WORKER_CRITICALITY,
+	// OpenHands-style upgrade exports
+	assertTransition,
+	nextAllowed,
+	isTerminal,
+	taskTransition,
+	TASK_TRANSITIONS,
+	SuperRooEventBus,
+	eventBus,
+	BrainClient,
+	brainClient,
 }

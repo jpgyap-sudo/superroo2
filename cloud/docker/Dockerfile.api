@@ -1,6 +1,7 @@
 # SuperRoo API Container
 # Build context: repo root (needs cloud/, src/ for orchestrator modules)
-# Note: cloud/node_modules is bind-mounted from host in docker-compose.yml
+# Installs dependencies inside the container for local builds.
+# On VPS, cloud/node_modules can be bind-mounted to override (faster rebuilds).
 FROM node:20-slim
 
 RUN apt-get update && apt-get install -y curl \
@@ -8,8 +9,9 @@ RUN apt-get update && apt-get install -y curl \
 
 WORKDIR /opt/superroo2
 
-# Copy package.json for reference (node_modules mounted at runtime)
-COPY cloud/package.json ./
+# Copy package.json and install dependencies first (layer caching)
+COPY cloud/package.json cloud/package-lock.json* ./cloud/
+RUN cd cloud && npm install --omit=dev --ignore-scripts 2>/dev/null || echo "[INFO] npm install skipped — will use bind-mounted node_modules at runtime"
 
 # Copy source code
 COPY cloud/ ./cloud/

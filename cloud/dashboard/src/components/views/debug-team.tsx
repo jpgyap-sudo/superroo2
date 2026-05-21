@@ -213,9 +213,18 @@ export function DebugTeamView() {
 	const [telegramMessage, setTelegramMessage] = useState("")
 	const [telegramError, setTelegramError] = useState("")
 
+	// Helper to handle auth failures across all fetch calls
+	const handleAuthError = useCallback((res: Response) => {
+		if (res.status === 401) {
+			localStorage.removeItem("superroo_auth_token")
+			window.location.reload()
+		}
+	}, [])
+
 	const fetchStatus = useCallback(async () => {
 		try {
 			const res = await fetch("/api/debug-team/status")
+			handleAuthError(res)
 			const data = await res.json()
 			if (data.success) {
 				setStatus(data)
@@ -224,11 +233,12 @@ export function DebugTeamView() {
 		} catch {
 			// non-critical polling failure
 		}
-	}, [])
+	}, [handleAuthError])
 
 	const fetchJobs = useCallback(async () => {
 		try {
 			const res = await fetch("/api/debug-team/jobs?limit=20")
+			handleAuthError(res)
 			const data = await res.json()
 			if (data.success) {
 				setJobs(data.jobs || [])
@@ -236,12 +246,13 @@ export function DebugTeamView() {
 		} catch {
 			// non-critical polling failure
 		}
-	}, [])
+	}, [handleAuthError])
 
 	// Load Telegram config from settings
 	const fetchTelegramConfig = useCallback(async () => {
 		try {
 			const res = await fetch("/api/settings")
+			handleAuthError(res)
 			const data = await res.json()
 			if (data.success && data.settings?.debugTeam) {
 				setTelegramBotToken(data.settings.debugTeam.aceTeamTelegramBotToken || "")
@@ -250,7 +261,7 @@ export function DebugTeamView() {
 		} catch {
 			// use defaults
 		}
-	}, [])
+	}, [handleAuthError])
 
 	useEffect(() => {
 		setLoading(true)
@@ -274,6 +285,7 @@ export function DebugTeamView() {
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ target, branch }),
 			})
+			handleAuthError(res)
 			const data = await res.json()
 			if (!data.success) {
 				setError(data.error || "Failed to start debug team")
@@ -292,6 +304,7 @@ export function DebugTeamView() {
 		setError(null)
 		try {
 			const res = await fetch("/api/debug-team/stop", { method: "POST" })
+			handleAuthError(res)
 			const data = await res.json()
 			if (!data.success) {
 				setError(data.error || "Failed to stop debug team")
@@ -312,6 +325,7 @@ export function DebugTeamView() {
 		try {
 			// Load current settings first, then merge
 			const getRes = await fetch("/api/settings")
+			handleAuthError(getRes)
 			const getData = await getRes.json()
 			const currentSettings = getData.success ? getData.settings : {}
 
@@ -329,6 +343,7 @@ export function DebugTeamView() {
 					},
 				}),
 			})
+			handleAuthError(res)
 			const data = await res.json()
 			if (data.success) {
 				setTelegramMessage("Telegram config saved.")
@@ -356,6 +371,7 @@ export function DebugTeamView() {
 					chatId: telegramChatId,
 				}),
 			})
+			handleAuthError(res)
 			const data = await res.json()
 			if (data.success) {
 				setTelegramMessage("Telegram test notification sent!")

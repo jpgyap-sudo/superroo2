@@ -23,6 +23,9 @@ class ParallelExecutor {
 		this._slots = new Map() // taskId -> { task, agent, startTime, timeoutHandle }
 		this._tokenUsage = new Map() // agentId -> current tokens
 		this._running = false
+		this._totalSubmitted = 0
+		this._totalCompleted = 0
+		this._totalFailed = 0
 	}
 
 	/**
@@ -110,14 +113,17 @@ class ParallelExecutor {
 		}
 
 		this._slots.set(task.id, slot)
+		this._totalSubmitted++
 
 		// Execute the task
 		slot.promise = executeFn(task, agent)
 			.then((result) => {
+				this._totalCompleted++
 				this._cleanupSlot(task.id)
 				return result
 			})
 			.catch((err) => {
+				this._totalFailed++
 				this._cleanupSlot(task.id)
 				throw err
 			})
@@ -184,6 +190,9 @@ class ParallelExecutor {
 			maxConcurrency: this.maxConcurrency,
 			maxTokens: this.maxTokens,
 			currentTokenUsage: this._currentTokenUsage(),
+			totalSubmitted: this._totalSubmitted,
+			totalCompleted: this._totalCompleted,
+			totalFailed: this._totalFailed,
 			slots,
 			agentTokenUsage: Object.fromEntries(this._tokenUsage),
 		}

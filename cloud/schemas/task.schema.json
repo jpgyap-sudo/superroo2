@@ -1,0 +1,81 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "SuperRooTask",
+	"description": "A unit of work tracked through the SuperRoo 11-state lifecycle.",
+	"type": "object",
+	"required": ["id", "source", "status", "goal", "createdAt"],
+	"properties": {
+		"id": {
+			"type": "string",
+			"description": "UUID or TG-prefixed task identifier"
+		},
+		"source": {
+			"enum": ["vscode", "telegram", "dashboard", "github", "cli"],
+			"description": "Surface that originated this task"
+		},
+		"status": {
+			"enum": [
+				"queued",
+				"preparing",
+				"loading_context",
+				"planning",
+				"running",
+				"testing",
+				"reviewing",
+				"repairing",
+				"completed",
+				"failed",
+				"needs_user_approval"
+			],
+			"description": "Current position in the task lifecycle state machine"
+		},
+		"goal": {
+			"type": "string",
+			"minLength": 1,
+			"description": "Natural language description of what this task must accomplish"
+		},
+		"repoPath": {
+			"type": "string",
+			"description": "Absolute path to the repository being modified"
+		},
+		"branch": {
+			"type": "string",
+			"description": "Git branch created or used for this task"
+		},
+		"riskLevel": {
+			"enum": ["low", "medium", "high"],
+			"description": "Risk classification — influences whether needs_user_approval is triggered"
+		},
+		"modelPolicy": {
+			"type": "string",
+			"description": "Model routing policy string (e.g. 'deepseek-v3' or 'claude-sonnet-4-6')"
+		},
+		"createdAt": {
+			"type": "string",
+			"format": "date-time"
+		},
+		"updatedAt": {
+			"type": "string",
+			"format": "date-time"
+		},
+		"costUsd": {
+			"type": "number",
+			"minimum": 0,
+			"description": "Cumulative API cost in USD for this task run"
+		},
+		"events": {
+			"type": "array",
+			"description": "Ordered list of SuperRooEvent objects emitted during the task"
+		},
+		"repairCount": {
+			"type": "integer",
+			"minimum": 0,
+			"description": "Number of times the task entered the repairing state"
+		},
+		"failureSignature": {
+			"type": "string",
+			"description": "SHA-256 fingerprint of the last failure (test name + error + file) for escalation detection"
+		}
+	},
+	"additionalProperties": false
+}

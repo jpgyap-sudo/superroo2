@@ -94,9 +94,11 @@ export function AutonomousLoopView() {
 			if (data.success) {
 				setStatus(data)
 				setError(null)
+			} else {
+				setError(data.error || "Unknown error")
 			}
-		} catch {
-			// non-critical polling failure
+		} catch (err: unknown) {
+			setError(err instanceof Error ? err.message : "Failed to fetch autonomous loop status")
 		} finally {
 			setLoading(false)
 		}
@@ -251,11 +253,7 @@ export function AutonomousLoopView() {
 					}
 					color="text-[#e2e8f0]"
 				/>
-				<StatCard
-					label="Cycle Count"
-					value={s.cycleCount}
-					color="text-violet-400"
-				/>
+				<StatCard label="Cycle Count" value={s.cycleCount} color="text-violet-400" />
 				<StatCard
 					label="Last Run"
 					value={s.lastRunAt ? new Date(s.lastRunAt).toLocaleDateString() : "—"}

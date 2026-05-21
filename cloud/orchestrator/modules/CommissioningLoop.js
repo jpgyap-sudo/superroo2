@@ -207,6 +207,7 @@ class CommissioningLoop {
 	 */
 	getStatus() {
 		const elapsed = this._startedAt ? Date.now() - this._startedAt : 0
+		const hasReport = this._phaseResults.length > 0 && !this._running
 
 		return {
 			jobId: this._jobId,
@@ -222,6 +223,7 @@ class CommissioningLoop {
 			phaseResults: this._phaseResults,
 			error: this._error,
 			startedAt: this._startedAt,
+			reportUrl: hasReport ? "/commissioning/report" : null,
 		}
 	}
 
@@ -271,13 +273,13 @@ class CommissioningLoop {
 							await this.orchestrator.bugRegistry.create({
 								title: `Commissioning phase failed: ${phaseName}`,
 								description: JSON.stringify(result),
-								severity: 'medium',
-								status: 'open',
-								source: 'commissioning-loop',
-								metadata: { phase, phaseName, cycleId: this._jobId }
+								severity: "medium",
+								status: "open",
+								source: "commissioning-loop",
+								metadata: { phase, phaseName, cycleId: this._jobId },
 							})
 						} catch (bugErr) {
-							console.warn('[CommissioningLoop] Failed to create bug entry:', bugErr.message)
+							console.warn("[CommissioningLoop] Failed to create bug entry:", bugErr.message)
 						}
 					}
 				}
@@ -296,13 +298,13 @@ class CommissioningLoop {
 						await this.orchestrator.bugRegistry.create({
 							title: `Commissioning phase error: ${phaseName}`,
 							description: JSON.stringify({ error: err.message, phase, phaseName }),
-							severity: 'medium',
-							status: 'open',
-							source: 'commissioning-loop',
-							metadata: { phase, phaseName, cycleId: this._jobId, error: err.message }
+							severity: "medium",
+							status: "open",
+							source: "commissioning-loop",
+							metadata: { phase, phaseName, cycleId: this._jobId, error: err.message },
 						})
 					} catch (bugErr) {
-						console.warn('[CommissioningLoop] Failed to create bug entry:', bugErr.message)
+						console.warn("[CommissioningLoop] Failed to create bug entry:", bugErr.message)
 					}
 				}
 			}

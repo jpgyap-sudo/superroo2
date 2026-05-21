@@ -35,8 +35,11 @@ const telegramLearner = require("./telegramLearner")
 const telegramNotifier = require("./telegramNotifier")
 const telegramClassifier = require("./telegramClassifier")
 const telegramPolicy = require("./telegramPolicy")
+const { brainClient } = require("../orchestrator/modules/BrainClient")
 const telegramEngineer = require("./telegramEngineer")
 const tgEndpoints = require("./tgEndpoints")
+const telegramCodingTrajectory = require("./telegramCodingTrajectory")
+const telegramCodingMemory = require("./telegramCodingMemory")
 
 // Terminal Brain integration — loaded lazily to avoid crash if packages aren't built
 let _terminalBrainAvailable = false
@@ -3390,12 +3393,49 @@ async function handleCode(botToken, chatId, args, queue, orchestratorBridge, opt
 		args.splice(autoIndex, 1) // Remove --auto from args
 	}
 
+	// ─── Structured Coding Tools (SWE-agent inspired) ─────────────────────
+	// Sub-commands for quick operations without spinning up a full agent:
+	//   /code search <query>          — Search codebase for a pattern
+	//   /code view <file>[:<line>]    — View a file's contents
+	//   /code edit <file> <old> <new> — Quick inline edit
+	//   /code filemap [dir]           — Show file structure
+	//   /code run <command>           — Execute a shell command
+	var firstArg = args[0] || ""
+	var subCommand = firstArg.toLowerCase()
+
+	if (subCommand === "search" || subCommand === "grep") {
+		return await _handleCodeSearch(botToken, chatId, args.slice(1), options)
+	}
+	if (subCommand === "view" || subCommand === "cat") {
+		return await _handleCodeView(botToken, chatId, args.slice(1), options)
+	}
+	if (subCommand === "edit" || subCommand === "replace") {
+		return await _handleCodeEdit(botToken, chatId, args.slice(1), options)
+	}
+	if (subCommand === "filemap" || subCommand === "ls" || subCommand === "tree") {
+		return await _handleCodeFilemap(botToken, chatId, args.slice(1), options)
+	}
+	if (subCommand === "run" || subCommand === "exec") {
+		return await _handleCodeRun(botToken, chatId, args.slice(1), options)
+	}
+
+	// ─── Full Agent Coding Task ───────────────────────────────────────────
+
 	var instruction = args.join(" ")
 	if (!instruction) {
 		await sendMessage(
 			botToken,
 			chatId,
-			"Please provide an instruction.\n\nExample: `/code fix the login timeout bug`\n\nUse `--auto` for fully automated mode (plan → apply → commit → deploy).",
+			"*Coding Tools* 🛠️\n\n" +
+				"*Full coding task:*\n" +
+				"`/code <instruction>` — Create a coding task\n" +
+				"`/code --auto <instruction>` — Fully automated (plan → apply → commit → deploy)\n\n" +
+				"*Quick tools:*\n" +
+				"`/code search <pattern>` — Search codebase\n" +
+				"`/code view <file>` — View a file\n" +
+				"`/code edit <file> <old> <new>` — Quick edit\n" +
+				"`/code filemap [dir]` — Show file structure\n" +
+				"`/code run <command>` — Execute shell command",
 		)
 		return
 	}
@@ -3434,6 +3474,41 @@ async function handleCode(botToken, chatId, args, queue, orchestratorBridge, opt
 	// Build conversation summary for the worker so it has context
 	var conversationSummary = buildConversationSummary(chatId)
 
+	// Recall relevant lessons from Central Brain (fire-and-forget on failure)
+	var brainLessons = []
+	try {
+		brainLessons = await brainClient.retrieveLessons(instruction, 5)
+	} catch (_) {}
+
+	// ─── Coding Trajectory Recording ──────────────────────────────────────
+	// Create a trajectory for this coding session to track all steps
+	var trajectory = telegramCodingTrajectory.createTrajectory(taskId, {
+		chatId: String(chatId),
+		instruction: instruction,
+		projectName: repoName,
+		agentId: "superroo-coder-agent",
+	})
+	trajectory.recordStep("user_input", {
+		input: instruction,
+		metadata: { source: "/code", auto: isAuto },
+	})
+
+	// ─── Coding Memory — Retrieve relevant patterns ───────────────────────
+	// Check if we've seen similar errors or fixes for this project
+	var similarErrors = telegramCodingMemory.findFixForError(repoName, instruction, 3)
+	var projectConventions = telegramCodingMemory.getProjectConventions(repoName)
+	if (similarErrors.length > 0 || Object.keys(projectConventions).length > 0) {
+		console.log(
+			"[telegram] Coding memory hit for " +
+				repoName +
+				": " +
+				similarErrors.length +
+				" error patterns, " +
+				Object.keys(projectConventions).length +
+				" conventions",
+		)
+	}
+
 	// Improvement 2: Add retry logic to all queue.add() calls
 	var job = await queue.add(
 		"coder-plan-" + taskId,
@@ -3445,6 +3520,11 @@ async function handleCode(botToken, chatId, args, queue, orchestratorBridge, opt
 			workspaceDir: workspaceDir,
 			repoName: repoName,
 			branch: branchName,
+			brainLessons: brainLessons,
+			codingMemory: {
+				similarErrors: similarErrors,
+				projectConventions: projectConventions,
+			},
 			telegram: {
 				botToken: botToken,
 				chatId: chatId,
@@ -3459,6 +3539,13 @@ async function handleCode(botToken, chatId, args, queue, orchestratorBridge, opt
 			backoff: { type: "exponential", delay: 5000 },
 		},
 	)
+
+	trajectory.recordStep("tool_call", {
+		input: { tool: "queue_coder_job", args: { taskId: taskId, phase: "plan" } },
+		output: { jobId: job.id },
+		success: true,
+		metadata: { toolName: "queue_coder_job" },
+	})
 
 	if (!userTasks.has(chatId)) userTasks.set(chatId, [])
 	userTasks.get(chatId).push({
@@ -3496,6 +3583,288 @@ async function handleCode(botToken, chatId, args, queue, orchestratorBridge, opt
 	if (isAuto) {
 		startAutoTypingInterval(botToken, chatId, taskId)
 	}
+}
+
+// ─── Structured Coding Tool Sub-Command Handlers ────────────────────────────
+
+/**
+ * Handle /code search <pattern> — Search codebase for a pattern using grep.
+ * @param {string} botToken
+ * @param {number|string} chatId
+ * @param {string[]} args - [pattern, ...]
+ * @param {Object} options
+ */
+async function _handleCodeSearch(botToken, chatId, args, options) {
+	var pattern = args.join(" ")
+	if (!pattern) {
+		await sendMessage(
+			botToken,
+			chatId,
+			"*Code Search* 🔍\n\nUsage: `/code search <pattern>`\nExample: `/code search function handleCode`\n\nSearches the codebase using grep.",
+		)
+		return
+	}
+
+	await sendChatAction(botToken, chatId, "typing")
+
+	var workspaceDir = (options && options.workspaceDir) || "/opt/superroo2"
+	try {
+		var result = await tgEndpoints.executeShell(
+			'grep -rn --include="*.js" --include="*.ts" --include="*.tsx" --include="*.jsx" -m 20 "' +
+				pattern.replace(/"/g, '\\"') +
+				'" "' +
+				workspaceDir +
+				'/src" 2>/dev/null | head -50',
+		)
+		if (!result.stdout) {
+			await sendMessage(botToken, chatId, "*No results* for `" + pattern + "` 🔍")
+			return
+		}
+
+		var lines = result.stdout.split("\n")
+		var maxLines = 30
+		var output = lines.slice(0, maxLines).join("\n")
+		var truncated = lines.length > maxLines ? "\n*+" + (lines.length - maxLines) + " more results*" : ""
+
+		await sendMessage(
+			botToken,
+			chatId,
+			"*Search Results* 🔍 `" + pattern + "`\n\n```\n" + output + "\n```" + truncated,
+		)
+	} catch (err) {
+		logTelegramError("/code:search", chatId, null, err, { pattern: pattern })
+		await sendMessage(botToken, chatId, "*Search Error* ❌\n\n" + err.message)
+	}
+}
+
+/**
+ * Handle /code view <file>[:<line>] — View a file's contents.
+ * @param {string} botToken
+ * @param {number|string} chatId
+ * @param {string[]} args - [filePath]
+ * @param {Object} options
+ */
+async function _handleCodeView(botToken, chatId, args, options) {
+	var filePath = args.join(" ")
+	if (!filePath) {
+		await sendMessage(
+			botToken,
+			chatId,
+			"*View File* 📄\n\nUsage: `/code view <filepath>`\nExample: `/code view src/api/telegramBot.js`\nExample: `/code view src/api/telegramBot.js:100`\n\nShows file contents with line numbers.",
+		)
+		return
+	}
+
+	await sendChatAction(botToken, chatId, "typing")
+
+	var workspaceDir = (options && options.workspaceDir) || "/opt/superroo2"
+	var targetPath = filePath
+
+	// Check if line number is specified (file:line format)
+	var lineNum = null
+	var lineMatch = filePath.match(/^(.+?):(\d+)$/)
+	if (lineMatch) {
+		targetPath = lineMatch[1]
+		lineNum = parseInt(lineMatch[2], 10)
+	}
+
+	var fullPath = targetPath.startsWith("/") ? targetPath : workspaceDir + "/" + targetPath
+
+	try {
+		// Use head/tail to get context around the specified line, or full file
+		var cmd
+		if (lineNum) {
+			var startLine = Math.max(1, lineNum - 15)
+			cmd =
+				'awk "NR>=' +
+				startLine +
+				" && NR<=" +
+				(lineNum + 15) +
+				'{printf \\"%d: %s\\", NR, \\$0}" "' +
+				fullPath.replace(/"/g, '\\"') +
+				'" 2>/dev/null'
+		} else {
+			cmd = 'awk "{printf \\"%d: %s\\", NR, \\$0}" "' + fullPath.replace(/"/g, '\\"') + '" 2>/dev/null | head -60'
+		}
+
+		var result = await tgEndpoints.executeShell(cmd)
+		if (!result.stdout) {
+			await sendMessage(
+				botToken,
+				chatId,
+				"*File not found* ❌\n\n`" + fullPath + "`\n\nCheck the path and try again.",
+			)
+			return
+		}
+
+		var lines = result.stdout.split("\n")
+		var maxLines = 55
+		var output = lines.slice(0, maxLines).join("\n")
+		var truncated = lines.length > maxLines ? "\n*+" + (lines.length - maxLines) + " more lines*" : ""
+		var locationInfo = lineNum ? " (around line " + lineNum + ")" : ""
+
+		await sendMessage(
+			botToken,
+			chatId,
+			"*File:* `" + targetPath + "`" + locationInfo + "\n\n```\n" + output + "\n```" + truncated,
+		)
+	} catch (err) {
+		logTelegramError("/code:view", chatId, null, err, { file: filePath })
+		await sendMessage(botToken, chatId, "*View Error* ❌\n\n" + err.message)
+	}
+}
+
+/**
+ * Handle /code edit <file> <old> <new> — Quick inline edit using sed.
+ * @param {string} botToken
+ * @param {number|string} chatId
+ * @param {string[]} args - [filePath, oldText, newText]
+ * @param {Object} options
+ */
+async function _handleCodeEdit(botToken, chatId, args, options) {
+	if (args.length < 3) {
+		await sendMessage(
+			botToken,
+			chatId,
+			'*Quick Edit* ✏️\n\nUsage: `/code edit <file> <old> <new>`\nExample: `/code edit src/config.js "port: 3000" "port: 8080"`\n\nPerforms a simple find-and-replace on a file.',
+		)
+		return
+	}
+
+	var filePath = args[0]
+	var oldText = args[1]
+	var newText = args.slice(2).join(" ")
+
+	await sendChatAction(botToken, chatId, "typing")
+
+	var workspaceDir = (options && options.workspaceDir) || "/opt/superroo2"
+	var fullPath = filePath.startsWith("/") ? filePath : workspaceDir + "/" + filePath
+
+	try {
+		// First check the file exists and show a preview
+		var previewResult = await tgEndpoints.executeShell(
+			'grep -n "' +
+				oldText.replace(/"/g, '\\"') +
+				'" "' +
+				fullPath.replace(/"/g, '\\"') +
+				'" 2>/dev/null | head -10',
+		)
+		if (!previewResult.stdout) {
+			await sendMessage(
+				botToken,
+				chatId,
+				"*Edit Error* ❌\n\nCould not find `" +
+					oldText +
+					"` in `" +
+					filePath +
+					"`.\n\nCheck the file path and text to replace.",
+			)
+			return
+		}
+
+		// Show what will be replaced
+		var previewLines = previewResult.stdout.split("\n").slice(0, 5).join("\n")
+
+		// Perform the replacement using sed
+		var escapedOld = oldText.replace(/[\/&]/g, "\\$&")
+		var escapedNew = newText.replace(/[\/&]/g, "\\$&")
+		var sedCmd = 'sed -i "s/' + escapedOld + "/" + escapedNew + '/g" "' + fullPath.replace(/"/g, '\\"') + '"'
+		await tgEndpoints.executeShell(sedCmd)
+
+		// Verify the change
+		var verifyResult = await tgEndpoints.executeShell(
+			'grep -n "' +
+				newText.replace(/"/g, '\\"') +
+				'" "' +
+				fullPath.replace(/"/g, '\\"') +
+				'" 2>/dev/null | head -5',
+		)
+
+		await sendMessage(
+			botToken,
+			chatId,
+			"*Edit Applied* ✅\n\n*File:* `" +
+				filePath +
+				"`\n*Replaced:* `" +
+				oldText +
+				"` → `" +
+				newText +
+				"`\n\n*Matches found:*\n```\n" +
+				previewLines +
+				"\n```\n\n*After edit:*\n```\n" +
+				(verifyResult.stdout || "Done") +
+				"\n```",
+		)
+	} catch (err) {
+		logTelegramError("/code:edit", chatId, null, err, { file: filePath })
+		await sendMessage(botToken, chatId, "*Edit Error* ❌\n\n" + err.message)
+	}
+}
+
+/**
+ * Handle /code filemap [dir] — Show file structure of a directory.
+ * @param {string} botToken
+ * @param {number|string} chatId
+ * @param {string[]} args - [dirPath]
+ * @param {Object} options
+ */
+async function _handleCodeFilemap(botToken, chatId, args, options) {
+	var dirPath = args.join(" ") || "."
+
+	await sendChatAction(botToken, chatId, "typing")
+
+	var workspaceDir = (options && options.workspaceDir) || "/opt/superroo2"
+	var fullPath = dirPath.startsWith("/") ? dirPath : workspaceDir + "/" + dirPath
+
+	try {
+		var result = await tgEndpoints.executeShell(
+			'find "' +
+				fullPath.replace(/"/g, '\\"') +
+				'" -maxdepth 2 -not -path "*/node_modules/*" -not -path "*/.git/*" -not -name "*.log" 2>/dev/null | sort | head -80',
+		)
+		if (!result.stdout) {
+			await sendMessage(botToken, chatId, "*No files found* in `" + dirPath + "`")
+			return
+		}
+
+		var lines = result.stdout.split("\n")
+		// Strip the base path prefix for cleaner output
+		var basePrefix = fullPath.endsWith("/") ? fullPath : fullPath + "/"
+		var output = lines
+			.map(function (l) {
+				return l.replace(basePrefix, "")
+			})
+			.join("\n")
+
+		var maxLines = 60
+		var display = output.split("\n").slice(0, maxLines).join("\n")
+		var truncated = lines.length > maxLines ? "\n*+" + (lines.length - maxLines) + " more entries*" : ""
+
+		await sendMessage(botToken, chatId, "*File Map* 📂 `" + dirPath + "`\n\n```\n" + display + "\n```" + truncated)
+	} catch (err) {
+		logTelegramError("/code:filemap", chatId, null, err, { dir: dirPath })
+		await sendMessage(botToken, chatId, "*Filemap Error* ❌\n\n" + err.message)
+	}
+}
+
+/**
+ * Handle /code run <command> — Execute a shell command (alias for /shell).
+ * @param {string} botToken
+ * @param {number|string} chatId
+ * @param {string[]} args - [command...]
+ * @param {Object} options
+ */
+async function _handleCodeRun(botToken, chatId, args, options) {
+	if (args.length === 0) {
+		await sendMessage(
+			botToken,
+			chatId,
+			"*Run Command* 🖥️\n\nUsage: `/code run <command>`\nExample: `/code run npm test`\nExample: `/code run pm2 list`\n\nExecutes a shell command on the VPS.",
+		)
+		return
+	}
+	// Delegate to handleShell
+	await handleShell(botToken, chatId, args)
 }
 
 /**
@@ -8758,7 +9127,37 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 						providers,
 						orchestratorBridge,
 					) => {
-						await telegramNotifier.handleNotificationCallback(botToken, cq)
+						const notifyResult = await telegramNotifier.handleNotificationCallback(botToken, cq)
+						if (notifyResult && notifyResult.action === "retry" && notifyResult.taskId) {
+							const retryTaskId = notifyResult.taskId
+							const pendingJob = telegramNotifier.getPendingCoderJob(retryTaskId)
+							try {
+								await queue.add(
+									"coder-plan-" + retryTaskId,
+									{
+										task: pendingJob ? pendingJob.instruction : "Retry coding task",
+										agentId: "superroo-coder-agent",
+										phase: "plan",
+										taskId: retryTaskId,
+										workspaceDir: pendingJob ? pendingJob.workspaceDir : undefined,
+										repoName: pendingJob ? pendingJob.repoName : undefined,
+										branch: pendingJob ? pendingJob.branch : undefined,
+										telegram: {
+											botToken: botToken,
+											chatId: cqChatId,
+											taskId: retryTaskId,
+											branchName: pendingJob ? pendingJob.branch : undefined,
+										},
+									},
+									{ attempts: 3, backoff: { type: "exponential", delay: 5000 } },
+								)
+								logTelegramUsage("callback:notify:retry_enqueued", cqChatId, cqUserId, {
+									taskId: retryTaskId,
+								})
+							} catch (qErr) {
+								logTelegramError("callback:notify:retry_queue", cqChatId, cqUserId, qErr)
+							}
+						}
 					},
 					{ description: "notify" },
 				)
@@ -9511,6 +9910,14 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 								} else if (coderResult.action === "back") {
 									// Go back — already handled by handleCoderCallback (edits message)
 									logTelegramUsage("callback:coder:back", cqChatId, cqUserId, { taskId: coderTaskId })
+								} else if (coderResult.action === "clarify") {
+									// Clarification requested — already handled by handleCoderCallback (edits message)
+									logTelegramUsage("callback:coder:clarify", cqChatId, cqUserId, {
+										taskId: coderTaskId,
+									})
+								} else if (coderResult.action === "logs") {
+									// View logs — already handled by handleCoderCallback (edits message)
+									logTelegramUsage("callback:coder:logs", cqChatId, cqUserId, { taskId: coderTaskId })
 								} else if (coderResult.action === "similar") {
 									// Suggest a similar task based on the completed task's instruction
 									logTelegramUsage("callback:coder:similar", cqChatId, cqUserId, {
@@ -10464,4 +10871,8 @@ module.exports = {
 	recordError,
 	recordAutoModeChainCompleted,
 	recordLlmProviderLatency,
+	// Coding Trajectory (P0 — SWE-agent inspired)
+	telegramCodingTrajectory,
+	// Coding Memory (P0 — VoltAgent inspired)
+	telegramCodingMemory,
 }

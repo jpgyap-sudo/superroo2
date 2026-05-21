@@ -4,34 +4,59 @@
 # Containerized:  API, Dashboard, Mini-IDE
 # PM2 on host:   Worker, Auto-Deployer, Redis
 #
-# To deploy:
-#   cd cloud/docker && docker compose up -d
+# To build locally (no Redis needed for API-only testing):
+#   docker compose build superroo-api
 #
-# Docker services reach host Redis via docker0 bridge IP (172.17.0.1:6379).
-# When ready to migrate Redis into Docker, uncomment the redis service and
-# update REDIS_URL to redis://redis:6379 in all services.
+# To run full stack locally:
+#   docker compose up -d
+#
+# For VPS deployment, see DEPLOY_DOCKER.md
 # =============================================================================
 
 services:
   # ---------------------------------------------------------------------------
-  # Redis (optional — uncomment when migrating from host Redis)
+  # Redis (for local development — uncommented by default)
   # ---------------------------------------------------------------------------
-  # redis:
-  #   image: redis:7-alpine
-  #   restart: unless-stopped
-  #   ports:
-  #     - "6379:6379"
-  #   volumes:
-  #     - redis-data:/data
-  #   command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
-  #   healthcheck:
-  #     test: ["CMD", "redis-cli", "ping"]
-  #     interval: 10s
-  #     timeout: 3s
-  #     retries: 3
-  #   mem_limit: 256m
-  #   networks:
-  #     - superroo-net
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    mem_limit: 256m
+    networks:
+      - superroo-net
+
+  # ---------------------------------------------------------------------------
+  # Postgres + pgvector (Central Brain v2)
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: superroo
+      POSTGRES_PASSWORD: superroo
+      POSTGRES_DB: superroo_brain
+    volumes:
+      - pgvector-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U superroo -d superroo_brain"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    mem_limit: 512m
+    networks:
+      - superroo-net
 
   # ---------------------------------------------------------------------------
   # SuperRoo API
@@ -41,25 +66,31 @@ services:
       context: ../..
       dockerfile: cloud/docker/Dockerfile.api
     restart: unless-stopped
-    # Port 8787 is handled by PM2 on the host — don't bind in Docker to avoid conflict
-    # ports:
-    #   - "8787:8787"
+    ports:
+      - "8787:8787"
     environment:
-      - REDIS_URL=redis://172.17.0.1:6379
+      - REDIS_URL=redis://redis:6379
+      - BRAIN_DATABASE_URL=postgresql://superroo:superroo@postgres:5432/superroo_brain
       - ORCHESTRATOR_DB_PATH=/opt/superroo2/cloud/orchestrator/data/orchestrator.db
+      - NODE_ENV=production
+      - EMBEDDING_PROVIDER=ollama
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
     volumes:
       - orchestrator-data:/opt/superroo2/cloud/orchestrator/data
       - hermes-data:/opt/superroo2/cloud/data
       - logs:/opt/superroo2/cloud/logs
-      - /opt/superroo2/cloud/node_modules:/opt/superroo2/cloud/node_modules:ro
-      - /opt/superroo2/node_modules:/opt/superroo2/node_modules:ro
     mem_limit: 256m
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8787/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8787/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
     networks:
       - superroo-net
 
@@ -86,6 +117,9 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
+    depends_on:
+      superroo-api:
+        condition: service_healthy
     networks:
       - superroo-net
 
@@ -105,8 +139,6 @@ services:
     volumes:
       - uploads:/opt/superroo2/cloud/mini-ide/uploads
       - logs:/opt/superroo2/cloud/logs
-      - /opt/superroo2/cloud/node_modules:/opt/superroo2/cloud/node_modules:ro
-      - /opt/superroo2/node_modules:/opt/superroo2/node_modules:ro
     mem_limit: 256m
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8081/"]
@@ -114,6 +146,9 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+    depends_on:
+      superroo-api:
+        condition: service_healthy
     networks:
       - superroo-net
 
@@ -128,7 +163,7 @@ services:
     profiles:
       - full
     environment:
-      - REDIS_URL=redis://172.17.0.1:6379
+      - REDIS_URL=redis://redis:6379
       - API_BASE_URL=http://superroo-api:8787
       - WORKSPACE_ROOT=/srv/superroo/workspaces
     volumes:
@@ -136,6 +171,11 @@ services:
       - logs:/opt/superroo2/cloud/logs
       - /var/run/docker.sock:/var/run/docker.sock:ro
     mem_limit: 512m
+    depends_on:
+      redis:
+        condition: service_healthy
+      superroo-api:
+        condition: service_healthy
     networks:
       - superroo-net
 
@@ -150,13 +190,16 @@ services:
     profiles:
       - full
     environment:
-      - REDIS_URL=redis://172.17.0.1:6379
+      - REDIS_URL=redis://redis:6379
       - GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=accept-new
     volumes:
       - logs:/opt/superroo2/cloud/logs
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ${HOME}/.ssh:/root/.ssh:ro
     mem_limit: 128m
+    depends_on:
+      redis:
+        condition: service_healthy
     networks:
       - superroo-net
 
@@ -174,3 +217,4 @@ volumes:
   logs:
   redis-data:
   workspaces:
+  pgvector-data:

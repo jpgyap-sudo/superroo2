@@ -3,11 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="mobile-web-app-capable" content="yes" />
   <title>SuperRoo Mini IDE</title>
   <link rel="stylesheet" href="styles.css" />
-  <!-- Monaco Editor from CDN -->
   <link rel="stylesheet" data-name="vs/editor/editor.main" href="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/editor/editor.main.min.css" />
 </head>
 <body>
@@ -30,340 +27,317 @@
       </div>
     </div>
 
-    <!-- Main App -->
-    <div id="main-app" class="app-shell hidden">
-      <!-- Glow effects -->
-      <div class="glow glow-a"></div>
-      <div class="glow glow-b"></div>
+    <!-- ── MAIN IDE SHELL (VS Code: layout) ─────────────────────────── -->
+    <div id="main-app" class="ide-shell hidden">
 
-      <div class="page">
-        <!-- Hero Header -->
-        <div class="hero card" id="hero-header">
-          <div class="hero-left">
-            <div class="logo">📱</div>
-            <div>
-              <div class="title-row">
-                <h1>SuperRoo Mini IDE</h1>
-                <span class="pill green" id="status-pill">Connected</span>
-              </div>
-              <p id="hero-subtitle">Open a workspace, edit files, send coding instructions, and approve agent changes inside Telegram.</p>
-            </div>
+      <!-- 1. ACTIVITY BAR (far left) -->
+      <nav class="activity-bar" id="activity-bar">
+        <div class="activity-bar-top">
+          <button class="activity-bar-item active" data-view="explorer" title="Explorer (Ctrl+Shift+E)">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+          </button>
+          <button class="activity-bar-item" data-view="search" title="Search (Ctrl+Shift+F)">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+          </button>
+          <button class="activity-bar-item" data-view="git" title="Source Control (Ctrl+Shift+G)">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M6 9v3a3 3 0 003 3h6a3 3 0 003-3V9"/></svg>
+          </button>
+          <button class="activity-bar-item" data-view="brain" title="Terminal Brain (Ctrl+Shift+B)">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 100 20 10 10 0 000-20z"/><path d="M12 6v6l4 2"/></svg>
+          </button>
+        </div>
+        <div class="activity-bar-bottom">
+          <button class="activity-bar-item" data-view="settings" title="Settings (Ctrl+,)">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+          </button>
+        </div>
+      </nav>
+
+      <!-- 2. SIDEBAR (file explorer, search, etc.) -->
+      <aside class="sidebar" id="sidebar">
+        <!-- Explorer -->
+        <div class="sidebar-panel" id="sidebar-explorer">
+          <div class="sidebar-header">
+            <span class="sidebar-title">EXPLORER</span>
+            <span class="sidebar-subtitle" id="sidebar-workspace-name">No workspace</span>
           </div>
-          <div class="hero-actions">
-            <button class="btn secondary" onclick="syncExtension()">↻ Sync Extension</button>
-            <button class="btn primary" onclick="runAgent()">▶ Run Agent</button>
+          <div class="sidebar-section">
+            <div class="sidebar-section-header" onclick="toggleSection('workspace-files')">
+              <span class="chevron" id="chevron-workspace-files">▼</span>
+              <span>WORKSPACE</span>
+            </div>
+            <div class="file-tree-toolbar">
+              <button onclick="createNewFile()" title="New File">📄+</button>
+              <button onclick="createNewFolder()" title="New Folder">📁+</button>
+              <button onclick="refreshFileTree()" title="Refresh">⟳</button>
+            </div>
+            <div class="file-tree" id="file-tree"></div>
+          </div>
+          <div class="sidebar-section">
+            <div class="sidebar-section-header" onclick="toggleSection('workspace-list-section')">
+              <span class="chevron" id="chevron-workspace-list-section">▼</span>
+              <span>PROJECTS</span>
+            </div>
+            <div class="workspace-list-sidebar" id="workspace-list-sidebar"></div>
+          </div>
+          <div class="sidebar-section">
+            <div class="sidebar-section-header" onclick="toggleSection('pipeline-section')">
+              <span class="chevron" id="chevron-pipeline-section">▼</span>
+              <span>PIPELINE</span>
+            </div>
+            <div id="pipeline-container" style="padding:0 12px"></div>
           </div>
         </div>
 
-        <!-- Notice bar -->
-        <div id="notice" class="notice hidden"></div>
+        <!-- Search -->
+        <div class="sidebar-panel hidden" id="sidebar-search">
+          <div class="sidebar-header">
+            <span class="sidebar-title">SEARCH</span>
+          </div>
+          <div class="sidebar-body">
+            <div style="display:flex;gap:4px;margin-bottom:8px">
+              <input type="text" class="sidebar-input" id="search-input" placeholder="Search in files..." style="margin-bottom:0;flex:1" onkeydown="if(event.key==='Enter')runSearch()" />
+              <button class="btn secondary small" onclick="runSearch()">🔍</button>
+            </div>
+            <div class="search-results" id="search-results"></div>
+          </div>
+        </div>
 
-        <!-- Main Grid Layout -->
-        <div class="grid-layout">
-          <!-- Left Sidebar: Workspaces -->
-          <div class="card" id="workspace-panel">
-            <div class="section-head">
-              <h2>Workspaces</h2>
-              <span class="pill blue">/projects</span>
+        <!-- Git -->
+        <div class="sidebar-panel hidden" id="sidebar-git">
+          <div class="sidebar-header">
+            <span class="sidebar-title">SOURCE CONTROL</span>
+          </div>
+          <div class="sidebar-body">
+            <div style="display:flex;gap:4px;margin-bottom:8px">
+              <button class="btn secondary small" onclick="refreshGitStatus()">⟳ Refresh</button>
+              <button class="btn secondary small" onclick="gitCommit()">✓ Commit</button>
             </div>
-            <div class="search-box">
-              <input type="text" id="workspace-search" placeholder="🔎 Search project..." oninput="filterWorkspaces(this.value)" />
-            </div>
-            <div class="workspace-list" id="workspace-list"></div>
-            <div class="secure-box">
-              <strong>🛡️ Secure Session</strong>
-              <p>Auto-lock after 30 minutes of inactivity.</p>
+            <div class="git-changes" id="git-changes">
+              <p class="sidebar-empty">No changes</p>
             </div>
           </div>
+        </div>
 
-          <!-- Main Column: Editor -->
-          <main class="main-column">
-            <!-- Workspace Header -->
-            <div class="card" id="workspace-header">
-              <div class="workspace-header">
-                <div>
-                  <h2 id="ws-name">Select a workspace <span class="pill yellow" id="ws-status">Idle</span></h2>
-                  <p id="ws-repo">—</p>
-                </div>
-                <div class="button-row">
-                  <button class="btn secondary" onclick="toggleTerminal()">⌨ Terminal</button>
-                  <button class="btn secondary" onclick="commitChanges()">🌿 Commit</button>
-                  <button class="btn secondary" onclick="showKeyboardShortcuts()">⌨️ Shortcuts</button>
-                </div>
-              </div>
-              <div class="stats-grid" id="stats-grid"></div>
+        <!-- Terminal Brain -->
+        <div class="sidebar-panel hidden" id="sidebar-brain">
+          <div class="sidebar-header">
+            <span class="sidebar-title">TERMINAL BRAIN</span>
+          </div>
+          <div class="sidebar-body">
+            <div class="brain-tabs-sidebar">
+              <button class="brain-tab-s active" data-tab="command" onclick="switchBrainTab('command')">Command</button>
+              <button class="brain-tab-s" data-tab="errors" onclick="switchBrainTab('errors')">Errors</button>
+              <button class="brain-tab-s" data-tab="memory" onclick="switchBrainTab('memory')">Memory</button>
             </div>
-
-            <!-- Pipeline Bar -->
-            <div id="pipeline-bar" class="card pipeline-bar hidden" style="margin-bottom:8px">
-              <div class="section-head">
-                <h2>📋 Pipeline</h2>
-                <span class="pill blue" id="pipeline-status">Idle</span>
-              </div>
-              <div id="pipeline-steps" class="pipeline-steps"></div>
+            <div class="brain-panel-s" id="panel-command-s">
+              <textarea class="sidebar-textarea" id="ai-prompt" placeholder="Describe what you want to do..." rows="4"></textarea>
+              <button class="btn primary full" onclick="sendBrainCommand()">⚡ Execute</button>
+              <div id="plan-preview-s" class="hidden" style="margin-top:8px"></div>
             </div>
-
-            <!-- Terminal -->
-            <div id="terminal-section" class="card terminal-card hidden" style="margin-bottom:8px">
-              <div class="terminal-head">
-                <span>⌨ Terminal</span>
-                <div class="terminal-actions">
-                  <button class="btn secondary small" id="btn-record" onclick="handleStartRecording()" title="Start recording">⏺ Record</button>
-                  <button class="btn secondary small" id="btn-stop-rec" onclick="handleStopRecording()" title="Stop recording" style="display:none">⏹ Stop</button>
-                  <button class="btn secondary small" onclick="showRecordings()" title="View recordings">📼 Replays</button>
-                  <button class="btn secondary small" onclick="clearTerminal()">Clear</button>
-                  <button class="btn secondary small" onclick="copyTerminal()">📋 Copy</button>
-                  <button class="btn secondary small" onclick="toggleTerminal()">✕</button>
-                </div>
-              </div>
-              <div id="terminal-recording-indicator" class="terminal-recording-indicator hidden">
-                <span class="rec-dot"></span> Recording...
-              </div>
-              <div id="terminal-output" class="terminal-output"></div>
-              <div id="terminal-recordings-dropdown" class="terminal-recordings-dropdown hidden"></div>
-              <div class="terminal-input-row">
-                <span class="terminal-prompt">$</span>
-                <input type="text" id="terminal-input" placeholder="Type a command or @agent mention..." autocomplete="off" />
-                <button class="btn primary small" onclick="executeTerminalCommand()">▶</button>
-              </div>
-              <div id="terminal-suggestions" class="terminal-suggestions hidden"></div>
+            <div class="brain-panel-s hidden" id="panel-errors-s">
+              <div id="errors-container-s"><p class="sidebar-empty">No errors</p></div>
             </div>
-
-            <!-- Agent Mode Bar -->
-            <div class="card agent-mode-bar" style="margin-bottom:8px">
-              <div class="agent-modes">
-                <button class="agent-mode active" data-mode="auto" onclick="setAgentMode('auto')">🤖 Auto</button>
-                <button class="agent-mode" data-mode="plan" onclick="setAgentMode('plan')">📋 Plan</button>
-                <button class="agent-mode" data-mode="code" onclick="setAgentMode('code')">💻 Code</button>
-                <button class="agent-mode" data-mode="debug" onclick="setAgentMode('debug')">🐛 Debug</button>
-                <button class="agent-mode" data-mode="review" onclick="setAgentMode('review')">👁 Review</button>
-                <button class="agent-mode" data-mode="crawl" onclick="setAgentMode('crawl')">🕷 Crawl</button>
-              </div>
-              <span class="agent-mode-label" id="agent-mode-label">Auto</span>
+            <div class="brain-panel-s hidden" id="panel-memory-s">
+              <div id="memory-container-s"><p class="sidebar-empty">No memory</p></div>
             </div>
+          </div>
+        </div>
 
-            <!-- Editor -->
-            <div class="card editor-card" id="editor-card">
-              <div class="editor-head">
-                <span id="file-label">📄 Select a file</span>
-                <div class="editor-actions">
-                  <button class="btn secondary small" onclick="uploadFiles()" title="Upload files (images, PDFs, docs, etc.)">📎 Attach</button>
-                  <button class="btn primary small" onclick="saveFile()">💾 Save</button>
-                </div>
-              </div>
-              <div class="editor-layout">
-                <aside class="file-list" id="file-list"></aside>
-                <div id="editor-container" class="editor-container"></div>
-              </div>
+        <!-- Settings -->
+        <div class="sidebar-panel hidden" id="sidebar-settings">
+          <div class="sidebar-header">
+            <span class="sidebar-title">SETTINGS</span>
+          </div>
+          <div class="sidebar-body">
+            <div class="setting-row">
+              <label>Font Size</label>
+              <input type="number" class="sidebar-input" id="setting-fontsize" value="13" min="8" max="32" />
             </div>
-
-            <!-- File Attachments Preview -->
-            <div id="attachments-panel" class="card hidden">
-              <div class="section-head">
-                <h2>📎 Attachments</h2>
-                <button class="btn secondary small" onclick="clearAttachments()">Clear all</button>
-              </div>
-              <div class="attachments-grid" id="attachments-grid"></div>
+            <div class="setting-row">
+              <label>Word Wrap</label>
+              <select class="sidebar-input" id="setting-wordwrap">
+                <option value="on">On</option>
+                <option value="off">Off</option>
+              </select>
             </div>
-          </main>
+            <div class="setting-row">
+              <label>Theme</label>
+              <select class="sidebar-input" id="setting-theme">
+                <option value="dark">Dark</option>
+                <option value="light">Light</option>
+              </select>
+            </div>
+            <div class="setting-row">
+              <label>Minimap</label>
+              <select class="sidebar-input" id="setting-minimap">
+                <option value="on">On</option>
+                <option value="off">Off</option>
+              </select>
+            </div>
+            <div class="setting-row" style="margin-top:8px">
+              <button class="btn secondary small full" onclick="resetSettings()">Reset to Defaults</button>
+            </div>
+          </div>
+        </div>
+      </aside>
 
-          <!-- Right Sidebar: Terminal Brain tabs -->
-          <aside class="side-column">
-            <!-- Terminal Brain Tab Bar -->
-            <div class="card brain-tab-bar">
-              <div class="brain-tabs" id="brain-tabs">
-                <button class="brain-tab active" data-tab="command" onclick="switchBrainTab('command')">🧠 AI Command</button>
-                <button class="brain-tab" data-tab="errors" onclick="switchBrainTab('errors')">❌ Errors</button>
-                <button class="brain-tab" data-tab="fixplan" onclick="switchBrainTab('fixplan')">🔧 Fix Plan</button>
-                <button class="brain-tab" data-tab="memory" onclick="switchBrainTab('memory')">💾 Memory</button>
-                <button class="brain-tab" data-tab="deployments" onclick="switchBrainTab('deployments')">🚀 Deploy</button>
-                <button class="brain-tab" data-tab="services" onclick="switchBrainTab('services')">⚡ Services</button>
-                <button class="brain-tab" data-tab="env" onclick="switchBrainTab('env')">🔐 Env</button>
-                <button class="brain-tab" data-tab="approvals" onclick="switchBrainTab('approvals')">✅ Approvals</button>
+      <!-- 3. EDITOR AREA -->
+      <div class="editor-area">
+        <!-- Tab Bar -->
+        <div class="tab-bar" id="tab-bar">
+          <div class="tab-bar-scroll" id="tab-bar-scroll">
+            <!-- Tabs injected here -->
+          </div>
+          <div class="tab-bar-actions">
+            <button class="tab-bar-btn" onclick="showQuickOpen()" title="Quick Open (Ctrl+P)">⋯</button>
+          </div>
+        </div>
+
+        <!-- Breadcrumbs -->
+        <div class="breadcrumbs" id="breadcrumbs">
+          <span class="bc-item">Select a file</span>
+        </div>
+
+        <!-- Editor Container -->
+        <div class="editor-wrapper">
+          <div id="editor-container" class="editor-container"></div>
+          <div class="editor-placeholder" id="editor-placeholder">
+            <div class="editor-placeholder-content">
+              <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" opacity="0.3"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+              <p>Select a file to start editing</p>
+              <div class="shortcut-hint">
+                <kbd>Ctrl</kbd><kbd>P</kbd> Quick Open
               </div>
             </div>
-
-            <!-- Tab: AI Command (default) -->
-            <div class="brain-panel" id="panel-command">
-              <div class="card">
-                <div class="section-head">
-                  <h2>🧠 AI Command</h2>
-                  <span class="pill blue">Terminal Brain</span>
-                </div>
-                <p class="muted">Describe what you want to do. The Terminal Brain will plan, execute, and verify.</p>
-                <textarea id="ai-prompt" placeholder="Example: fix the build error in render-queue" rows="3"></textarea>
-                <div class="brain-actions">
-                  <button class="btn primary full" onclick="sendBrainCommand()">⚡ Execute with Brain</button>
-                </div>
-              </div>
-
-              <!-- Plan Preview -->
-              <div id="plan-preview" class="card hidden" style="margin-top:8px">
-                <div class="section-head">
-                  <h2>📋 Execution Plan</h2>
-                </div>
-                <div id="plan-steps" class="plan-steps"></div>
-              </div>
-
-              <!-- Brain Feedback -->
-              <div id="brain-feedback" class="card hidden" style="margin-top:8px">
-                <div class="section-head">
-                  <h2>📊 Result</h2>
-                  <span id="feedback-status" class="pill"></span>
-                </div>
-                <div id="feedback-output" class="feedback-output"></div>
-              </div>
-            </div>
-
-            <!-- Tab: Errors -->
-            <div class="brain-panel hidden" id="panel-errors">
-              <div class="card">
-                <div class="section-head">
-                  <h2>❌ Error Analysis</h2>
-                  <span class="pill red" id="error-count">0</span>
-                </div>
-                <div id="errors-container" class="errors-container">
-                  <p class="muted">No errors detected. Run a command to analyze output.</p>
-                </div>
-              </div>
-            </div>
-
-            <!-- Tab: Fix Plan -->
-            <div class="brain-panel hidden" id="panel-fixplan">
-              <div class="card">
-                <div class="section-head">
-                  <h2>🔧 Fix Suggestions</h2>
-                </div>
-                <div id="fixes-container" class="fixes-container">
-                  <p class="muted">No fixes suggested yet.</p>
-                </div>
-              </div>
-            </div>
-
-            <!-- Tab: Memory -->
-            <div class="brain-panel hidden" id="panel-memory">
-              <div class="card">
-                <div class="section-head">
-                  <h2>💾 Terminal Memory</h2>
-                  <span class="pill blue" id="memory-stats">0</span>
-                </div>
-                <div id="memory-container" class="memory-container">
-                  <p class="muted">Loading terminal memory...</p>
-                </div>
-              </div>
-            </div>
-
-            <!-- Tab: Deployments -->
-            <div class="brain-panel hidden" id="panel-deployments">
-              <div class="card">
-                <div class="section-head">
-                  <h2>🚀 Deployments</h2>
-                </div>
-                <div id="deployments-container" class="deployments-container">
-                  <p class="muted">No deployments recorded.</p>
-                </div>
-              </div>
-            </div>
-
-            <!-- Tab: Services -->
-            <div class="brain-panel hidden" id="panel-services">
-              <div class="card">
-                <div class="section-head">
-                  <h2>⚡ Running Services</h2>
-                </div>
-                <div id="services-container" class="services-container">
-                  <p class="muted">Select a workspace to see running services.</p>
-                </div>
-              </div>
-            </div>
-
-            <!-- Tab: Environment -->
-            <div class="brain-panel hidden" id="panel-env">
-              <div class="card">
-                <div class="section-head">
-                  <h2>🔐 Environment</h2>
-                </div>
-                <div id="env-container" class="env-container">
-                  <p class="muted">Project context and environment variables.</p>
-                </div>
-              </div>
-            </div>
-
-            <!-- Tab: Approvals -->
-            <div class="brain-panel hidden" id="panel-approvals">
-              <div class="card">
-                <div class="section-head">
-                  <h2>✅ Pending Approvals</h2>
-                  <span class="pill yellow" id="approval-count">0</span>
-                </div>
-                <div id="approvals-container" class="approvals-container">
-                  <p class="muted">No pending approvals.</p>
-                </div>
-              </div>
-            </div>
-
-            <!-- Recent Tasks (cross-platform memory) -->
-            <div class="card" style="margin-top:8px">
-              <div class="section-head">
-                <h2>📋 Recent Tasks</h2>
-                <span class="pill blue" id="task-count">0</span>
-              </div>
-              <div id="tasks-container" class="tasks-container">
-                <p class="muted">No recent tasks. Send a command to get started.</p>
-              </div>
-            </div>
-
-            <!-- Live Logs (always visible) -->
-            <div class="card" style="margin-top:8px">
-              <div class="section-head">
-                <h2>📋 Live Logs</h2>
-                <span class="online" id="log-status">●</span>
-              </div>
-              <div class="logs-container" id="logs-container"></div>
-            </div>
-
-            <!-- Quick Actions -->
-            <div class="card" style="margin-top:8px">
-              <h2>🧩 Quick Actions</h2>
-              <div class="quick-actions">
-                <button onclick="quickAction('Build')">Build</button>
-                <button onclick="quickAction('Test')">Test</button>
-                <button onclick="quickAction('Deploy')">Deploy</button>
-                <button onclick="quickAction('Diff')">Diff</button>
-                <button onclick="quickAction('Docker')">Docker</button>
-                <button onclick="quickAction('Approve')">Approve</button>
-              </div>
-            </div>
-          </aside>
+          </div>
         </div>
       </div>
-    </div>
 
-    <!-- Keyboard Shortcuts Modal -->
-    <div id="shortcuts-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeShortcutsModal()">
-      <div class="modal-content">
-        <div class="modal-head">
-          <h2>⌨️ Keyboard Shortcuts</h2>
-          <button class="btn secondary small" onclick="closeShortcutsModal()">✕</button>
+      <!-- 4. BOTTOM PANEL (Terminal, Output, Problems) -->
+      <div class="bottom-panel" id="bottom-panel">
+        <div class="bottom-panel-header">
+          <div class="bottom-panel-tabs">
+            <button class="bp-tab active" data-panel="terminal" onclick="switchBottomPanel('terminal')">
+              <span class="bp-tab-icon">⌨</span> Terminal
+            </button>
+            <button class="bp-tab" data-panel="output" onclick="switchBottomPanel('output')">
+              <span class="bp-tab-icon">◈</span> Output
+            </button>
+            <button class="bp-tab" data-panel="problems" onclick="switchBottomPanel('problems')">
+              <span class="bp-tab-icon">⚠</span> Problems <span class="bp-badge" id="problems-badge">0</span>
+            </button>
+            <button class="bp-tab" data-panel="ai-chat" onclick="switchBottomPanel('ai-chat')">
+              <span class="bp-tab-icon">🤖</span> AI Chat
+            </button>
+          </div>
+          <div class="bottom-panel-actions">
+            <button class="bp-action" onclick="toggleBottomPanelSize()" title="Toggle size">◰</button>
+            <button class="bp-action" onclick="toggleBottomPanel()" title="Close panel">✕</button>
+          </div>
         </div>
-        <div class="shortcuts-list">
-          <div class="shortcut-row"><kbd>Ctrl+Enter</kbd><span>Send AI command</span></div>
-          <div class="shortcut-row"><kbd>Ctrl+Shift+Enter</kbd><span>Execute with Terminal Brain</span></div>
-          <div class="shortcut-row"><kbd>Ctrl+`</kbd><span>Toggle terminal</span></div>
-          <div class="shortcut-row"><kbd>Ctrl+K</kbd><span>Clear terminal output</span></div>
-          <div class="shortcut-row"><kbd>Ctrl+S</kbd><span>Save file</span></div>
-          <div class="shortcut-row"><kbd>Ctrl+P</kbd><span>Search files</span></div>
-          <div class="shortcut-row"><kbd>Ctrl+Shift+M</kbd><span>Toggle agent mode menu</span></div>
-          <div class="shortcut-row"><kbd>Escape</kbd><span>Close modals / suggestions</span></div>
+        <div class="bottom-panel-body">
+          <!-- Terminal -->
+          <div class="bp-content active" id="bp-terminal">
+            <div class="terminal-toolbar">
+              <span class="terminal-shell">bash</span>
+              <div class="terminal-toolbar-actions">
+                <button onclick="clearTerminal()" title="Clear">🗑</button>
+                <button onclick="copyTerminal()" title="Copy">📋</button>
+                <button onclick="toggleRecording()" id="btn-rec" title="Record">⏺</button>
+              </div>
+            </div>
+            <div class="terminal-output" id="terminal-output"></div>
+            <div class="terminal-input-wrap">
+              <span class="terminal-prompt">$</span>
+              <input type="text" class="terminal-input" id="terminal-input" placeholder="Type a command or @agent..." autocomplete="off" />
+              <button class="terminal-send" onclick="executeTerminalCommand()">▶</button>
+            </div>
+          </div>
+          <!-- Output -->
+          <div class="bp-content" id="bp-output">
+            <div class="output-view" id="output-view">
+              <p class="sidebar-empty">Command output will appear here</p>
+            </div>
+          </div>
+          <!-- Problems -->
+          <div class="bp-content" id="bp-problems">
+            <div class="problems-list" id="problems-list">
+              <p class="sidebar-empty">No problems detected</p>
+            </div>
+          </div>
+          <!-- AI Chat -->
+          <div class="bp-content" id="bp-ai-chat">
+            <div class="ai-chat-messages" id="ai-chat-messages"></div>
+            <div class="ai-chat-input-wrap">
+              <input type="text" class="ai-chat-input" id="ai-chat-input" placeholder="Ask the AI..." />
+              <button class="ai-chat-send" onclick="sendAiChat()">➤</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 5. STATUS BAR -->
+      <footer class="status-bar" id="status-bar">
+        <div class="status-bar-left">
+          <span class="status-item status-branch" id="status-branch" title="Git branch">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 01-9 9"/></svg>
+            <span id="status-branch-text">—</span>
+          </span>
+          <span class="status-item" id="status-errors" title="Errors">
+            <span style="color:var(--red)">●</span> <span id="status-error-count">0</span>
+          </span>
+          <span class="status-item" id="status-warnings" title="Warnings">
+            <span style="color:var(--yellow)">●</span> <span id="status-warn-count">0</span>
+          </span>
+        </div>
+        <div class="status-bar-right">
+          <span class="status-item" id="status-lsp" title="LSP Status">
+            <span class="status-dot gray" id="status-lsp-dot"></span> LSP
+          </span>
+          <span class="status-item" id="status-ws" title="WebSocket">
+            <span class="status-dot green" id="status-ws-dot"></span> WS
+          </span>
+          <span class="status-item" id="status-cursor" title="Cursor position">Ln 1, Col 1</span>
+          <span class="status-item" id="status-encoding">UTF-8</span>
+          <span class="status-item" id="status-language">Plain Text</span>
+          <span class="status-item" id="status-notify"></span>
+        </div>
+      </footer>
+
+      <!-- Quick Open Modal -->
+      <div id="quick-open" class="modal-overlay hidden" onclick="if(event.target===this)closeQuickOpen()">
+        <div class="quick-open-box">
+          <input type="text" class="quick-open-input" id="quick-open-input" placeholder="Type to search files..." oninput="filterQuickOpen(this.value)" />
+          <div class="quick-open-results" id="quick-open-results"></div>
+        </div>
+      </div>
+
+      <!-- Keyboard Shortcuts Modal -->
+      <div id="shortcuts-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeShortcutsModal()">
+        <div class="modal-content">
+          <div class="modal-head">
+            <h2>Keyboard Shortcuts</h2>
+            <button class="btn secondary small" onclick="closeShortcutsModal()">✕</button>
+          </div>
+          <div class="shortcuts-list">
+            <div class="shortcut-row"><kbd>Ctrl+P</kbd><span>Quick Open</span></div>
+            <div class="shortcut-row"><kbd>Ctrl+`</kbd><span>Toggle Terminal</span></div>
+            <div class="shortcut-row"><kbd>Ctrl+S</kbd><span>Save</span></div>
+            <div class="shortcut-row"><kbd>Ctrl+B</kbd><span>Toggle Sidebar</span></div>
+            <div class="shortcut-row"><kbd>Ctrl+J</kbd><span>Toggle Panel</span></div>
+            <div class="shortcut-row"><kbd>Ctrl+Shift+E</kbd><span>Explorer</span></div>
+            <div class="shortcut-row"><kbd>Ctrl+Shift+F</kbd><span>Search</span></div>
+            <div class="shortcut-row"><kbd>Ctrl+Shift+G</kbd><span>Git</span></div>
+            <div class="shortcut-row"><kbd>Escape</kbd><span>Close modal / clear selection</span></div>
+            <div class="shortcut-row"><kbd>Right-click file</kbd><span>Context menu (Delete, Copy path)</span></div>
+          </div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Hidden file input for uploads -->
   <input type="file" id="file-input" multiple style="display:none" onchange="handleFileSelect(event)" />
-
-  <!-- Monaco Editor -->
   <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
   <script src="app.js"></script>
 </body>

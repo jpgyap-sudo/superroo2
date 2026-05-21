@@ -658,6 +658,9 @@ async function initOrchestrator() {
 		const { CrawlerAgent } = safeRequire("../orchestrator/modules/CrawlerAgent")
 		const { DeployOrchestrator } = safeRequire("../orchestrator/modules/DeployOrchestrator")
 		const { FileImporter } = safeRequire("../orchestrator/modules/FileImporter")
+		const { BuildQueue } = safeRequire("../orchestrator/modules/BuildQueue")
+		const { UnifiedBuilder } = safeRequire("../orchestrator/modules/UnifiedBuilder")
+		const { GlobalBuildOrchestrator } = safeRequire("../orchestrator/modules/GlobalBuildOrchestrator")
 		const {
 			getCpuUsagePercent,
 			getRamUsagePercent,
@@ -728,6 +731,39 @@ async function initOrchestrator() {
 		)
 		orchestrator.registerCrawlerAgent(new CrawlerAgent())
 		orchestrator.registerDeployOrchestrator(new DeployOrchestrator({}))
+
+		// ── Global Build Orchestrator — compiles build tasks from Claude/Codex agents ──
+		try {
+			const buildQueue = new BuildQueue({
+				memory: orchestrator.memory,
+				eventLog: orchestrator.eventLog,
+				maxConcurrentBuilds: 1,
+			})
+			await buildQueue.initialize()
+
+			const unifiedBuilder = new UnifiedBuilder({
+				buildQueue,
+				eventLog: orchestrator.eventLog,
+				projectName: "superroo",
+				workDir: path.join(__dirname, "..", ".."),
+			})
+
+			const globalBuildOrchestrator = new GlobalBuildOrchestrator({
+				memory: orchestrator.memory,
+				eventLog: orchestrator.eventLog,
+				buildQueue,
+				unifiedBuilder,
+				deployOrchestrator: orchestrator.deployOrchestrator,
+				maxConcurrentBuilds: 2,
+				maxRamPercent: 80,
+				ramOrchestratorUrl: "http://100.64.175.88:3419",
+			})
+			await globalBuildOrchestrator.initialize()
+			orchestrator.registerGlobalBuildOrchestrator(globalBuildOrchestrator)
+		} catch (err) {
+			console.warn(`[orchestrator] GlobalBuildOrchestrator unavailable: ${err.message}`)
+		}
+
 		orchestrator.registerFileImporter(new FileImporter("/opt/superroo2"))
 		// CPUGuard exports individual functions, not a class — pass as a namespace object
 		orchestrator.registerCPUGuard({
@@ -929,9 +965,9 @@ const _telegramCidrCache = TELEGRAM_IP_RANGES.map(function (cidr) {
 	const parts = cidr.split("/")
 	const ipParts = parts[0].split(".").map(Number)
 	const prefixLen = parseInt(parts[1], 10)
-	const ipNum = (ipParts[0] << 24) | (ipParts[1] << 16) | (ipParts[2] << 8) | ipParts[3]
-	const mask = ~((1 << (32 - prefixLen)) - 1)
-	return { mask: mask >>> 0, value: ipNum & mask }
+	const ipNum = ((ipParts[0] << 24) | (ipParts[1] << 16) | (ipParts[2] << 8) | ipParts[3]) >>> 0
+	const mask = ~((1 << (32 - prefixLen)) - 1) >>> 0
+	return { mask: mask, value: ipNum & mask }
 })
 
 function _isTelegramIp(ip) {
@@ -940,8 +976,12 @@ function _isTelegramIp(ip) {
 		ip = ip.substring(7)
 	}
 	const parts = ip.split(".").map(Number)
-	if (parts.length !== 4 || parts.some(isNaN)) return false
-	const ipNum = (parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]
+	if (parts.length !== 4 || parts.some(isNaN)) {
+		// IPv6 or malformed — Telegram webhooks are IPv4-only per documented ranges,
+		// but allow through if we can't parse it (defensive)
+		return true
+	}
+	const ipNum = ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0
 	return _telegramCidrCache.some(function (entry) {
 		return (ipNum & entry.mask) === entry.value
 	})
@@ -4792,6 +4832,8 @@ const server = http.createServer(async (req, res) => {
 
 		// GET /settings/providers — list providers with key status
 		if (method === "GET" && normalizedUrl === "/settings/providers") {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
 			const entries = PROVIDERS.map((p) => {
 				const meta = providerMeta.get(p.id) || {
 					hasKey: false,
@@ -4822,6 +4864,8 @@ const server = http.createServer(async (req, res) => {
 
 		// POST /settings/providers/:id/key — save a provider API key
 		if (method === "POST" && normalizedUrl.match(/^\/settings\/providers\/[^/]+\/key$/)) {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
 			const providerId = normalizedUrl.split("/")[3]
 			const data = await parseBody(req)
 			if (!data.apiKey) {
@@ -4867,6 +4911,8 @@ const server = http.createServer(async (req, res) => {
 
 		// POST /settings/providers/:id/test — test a provider connection
 		if (method === "POST" && normalizedUrl.match(/^\/settings\/providers\/[^/]+\/test$/)) {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
 			const providerId = normalizedUrl.split("/")[3]
 			const encrypted = encryptedSecrets.get(providerId)
 			if (!encrypted) {
@@ -4892,6 +4938,8 @@ const server = http.createServer(async (req, res) => {
 
 		// DELETE /settings/providers/:id/key — remove a provider key
 		if (method === "DELETE" && normalizedUrl.match(/^\/settings\/providers\/[^/]+\/key$/)) {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
 			const providerId = normalizedUrl.split("/")[3]
 			encryptedSecrets.delete(providerId)
 			providerMeta.set(providerId, {
@@ -4909,6 +4957,8 @@ const server = http.createServer(async (req, res) => {
 
 		// PATCH /settings/providers/:id — update provider metadata (e.g., default model, api base url)
 		if (method === "PATCH" && normalizedUrl.match(/^\/settings\/providers\/[^/]+$/)) {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
 			const providerId = normalizedUrl.split("/")[3]
 			const data = await parseBody(req)
 			const meta = providerMeta.get(providerId) || { hasKey: false, status: "not_tested" }
@@ -5156,6 +5206,8 @@ const server = http.createServer(async (req, res) => {
 
 		// GET /settings — get full settings
 		if (method === "GET" && normalizedUrl === "/settings") {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
 			const settings = await loadSettings()
 			sendJson(res, 200, { success: true, settings })
 			return
@@ -5163,6 +5215,8 @@ const server = http.createServer(async (req, res) => {
 
 		// PUT /settings — update full settings
 		if (method === "PUT" && normalizedUrl === "/settings") {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
 			const data = await parseBody(req)
 			if (!data.settings) {
 				sendJson(res, 400, { success: false, error: "settings object is required" })
@@ -7733,6 +7787,8 @@ const server = http.createServer(async (req, res) => {
 
 		// GET /ide-workspace/file/read — read file content
 		if (method === "GET" && normalizedUrl.startsWith("/ide-workspace/file/read")) {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
 			const urlObj = new URL(req.url, "http://localhost")
 			const filePath = urlObj.searchParams.get("path") || ""
 
@@ -7776,6 +7832,8 @@ const server = http.createServer(async (req, res) => {
 
 		// POST /ide-workspace/file/save — save file content
 		if (method === "POST" && normalizedUrl.startsWith("/ide-workspace/file/save")) {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
 			const data = await parseBody(req)
 			const filePath = data?.path || ""
 			const content = data?.content || ""
@@ -8163,6 +8221,8 @@ const server = http.createServer(async (req, res) => {
 
 		// POST /runtime/exec — sandboxed command execution proxy
 		if (method === "POST" && normalizedUrl === "/runtime/exec") {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
 			const runtimeUrl = process.env.SUPERROO_RUNTIME_URL || "http://127.0.0.1:3418"
 			try {
 				const body = await parseBody(req)
@@ -8196,6 +8256,8 @@ const server = http.createServer(async (req, res) => {
 
 		// POST /api/sandbox/execute — execute a job in the sandbox
 		if (method === "POST" && normalizedUrl === "/api/sandbox/execute") {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
 			try {
 				const body = await parseBody(req)
 				const manager = await getSandboxManager()
@@ -9249,6 +9311,8 @@ const server = http.createServer(async (req, res) => {
 
 		// POST /api/deploy — queue or execute a deployment
 		if (method === "POST" && (url === "/api/deploy" || normalizedUrl === "/api/deploy")) {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
 			if (!orchestrator || !orchestrator.deployOrchestrator) {
 				sendJson(res, 503, { success: false, error: "DeployOrchestrator not initialized" })
 				return
@@ -9261,6 +9325,7 @@ const server = http.createServer(async (req, res) => {
 				force: data.force || false,
 				skipHealthCheck: data.skipHealthCheck || false,
 				skipBuild: data.skipBuild || false,
+				projectName: data.projectName || undefined,
 			})
 			sendJson(res, 200, { success: true, deploy: result })
 			return
@@ -9301,6 +9366,8 @@ const server = http.createServer(async (req, res) => {
 
 		// POST /api/deploy/cancel — cancel a deployment
 		if (method === "POST" && (url === "/api/deploy/cancel" || normalizedUrl === "/api/deploy/cancel")) {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
 			if (!orchestrator || !orchestrator.deployOrchestrator) {
 				sendJson(res, 503, { success: false, error: "DeployOrchestrator not initialized" })
 				return
@@ -9317,6 +9384,8 @@ const server = http.createServer(async (req, res) => {
 
 		// POST /api/deploy/force — force a deployment (bypass queue)
 		if (method === "POST" && (url === "/api/deploy/force" || normalizedUrl === "/api/deploy/force")) {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
 			if (!orchestrator || !orchestrator.deployOrchestrator) {
 				sendJson(res, 503, { success: false, error: "DeployOrchestrator not initialized" })
 				return
@@ -9328,8 +9397,138 @@ const server = http.createServer(async (req, res) => {
 				agent: data.agent || "api",
 				skipHealthCheck: data.skipHealthCheck || false,
 				skipBuild: data.skipBuild || false,
+				projectName: data.projectName || undefined,
 			})
 			sendJson(res, 200, { success: true, deploy: result })
+			return
+		}
+
+		// ── Global Build Orchestrator API ──────────────────────────────────────────
+
+		// POST /api/build/submit — submit a build task from any agent (Claude, Codex, API, webhook)
+		if (method === "POST" && (url === "/api/build/submit" || normalizedUrl === "/api/build/submit")) {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
+			if (!orchestrator || !orchestrator.globalBuildOrchestrator) {
+				sendJson(res, 503, { success: false, error: "GlobalBuildOrchestrator not initialized" })
+				return
+			}
+			const data = await parseBody(req)
+			const result = await orchestrator.globalBuildOrchestrator.submitBuild({
+				projectName: data.projectName,
+				buildType: data.buildType || "docker",
+				imageTag: data.imageTag,
+				commitSha: data.commitSha,
+				agent: data.agent || "api",
+				agentSource: data.agentSource || "api",
+				taskDescription: data.taskDescription || "",
+				buildArgs: data.buildArgs || {},
+				dockerfile: data.dockerfile,
+				context: data.context,
+				projectDir: data.projectDir,
+				skipCache: data.skipCache || false,
+			})
+			sendJson(res, 200, { success: true, build: result })
+			return
+		}
+
+		// GET /api/build/status — get all builds (with optional filters)
+		if (method === "GET" && (url === "/api/build/status" || normalizedUrl === "/api/build/status")) {
+			if (!orchestrator || !orchestrator.globalBuildOrchestrator) {
+				sendJson(res, 503, { success: false, error: "GlobalBuildOrchestrator not initialized" })
+				return
+			}
+			const urlObj = new URL(url, `http://localhost:${PORT}`)
+			const filter = {
+				projectName: urlObj.searchParams.get("project") || undefined,
+				status: urlObj.searchParams.get("status") || undefined,
+				agentSource: urlObj.searchParams.get("source") || undefined,
+				limit: parseInt(urlObj.searchParams.get("limit") || "50", 10),
+				offset: parseInt(urlObj.searchParams.get("offset") || "0", 10),
+			}
+			const builds = await orchestrator.globalBuildOrchestrator.getBuilds(filter)
+			sendJson(res, 200, { success: true, builds })
+			return
+		}
+
+		// GET /api/build/active — get active (running) builds
+		if (method === "GET" && (url === "/api/build/active" || normalizedUrl === "/api/build/active")) {
+			if (!orchestrator || !orchestrator.globalBuildOrchestrator) {
+				sendJson(res, 503, { success: false, error: "GlobalBuildOrchestrator not initialized" })
+				return
+			}
+			const builds = await orchestrator.globalBuildOrchestrator.getActiveBuilds()
+			sendJson(res, 200, { success: true, builds })
+			return
+		}
+
+		// GET /api/build/queued — get queued builds
+		if (method === "GET" && (url === "/api/build/queued" || normalizedUrl === "/api/build/queued")) {
+			if (!orchestrator || !orchestrator.globalBuildOrchestrator) {
+				sendJson(res, 503, { success: false, error: "GlobalBuildOrchestrator not initialized" })
+				return
+			}
+			const builds = await orchestrator.globalBuildOrchestrator.getQueuedBuilds()
+			sendJson(res, 200, { success: true, builds })
+			return
+		}
+
+		// GET /api/build/stats — get build statistics
+		if (method === "GET" && (url === "/api/build/stats" || normalizedUrl === "/api/build/stats")) {
+			if (!orchestrator || !orchestrator.globalBuildOrchestrator) {
+				sendJson(res, 503, { success: false, error: "GlobalBuildOrchestrator not initialized" })
+				return
+			}
+			const stats = await orchestrator.globalBuildOrchestrator.getStats()
+			sendJson(res, 200, { success: true, stats })
+			return
+		}
+
+		// POST /api/build/cancel — cancel a queued or running build
+		if (method === "POST" && (url === "/api/build/cancel" || normalizedUrl === "/api/build/cancel")) {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
+			if (!orchestrator || !orchestrator.globalBuildOrchestrator) {
+				sendJson(res, 503, { success: false, error: "GlobalBuildOrchestrator not initialized" })
+				return
+			}
+			const data = await parseBody(req)
+			if (!data.buildId) {
+				sendJson(res, 400, { success: false, error: "Missing required field: buildId" })
+				return
+			}
+			const result = await orchestrator.globalBuildOrchestrator.cancelBuild(data.buildId)
+			sendJson(res, 200, { success: true, cancel: result })
+			return
+		}
+
+		// POST /api/build/retry — retry a failed build
+		if (method === "POST" && (url === "/api/build/retry" || normalizedUrl === "/api/build/retry")) {
+			if (!orchestrator || !orchestrator.globalBuildOrchestrator) {
+				sendJson(res, 503, { success: false, error: "GlobalBuildOrchestrator not initialized" })
+				return
+			}
+			const data = await parseBody(req)
+			if (!data.buildId) {
+				sendJson(res, 400, { success: false, error: "Missing required field: buildId" })
+				return
+			}
+			const result = await orchestrator.globalBuildOrchestrator.retryBuild(data.buildId)
+			sendJson(res, 200, { success: true, retry: result })
+			return
+		}
+
+		// GET /api/build/history/:project — get build history for a project
+		if (method === "GET" && url.startsWith("/api/build/history/")) {
+			if (!orchestrator || !orchestrator.globalBuildOrchestrator) {
+				sendJson(res, 503, { success: false, error: "GlobalBuildOrchestrator not initialized" })
+				return
+			}
+			const projectName = url.replace("/api/build/history/", "").split("?")[0]
+			const urlObj = new URL(url, `http://localhost:${PORT}`)
+			const limit = parseInt(urlObj.searchParams.get("limit") || "20", 10)
+			const builds = await orchestrator.globalBuildOrchestrator.getProjectHistory(projectName, limit)
+			sendJson(res, 200, { success: true, builds })
 			return
 		}
 
@@ -9961,7 +10160,22 @@ const server = http.createServer(async (req, res) => {
 					return
 				}
 				const limit = parseInt(new URL(url, `http://localhost:${PORT}`).searchParams.get("limit")) || 5
-				const commits = (data.commits || [])
+				const projectFilter = new URL(url, `http://localhost:${PORT}`).searchParams.get("project") || null
+
+				let filteredCommits = data.commits || []
+				let filteredDeploys = data.deploys || []
+
+				// Filter by project/repoName if specified
+				if (projectFilter) {
+					filteredCommits = filteredCommits.filter(function (c) {
+						return (c.repoName || "").toLowerCase() === projectFilter.toLowerCase()
+					})
+					filteredDeploys = filteredDeploys.filter(function (d) {
+						return (d.repoName || "").toLowerCase() === projectFilter.toLowerCase()
+					})
+				}
+
+				const commits = filteredCommits
 					.slice(-limit)
 					.reverse()
 					.map(function (c) {
@@ -9973,9 +10187,10 @@ const server = http.createServer(async (req, res) => {
 							filesChanged: (c.filesChanged || c.files || []).length,
 							timestamp: c.timestamp || c.createdAt || 0,
 							featuresAffected: c.featuresAffected || [],
+							repoName: c.repoName || null,
 						}
 					})
-				const deploys = (data.deploys || [])
+				const deploys = filteredDeploys
 					.slice(-limit)
 					.reverse()
 					.map(function (d) {
@@ -9998,15 +10213,16 @@ const server = http.createServer(async (req, res) => {
 							healthCheckLatencyMs:
 								typeof d.healthCheckLatencyMs === "number" ? d.healthCheckLatencyMs : null,
 							failureReason: d.failureReason || d.error || null,
+							repoName: d.repoName || null,
 						}
 					})
-				const deploySummary = buildDeploySummary(data.deploys || [])
+				const deploySummary = buildDeploySummary(filteredDeploys)
 				sendJson(res, 200, {
 					success: true,
 					commits,
 					deploys,
-					totalCommits: (data.commits || []).length,
-					totalDeploys: (data.deploys || []).length,
+					totalCommits: filteredCommits.length,
+					totalDeploys: filteredDeploys.length,
 					deploySummary,
 				})
 			} catch (err) {
@@ -10186,8 +10402,40 @@ const server = http.createServer(async (req, res) => {
 					// Central Brain unreachable — silently skip cross-project lessons
 				}
 
-				// 3. Merge local + cross-project lessons
-				let allLessons = [...localLessons, ...crossProjectLessons]
+				// 3. Query pgvector (Central Brain v2) for semantic search results
+				let pgVectorLessons = []
+				try {
+					const brainSvc = await getBrainServices()
+					if (brainSvc) {
+						const pgResults = await brainSvc.memory.searchMemory({
+							projectId: projectFilter || "default",
+							query: terms.join(" ") || "",
+							limit: 50,
+							minSimilarity: 0.5,
+							status: "approved",
+						})
+						pgVectorLessons = (pgResults || []).map((mem) => ({
+							id: mem.id || `pgv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+							task: mem.title || "Untitled memory",
+							task_type: mem.memory_type || "lesson",
+							risk: mem.importance >= 0.7 ? "high" : mem.importance >= 0.4 ? "medium" : "low",
+							tags: mem.tags || [],
+							files: mem.files || [],
+							models: mem.model ? [mem.model] : [],
+							root_cause: mem.summary || "No summary recorded.",
+							fix: mem.content ? mem.content.slice(0, 300) : "No content recorded.",
+							reusable_rule: mem.content ? mem.content.slice(0, 200) : "",
+							date: mem.created_at ? mem.created_at.split("T")[0] : "",
+							project: "pgvector",
+							similarity: mem.similarity || 0,
+						}))
+					}
+				} catch {
+					// pgvector unavailable — silently skip
+				}
+
+				// 4. Merge local + cross-project + pgvector lessons
+				let allLessons = [...localLessons, ...crossProjectLessons, ...pgVectorLessons]
 
 				// 4. Apply project filter if specified
 				if (projectFilter) {
@@ -10787,6 +11035,350 @@ const server = http.createServer(async (req, res) => {
 					"unsubscribe",
 				],
 			})
+			return
+		}
+
+		// ═══════════════════════════════════════════════════════════════════════════
+		// CENTRAL BRAIN v2 — pgvector Memory API Routes
+		// ═══════════════════════════════════════════════════════════════════════════
+		// These routes expose the Central Brain v2 pgvector memory services.
+		// They require a Postgres connection with pgvector extension.
+		// If the brain services are not initialized, they return 503.
+		//
+		// Endpoints:
+		//   GET    /api/brain/v2/memory          — List memories (with filters)
+		//   POST   /api/brain/v2/memory/search   — Semantic search
+		//   POST   /api/brain/v2/memory          — Create memory
+		//   PATCH  /api/brain/v2/memory/:id      — Update memory
+		//   POST   /api/brain/v2/memory/:id/approve — Approve pending memory
+		//   POST   /api/brain/v2/memory/:id/archive — Archive memory
+		//   GET    /api/brain/v2/memory/:id/recalls — Recall logs for a memory
+		//   GET    /api/brain/v2/scores           — Agent scores leaderboard
+		//   GET    /api/brain/v2/events           — Brain events log
+		//   GET    /api/brain/v2/approvals        — Pending approvals
+		//   POST   /api/brain/v2/approve          — Approve a pending memory
+		//   POST   /api/brain/v2/reject           — Reject a pending memory
+		//   GET    /api/brain/v2/stats            — Brain statistics
+		// ═══════════════════════════════════════════════════════════════════════════
+
+		// Lazy-init brain services (once per server start)
+		let brainServices = null
+		async function getBrainServices() {
+			if (brainServices) return brainServices
+			try {
+				const { Pool } = require("pg")
+				const brain = require("../orchestrator/stores/brain")
+				const pool = new Pool({
+					connectionString:
+						process.env.BRAIN_DATABASE_URL ||
+						process.env.DATABASE_URL ||
+						"postgresql://superroo:superroo@127.0.0.1:5432/superroo_brain",
+					max: 5,
+					idleTimeoutMillis: 30000,
+					connectionTimeoutMillis: 5000,
+				})
+				// Test connection
+				await pool.query("SELECT 1")
+				// Apply schema
+				await brain.applySchema(pool)
+				// Create services
+				brainServices = await brain.createServices(pool, null, {
+					embedding: {
+						provider: process.env.EMBEDDING_PROVIDER || "ollama",
+					},
+				})
+				writeApiLog("info", "brain-v2", "Central Brain v2 services initialized", {})
+				return brainServices
+			} catch (err) {
+				writeApiLog("warn", "brain-v2", `Central Brain v2 unavailable: ${err.message}`, {})
+				return null
+			}
+		}
+
+		// Helper: require brain services or return 503
+		async function requireBrain(res) {
+			const svc = await getBrainServices()
+			if (!svc) {
+				sendJson(res, 503, { success: false, error: "Central Brain v2 not available (pgvector not connected)" })
+				return null
+			}
+			return svc
+		}
+
+		// GET /api/brain/v2/memory — List memories with optional filters
+		if (
+			method === "GET" &&
+			(url.startsWith("/api/brain/v2/memory") || normalizedUrl.startsWith("/api/brain/v2/memory"))
+		) {
+			const svc = await requireBrain(res)
+			if (!svc) return
+			try {
+				const requestUrl = new URL(req.url || "", "http://localhost")
+				const projectId = requestUrl.searchParams.get("project") || "default"
+				const status = requestUrl.searchParams.get("status") || ""
+				const memoryType = requestUrl.searchParams.get("type") || ""
+				const tags = requestUrl.searchParams.get("tags") ? requestUrl.searchParams.get("tags").split(",") : []
+				const files = requestUrl.searchParams.get("files")
+					? requestUrl.searchParams.get("files").split(",")
+					: []
+				const limit = parseInt(requestUrl.searchParams.get("limit") || "50", 10)
+				const offset = parseInt(requestUrl.searchParams.get("offset") || "0", 10)
+
+				const memories = await svc.memory.listMemories({
+					projectId,
+					status: status || undefined,
+					memoryType: memoryType || undefined,
+					tags: tags.length > 0 ? tags : undefined,
+					files: files.length > 0 ? files : undefined,
+					limit,
+					offset,
+				})
+
+				sendJson(res, 200, { success: true, data: { memories } })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /api/brain/v2/memory/search — Semantic search
+		if (
+			method === "POST" &&
+			(url === "/api/brain/v2/memory/search" || normalizedUrl === "/api/brain/v2/memory/search")
+		) {
+			const svc = await requireBrain(res)
+			if (!svc) return
+			try {
+				const body = await parseBody(req)
+				const { query, projectId = "default", limit = 10, minSimilarity = 0.6, minImportance, status } = body
+
+				const memories = await svc.memory.searchMemory({
+					projectId,
+					query: query || "",
+					limit,
+					minSimilarity,
+					minImportance,
+					status,
+				})
+
+				sendJson(res, 200, { success: true, data: { memories } })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /api/brain/v2/memory — Create a new memory
+		if (method === "POST" && (url === "/api/brain/v2/memory" || normalizedUrl === "/api/brain/v2/memory")) {
+			const svc = await requireBrain(res)
+			if (!svc) return
+			try {
+				const body = await parseBody(req)
+				const memoryId = await svc.memory.createMemory({
+					projectId: body.projectId || "default",
+					agent: body.agent || "api",
+					model: body.model || null,
+					title: body.title,
+					summary: body.summary,
+					content: body.content,
+					memoryType: body.memoryType || "lesson",
+					tags: body.tags || [],
+					files: body.files || [],
+					importance: body.importance || 0.5,
+					confidence: body.confidence || 0.7,
+				})
+
+				await svc.eventBus.emitMemoryCreated(
+					body.projectId || "default",
+					memoryId,
+					body.agent || "api",
+					body.title,
+				)
+
+				sendJson(res, 200, { success: true, data: { id: memoryId } })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// PATCH /api/brain/v2/memory/:id — Update a memory
+		const patchMemoryMatch =
+			url.match(/^\/api\/brain\/v2\/memory\/([a-f0-9-]+)$/) ||
+			normalizedUrl.match(/^\/api\/brain\/v2\/memory\/([a-f0-9-]+)$/)
+		if (method === "PATCH" && patchMemoryMatch) {
+			const svc = await requireBrain(res)
+			if (!svc) return
+			try {
+				const memoryId = patchMemoryMatch[1]
+				const body = await parseBody(req)
+				await svc.memory.updateMemory(memoryId, body)
+				sendJson(res, 200, { success: true, data: { id: memoryId } })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /api/brain/v2/memory/:id/approve — Approve a pending memory
+		const approveMatch =
+			url.match(/^\/api\/brain\/v2\/memory\/([a-f0-9-]+)\/approve$/) ||
+			normalizedUrl.match(/^\/api\/brain\/v2\/memory\/([a-f0-9-]+)\/approve$/)
+		if (method === "POST" && approveMatch) {
+			const svc = await requireBrain(res)
+			if (!svc) return
+			try {
+				const memoryId = approveMatch[1]
+				await svc.memory.updateStatus(memoryId, "approved", "api")
+				await svc.eventBus.emit("default", "memory.approved", { memoryId })
+				sendJson(res, 200, { success: true, data: { id: memoryId, status: "approved" } })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /api/brain/v2/memory/:id/archive — Archive a memory
+		const archiveMatch =
+			url.match(/^\/api\/brain\/v2\/memory\/([a-f0-9-]+)\/archive$/) ||
+			normalizedUrl.match(/^\/api\/brain\/v2\/memory\/([a-f0-9-]+)\/archive$/)
+		if (method === "POST" && archiveMatch) {
+			const svc = await requireBrain(res)
+			if (!svc) return
+			try {
+				const memoryId = archiveMatch[1]
+				await svc.memory.updateStatus(memoryId, "archived", "api")
+				sendJson(res, 200, { success: true, data: { id: memoryId, status: "archived" } })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /api/brain/v2/memory/:id/recalls — Recall logs for a memory
+		const recallsMatch =
+			url.match(/^\/api\/brain\/v2\/memory\/([a-f0-9-]+)\/recalls$/) ||
+			normalizedUrl.match(/^\/api\/brain\/v2\/memory\/([a-f0-9-]+)\/recalls$/)
+		if (method === "GET" && recallsMatch) {
+			const svc = await requireBrain(res)
+			if (!svc) return
+			try {
+				const memoryId = recallsMatch[1]
+				const result = await svc.memory.query(
+					`SELECT * FROM memory_recall_logs WHERE memory_id = $1 ORDER BY recalled_at DESC LIMIT 100`,
+					[memoryId],
+				)
+				sendJson(res, 200, { success: true, data: { recalls: result.rows || [] } })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /api/brain/v2/scores — Agent scores leaderboard
+		if (method === "GET" && (url === "/api/brain/v2/scores" || normalizedUrl === "/api/brain/v2/scores")) {
+			const svc = await requireBrain(res)
+			if (!svc) return
+			try {
+				const requestUrl = new URL(req.url || "", "http://localhost")
+				const projectId = requestUrl.searchParams.get("project") || "default"
+				const limit = parseInt(requestUrl.searchParams.get("limit") || "20", 10)
+				const scores = await svc.scoring.getLeaderboard(projectId, limit)
+				sendJson(res, 200, { success: true, data: { scores } })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /api/brain/v2/events — Brain events log
+		if (method === "GET" && (url === "/api/brain/v2/events" || normalizedUrl === "/api/brain/v2/events")) {
+			const svc = await requireBrain(res)
+			if (!svc) return
+			try {
+				const requestUrl = new URL(req.url || "", "http://localhost")
+				const projectId = requestUrl.searchParams.get("project") || "default"
+				const limit = parseInt(requestUrl.searchParams.get("limit") || "50", 10)
+				const eventType = requestUrl.searchParams.get("type") || null
+				const events = await svc.eventBus.getEvents(projectId, limit, eventType)
+				sendJson(res, 200, { success: true, data: { events } })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /api/brain/v2/approvals — Pending approvals
+		if (method === "GET" && (url === "/api/brain/v2/approvals" || normalizedUrl === "/api/brain/v2/approvals")) {
+			const svc = await requireBrain(res)
+			if (!svc) return
+			try {
+				const requestUrl = new URL(req.url || "", "http://localhost")
+				const projectId = requestUrl.searchParams.get("project") || "default"
+				const limit = parseInt(requestUrl.searchParams.get("limit") || "50", 10)
+				const approvals = await svc.approval.getPendingApprovals(svc.memory, projectId, limit)
+				sendJson(res, 200, { success: true, data: { approvals } })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /api/brain/v2/approve — Approve a pending memory by approval queue ID
+		if (method === "POST" && (url === "/api/brain/v2/approve" || normalizedUrl === "/api/brain/v2/approve")) {
+			const svc = await requireBrain(res)
+			if (!svc) return
+			try {
+				const body = await parseBody(req)
+				const { approvalId, reviewedBy = "api" } = body
+				const result = await svc.approval.approveMemory(svc.memory, approvalId, reviewedBy)
+				sendJson(res, 200, { success: true, data: result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /api/brain/v2/reject — Reject a pending memory by approval queue ID
+		if (method === "POST" && (url === "/api/brain/v2/reject" || normalizedUrl === "/api/brain/v2/reject")) {
+			const svc = await requireBrain(res)
+			if (!svc) return
+			try {
+				const body = await parseBody(req)
+				const { approvalId, reviewedBy = "api" } = body
+				const result = await svc.approval.rejectMemory(svc.memory, approvalId, reviewedBy)
+				sendJson(res, 200, { success: true, data: result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /api/brain/v2/stats — Brain statistics
+		if (method === "GET" && (url === "/api/brain/v2/stats" || normalizedUrl === "/api/brain/v2/stats")) {
+			const svc = await requireBrain(res)
+			if (!svc) return
+			try {
+				const requestUrl = new URL(req.url || "", "http://localhost")
+				const projectId = requestUrl.searchParams.get("project") || "default"
+
+				const [memoryCount, eventSummary, scoreCount] = await Promise.all([
+					svc.memory.query(`SELECT COUNT(*) as count FROM agent_memory WHERE project_id = $1`, [projectId]),
+					svc.eventBus.getEventSummary(projectId),
+					svc.scoring.getLeaderboard(projectId, 5),
+				])
+
+				sendJson(res, 200, {
+					success: true,
+					data: {
+						totalMemories: parseInt(memoryCount.rows[0]?.count || "0", 10),
+						eventSummary,
+						topScores: scoreCount,
+					},
+				})
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
 			return
 		}
 
@@ -12181,6 +12773,8 @@ const server = http.createServer(async (req, res) => {
 
 		// GET /autonomous/status — Get autonomous loop status (no jobId, for dashboard)
 		if (method === "GET" && (url === "/autonomous/status" || normalizedUrl === "/autonomous/status")) {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
 			try {
 				if (!autonomousLoop) {
 					sendJson(res, 200, {
@@ -12215,6 +12809,8 @@ const server = http.createServer(async (req, res) => {
 
 		// POST /autonomous/start — Start the autonomous coding & debugging improvement loop
 		if (method === "POST" && (url === "/autonomous/start" || normalizedUrl === "/autonomous/start")) {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
 			try {
 				const body = await parseBody(req)
 				const target = body.target || "xsjprd55"
@@ -12250,6 +12846,8 @@ const server = http.createServer(async (req, res) => {
 			method === "GET" &&
 			(url.startsWith("/autonomous/status/") || normalizedUrl.startsWith("/autonomous/status/"))
 		) {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
 			try {
 				if (!autonomousLoop) {
 					sendJson(res, 404, { success: false, error: "No autonomous loop has been started" })
@@ -12265,6 +12863,8 @@ const server = http.createServer(async (req, res) => {
 
 		// POST /autonomous/stop — Stop the autonomous loop (no jobId, for dashboard)
 		if (method === "POST" && (url === "/autonomous/stop" || normalizedUrl === "/autonomous/stop")) {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
 			try {
 				if (!autonomousLoop) {
 					sendJson(res, 404, { success: false, error: "No autonomous loop is running" })
@@ -12283,6 +12883,8 @@ const server = http.createServer(async (req, res) => {
 			method === "POST" &&
 			(url.startsWith("/autonomous/stop/") || normalizedUrl.startsWith("/autonomous/stop/"))
 		) {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
 			try {
 				if (!autonomousLoop) {
 					sendJson(res, 404, { success: false, error: "No autonomous loop is running" })
@@ -12300,6 +12902,8 @@ const server = http.createServer(async (req, res) => {
 
 		// GET /debug-team/status — Get debug team / autonomous loop status
 		if (method === "GET" && (url === "/debug-team/status" || normalizedUrl === "/debug-team/status")) {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
 			try {
 				if (!autonomousLoop) {
 					sendJson(res, 200, {
@@ -12328,6 +12932,8 @@ const server = http.createServer(async (req, res) => {
 
 		// POST /debug-team/start — Start debug team autonomous loop
 		if (method === "POST" && (url === "/debug-team/start" || normalizedUrl === "/debug-team/start")) {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
 			try {
 				const body = await parseBody(req)
 				const target = body.target || "superroo2"
@@ -12365,6 +12971,8 @@ const server = http.createServer(async (req, res) => {
 
 		// POST /debug-team/stop — Stop debug team autonomous loop
 		if (method === "POST" && (url === "/debug-team/stop" || normalizedUrl === "/debug-team/stop")) {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
 			try {
 				if (!autonomousLoop) {
 					sendJson(res, 404, { success: false, error: "No debug team loop is running" })
@@ -12380,6 +12988,8 @@ const server = http.createServer(async (req, res) => {
 
 		// GET /debug-team/jobs — List recent debug jobs from orchestrator events
 		if (method === "GET" && (url === "/debug-team/jobs" || normalizedUrl === "/debug-team/jobs")) {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
 			try {
 				const limit = parseInt(new URL(req.url, `http://localhost`).searchParams.get("limit") || "20")
 				let jobs = []
@@ -12445,6 +13055,8 @@ const server = http.createServer(async (req, res) => {
 			method === "POST" &&
 			(url === "/debug-team/test-telegram" || normalizedUrl === "/debug-team/test-telegram")
 		) {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
 			try {
 				const body = await parseBody(req)
 				const { botToken, chatId } = body
@@ -12682,6 +13294,7 @@ const server = http.createServer(async (req, res) => {
 					authToken: body.authToken || "e2e-test-token",
 					updateBaselines: body.updateBaselines,
 					thresholdPercent: body.thresholdPercent,
+					projectName: body.projectName,
 				})
 				sendJson(res, 200, { success: true, report })
 			} catch (err) {
@@ -12690,10 +13303,12 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
-		// GET /visual-crawl/reports — List crawl reports
+		// GET /visual-crawl/reports — List crawl reports (optional ?project= query)
 		if (method === "GET" && (url === "/visual-crawl/reports" || normalizedUrl === "/visual-crawl/reports")) {
 			try {
-				const reports = await visualCrawler.listReports()
+				const parsedUrl = new URL(url, "http://localhost")
+				const projectName = parsedUrl.searchParams.get("project") || undefined
+				const reports = await visualCrawler.listReports(projectName)
 				sendJson(res, 200, { success: true, reports })
 			} catch (err) {
 				sendJson(res, 500, { success: false, error: err.message })
@@ -12733,8 +13348,68 @@ const server = http.createServer(async (req, res) => {
 					viewports: body.viewports,
 					authToken: body.authToken || "e2e-test-token",
 					thresholdPercent: body.thresholdPercent,
+					projectName: body.projectName,
 				})
 				sendJson(res, 200, { success: true, result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// ── Visual Crawler Project Registry Endpoints ─────────────────────────
+
+		// GET /visual-crawl/projects — List all registered projects
+		if (method === "GET" && (url === "/visual-crawl/projects" || normalizedUrl === "/visual-crawl/projects")) {
+			try {
+				const registry = await visualCrawler.getProjectRegistry()
+				sendJson(res, 200, { success: true, projects: registry.projects })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /visual-crawl/projects — Add a new project to the registry
+		if (method === "POST" && (url === "/visual-crawl/projects" || normalizedUrl === "/visual-crawl/projects")) {
+			try {
+				const body = await parseBody(req)
+				const registry = await visualCrawler.addProject({
+					name: body.name,
+					label: body.label,
+					baseUrl: body.baseUrl,
+					authToken: body.authToken,
+					pages: body.pages,
+				})
+				sendJson(res, 200, { success: true, projects: registry.projects })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// DELETE /visual-crawl/projects/:name — Remove a project
+		if (
+			method === "DELETE" &&
+			(url.startsWith("/visual-crawl/projects/") || normalizedUrl.startsWith("/visual-crawl/projects/"))
+		) {
+			try {
+				const projectName = url.split("/").pop()
+				const registry = await visualCrawler.removeProject(projectName)
+				sendJson(res, 200, { success: true, projects: registry.projects })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// PUT /visual-crawl/projects/:name/pages — Update a project's pages
+		if (method === "PUT" && url.includes("/visual-crawl/projects/") && url.endsWith("/pages")) {
+			try {
+				const projectName = url.split("/")[3]
+				const body = await parseBody(req)
+				const registry = await visualCrawler.updateProjectPages(projectName, body.pages || [])
+				sendJson(res, 200, { success: true, projects: registry.projects })
 			} catch (err) {
 				sendJson(res, 500, { success: false, error: err.message })
 			}

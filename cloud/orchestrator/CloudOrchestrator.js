@@ -79,6 +79,9 @@ class CloudOrchestrator extends EventEmitter {
 		this.fileImporter = null
 		this.cpuGuard = null
 
+		// Global Build Orchestrator (cross-agent build task compilation)
+		this.globalBuildOrchestrator = null
+
 		// HermesClaw — Memory & Context Agent
 		this.hermesClaw = null
 		this.learningGateway = null
@@ -559,6 +562,17 @@ class CloudOrchestrator extends EventEmitter {
 	}
 
 	/**
+	 * Register the GlobalBuildOrchestrator module.
+	 * Compiles build tasks from Claude Code, Codex, SuperRoo agents and queues
+	 * Docker image builds with VPS-aware throttling.
+	 * @param {object} globalBuildOrchestrator
+	 */
+	registerGlobalBuildOrchestrator(globalBuildOrchestrator) {
+		this.globalBuildOrchestrator = globalBuildOrchestrator
+		console.log("[CloudOrchestrator] GlobalBuildOrchestrator registered")
+	}
+
+	/**
 	 * Set the provider resolver function (called by api.js during init).
 	 * This enables LLM-based multi-agent breakdown in TaskExecutor.
 	 * @param {Function} resolveProviderFn
@@ -644,6 +658,7 @@ class CloudOrchestrator extends EventEmitter {
 			deployOrchestrator: !!this.deployOrchestrator,
 			fileImporter: !!this.fileImporter,
 			cpuGuard: !!this.cpuGuard,
+			globalBuildOrchestrator: !!this.globalBuildOrchestrator,
 			hermesClaw: !!this.hermesClaw,
 			learningGateway: !!this.learningGateway,
 			ramMonitor: !!this.ramMonitor,

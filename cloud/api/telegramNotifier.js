@@ -1216,10 +1216,61 @@ async function handleCoderCallback(botToken, callbackQuery) {
 			return { action: "audit", taskId }
 		}
 
+		case "logs": {
+			// Show coder job logs
+			let logLines = []
+			if (pending) {
+				if (pending.createdAt) logLines.push(`🕐 Created: ${new Date(pending.createdAt).toLocaleString()}`)
+				if (pending.updatedAt) logLines.push(`🔄 Updated: ${new Date(pending.updatedAt).toLocaleString()}`)
+				if (pending.status) logLines.push(`📌 Status: ${pending.status}`)
+				if (pending.commitHash) logLines.push(`💾 Commit: ${pending.commitHash.slice(0, 8)}`)
+				if (pending.lastError) logLines.push(`❌ Last error: ${pending.lastError}`)
+				if (pending.branch) logLines.push(`🌿 Branch: ${pending.branch}`)
+				if (pending.healthOk === false) logLines.push(`🚨 Health check: failed`)
+				if (Array.isArray(pending.appliedChanges)) {
+					const ok = pending.appliedChanges.filter((c) => c.success !== false).length
+					const fail = pending.appliedChanges.length - ok
+					logLines.push(`📝 Changes: ${ok} applied${fail ? ", " + fail + " failed" : ""}`)
+				}
+			}
+			// Read recent log file entries for this taskId
+			try {
+				const today = new Date().toISOString().slice(0, 10)
+				const logFile = path.join(__dirname, "..", "logs", `superroo-${today}.jsonl`)
+				const raw = (await fs.readFile(logFile, "utf-8")).trim().split("\n").filter(Boolean)
+				const taskLines = raw
+					.map((l) => {
+						try {
+							return JSON.parse(l)
+						} catch {
+							return null
+						}
+					})
+					.filter((e) => e && e.message && String(e.message).includes(taskId))
+					.slice(-5)
+				for (const e of taskLines) {
+					logLines.push(`${e.level === "error" ? "❌" : "ℹ️"} ${e.message.slice(0, 120)}`)
+				}
+			} catch {
+				/* log file not yet available */
+			}
+
+			const logText = logLines.length ? logLines.join("\n") : "_No log entries found for this task._"
+
+			await editMessageText(botToken, chatId, messageId, `📋 *Task Log: ${taskId}*\n\n${logText}`, [
+				[{ text: "🔙 Back", callback_data: `coder:back:${taskId}` }],
+			])
+			return { action: "logs", taskId }
+		}
+
 		default:
 			return false
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Store pending coder job state for multi-phase workflow
+// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Store pending coder job state for multi-phase workflow
@@ -1333,24 +1384,106 @@ async function handleNotificationCallback(botToken, callbackQuery) {
 		}
 
 		case "logs": {
-			await editMessageText(
-				botToken,
-				chatId,
-				messageId,
-				`📋 *Logs for ${taskId}*\n\n` + `_Fetching logs..._\n\n` + `Use \`/logs\` in chat to view recent logs.`,
-				[[{ text: "🔙 Back", callback_data: `notify:back:${taskId}` }]],
-			)
+			// Build log summary from pending job state + recent log file
+			let logLines = []
+			const p = pendingCoderJobs.get(taskId) || pendingApprovals.get(`${chatId}:${taskId}`) || null
+			if (p) {
+				if (p.createdAt) logLines.push(`🕐 Created: ${new Date(p.createdAt).toLocaleString()}`)
+				if (p.updatedAt) logLines.push(`🔄 Updated: ${new Date(p.updatedAt).toLocaleString()}`)
+				if (p.status) logLines.push(`📌 Status: ${p.status}`)
+				if (p.commitHash) logLines.push(`💾 Commit: ${p.commitHash.slice(0, 8)}`)
+				if (p.lastError) logLines.push(`❌ Last error: ${p.lastError}`)
+				if (p.branch) logLines.push(`🌿 Branch: ${p.branch}`)
+				if (p.allSuccess === false) logLines.push(`⚠️ Apply: some changes failed`)
+				if (p.healthOk === false) logLines.push(`🚨 Health check: failed`)
+				if (Array.isArray(p.appliedChanges)) {
+					const ok = p.appliedChanges.filter((c) => c.success !== false).length
+					const fail = p.appliedChanges.length - ok
+					logLines.push(`📝 Changes: ${ok} applied${fail ? ", " + fail + " failed" : ""}`)
+				}
+			}
+			// Read recent log file entries for this taskId
+			try {
+				const today = new Date().toISOString().slice(0, 10)
+				const logFile = path.join(__dirname, "..", "logs", `superroo-${today}.jsonl`)
+				const raw = (await fs.readFile(logFile, "utf-8")).trim().split("\n").filter(Boolean)
+				const taskLines = raw
+					.map((l) => {
+						try {
+							return JSON.parse(l)
+						} catch {
+							return null
+						}
+					})
+					.filter((e) => e && e.message && String(e.message).includes(taskId))
+					.slice(-5)
+				for (const e of taskLines) {
+					logLines.push(`${e.level === "error" ? "❌" : "ℹ️"} ${e.message.slice(0, 120)}`)
+				}
+			} catch {
+				/* log file not yet available */
+			}
+
+			// Try auto-deployer status file for deploy tasks
+			if (!p || p.status === "deploy_issues" || p.status === "deployed") {
+				try {
+					const deployStatusPath = path.join(__dirname, "..", "memory", "auto-deploy-status.json")
+					const deployRaw = await fs.readFile(deployStatusPath, "utf-8")
+					const deployStatus = JSON.parse(deployRaw)
+					if (deployStatus.state && deployStatus.state !== "idle") {
+						logLines.push(`🚀 Deploy State: ${deployStatus.state}`)
+						if (deployStatus.lastError)
+							logLines.push(`❌ Deploy Error: ${deployStatus.lastError.slice(0, 200)}`)
+						if (deployStatus.attempts && deployStatus.attempts.length > 0) {
+							const lastAttempt = deployStatus.attempts[deployStatus.attempts.length - 1]
+							logLines.push(`🔄 Last Attempt: ${lastAttempt.status || "unknown"}`)
+							if (lastAttempt.error) logLines.push(`❌ Attempt Error: ${lastAttempt.error.slice(0, 200)}`)
+						}
+						if (deployStatus.cooldownUntil)
+							logLines.push(`⏳ Cooldown until: ${new Date(deployStatus.cooldownUntil).toLocaleString()}`)
+					}
+				} catch {
+					/* auto-deploy status not available */
+				}
+
+				// Try auto-deployer log file
+				try {
+					const deployLogPath = path.join(__dirname, "..", "logs", "auto-deployer.log")
+					const deployLogRaw = await fs.readFile(deployLogPath, "utf-8")
+					const deployLines = deployLogRaw.trim().split("\n").filter(Boolean).slice(-10)
+					if (deployLines.length > 0) {
+						logLines.push(`\n📜 Recent deploy logs:`)
+						for (const line of deployLines) {
+							logLines.push(`  ${line.slice(0, 150)}`)
+						}
+					}
+				} catch {
+					/* auto-deploy log not available */
+				}
+			}
+
+			const logText = logLines.length ? logLines.join("\n") : "_No log entries found for this task._"
+
+			await editMessageText(botToken, chatId, messageId, `📋 *Task Log: ${taskId}*\n\n${logText}`, [
+				[{ text: "🔙 Back", callback_data: `notify:back:${taskId}` }],
+			])
 			return true
 		}
 
 		case "retry": {
+			const retryPending = pendingCoderJobs.get(taskId)
 			await editMessageText(
 				botToken,
 				chatId,
 				messageId,
-				`🔄 *Retrying ${taskId}*\n\n` + `_Re-queuing the task..._\n\n` + `I'll notify you when it's done.`,
+				`🔄 *Retrying: ${taskId}*\n\nRe-running with additional context...`,
 			)
-			return true
+			if (retryPending) {
+				retryPending.status = "retry_requested"
+				pendingCoderJobs.set(taskId, retryPending)
+				scheduleStatePersist()
+			}
+			return { action: "retry", taskId }
 		}
 
 		case "test": {

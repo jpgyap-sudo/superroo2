@@ -49,12 +49,23 @@ export function ParallelExecutionView() {
 		try {
 			const res = await fetch("/api/orchestrator/parallel/stats")
 			const data = await res.json()
-			if (data.success) {
-				setStats(data)
+			if (data.success && data.stats) {
+				// Map backend stats shape to frontend interface
+				const s = data.stats
+				setStats({
+					maxConcurrency: s.maxConcurrency ?? 5,
+					maxTokenBudget: s.maxTokens ?? 100000,
+					activeTasks: s.running ?? 0,
+					totalSubmitted: s.totalSubmitted ?? 0,
+					totalCompleted: s.totalCompleted ?? 0,
+					totalFailed: s.totalFailed ?? 0,
+					currentTokenUsage: s.currentTokenUsage ?? 0,
+					tokenBudgetRemaining: (s.maxTokens ?? 100000) - (s.currentTokenUsage ?? 0),
+					agentCosts: s.agentTokenUsage ?? {},
+				})
 				setError(null)
 			} else {
-				setStats(data)
-				setError(null)
+				setError(data.error || "Unknown error")
 			}
 		} catch (err: unknown) {
 			setError(err instanceof Error ? err.message : "Failed to fetch parallel execution stats")
@@ -132,11 +143,7 @@ export function ParallelExecutionView() {
 					}
 					color={s.activeTasks > 0 ? "text-blue-400" : "text-gray-400"}
 				/>
-				<StatCard
-					label="Total Submitted"
-					value={s.totalSubmitted}
-					color="text-[#e2e8f0]"
-				/>
+				<StatCard label="Total Submitted" value={s.totalSubmitted} color="text-[#e2e8f0]" />
 				<StatCard
 					label="Completed"
 					value={s.totalCompleted}
@@ -167,11 +174,7 @@ export function ParallelExecutionView() {
 						<div
 							className={cn(
 								"h-full rounded-full transition-all duration-500",
-								tokenPct > 90
-									? "bg-red-500"
-									: tokenPct > 70
-										? "bg-amber-500"
-										: "bg-cyan-500",
+								tokenPct > 90 ? "bg-red-500" : tokenPct > 70 ? "bg-amber-500" : "bg-cyan-500",
 							)}
 							style={{ width: `${tokenPct}%` }}
 						/>
@@ -202,7 +205,9 @@ export function ParallelExecutionView() {
 									</div>
 									<div className="flex-1 min-w-0">
 										<div className="flex items-center justify-between mb-1">
-											<span className="text-sm font-medium text-[#e2e8f0] capitalize">{agent}</span>
+											<span className="text-sm font-medium text-[#e2e8f0] capitalize">
+												{agent}
+											</span>
 											<span className="text-sm text-gray-400">{formatToken(cost)} tokens</span>
 										</div>
 										<div className="h-1.5 w-full rounded-full bg-[#1e2535]">

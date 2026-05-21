@@ -551,7 +551,39 @@ async function handleHealingRoute(method, url, req, res) {
 		handleGetEscalated(req, res)
 		return true
 	}
+	if (method === "GET" && (pathname === "/api/healing/repair-runs" || normalizedPath === "/healing/repair-runs")) {
+		handleGetRepairRuns(req, res, url)
+		return true
+	}
 	return false
+}
+
+function handleGetRepairRuns(req, res, urlStr) {
+	try {
+		// Try to get runs from a running instance via global
+		const loop = global.__orchestrator?.selfHealingLoop
+		const limit = parseInt(new URL(urlStr, "http://localhost").searchParams.get("limit") || "100", 10)
+		const runs = loop ? loop.getRepairRuns(limit) : readRepairRunsFromFile(limit)
+		sendJson(res, 200, { runs, total: runs.length })
+	} catch (err) {
+		sendJson(res, 500, { error: err.message, runs: [] })
+	}
+}
+
+function readRepairRunsFromFile(limit = 100) {
+	const logPath =
+		process.env.REPAIR_RUNS_LOG_PATH ||
+		path.resolve(__dirname, "..", "..", "orchestrator", "data", "repair-runs.jsonl")
+	try {
+		const content = fs.readFileSync(logPath, "utf8")
+		const lines = content.trim().split("\n").filter(Boolean)
+		return lines
+			.slice(-limit)
+			.map((l) => JSON.parse(l))
+			.reverse()
+	} catch {
+		return []
+	}
 }
 
 module.exports = { handleHealingRoute }

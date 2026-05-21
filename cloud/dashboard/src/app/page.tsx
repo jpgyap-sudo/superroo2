@@ -51,6 +51,7 @@ import { CrawlerView } from "@/components/views/crawler"
 import { FileImporterView } from "@/components/views/file-importer"
 import { SavepointsView } from "@/components/views/savepoints"
 import { EventsView } from "@/components/views/events"
+import { BuildQueueView } from "@/components/views/build-queue"
 import { LoginPage } from "@/components/auth/login"
 
 const PAGES: Record<string, React.FC> = {
@@ -102,6 +103,7 @@ const PAGES: Record<string, React.FC> = {
 	"file-importer": FileImporterView,
 	savepoints: SavepointsView,
 	events: EventsView,
+	"build-queue": BuildQueueView,
 }
 
 function StatusDot({ online }: { online: boolean }) {
