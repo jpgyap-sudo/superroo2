@@ -13,6 +13,27 @@
  *   pm2 save
  */
 
+const fs = require("fs")
+const path = require("path")
+
+function readEnvValue(name) {
+	const envPath = path.join(__dirname, ".env")
+	try {
+		const lines = fs.readFileSync(envPath, "utf8").split(/\r?\n/)
+		for (const line of lines) {
+			const trimmed = line.trim()
+			if (!trimmed || trimmed.startsWith("#")) continue
+			const match = trimmed.match(/^([^=]+)=(.*)$/)
+			if (match && match[1].trim() === name) {
+				return match[2].trim().replace(/^[ '\"]|[ '\"]$/g, "")
+			}
+		}
+	} catch {
+		// .env is optional; process.env remains the preferred source.
+	}
+	return ""
+}
+
 module.exports = {
 	apps: [
 		{
@@ -82,7 +103,7 @@ module.exports = {
 				OLLAMA_NUM_CTX: 2048,
 				OLLAMA_TIMEOUT_MS: 120000,
 				// PostgreSQL (BugKnowledgeStore)
-				PGPASSWORD: process.env.PGPASSWORD || "",
+				PGPASSWORD: process.env.PGPASSWORD || readEnvValue("PGPASSWORD"),
 				PGUSER: "superroo",
 				PGDATABASE: "superroo",
 				PGHOST: "127.0.0.1",
