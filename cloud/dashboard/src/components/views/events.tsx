@@ -191,7 +191,7 @@ export function EventsView() {
 	}, [events])
 
 	const uniqueEventTypes = useMemo(() => {
-		return [...new Set(events.map((e) => e.type))].sort()
+		return Array.from(new Set(events.map((e) => e.type))).sort()
 	}, [events])
 
 	return (
