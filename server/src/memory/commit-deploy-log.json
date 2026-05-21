@@ -158,6 +158,145 @@
 				"lessonsRetrieved": true,
 				"testsRun": true
 			}
+		},
+		{
+			"id": "commit_1779297874283",
+			"commitSha": "5afecfa1",
+			"agent": "Kimi Code CLI",
+			"type": "bugfix",
+			"title": "fix(ram-orchestrator): event property mismatch between RAMMonitor and AlertManager",
+			"description": "RAMMonitor emits stateChange with prevState and flat metrics, but AlertManager expected oldState and event.snapshot. Fixed property mapping and heartbeat listener.",
+			"filesChanged": ["cloud/worker/vpsRamOrchestratorWorker.js"],
+			"featuresAffected": ["ram-orchestrator"],
+			"bugsFixed": ["undefined state in alert logs", "missing snapshot in alert payload"],
+			"timestamp": "2026-05-20T17:24:34.283Z",
+			"modelsUsed": [
+				{
+					"phase": "coding",
+					"provider": "kimi",
+					"model": "kimi-code-cli"
+				}
+			],
+			"workflowCompliance": {
+				"isCompliant": true,
+				"deepseekUsed": false,
+				"lessonsRetrieved": true,
+				"testsRun": true
+			}
+		},
+		{
+			"commitSha": "1cdb9a953660461ddfaa26a411363c1c74b9cbc6",
+			"agent": "Codex",
+			"type": "feature",
+			"title": "Clarify platform positioning and healing proof metrics",
+			"filesChanged": [
+				"README.md",
+				"cloud/api/routes/healing-metrics.js",
+				"docs/super-roo/GAP_AUDIT_2026-05-21.md"
+			],
+			"featuresAffected": ["readme-positioning", "monitoring", "self-healing", "cloud-api"],
+			"modelsUsed": [
+				{
+					"phase": "planning",
+					"provider": "openai",
+					"model": "codex",
+					"success": true,
+					"timestamp": "2026-05-20T17:29:32.632Z"
+				},
+				{
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"success": true,
+					"timestamp": "2026-05-20T17:29:32.633Z"
+				},
+				{
+					"phase": "review",
+					"provider": "openai",
+					"model": "codex",
+					"success": true,
+					"timestamp": "2026-05-20T17:29:32.633Z"
+				},
+				{
+					"phase": "memory_storage",
+					"provider": "superroo-learn",
+					"model": "local-fallback",
+					"success": true,
+					"timestamp": "2026-05-20T17:29:32.633Z"
+				}
+			],
+			"workflowCompliance": {
+				"isCompliant": true,
+				"steps": {
+					"lessonsRead": true,
+					"deepseekDelegated": true,
+					"codexReviewed": true,
+					"ollamaSummarized": false,
+					"centralBrainStored": false
+				},
+				"violations": ["Central Brain was unreachable; lesson stored locally and queued for retry."]
+			},
+			"timestamp": 1779298172633
+		},
+		{
+			"commitSha": "790fb02159b5e187e1a69896f96ccfc157e0f82b",
+			"agent": "Codex",
+			"type": "bugfix",
+			"title": "Wire Telegram dashboard coding flow",
+			"filesChanged": [
+				"cloud/api/api.js",
+				"cloud/dashboard/src/components/views/telegram.tsx",
+				"cloud/worker/worker.js",
+				"cloud/api/__tests__/run-tests.js",
+				"memory/lessons-learned.md",
+				"memory/lesson-index.jsonl"
+			],
+			"featuresAffected": ["telegram-coding", "telegram-dashboard", "coder-workflow"],
+			"modelsUsed": [
+				{
+					"phase": "planning",
+					"provider": "openai",
+					"model": "codex",
+					"success": true,
+					"timestamp": "2026-05-21T01:54:54.906Z"
+				},
+				{
+					"phase": "coding",
+					"provider": "deepseek",
+					"model": "deepseek-chat",
+					"success": false,
+					"timestamp": "2026-05-21T01:54:54.906Z"
+				},
+				{
+					"phase": "review",
+					"provider": "openai",
+					"model": "codex",
+					"success": true,
+					"timestamp": "2026-05-21T01:54:54.906Z"
+				},
+				{
+					"phase": "memory_storage",
+					"provider": "superroo-learn",
+					"model": "local-fallback",
+					"success": true,
+					"timestamp": "2026-05-21T01:54:54.906Z"
+				}
+			],
+			"workflowCompliance": {
+				"isCompliant": true,
+				"steps": {
+					"lessonsRead": true,
+					"deepseekDelegated": true,
+					"codexReviewed": true,
+					"ollamaSummarized": false,
+					"centralBrainStored": false
+				},
+				"violations": [
+					"DeepSeek returned generic non-applicable output; Codex applied minimal targeted patch after healthy route verification",
+					"Central Brain offline; lesson stored locally and queued for retry"
+				]
+			},
+			"timestamp": 1779328494906
 		}
 	],
 	"deploys": [
@@ -186,6 +325,23 @@
 			"services": ["superroo-api", "superroo-ram-orchestrator"],
 			"status": "healthy",
 			"timestamp": "2026-05-20T16:59:49.513Z"
+		},
+		{
+			"id": "deploy_1779297874283",
+			"version": "3.53.3",
+			"commitSha": "5afecfa1",
+			"agent": "Kimi Code CLI",
+			"target": "100.64.175.88",
+			"services": ["superroo-ram-orchestrator"],
+			"status": "healthy",
+			"timestamp": "2026-05-20T17:24:34.283Z"
+		},
+		{
+			"version": "readme-healing-proof-1cdb9a95",
+			"commitSha": "1cdb9a953660461ddfaa26a411363c1c74b9cbc6",
+			"agent": "Codex",
+			"status": "healthy",
+			"timestamp": 1779298429769
 		}
 	]
 }

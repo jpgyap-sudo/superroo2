@@ -4,12 +4,17 @@
 	"description": "SuperRoo Cloud API and Worker",
 	"private": true,
 	"scripts": {
-		"test": "vitest run test/"
+		"test": "vitest run test/",
+		"superroo:task": "node orchestrator/runTask.js",
+		"superroo:runtime": "node runtime/server.js",
+		"superroo:upgrade:check": "node scripts/check-openhands-upgrade.mjs",
+		"superroo:sync-repairs": "node ../scripts/sync-repair-runs.mjs"
 	},
 	"dependencies": {
 		"better-sqlite3": "^11.7.0",
 		"bullmq": "^5.76.5",
 		"ioredis": "^5.10.1",
+		"uuid": "^11.1.0",
 		"ws": "^8.16.0"
 	},
 	"devDependencies": {
