@@ -1167,6 +1167,14 @@ async function _getEmbedding(text) {
  */
 async function _handleMcpAction(action, params, orchestrator) {
 	switch (action) {
+		case "ping":
+			return {
+				success: true,
+				ok: true,
+				source: "api",
+				timestamp: Date.now(),
+			}
+
 		case "query_memory": {
 			const query = params.query || ""
 			const limit = Number(params.maxResults || params.limit || 10)
@@ -1254,7 +1262,7 @@ async function _handleMcpAction(action, params, orchestrator) {
 				const stats = await orchestrator.hermesClaw.getStats()
 				return { success: true, stats, source: "hermes_claw" }
 			}
-			return { success: true, stats: {}, source: "hermes_claw" }
+			return { success: false, error: "HermesClaw not initialized", initialized: false, source: "hermes_claw" }
 		}
 
 		case "commit_deploy_status": {
@@ -10473,6 +10481,7 @@ const server = http.createServer(async (req, res) => {
 							description: "REST API fallback when MCP server or daemon is unreachable",
 							body: { action: "string", params: "object" },
 							supportedActions: [
+								"ping",
 								"query_memory",
 								"list_projects",
 								"get_active_task",
@@ -10748,6 +10757,7 @@ const server = http.createServer(async (req, res) => {
 				connectedClients: brainClients.size,
 				sseClients: global.__sseClients.size,
 				supportedActions: [
+					"ping",
 					"query_memory",
 					"list_projects",
 					"get_active_task",
@@ -10795,7 +10805,7 @@ const server = http.createServer(async (req, res) => {
 		// Returns: MCP-compatible JSON response
 		//
 		// Supported actions (delegated to _handleMcpAction):
-		//   - query_memory, list_projects, get_active_task, get_recent_bugs
+		//   - ping, query_memory, list_projects, get_active_task, get_recent_bugs
 		//   - hermes_recall, hermes_learn, hermes_list_skills, hermes_list_resources
 		//   - hermes_stats, commit_deploy_status, codex_task_upsert, codex_task_list
 		//   - codex_task_get, codex_task_get_active, health, qdrant_search

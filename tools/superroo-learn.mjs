@@ -481,6 +481,48 @@ async function checkMcpHealth() {
 }
 
 /**
+ * Check Central Brain backend health through the MCP sync_status tool.
+ * A reachable MCP process is not enough: when only local JSON fallback is
+ * available the learning layer is degraded, not fully online.
+ */
+async function getMcpSyncHealth() {
+	const fallbackStatus = {
+		mcpReachable: false,
+		centralBrainOnline: false,
+		centralBrainStatus: "offline",
+		syncStatus: null,
+		error: null,
+	}
+
+	try {
+		const sync = await mcpToolCall("sync_status", {})
+		const status = sync?.status || sync || {}
+		const backends = status.backends || {}
+		const daemonReachable = !!backends.daemon?.reachable
+		const restReachable = !!backends.restApi?.reachable
+		const localFallbackReachable = !!backends.localFallback?.reachable
+		const backendOnline = daemonReachable || restReachable
+		const centralBrainStatus = backendOnline ? "online" : localFallbackReachable ? "degraded" : "offline"
+
+		return {
+			mcpReachable: true,
+			centralBrainOnline: backendOnline,
+			centralBrainStatus,
+			syncStatus: sync,
+			error: null,
+		}
+	} catch (err) {
+		const mcpReachable = await checkMcpHealth()
+		return {
+			...fallbackStatus,
+			mcpReachable,
+			centralBrainStatus: mcpReachable ? "degraded" : "offline",
+			error: err?.message || String(err),
+		}
+	}
+}
+
+/**
  * Send a JSON-RPC 2.0 request to the MCP server.
  */
 async function mcpCall(method, params = {}) {
@@ -927,26 +969,35 @@ async function cmdStatus() {
 	const project = detectProjectName()
 	const localFiles = findLocalLessonFiles()
 
-	console.error(`📊 SuperRoo Learning Layer Status`)
+	console.error(`SuperRoo Learning Layer Status`)
 	console.error(`   Config dir: ${CONFIG_DIR}`)
 	console.error(`   MCP URL:    ${MCP_URL}`)
 	console.error(`   Project:    ${project}`)
 	console.error(`   Known projects: ${Object.keys(config.projects).length}`)
 
-	// Check Central Brain health
-	const healthy = await checkMcpHealth()
-	console.error(`   Central Brain: ${healthy ? "✅ Online" : "❌ Offline"}`)
+	// Check Central Brain backend health. A reachable MCP server can still be
+	// fallback-only, so use sync_status when available.
+	const brainHealth = await getMcpSyncHealth()
+	const healthy = brainHealth.centralBrainOnline
+	const healthLabel =
+		brainHealth.centralBrainStatus === "online"
+			? "Online"
+			: brainHealth.centralBrainStatus === "degraded"
+				? "Degraded (local fallback only)"
+				: "Offline"
+	console.error(`   Central Brain: ${healthLabel}`)
+	if (brainHealth.error) console.error(`   Health detail: ${brainHealth.error}`)
 
 	// Check local files
-	if (localFiles.jsonl) console.error(`   Local JSONL:  ✅ ${localFiles.jsonl}`)
-	else console.error(`   Local JSONL:  ❌ Not found`)
+	if (localFiles.jsonl) console.error(`   Local JSONL:  available ${localFiles.jsonl}`)
+	else console.error(`   Local JSONL:  not found`)
 
-	if (localFiles.md) console.error(`   Local MD:     ✅ ${localFiles.md}`)
-	else console.error(`   Local MD:     ❌ Not found`)
+	if (localFiles.md) console.error(`   Local MD:     available ${localFiles.md}`)
+	else console.error(`   Local MD:     not found`)
 
 	// Check retry queue
 	const retryQueue = await readRetryQueue()
-	console.error(`   Retry queue:  ${retryQueue.length > 0 ? `⚠️  ${retryQueue.length} pending` : "✅ Empty"}`)
+	console.error(`   Retry queue:  ${retryQueue.length > 0 ? `${retryQueue.length} pending` : "Empty"}`)
 
 	console.log(
 		JSON.stringify(
@@ -955,6 +1006,9 @@ async function cmdStatus() {
 				currentProject: project,
 				mcpUrl: MCP_URL,
 				centralBrainOnline: healthy,
+				centralBrainStatus: brainHealth.centralBrainStatus,
+				mcpReachable: brainHealth.mcpReachable,
+				syncStatus: brainHealth.syncStatus,
 				localFiles,
 				fallbackEnabled: !NO_FALLBACK,
 				retryQueueLength: retryQueue.length,
@@ -966,21 +1020,33 @@ async function cmdStatus() {
 }
 
 async function cmdHealth() {
-	const healthy = await checkMcpHealth()
+	const brainHealth = await getMcpSyncHealth()
+	const healthy = brainHealth.centralBrainOnline
 	const localFiles = findLocalLessonFiles()
 
 	const status = {
-		centralBrain: healthy ? "online" : "offline",
+		centralBrain: brainHealth.centralBrainStatus,
+		centralBrainOnline: healthy,
+		mcpReachable: brainHealth.mcpReachable,
+		syncStatus: brainHealth.syncStatus,
+		error: brainHealth.error,
 		localJsonl: localFiles.jsonl ? "available" : "not-found",
 		localMarkdown: localFiles.md ? "available" : "not-found",
 		fallbackEnabled: !NO_FALLBACK,
 	}
 
-	console.error(`🏥 SuperRoo Learning Layer Health Check`)
-	console.error(`   Central Brain:  ${healthy ? "✅ Online" : "❌ Offline"}`)
-	console.error(`   Local JSONL:    ${localFiles.jsonl ? "✅ " + localFiles.jsonl : "❌ Not found"}`)
-	console.error(`   Local Markdown: ${localFiles.md ? "✅ " + localFiles.md : "❌ Not found"}`)
-	console.error(`   Fallback:       ${NO_FALLBACK ? "❌ Disabled" : "✅ Enabled"}`)
+	console.error(`SuperRoo Learning Layer Health Check`)
+	const healthLabel =
+		brainHealth.centralBrainStatus === "online"
+			? "Online"
+			: brainHealth.centralBrainStatus === "degraded"
+				? "Degraded (local fallback only)"
+				: "Offline"
+	console.error(`   Central Brain:  ${healthLabel}`)
+	if (brainHealth.error) console.error(`   Health detail:   ${brainHealth.error}`)
+	console.error(`   Local JSONL:    ${localFiles.jsonl ? "available " + localFiles.jsonl : "not found"}`)
+	console.error(`   Local Markdown: ${localFiles.md ? "available " + localFiles.md : "not found"}`)
+	console.error(`   Fallback:       ${NO_FALLBACK ? "Disabled" : "Enabled"}`)
 
 	console.log(JSON.stringify(status, null, 2))
 }
