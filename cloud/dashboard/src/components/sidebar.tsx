@@ -43,6 +43,10 @@ import {
 	Radio,
 	Server,
 	Box,
+	BookMarked,
+	Search as SearchIcon,
+	Upload,
+	History,
 } from "lucide-react"
 
 const NAV = [
@@ -89,6 +93,11 @@ const NAV = [
 	{ id: "collaboration", icon: Users, label: "Collaboration" },
 	{ id: "mcp-servers", icon: Server, label: "MCP Servers" },
 	{ id: "sandbox", icon: Box, label: "Sandbox" },
+	{ id: "features", icon: BookMarked, label: "Features" },
+	{ id: "crawler", icon: SearchIcon, label: "Crawler" },
+	{ id: "file-importer", icon: Upload, label: "File Importer" },
+	{ id: "savepoints", icon: History, label: "Savepoints" },
+	{ id: "events", icon: Activity, label: "Events" },
 ]
 
 export function Sidebar({ page, setPage }: { page: string; setPage: (p: string) => void }) {

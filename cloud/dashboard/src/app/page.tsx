@@ -46,6 +46,11 @@ import { CollaborationView } from "@/components/views/collaboration"
 import { ProviderDashboardView } from "@/components/views/provider-dashboard"
 import { MCPServersView } from "@/components/views/mcp-servers"
 import { SandboxView } from "@/components/views/sandbox"
+import { FeaturesView } from "@/components/views/features"
+import { CrawlerView } from "@/components/views/crawler"
+import { FileImporterView } from "@/components/views/file-importer"
+import { SavepointsView } from "@/components/views/savepoints"
+import { EventsView } from "@/components/views/events"
 import { LoginPage } from "@/components/auth/login"
 
 const PAGES: Record<string, React.FC> = {
@@ -92,6 +97,11 @@ const PAGES: Record<string, React.FC> = {
 	collaboration: CollaborationView,
 	"mcp-servers": MCPServersView,
 	sandbox: SandboxView,
+	features: FeaturesView,
+	crawler: CrawlerView,
+	"file-importer": FileImporterView,
+	savepoints: SavepointsView,
+	events: EventsView,
 }
 
 function StatusDot({ online }: { online: boolean }) {
