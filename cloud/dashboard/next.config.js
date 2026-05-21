@@ -4,13 +4,15 @@ const nextConfig = {
 	generateEtags: false,
 	eslint: { ignoreDuringBuilds: true },
 	async rewrites() {
+		const apiBase = process.env.API_INTERNAL_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8787"
 		return [
 			{
 				source: "/api/:path*",
-				// API_INTERNAL_URL is used server-side inside Docker containers
-				// NEXT_PUBLIC_API_URL is used client-side (browser → host port)
-				// Falls back to localhost:8787 for PM2/host mode
-				destination: `${process.env.API_INTERNAL_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8787"}/:path*`,
+				destination: `${apiBase}/api/:path*`,
+			},
+			{
+				source: "/visual-crawl/:path*",
+				destination: `${apiBase}/visual-crawl/:path*`,
 			},
 		]
 	},
