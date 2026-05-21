@@ -38,10 +38,16 @@ import {
 	Cpu,
 	Package,
 	MemoryStick,
+	GitBranch,
+	Users,
+	Radio,
+	Server,
+	Box,
 } from "lucide-react"
 
 const NAV = [
 	{ id: "overview", icon: LayoutDashboard, label: "Overview" },
+	{ id: "provider-dashboard", icon: Radio, label: "Providers" },
 	{ id: "working-tree", icon: Workflow, label: "Working Tree" },
 	{ id: "jobs", icon: Zap, label: "Jobs" },
 	{ id: "queue", icon: Layers, label: "Queue" },
@@ -79,6 +85,10 @@ const NAV = [
 	{ id: "ml-engine", icon: Cpu, label: "ML Engine" },
 	{ id: "ram-orchestrator", icon: MemoryStick, label: "RAM Orchestrator" },
 	{ id: "product-memory", icon: Package, label: "Product Memory" },
+	{ id: "task-timeline", icon: GitBranch, label: "Task Timeline" },
+	{ id: "collaboration", icon: Users, label: "Collaboration" },
+	{ id: "mcp-servers", icon: Server, label: "MCP Servers" },
+	{ id: "sandbox", icon: Box, label: "Sandbox" },
 ]
 
 export function Sidebar({ page, setPage }: { page: string; setPage: (p: string) => void }) {

@@ -42,11 +42,16 @@ import { MLEngineView } from "@/components/views/ml-engine"
 import { ProductMemoryView } from "@/components/views/product-memory"
 import { RamOrchestratorView } from "@/components/views/ram-orchestrator"
 import { TaskTimelineView } from "@/components/views/task-timeline"
+import { CollaborationView } from "@/components/views/collaboration"
+import { ProviderDashboardView } from "@/components/views/provider-dashboard"
+import { MCPServersView } from "@/components/views/mcp-servers"
+import { SandboxView } from "@/components/views/sandbox"
 import { LoginPage } from "@/components/auth/login"
 
 const PAGES: Record<string, React.FC> = {
 	overview: Overview,
 	"working-tree": WorkingTreeView,
+	"provider-dashboard": ProviderDashboardView,
 	jobs: JobsView,
 	queue: QueueView,
 	agents: AgentsView,
@@ -84,6 +89,9 @@ const PAGES: Record<string, React.FC> = {
 	"ram-orchestrator": RamOrchestratorView,
 	"product-memory": ProductMemoryView,
 	"task-timeline": TaskTimelineView,
+	collaboration: CollaborationView,
+	"mcp-servers": MCPServersView,
+	sandbox: SandboxView,
 }
 
 function StatusDot({ online }: { online: boolean }) {
@@ -216,6 +224,11 @@ export default function Dashboard() {
 			"ml-engine": "ML Engine",
 			"ram-orchestrator": "RAM Orchestrator",
 			"product-memory": "Product Memory",
+			"task-timeline": "Task Timeline",
+			collaboration: "Collaboration",
+			"mcp-servers": "MCP Servers",
+			sandbox: "Sandbox",
+			"provider-dashboard": "Providers",
 		}[page] || page
 
 	// Show login page while checking auth or if not authenticated
