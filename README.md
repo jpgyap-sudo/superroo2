@@ -6,7 +6,7 @@
   <a href="https://www.reddit.com/r/SuperRoo/"><img src="https://img.shields.io/badge/Join%20r%2FSuperRoo-FF4500?style=flat&logo=reddit&logoColor=white" alt="Join r/SuperRoo"></a>
 </p>
 
-<h1 align="center">SuperRoo2 Cloud IDE</h1>
+<h1 align="center">SuperRoo2: Cloud IDE + Persistent Memory + Autonomous Debugging Agents</h1>
 <p align="center"><strong>Cloud IDE · Persistent Memory · Autonomous Debugging · Self-Healing Infrastructure</strong></p>
 
 <p align="center">
@@ -15,6 +15,7 @@
 
 <p align="center">
   <a href="#-one-click-demo">One-Click Demo</a> ·
+  <a href="QUICKSTART.md">Quick Start</a> ·
   <a href="#-screenshots">Screenshots</a> ·
   <a href="#-what-makes-superroo2-different">What Makes SuperRoo2 Different</a> ·
   <a href="#-operator-surfaces">Operator Surfaces</a> ·
@@ -44,23 +45,27 @@ docker compose up -d
 
 ## 📸 Screenshots
 
-> **Note:** Replace these placeholder paths with actual screenshots of your running instance.
+> **Note:** Capture these screenshots from your running `docker compose up` instance. Replace the placeholder paths below with actual PNG files in a `screenshots/` directory at the repo root.
 
 ### Cloud Dashboard — System Overview
-![Dashboard Overview](releases/3.45.0-release.png)
-*Live system monitoring: agents, jobs, queue, memory, deployment health, and infrastructure trends.*
+
+![Dashboard Overview](screenshots/dashboard-overview.png)
+_Live system monitoring: agents, jobs, queue, memory, deployment health, and infrastructure trends._
 
 ### Memory Explorer — Central Brain
-![Memory Explorer](releases/3.28.0-release.png)
-*Browse lessons, pgvector memories, agent scores, brain events, and pending approvals.*
+
+![Memory Explorer](screenshots/memory-explorer.png)
+_Browse lessons, pgvector memories, agent scores, brain events, and pending approvals._
 
 ### Mini IDE — Browser-Based Cloud IDE
-![Mini IDE](releases/3.34.0-release.png)
-*Monaco Editor with file tree, terminal, AI chat, diff viewer, and pipeline visualization.*
+
+![Mini IDE](screenshots/mini-ide.png)
+_Monaco Editor with file tree, terminal, AI chat, diff viewer, and pipeline visualization._
 
 ### Agent Pipeline — Task Execution Flow
-![Agent Pipeline](releases/3.36.0-release.png)
-*Real-time task execution pipeline showing agent orchestration, parallel debugging, and deployment stages.*
+
+![Agent Pipeline](screenshots/agent-pipeline.png)
+_Real-time task execution pipeline showing agent orchestration, parallel debugging, and deployment stages._
 
 ---
 
@@ -245,8 +250,8 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for a deep dive into each layer, data flo
 
 ```bash
 # Clone
-git clone https://github.com/SuperRooInc/SuperRoo.git
-cd SuperRoo
+git clone https://github.com/jpgyap-sudo/superroo2.git
+cd superroo2
 
 # Install dependencies
 pnpm install
@@ -336,6 +341,7 @@ Key security measures:
 
 | Document                                                          | Description                               |
 | ----------------------------------------------------------------- | ----------------------------------------- |
+| [Quick Start](QUICKSTART.md)                                      | Get running in under 2 minutes            |
 | [Architecture Deep Dive](ARCHITECTURE.md)                         | System architecture, data flow, modules   |
 | [Security Model](SECURITY_MODEL.md)                               | Security architecture and threat model    |
 | [Product Roadmap](ROADMAP.md)                                     | Current status and future plans           |
