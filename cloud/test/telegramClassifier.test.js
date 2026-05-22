@@ -79,5 +79,44 @@ describe("telegramClassifier", () => {
 			var result = await classifier.classifyIntent("test", [{ providerId: "deepseek", apiKey: "test" }])
 			expect(result.kind).toBe("chat")
 		})
+
+		it("routes follow-up requests to implement recommendations as code_task", async () => {
+			var context =
+				"Assistant: Recommended improvements: add onboarding, improve data quality, and upgrade search."
+			var result = await classifier.classifyIntent("ask coder to proceed with those improvements", [], context)
+			expect(result.kind).toBe("code_task")
+			expect(result.confidence).toBeGreaterThanOrEqual(0.9)
+		})
+
+		it("routes explicit recommendation implementation to code_task without LLM", async () => {
+			fetchSpy.mockResolvedValue({
+				ok: true,
+				json: async () => ({
+					choices: [{ message: { content: JSON.stringify({ kind: "chat", confidence: 0.99 }) } }],
+				}),
+			})
+
+			var result = await classifier.classifyIntent("ask coder to implement the recommendations", [
+				{ providerId: "deepseek", apiKey: "test" },
+			])
+			expect(result.kind).toBe("code_task")
+		})
+
+		it("keeps explicit bot self-upgrade phrases as upgrade_self in keyword fallback", () => {
+			expect(classifier.keywordFallback("ask coder to upgrade you")).toBe("upgrade_self")
+			expect(classifier.keywordFallback("upgrade yourself")).toBe("upgrade_self")
+			expect(classifier.keywordFallback("ask the coder to improve the bot")).toBe("upgrade_self")
+		})
+
+		it("keeps explicit bot self-upgrade phrases as upgrade_self even with recommendation context", async () => {
+			var context = "Assistant: Recommended improvements: add onboarding and upgrade search."
+			var result = await classifier.classifyIntent("ask coder to upgrade you", [], context)
+			expect(result.kind).toBe("upgrade_self")
+		})
+
+		it("does not treat vague proceed as code_task without recommendation context", async () => {
+			var result = await classifier.classifyIntent("ask coder to proceed", [])
+			expect(result.kind).toBe("chat")
+		})
 	})
 })

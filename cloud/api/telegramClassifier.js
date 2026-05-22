@@ -41,10 +41,23 @@ const MIN_CONFIDENCE = 0.65
  * Mirrors the existing detectIntent() in telegramBot.js but maps to OpenClaw kinds.
  *
  * @param {string} text - User message
+ * @param {string} [conversationContext] - Recent conversation summary for follow-up disambiguation
  * @returns {string} Intent kind
  */
-function keywordFallback(text) {
+function keywordFallback(text, conversationContext) {
 	var lower = text.toLowerCase()
+	var contextLower = (conversationContext || "").toLowerCase()
+
+	if (isSelfUpgradeRequest(lower)) {
+		return "upgrade_self"
+	}
+
+	// Follow-up implementation intent after the assistant has just given
+	// recommendations. These phrases are common after "what should we improve?"
+	// and must create a project coding task, not another chat answer.
+	if (isRecommendationImplementationFollowup(lower, contextLower)) {
+		return "code_task"
+	}
 
 	// ── Early exits: pure informational / contextual questions → always chat ──
 	// These must come BEFORE any pattern that could mis-route to shell/deploy.
@@ -132,26 +145,7 @@ function keywordFallback(text) {
 	}
 
 	// Upgrade / Improve Self — route to Coder agent for self-modification
-	if (
-		lower.includes("upgrade yourself") ||
-		lower.includes("upgrade you") ||
-		lower.includes("improve yourself") ||
-		lower.includes("improve you") ||
-		lower.includes("make yourself smarter") ||
-		lower.includes("upgrade yourself") ||
-		lower.includes("self upgrade") ||
-		lower.includes("self improve") ||
-		lower.includes("make you better") ||
-		lower.includes("upgrade the bot") ||
-		lower.includes("improve the bot") ||
-		lower.includes("make the bot smarter") ||
-		lower.includes("upgrade your") ||
-		lower.includes("improve your") ||
-		lower.includes("coder to upgrade you") ||
-		lower.includes("coder to improve you") ||
-		lower.includes("ask coder to upgrade") ||
-		lower.includes("ask coder to improve")
-	) {
+	if (isSelfUpgradeRequest(lower)) {
 		return "upgrade_self"
 	}
 
@@ -370,6 +364,85 @@ function keywordFallback(text) {
 	return "chat"
 }
 
+function hasRecommendationContext(contextLower) {
+	return (
+		contextLower.includes("recommend") ||
+		contextLower.includes("recommendation") ||
+		contextLower.includes("improvement") ||
+		contextLower.includes("suggestion") ||
+		contextLower.includes("upgrade plan") ||
+		contextLower.includes("roadmap") ||
+		contextLower.includes("next step")
+	)
+}
+
+function isSelfUpgradeRequest(lower) {
+	return (
+		lower.includes("upgrade yourself") ||
+		lower.includes("upgrade you") ||
+		lower.includes("improve yourself") ||
+		lower.includes("improve you") ||
+		lower.includes("make yourself smarter") ||
+		lower.includes("self upgrade") ||
+		lower.includes("self improve") ||
+		lower.includes("make you better") ||
+		lower.includes("upgrade the bot") ||
+		lower.includes("improve the bot") ||
+		lower.includes("make the bot smarter") ||
+		lower.includes("upgrade your") ||
+		lower.includes("improve your") ||
+		lower.includes("coder to upgrade you") ||
+		lower.includes("coder to improve you") ||
+		lower.includes("ask coder to upgrade you") ||
+		lower.includes("ask coder to improve you") ||
+		lower.includes("ask coder to upgrade the bot") ||
+		lower.includes("ask coder to improve the bot") ||
+		lower.includes("ask the coder to upgrade you") ||
+		lower.includes("ask the coder to improve you") ||
+		lower.includes("ask the coder to upgrade the bot") ||
+		lower.includes("ask the coder to improve the bot")
+	)
+}
+
+function isRecommendationImplementationFollowup(lower, contextLower) {
+	var hasObject =
+		lower.includes("recommendation") ||
+		lower.includes("recommendations") ||
+		lower.includes("suggestion") ||
+		lower.includes("suggestions") ||
+		lower.includes("improvement") ||
+		lower.includes("improvements") ||
+		lower.includes("upgrade") ||
+		lower.includes("upgrades") ||
+		lower.includes("changes") ||
+		lower.includes("those") ||
+		lower.includes("these") ||
+		lower.includes("that")
+
+	var hasAction =
+		lower.includes("ask coder to") ||
+		lower.includes("ask the coder to") ||
+		lower.includes("coder to") ||
+		lower.includes("proceed") ||
+		lower.includes("go ahead") ||
+		lower.includes("move forward") ||
+		lower.includes("implement") ||
+		lower.includes("apply") ||
+		lower.includes("build") ||
+		lower.includes("start")
+
+	if (!hasAction || !hasObject) return false
+
+	// Explicit references to recommendations are enough on their own.
+	if (lower.includes("recommendation") || lower.includes("recommendations") || lower.includes("suggestions")) {
+		return true
+	}
+
+	// Vague follow-ups like "go ahead with those improvements" require recent
+	// recommendation context so casual chat is not over-routed to coding.
+	return hasRecommendationContext(contextLower)
+}
+
 // ─── LLM Classifier ─────────────────────────────────────────────────────────
 
 /**
@@ -388,8 +461,9 @@ function buildClassifierPrompt(conversationContext) {
 		"NEVER use shell/deploy/delete_data for informational questions. Questions like 'is there any api', 'what apis are exposed', 'what services run', 'what project are we in', 'are there any endpoints' → use feature_query or chat.\n" +
 		"SPECIAL INTENTS:\n" +
 		"- code_task: Use when the user wants to ADD, IMPLEMENT, CREATE, BUILD, WRITE, MAKE, DEVELOP, REFACTOR, UPDATE, MODIFY, or CHANGE code. Examples: 'add a login page', 'implement auth', 'create a button', 'build the checkout flow', 'refactor the API', 'write a function to X', 'improve on data accuracy and quality'. This is the PRIMARY coding intent.\n" +
+		"- code_task: Also use for follow-ups after recommendations, such as 'ask coder to proceed', 'ask coder to implement the recommendations', 'proceed with those improvements', 'go ahead with the suggested upgrades', or 'apply those changes'. Use recent context to include the prior recommendations.\n" +
 		"- feature_query: Use for ANY question about what the app does, what APIs/routes/services exist, what features are available, how the system works. This includes 'is there any api on my app', 'what endpoints does it have', 'what does this project do'.\n" +
-		"- upgrade_self: When the user asks to upgrade, improve, or make the bot/assistant smarter.\n" +
+		"- upgrade_self: Only when the user asks to upgrade, improve, or make the bot/assistant itself smarter (for example 'upgrade yourself', 'improve the bot', 'ask coder to upgrade you'). Do not use upgrade_self for improving the currently discussed project.\n" +
 		"- commit_status: When the user asks about commit history, deploy status, latest commits/deploys.\n" +
 		"- chat: For clarifying questions, follow-ups, 'what app are we talking about', 'what project', conversational messages. NOT for coding instructions.\n"
 
@@ -419,6 +493,23 @@ function buildClassifierPrompt(conversationContext) {
  * @returns {Promise<ClassifiedIntent>} Classified intent
  */
 async function classifyIntent(text, providers, conversationContext) {
+	var lower = text.toLowerCase()
+	var contextLower = (conversationContext || "").toLowerCase()
+	if (isSelfUpgradeRequest(lower)) {
+		return {
+			kind: "upgrade_self",
+			message: text,
+			confidence: 0.9,
+		}
+	}
+	if (isRecommendationImplementationFollowup(lower, contextLower)) {
+		return {
+			kind: "code_task",
+			message: text,
+			confidence: 0.9,
+		}
+	}
+
 	// Try LLM classification first
 	if (providers && providers.length > 0) {
 		for (var i = 0; i < providers.length; i++) {
@@ -518,7 +609,7 @@ async function classifyIntent(text, providers, conversationContext) {
 	}
 
 	// Fallback to keyword-based detection
-	var fallbackKind = keywordFallback(text)
+	var fallbackKind = keywordFallback(text, conversationContext)
 	console.log("[classifier] Keyword fallback for '" + text.slice(0, 60) + "' as " + fallbackKind)
 	return {
 		kind: fallbackKind,
@@ -533,4 +624,6 @@ module.exports = {
 	classifyIntent,
 	keywordFallback,
 	buildClassifierPrompt,
+	isSelfUpgradeRequest,
+	isRecommendationImplementationFollowup,
 }
