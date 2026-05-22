@@ -83,6 +83,8 @@ export interface CommitRecord {
 	featuresAffected: string[]
 	bugsFixed: string[]
 	timestamp: string
+	/** The repository/project this commit belongs to (e.g. "superroo2", "my-other-project") */
+	repoName?: string
 	/** Link to the deploy that included this commit, if any */
 	deployId?: string
 	/** AI model usage for each workflow phase */
@@ -106,6 +108,8 @@ export interface DeployRecord {
 	error?: string
 	/** Human-readable reason for failure — used when marking stuck deploys as failed */
 	failureReason?: string
+	/** The repository/project this deploy belongs to (e.g. "superroo2", "my-other-project") */
+	repoName?: string
 	startedAt: string
 	completedAt: string | null
 }
@@ -134,7 +138,8 @@ export class CommitDeployLog {
 		private readonly events: EventLog,
 		memoryDir?: string,
 	) {
-		this.logDir = memoryDir || path.resolve(process.cwd(), "server/src/memory")
+		// Allow env var override for cross-project support
+		this.logDir = memoryDir || process.env.COMMIT_DEPLOY_LOG_DIR || path.resolve(process.cwd(), "server/src/memory")
 		this.logPath = path.join(this.logDir, LOG_FILE)
 	}
 
@@ -164,6 +169,8 @@ export class CommitDeployLog {
 		filesChanged?: string[]
 		featuresAffected?: string[]
 		bugsFixed?: string[]
+		/** The repository/project this commit belongs to (e.g. "superroo2", "my-other-project") */
+		repoName?: string
 		/** AI model usage for each workflow phase */
 		modelsUsed?: ModelUsage[]
 		/** Workflow compliance tracking */
@@ -181,6 +188,7 @@ export class CommitDeployLog {
 			featuresAffected: input.featuresAffected || [],
 			bugsFixed: input.bugsFixed || [],
 			timestamp: new Date().toISOString(),
+			repoName: input.repoName,
 			modelsUsed: input.modelsUsed,
 			workflowCompliance: input.workflowCompliance,
 		}
@@ -204,6 +212,8 @@ export class CommitDeployLog {
 		type?: CommitType
 		featureId?: string
 		limit?: number
+		/** Filter by repository/project name */
+		repoName?: string
 		/** Filter by whether DeepSeek was used for coding */
 		deepseekUsed?: boolean
 		/** Filter by workflow compliance status */
@@ -220,6 +230,9 @@ export class CommitDeployLog {
 		}
 		if (filter?.featureId) {
 			commits = commits.filter((c) => c.featuresAffected.includes(filter.featureId!))
+		}
+		if (filter?.repoName) {
+			commits = commits.filter((c) => c.repoName === filter.repoName)
 		}
 		if (filter?.deepseekUsed !== undefined) {
 			commits = commits.filter((c) => {
@@ -291,6 +304,8 @@ export class CommitDeployLog {
 		environment?: string
 		commitsIncluded?: string[]
 		featuresDeployed?: string[]
+		/** The repository/project this deploy belongs to (e.g. "superroo2", "my-other-project") */
+		repoName?: string
 	}): Promise<DeployRecord> {
 		const log = await this.readLog()
 		const deploy: DeployRecord = {
@@ -304,6 +319,7 @@ export class CommitDeployLog {
 			featuresDeployed: input.featuresDeployed || [],
 			healthCheckPassed: null,
 			healthCheckLatencyMs: null,
+			repoName: input.repoName,
 			startedAt: new Date().toISOString(),
 			completedAt: null,
 		}
@@ -362,7 +378,13 @@ export class CommitDeployLog {
 		return deploy
 	}
 
-	async getDeploys(filter?: { status?: DeployStatus; agent?: string; limit?: number }): Promise<DeployRecord[]> {
+	async getDeploys(filter?: {
+		status?: DeployStatus
+		agent?: string
+		limit?: number
+		/** Filter by repository/project name */
+		repoName?: string
+	}): Promise<DeployRecord[]> {
 		const log = await this.readLog()
 		let deploys = log.deploys
 
@@ -371,6 +393,9 @@ export class CommitDeployLog {
 		}
 		if (filter?.agent) {
 			deploys = deploys.filter((d) => d.agent === filter.agent)
+		}
+		if (filter?.repoName) {
+			deploys = deploys.filter((d) => d.repoName === filter.repoName)
 		}
 		if (filter?.limit) {
 			deploys = deploys.slice(0, filter.limit)

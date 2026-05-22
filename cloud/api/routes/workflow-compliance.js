@@ -1,3 +1,4 @@
+const { requireAuth } = require('../auth')
 /**
  * Workflow Compliance API Routes
  *

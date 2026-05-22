@@ -44,6 +44,7 @@ export class PmAgent implements Agent {
 	readonly name = "product-manager"
 	readonly description = "Decomposes feature goals into Coder tasks. Drives FeatureRegistry."
 	readonly requiredCapabilities: Capability[] = ["read.file"]
+	readonly tags: string[] = ["planning", "management", "architecture"]
 
 	private readonly modeSlug: string
 	private readonly preamble: string

@@ -1,0 +1,86 @@
+{
+  "repo": "aws-remote-swe",
+  "url": "https://github.com/aws-samples/remote-swe-agents.git",
+  "focus": "cloud-deployment",
+  "analyzed": "2026-05-20T17:39:46.441Z",
+  "structure": {
+    "readme": {
+      "length": 24454,
+      "lines": 475,
+      "headline": "# Remote SWE Agents\r",
+      "hasInstallGuide": true,
+      "hasArchitecture": true,
+      "hasApiDocs": true
+    },
+    "package": {
+      "name": "remote-swe-agents",
+      "dependencies": 2,
+      "devDependencies": 2,
+      "scripts": [
+        "build",
+        "test",
+        "format",
+        "format:check",
+        "postinstall"
+      ]
+    },
+    "dirs": {
+      "cdk": {
+        "bin": "📁",
+        "lib": "📁",
+        "test": "📁"
+      },
+      "docker": "📁",
+      "docs": {
+        "imgs": "📁"
+      },
+      "packages": {
+        "agent-core": "📁",
+        "github-actions": "📁",
+        "slack-bolt-app": "📁",
+        "webapp": "📁",
+        "worker": "📁"
+      },
+      "patches": "📁",
+      "resources": "📁"
+    }
+  },
+  "patterns": [
+    {
+      "name": "aws-remote-swe-directory-architecture",
+      "source": "aws-remote-swe",
+      "description": "Directory structure suggests cdk, docker, docs, packages, patches architecture",
+      "details": "Top-level directories: cdk, docker, docs, packages, patches, resources"
+    },
+    {
+      "name": "aws-remote-swe-build-patterns",
+      "source": "aws-remote-swe",
+      "description": "Build scripts: build, test, format, format:check, postinstall",
+      "details": "2 deps, 2 devDeps"
+    },
+    {
+      "name": "aws-remote-swe-readme-positioning",
+      "source": "aws-remote-swe",
+      "description": "README headline: \"# Remote SWE Agents\r\"",
+      "details": "475 lines, hasArchitecture=true, hasApiDocs=true"
+    },
+    {
+      "name": "aws-remote-swe-cicd",
+      "source": "aws-remote-swe",
+      "description": "CI/CD: \\.github\\workflows",
+      "details": "CI/CD system detected"
+    },
+    {
+      "name": "aws-remote-swe-documentation",
+      "source": "aws-remote-swe",
+      "description": "Documentation directory: docs",
+      "details": "Has dedicated docs folder"
+    },
+    {
+      "name": "aws-remote-swe-language-profile",
+      "source": "aws-remote-swe",
+      "description": "File type distribution: .ts: 22, .json: 21, .png: 12, .md: 11, .Dockerfile: 5, .dockerignore: 5, .sh: 3, .yml: 2",
+      "details": "Primary language: ts"
+    }
+  ]
+}

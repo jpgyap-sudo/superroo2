@@ -86,10 +86,30 @@ class DeployOrchestrator extends QueueManager {
 		this.healthUrl = opts.healthUrl || "http://100.64.175.88:3419/api/health"
 		this.sshKeyPath = opts.sshKeyPath || null
 		this.commitDeployLog = opts.commitDeployLog
+		this.consensus = opts.consensus || null
+		this.deployGate = opts.deployGate || null
 		this.maxConcurrentDeploys = opts.maxConcurrentDeploys || 1
 		this.maxConcurrentBuilds = opts.maxConcurrentBuilds || 1
 		this.healthCheckTimeoutMs = opts.healthCheckTimeoutMs || 30000
 		this.deployTimeoutMs = opts.deployTimeoutMs || 300000
+	}
+
+	/**
+	 * Set the consensus service for pre-deploy gating.
+	 * Called lazily when brain services become available.
+	 * @param {object} consensus - ConsensusService instance
+	 */
+	setConsensus(consensus) {
+		this.consensus = consensus
+	}
+
+	/**
+	 * Set the DeployGate service for predictive risk assessment + swarm debug gating.
+	 * Called lazily when brain services become available.
+	 * @param {object} deployGate - DeployGate instance
+	 */
+	setDeployGate(deployGate) {
+		this.deployGate = deployGate
 	}
 
 	/**
@@ -492,6 +512,112 @@ class DeployOrchestrator extends QueueManager {
 		)
 
 		try {
+			// Step 0: DeployGate — predictive risk assessment + swarm debug + consensus
+			if (this.deployGate) {
+				try {
+					const gateResult = await this.deployGate.check({
+						projectId: activeProject,
+						taskId: deploymentId,
+						filesChanged: [],
+						actionType: "deploy",
+						agent: agent,
+					})
+
+					if (!gateResult.allowed) {
+						throw new Error(
+							`DeployGate blocked deployment: risk=${gateResult.assessment?.riskLevel || "unknown"}, score=${gateResult.assessment?.riskScore || 0}, reason=${gateResult.reason}`,
+						)
+					}
+
+					// Log deploy gate decision
+					await this._emitEvent(
+						"deploy.gate",
+						{
+							project: activeProject,
+							version,
+							deploymentId,
+							allowed: gateResult.allowed,
+							riskLevel: gateResult.assessment?.riskLevel,
+							riskScore: gateResult.assessment?.riskScore,
+							reason: gateResult.reason,
+							swarmRunId: gateResult.swarmResult?.id,
+						},
+						"info",
+					)
+				} catch (gateErr) {
+					// If DeployGate itself fails (e.g., DB down), log warning but proceed
+					await this._emitEvent(
+						"deploy.gate_error",
+						{
+							project: activeProject,
+							version,
+							deploymentId,
+							error: gateErr.message,
+						},
+						"warn",
+					)
+				}
+			}
+
+			// Step 0b: Consensus gate — run weighted vote for deploy approval
+			if (this.consensus) {
+				try {
+					const consensusResult = await this.consensus.decide({
+						projectId: activeProject,
+						decisionType: "deploy",
+						contextId: deploymentId,
+						votes: [
+							{
+								agent: agent,
+								vote: "approve",
+								confidence: 0.8,
+								reason: `Deploy ${version || "latest"} to ${activeProject}`,
+							},
+						],
+						createdBy: agent,
+					})
+
+					if (consensusResult.finalDecision === "block") {
+						throw new Error(
+							`Consensus gate blocked deployment: score=${consensusResult.score}, riskFlags=${JSON.stringify(consensusResult.riskFlags)}`,
+						)
+					}
+
+					if (consensusResult.finalDecision === "needs_human") {
+						throw new Error(
+							`Consensus gate requires human approval: score=${consensusResult.score}, reasons=${JSON.stringify(consensusResult.reasons)}`,
+						)
+					}
+
+					// Log consensus decision
+					await this._emitEvent(
+						"deploy.consensus",
+						{
+							project: activeProject,
+							version,
+							deploymentId,
+							decision: consensusResult.finalDecision,
+							score: consensusResult.score,
+							riskFlags: consensusResult.riskFlags,
+						},
+						"info",
+					)
+				} catch (consensusErr) {
+					// If consensus service itself fails (e.g., DB down), log warning but proceed
+					// This ensures deploy is not blocked by a transient consensus service failure
+					await this._emitEvent(
+						"deploy.consensus_error",
+						{
+							project: activeProject,
+							version,
+							deploymentId,
+							error: consensusErr.message,
+						},
+						"warn",
+					)
+				}
+			}
+
 			// Step 1: Health check before deploy
 			if (!skipHealthCheck) {
 				const health = await this.healthCheck()

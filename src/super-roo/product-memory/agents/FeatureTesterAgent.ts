@@ -17,6 +17,7 @@ export class FeatureTesterAgent implements Agent {
 	readonly name = "feature-tester"
 	readonly description = "Runs manual smoke tests on product features and records results in product memory"
 	readonly requiredCapabilities: string[] = ["product_memory"]
+	readonly tags: string[] = ["product-memory", "testing", "smoke-tests"]
 
 	private readonly service: ProductMemoryService
 

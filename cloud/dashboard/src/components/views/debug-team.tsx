@@ -213,6 +213,12 @@ export function DebugTeamView() {
 	const [telegramMessage, setTelegramMessage] = useState("")
 	const [telegramError, setTelegramError] = useState("")
 
+	// Read auth token for API requests
+	const getAuthHeaders = useCallback((): Record<string, string> => {
+		const token = typeof window !== "undefined" ? localStorage.getItem("superroo_auth_token") : null
+		return token ? { Authorization: `Bearer ${token}` } : {}
+	}, [])
+
 	// Helper to handle auth failures across all fetch calls
 	const handleAuthError = useCallback((res: Response) => {
 		if (res.status === 401) {
@@ -223,7 +229,7 @@ export function DebugTeamView() {
 
 	const fetchStatus = useCallback(async () => {
 		try {
-			const res = await fetch("/api/debug-team/status")
+			const res = await fetch("/api/debug-team/status", { headers: getAuthHeaders() })
 			handleAuthError(res)
 			const data = await res.json()
 			if (data.success) {
@@ -233,11 +239,11 @@ export function DebugTeamView() {
 		} catch {
 			// non-critical polling failure
 		}
-	}, [handleAuthError])
+	}, [handleAuthError, getAuthHeaders])
 
 	const fetchJobs = useCallback(async () => {
 		try {
-			const res = await fetch("/api/debug-team/jobs?limit=20")
+			const res = await fetch("/api/debug-team/jobs?limit=20", { headers: getAuthHeaders() })
 			handleAuthError(res)
 			const data = await res.json()
 			if (data.success) {
@@ -246,12 +252,12 @@ export function DebugTeamView() {
 		} catch {
 			// non-critical polling failure
 		}
-	}, [handleAuthError])
+	}, [handleAuthError, getAuthHeaders])
 
 	// Load Telegram config from settings
 	const fetchTelegramConfig = useCallback(async () => {
 		try {
-			const res = await fetch("/api/settings")
+			const res = await fetch("/api/settings", { headers: getAuthHeaders() })
 			handleAuthError(res)
 			const data = await res.json()
 			if (data.success && data.settings?.debugTeam) {
@@ -261,7 +267,7 @@ export function DebugTeamView() {
 		} catch {
 			// use defaults
 		}
-	}, [handleAuthError])
+	}, [handleAuthError, getAuthHeaders])
 
 	useEffect(() => {
 		setLoading(true)
@@ -282,7 +288,7 @@ export function DebugTeamView() {
 		try {
 			const res = await fetch("/api/debug-team/start", {
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
+				headers: { "Content-Type": "application/json", ...getAuthHeaders() },
 				body: JSON.stringify({ target, branch }),
 			})
 			handleAuthError(res)
@@ -303,7 +309,7 @@ export function DebugTeamView() {
 		setActionLoading(true)
 		setError(null)
 		try {
-			const res = await fetch("/api/debug-team/stop", { method: "POST" })
+			const res = await fetch("/api/debug-team/stop", { method: "POST", headers: getAuthHeaders() })
 			handleAuthError(res)
 			const data = await res.json()
 			if (!data.success) {
@@ -324,14 +330,14 @@ export function DebugTeamView() {
 		setTelegramError("")
 		try {
 			// Load current settings first, then merge
-			const getRes = await fetch("/api/settings")
+			const getRes = await fetch("/api/settings", { headers: getAuthHeaders() })
 			handleAuthError(getRes)
 			const getData = await getRes.json()
 			const currentSettings = getData.success ? getData.settings : {}
 
 			const res = await fetch("/api/settings", {
 				method: "PUT",
-				headers: { "Content-Type": "application/json" },
+				headers: { "Content-Type": "application/json", ...getAuthHeaders() },
 				body: JSON.stringify({
 					settings: {
 						...currentSettings,
@@ -365,7 +371,7 @@ export function DebugTeamView() {
 		try {
 			const res = await fetch("/api/debug-team/test-telegram", {
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
+				headers: { "Content-Type": "application/json", ...getAuthHeaders() },
 				body: JSON.stringify({
 					botToken: telegramBotToken,
 					chatId: telegramChatId,

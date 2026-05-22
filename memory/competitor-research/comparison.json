@@ -1,0 +1,140 @@
+{
+  "generated": "2026-05-20T17:40:52.000Z",
+  "repos": {
+    "openhands": {
+      "url": "https://github.com/all-hands-ai/openhands.git",
+      "description": "Event-driven agent architecture with sandboxed execution",
+      "focus": "agent-coordination",
+      "language": "Python (592 files) + TypeScript (264 files)",
+      "architecture": "Python backend (FastAPI-like) + Remix/React frontend + Docker sandbox",
+      "patterns": 6,
+      "keyModules": ["server/app.py", "frontend/src/routes/", "openhands/agenthub/", "containers/"],
+      "strengths": ["Sandboxed execution via Docker", "Event-driven agent loop", "Enterprise features", "Multi-language agent support"],
+      "weaknesses": ["No built-in self-healing", "No cross-session memory", "No Telegram integration"]
+    },
+    "swe-agent": {
+      "url": "https://github.com/SWE-agent/SWE-agent.git",
+      "description": "Autonomous issue fixing with codebase navigation",
+      "focus": "codebase-navigation",
+      "language": "Python (96 files)",
+      "architecture": "Python agent framework with tool-based architecture, config-driven agent definitions",
+      "patterns": 8,
+      "keyModules": ["sweagent/agent/agents.py", "sweagent/tools/", "sweagent/environment/", "config/"],
+      "strengths": ["Sophisticated agent loop with retry/fallback", "Rich tool system (15+ tools)", "Trajectory recording for debugging", "Config-driven agent templates"],
+      "weaknesses": ["Python-only", "No built-in dashboard", "No self-healing", "No persistent memory"]
+    },
+    "voltagent": {
+      "url": "https://github.com/VoltAgent/voltagent.git",
+      "description": "AI Agent Engineering Platform — TypeScript agent framework",
+      "focus": "agent-delegation",
+      "language": "TypeScript (354 files)",
+      "architecture": "Monorepo with 35 packages, core agent class with plugin system, MCP/A2A support",
+      "patterns": 8,
+      "keyModules": ["packages/core/src/agent/", "packages/core/src/tool/", "packages/core/src/mcp/", "packages/core/src/memory/"],
+      "strengths": ["Rich TypeScript SDK with 35 packages", "MCP and A2A protocol support", "80+ integration examples", "Sandbox support (E2B, Daytona, Blaxel)", "Memory system", "RAG support"],
+      "weaknesses": ["No built-in self-healing", "No dashboard UI", "No Telegram integration"]
+    },
+    "aws-remote-swe": {
+      "url": "https://github.com/aws-samples/remote-swe-agents.git",
+      "description": "Autonomous SWE agent working in the cloud (AWS)",
+      "focus": "cloud-deployment",
+      "language": "TypeScript (22 files)",
+      "architecture": "AWS CDK-based deployment with agent-core, webapp, worker, Slack bot packages",
+      "patterns": 6,
+      "keyModules": ["packages/agent-core/", "packages/webapp/", "packages/worker/", "packages/slack-bolt-app/", "cdk/"],
+      "strengths": ["Full AWS cloud deployment via CDK", "Slack integration built-in", "Docker-based sandbox", "Well-documented (475-line README)", "Architecture documented"],
+      "weaknesses": ["AWS-locked", "Small codebase (22 TS files)", "No self-healing", "No persistent memory"]
+    },
+    "mastra": {
+      "url": "https://github.com/mastra-ai/mastra.git",
+      "description": "TypeScript agent framework from the Gatsby team",
+      "focus": "plan-execute-verify",
+      "language": "TypeScript (986 files)",
+      "architecture": "Massive monorepo (23 top-level dirs, 50+ packages), Turbo-based build, comprehensive agent framework",
+      "patterns": 7,
+      "keyModules": ["packages/core/src/agent/", "packages/core/src/memory/", "packages/core/src/rag/", "packages/core/src/workflows/", "packages/core/src/mcp/", "stores/ (25+ DB adapters)", "deployers/ (Cloudflare, Netlify, Vercel)", "voice/ (17 providers)", "observability/ (14 providers)"],
+      "strengths": ["Most comprehensive framework (986 TS files)", "25+ storage backends (pgvector, Pinecone, etc.)", "17 voice providers", "14 observability providers", "MCP support", "Workflow engine (Inngest, Temporal)", "Memory system", "RAG pipeline", "Deployer adapters (Cloudflare, Netlify, Vercel)", "Auth system (8 providers)", "Browser automation"],
+      "weaknesses": ["No built-in self-healing", "No Telegram integration", "Very large codebase to navigate"]
+    }
+  },
+  "matrix": {
+    "event-bus": {
+      "openhands": "◐",
+      "swe-agent": "?",
+      "voltagent": "✅",
+      "aws-remote-swe": "?",
+      "mastra": "✅"
+    },
+    "sandboxed-execution": {
+      "openhands": "✅",
+      "swe-agent": "◐",
+      "voltagent": "✅",
+      "aws-remote-swe": "✅",
+      "mastra": "✅"
+    },
+    "codebase-navigation": {
+      "openhands": "✅",
+      "swe-agent": "✅",
+      "voltagent": "◐",
+      "aws-remote-swe": "?",
+      "mastra": "◐"
+    },
+    "multi-agent": {
+      "openhands": "✅",
+      "swe-agent": "◐",
+      "voltagent": "✅",
+      "aws-remote-swe": "?",
+      "mastra": "✅"
+    },
+    "tool-routing": {
+      "openhands": "✅",
+      "swe-agent": "✅",
+      "voltagent": "✅",
+      "aws-remote-swe": "◐",
+      "mastra": "✅"
+    },
+    "cloud-deployment": {
+      "openhands": "◐",
+      "swe-agent": "?",
+      "voltagent": "✅",
+      "aws-remote-swe": "✅",
+      "mastra": "✅"
+    },
+    "artifact-storage": {
+      "openhands": "◐",
+      "swe-agent": "?",
+      "voltagent": "◐",
+      "aws-remote-swe": "◐",
+      "mastra": "✅"
+    },
+    "plan-execute-verify": {
+      "openhands": "✅",
+      "swe-agent": "✅",
+      "voltagent": "✅",
+      "aws-remote-swe": "◐",
+      "mastra": "✅"
+    },
+    "self-healing": {
+      "openhands": "?",
+      "swe-agent": "?",
+      "voltagent": "?",
+      "aws-remote-swe": "?",
+      "mastra": "?"
+    },
+    "cross-session-memory": {
+      "openhands": "?",
+      "swe-agent": "?",
+      "voltagent": "✅",
+      "aws-remote-swe": "?",
+      "mastra": "✅"
+    }
+  },
+  "superroo2_advantages": {
+    "self-healing": "✅ UNIQUE — No competitor has built-in self-healing. SuperRoo2 has SelfHealingLoop, bug registry, auto-rollback.",
+    "telegram_integration": "✅ UNIQUE — No competitor has Telegram bot integration for mobile agent management.",
+    "vscode_extension": "✅ UNIQUE — No competitor has a VS Code extension for IDE-level agent interaction.",
+    "central_brain": "✅ UNIQUE — No competitor has a centralized memory/context system (pgvector + MCP).",
+    "commissioning_engine": "✅ UNIQUE — 14-phase autonomous system validation. No competitor has this.",
+    "multi_modal_ui": "✅ UNIQUE — Dashboard + VS Code + Telegram + Terminal. No competitor covers all four."
+  }
+}

@@ -2,21 +2,23 @@
 
 // pnpm --filter @superroo/telemetry test src/__tests__/PostHogTelemetryClient.test.ts
 
-import * as vscode from "vscode"
 import { PostHog } from "posthog-node"
 
 import { type TelemetryPropertiesProvider, TelemetryEventName, ApiProviderError } from "@superroo/types"
 
 import { PostHogTelemetryClient } from "../PostHogTelemetryClient"
+import { vscode } from "../vscode-access"
 
 vi.mock("posthog-node")
 
-vi.mock("vscode", () => ({
-	env: {
-		machineId: "test-machine-id",
-	},
-	workspace: {
-		getConfiguration: vi.fn(),
+vi.mock("../vscode-access", () => ({
+	vscode: {
+		env: {
+			machineId: "test-machine-id",
+		},
+		workspace: {
+			getConfiguration: vi.fn(),
+		},
 	},
 }))
 

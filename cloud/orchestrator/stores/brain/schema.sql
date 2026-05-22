@@ -129,6 +129,7 @@ CREATE INDEX IF NOT EXISTS idx_recall_logs_recalled ON memory_recall_logs(recall
 
 -- ============================================================
 -- 5. agent_scores — tracks agent/model performance over time
+--     Extended in v4 with hallucination tracking, cost, and latency
 -- ============================================================
 CREATE TABLE IF NOT EXISTS agent_scores (
     id              TEXT PRIMARY KEY,
@@ -141,6 +142,9 @@ CREATE TABLE IF NOT EXISTS agent_scores (
     success_count   INTEGER NOT NULL DEFAULT 0,
     failure_count   INTEGER NOT NULL DEFAULT 0,
     avg_duration_ms INTEGER,
+    hallucination_count INTEGER NOT NULL DEFAULT 0,  -- v4: track hallucination frequency
+    avg_cost_usd    REAL,                              -- v4: average cost per task in USD
+    avg_latency_ms  INTEGER,                           -- v4: average response latency
     last_task_at    TIMESTAMPTZ,
     metadata        JSONB DEFAULT '{}',
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -189,6 +193,116 @@ CREATE INDEX IF NOT EXISTS idx_approval_queue_status ON memory_approval_queue(st
 CREATE INDEX IF NOT EXISTS idx_approval_queue_memory ON memory_approval_queue(memory_id);
 
 -- ============================================================
+-- 8. brain_memory_versions — version history for every memory edit
+-- ============================================================
+CREATE TABLE IF NOT EXISTS brain_memory_versions (
+    id              TEXT PRIMARY KEY,
+    memory_id       TEXT NOT NULL REFERENCES agent_memory(id) ON DELETE CASCADE,
+    version_no      INTEGER NOT NULL,
+    content         TEXT NOT NULL,
+    summary         TEXT,
+    content_delta   TEXT,                  -- delta/patch from previous version (optional, for storage efficiency)
+    change_reason   TEXT NOT NULL DEFAULT 'update',
+    created_by_agent TEXT NOT NULL DEFAULT 'system',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(memory_id, version_no)
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_versions_memory ON brain_memory_versions(memory_id);
+CREATE INDEX IF NOT EXISTS idx_memory_versions_created ON brain_memory_versions(created_at DESC);
+-- Composite index for efficient version history queries (ORDER BY version_no DESC)
+CREATE INDEX IF NOT EXISTS idx_memory_versions_memory_version
+    ON brain_memory_versions(memory_id, version_no DESC);
+
+-- ============================================================
+-- 9. brain_memory_feedback — outcome-based feedback scoring
+-- ============================================================
+CREATE TABLE IF NOT EXISTS brain_memory_feedback (
+    id              TEXT PRIMARY KEY,
+    memory_id       TEXT NOT NULL REFERENCES agent_memory(id) ON DELETE CASCADE,
+    task_id         TEXT,
+    agent_name      TEXT,
+    outcome         TEXT NOT NULL DEFAULT 'neutral'
+                        CHECK (outcome IN ('success','failure','neutral')),
+    score           REAL NOT NULL DEFAULT 0,
+    note            TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_feedback_memory ON brain_memory_feedback(memory_id);
+CREATE INDEX IF NOT EXISTS idx_memory_feedback_outcome ON brain_memory_feedback(outcome);
+
+-- ============================================================
+-- 10. brain_memory_usefulness — aggregated usefulness metrics per memory
+-- ============================================================
+CREATE TABLE IF NOT EXISTS brain_memory_usefulness (
+    memory_id       TEXT PRIMARY KEY REFERENCES agent_memory(id) ON DELETE CASCADE,
+    usefulness      REAL NOT NULL DEFAULT 0.5
+                        CHECK (usefulness >= 0 AND usefulness <= 1),
+    total_feedback  INTEGER NOT NULL DEFAULT 0,
+    success_count   INTEGER NOT NULL DEFAULT 0,
+    failure_count   INTEGER NOT NULL DEFAULT 0,
+    last_feedback_at TIMESTAMPTZ,
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_usefulness_score ON brain_memory_usefulness(usefulness DESC);
+
+-- ============================================================
+-- 11. brain_consensus_decisions — audit trail for multi-agent
+--     weighted consensus voting (v4)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS brain_consensus_decisions (
+    id              TEXT PRIMARY KEY,
+    project_id      TEXT NOT NULL DEFAULT 'default',
+    decision_type   TEXT NOT NULL
+                        CHECK (decision_type IN ('deploy','memory_approval','task_approval','model_selection','custom')),
+    context_id      TEXT,                  -- ID of the thing being decided (deployment_id, memory_id, task_id)
+    votes           JSONB NOT NULL DEFAULT '[]',  -- Array of {agent, model, decision, confidence, reason, riskFlags}
+    score           REAL NOT NULL,         -- Normalized weighted score (-1 to 1)
+    final_decision  TEXT NOT NULL
+                        CHECK (final_decision IN ('approve','revise','needs_human','block')),
+    risk_flags      TEXT[] DEFAULT '{}',   -- Risk flags raised during voting
+    agent_count     INTEGER NOT NULL DEFAULT 0,
+    created_by      TEXT NOT NULL DEFAULT 'system',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_consensus_decisions_project ON brain_consensus_decisions(project_id);
+CREATE INDEX IF NOT EXISTS idx_consensus_decisions_type ON brain_consensus_decisions(decision_type);
+CREATE INDEX IF NOT EXISTS idx_consensus_decisions_final ON brain_consensus_decisions(final_decision);
+CREATE INDEX IF NOT EXISTS idx_consensus_decisions_context ON brain_consensus_decisions(context_id);
+CREATE INDEX IF NOT EXISTS idx_consensus_decisions_created ON brain_consensus_decisions(created_at DESC);
+
+-- ============================================================
+-- 12. brain_model_routing_logs — audit trail for every model
+--     routing decision (v4)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS brain_model_routing_logs (
+    id              TEXT PRIMARY KEY,
+    project_id      TEXT NOT NULL DEFAULT 'default',
+    task_type       TEXT NOT NULL,
+    task_id         TEXT,
+    run_id          TEXT,
+    agent           TEXT NOT NULL,
+    model_selected  TEXT NOT NULL,
+    fallback_chain  JSONB DEFAULT '[]',    -- Ordered list of {agent, model, estCost} tried
+    attempt         INTEGER NOT NULL DEFAULT 1,
+    success         BOOLEAN,
+    duration_ms     INTEGER,
+    cost_usd        REAL,
+    hallucinated    BOOLEAN DEFAULT FALSE,
+    error           TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_routing_logs_project ON brain_model_routing_logs(project_id);
+CREATE INDEX IF NOT EXISTS idx_routing_logs_task_type ON brain_model_routing_logs(task_type);
+CREATE INDEX IF NOT EXISTS idx_routing_logs_agent ON brain_model_routing_logs(agent);
+CREATE INDEX IF NOT EXISTS idx_routing_logs_model ON brain_model_routing_logs(model_selected);
+CREATE INDEX IF NOT EXISTS idx_routing_logs_created ON brain_model_routing_logs(created_at DESC);
+
+-- ============================================================
 -- Schema version tracking
 -- ============================================================
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -198,5 +312,9 @@ CREATE TABLE IF NOT EXISTS schema_version (
 );
 
 INSERT INTO schema_version (version, description)
-VALUES (2, 'Central Brain v2 — pgvector memory with Ollama embeddings')
+VALUES (3, 'Central Brain v3 — memory versioning, feedback scoring, auto-trust, usefulness metrics')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO schema_version (version, description)
+VALUES (4, 'Central Brain v4 — multi-agent consensus voting, model routing audit trail, agent scorecard extensions')
 ON CONFLICT DO NOTHING;

@@ -26,6 +26,7 @@ import {
 	fetchHermesStats,
 	fetchDeployments,
 	getWebSocketUrl,
+	sendIdeChatMessage,
 } from "@/components/ide-terminal/api"
 import { useWebSocket } from "@/components/ide-terminal/hooks/useWebSocket"
 import type { BrainTab, DiffData } from "@/components/ide-terminal/types"
@@ -627,40 +628,9 @@ export function useIdeTerminal() {
 		return sendLspRequest("close", lang, uri, 0, 0)
 	}, [])
 
-	// ── Load workspace data on mount ─────────────────────────────────────
+	// ── Load workspace data on mount (moved to component) ────────────────
 	const hydratedRef = useRef(_hydrated)
 	hydratedRef.current = _hydrated
-
-	useEffect(() => {
-		async function load() {
-			try {
-				const data = await apiFetch<{
-					workspaceId: string | null
-					repoName: string | null
-					branch: string
-					files: WorkspaceFile[]
-					pipeline: PipelineStep[]
-					terminalSessions: any[]
-					recentWorkspaces: any[]
-					workspaceTasks: WorkspaceTask[]
-					status: any
-				}>("/ide-workspace/workspace")
-				// Always load files from server (server is source of truth for workspace files)
-				if (data.files) dispatch({ type: "SET_FILES", payload: data.files })
-				if (data.repoName) dispatch({ type: "SET_REPO_NAME", payload: data.repoName })
-				if (data.branch) dispatch({ type: "SET_BRANCH", payload: data.branch })
-				if (data.pipeline) dispatch({ type: "SET_PIPELINE", payload: data.pipeline })
-				if (data.recentWorkspaces) dispatch({ type: "SET_RECENT_WORKSPACES", payload: data.recentWorkspaces })
-				if (data.workspaceTasks) dispatch({ type: "SET_WORKSPACE_TASKS", payload: data.workspaceTasks })
-				if (data.status) dispatch({ type: "SET_STATUS", payload: data.status })
-			} catch (err) {
-				console.error("Failed to load workspace:", err)
-			} finally {
-				dispatch({ type: "SET_LOADING", payload: false })
-			}
-		}
-		load()
-	}, [dispatch])
 
 	// ── Fetch orchestrator / hermes / deployments ────────────────────────
 	const fetchOrchestratorStatusData = useCallback(async () => {
@@ -1003,67 +973,7 @@ export function useIdeTerminal() {
 		}
 	}, [dispatch, canSendAi, wsSend])
 
-	// ── File operations ──────────────────────────────────────────────────
-	const handleFileSelect = useCallback(
-		async (filePath: string) => {
-			setCurrentFilePath(filePath)
-			try {
-				const result = await fetchFileContent(filePath)
-				const content = result.content
-				const ext = filePath.split(".").pop() || ""
-				const langMap: Record<string, string> = {
-					ts: "typescript",
-					tsx: "typescript",
-					js: "javascript",
-					jsx: "javascript",
-					json: "json",
-					md: "markdown",
-					html: "html",
-					css: "css",
-					py: "python",
-					rs: "rust",
-					go: "go",
-					yaml: "yaml",
-					yml: "yaml",
-					toml: "toml",
-					sql: "sql",
-					sh: "bash",
-					bash: "bash",
-				}
-				const language = langMap[ext] || "text"
-				setCurrentFileContent(content)
-				setCurrentFileLanguage(language)
-				const existing = openFiles.find((f) => f.path === filePath)
-				if (!existing) {
-					const name = filePath.split("/").pop() || filePath
-					const newFile: OpenFile = { path: filePath, name, content, language, modified: false }
-					dispatch({ type: "SET_OPEN_FILES", payload: [...openFiles, newFile] })
-				}
-				dispatch({ type: "SET_ACTIVE_FILE_PATH", payload: filePath })
-			} catch (err) {
-				console.error("Failed to load file:", err)
-			}
-		},
-		[openFiles, dispatch],
-	)
-
-	const handleFileSave = useCallback(
-		async (content: string) => {
-			const path = currentFilePath
-			if (!path) return
-			try {
-				await saveFileContent(path, content)
-				dispatch({
-					type: "SET_OPEN_FILES",
-					payload: openFiles.map((f) => (f.path === path ? { ...f, content, modified: false } : f)),
-				})
-				setCurrentFileContent(content)
-			} catch (err) {
-				console.error("Failed to save file:", err)
-			}
-		},
-		[currentFilePath, openFiles, dispatch],
-	)
+	// ── File operations (moved to component) ─────────────────────────────
 
 	// ── Auto-save for open files (Gap #9) ────────────────────────────────
 	const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1376,6 +1286,16 @@ export function useIdeTerminal() {
 				}
 			} catch (err: any) {
 				dispatch({ type: "APPEND_TERMINAL_OUTPUT", payload: [`Error: ${err.message}`] })
+				dispatch({
+					type: "ADD_AI_MESSAGE",
+					payload: {
+						id: `term-error-${Date.now()}`,
+						role: "assistant",
+						author: "System",
+						time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+						content: `❌ Terminal command failed: ${err.message || String(err)}`,
+					},
+				})
 			}
 		},
 		[dispatch, ptyConnected, ptySessionId, handlePtyInput, terminalMode, recentCommands],
@@ -1418,42 +1338,7 @@ export function useIdeTerminal() {
 		[recentCommands, commandHistoryIndex, commandHistoryDraft, dispatch, handleTerminalCommand],
 	)
 
-	// ── Import / Open workspace ───────────────────────────────────────────
-
-	const handleImportGithub = useCallback(async () => {
-		if (!importGithubUrl.trim()) return
-		setImportGithubLoading(true)
-		setImportGithubError("")
-		try {
-			const result = await importGithubRepo(importGithubUrl, importGithubBranch)
-			if (result.success) {
-				const wsResult = await openWorkspace()
-				if (wsResult.files) dispatch({ type: "SET_FILES", payload: wsResult.files })
-			}
-			dispatch({ type: "SET_SHOW_IMPORT_GITHUB", payload: false })
-			setImportGithubUrl("")
-		} catch (err: any) {
-			setImportGithubError(err.message || "Import failed")
-		} finally {
-			setImportGithubLoading(false)
-		}
-	}, [importGithubUrl, importGithubBranch, dispatch])
-
-	const handleOpenWorkspace = useCallback(async () => {
-		if (!openWorkspacePath.trim()) return
-		setOpenWorkspaceLoading(true)
-		setOpenWorkspaceError("")
-		try {
-			const result = await openWorkspace(openWorkspacePath)
-			if (result.files) dispatch({ type: "SET_FILES", payload: result.files })
-			dispatch({ type: "SET_SHOW_OPEN_WORKSPACE", payload: false })
-			setOpenWorkspacePath("")
-		} catch (err: any) {
-			setOpenWorkspaceError(err.message || "Failed to open workspace")
-		} finally {
-			setOpenWorkspaceLoading(false)
-		}
-	}, [openWorkspacePath, dispatch])
+	// ── Import / Open workspace (moved to component) ─────────────────────
 
 	const handleViewDiff = useCallback(
 		async (filePath: string) => {
@@ -1602,20 +1487,26 @@ export function useIdeTerminal() {
 		copiedIndex,
 		setCopiedIndex,
 		currentFilePath,
+		setCurrentFilePath,
 		currentFileContent,
 		setCurrentFileContent,
 		currentFileLanguage,
+		setCurrentFileLanguage,
 		currentFileSelection,
 		importGithubUrl,
 		setImportGithubUrl,
 		importGithubBranch,
 		setImportGithubBranch,
 		importGithubLoading,
+		setImportGithubLoading,
 		importGithubError,
+		setImportGithubError,
 		openWorkspacePath,
 		setOpenWorkspacePath,
 		openWorkspaceLoading,
+		setOpenWorkspaceLoading,
 		openWorkspaceError,
+		setOpenWorkspaceError,
 		smartSuggestions,
 		setSmartSuggestions,
 		selectedSuggestionIndex,
@@ -1683,12 +1574,8 @@ export function useIdeTerminal() {
 		// Handlers
 		handleAiInputChange,
 		handleAiSend,
-		handleFileSelect,
-		handleFileSave,
 		handleTerminalCommand,
 		handleTerminalKeyDown,
-		handleImportGithub,
-		handleOpenWorkspace,
 		handleViewDiff,
 		handleInlineAiAction,
 		handleEditorMouseUp,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { extractYouTubeVideoId, extractYouTubeTimestamp, isYouTubeUrl } from "./YouTubeModal"
+import { extractYouTubeVideoId, extractYouTubeTimestamp, isYouTubeUrl } from "./YouTubeModal.utils"
 
 describe("isYouTubeUrl", () => {
 	it("should return true for youtube.com/watch URLs", () => {

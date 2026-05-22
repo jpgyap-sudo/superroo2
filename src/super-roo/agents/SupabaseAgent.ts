@@ -15,6 +15,7 @@ export class SupabaseAgent implements Agent {
 	readonly name = "supabase"
 	readonly description = "Runs Supabase CLI/database operations through the host Supabase runner."
 	readonly requiredCapabilities: Capability[] = ["supabase.manage.local"]
+	readonly tags: string[] = ["database", "supabase", "infrastructure"]
 
 	constructor(
 		private readonly runner: SupabaseRunner,

@@ -26,6 +26,7 @@ export class TesterAgent implements Agent {
 	readonly name = "tester"
 	readonly description = "Runs project tests (npm test / pytest / playwright) via the host TestRunner."
 	readonly requiredCapabilities: Capability[] = ["execute.command"]
+	readonly tags: string[] = ["testing", "verification", "quality"]
 
 	private readonly defaultKind: TestKind
 	private readonly defaultTimeoutMs: number

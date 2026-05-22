@@ -44,6 +44,7 @@ export class SelfHealingAgent implements Agent {
 	readonly name = "self-healing"
 	readonly description = "Manages self-healing operations: incident reporting, cycle triggering, and approvals"
 	readonly requiredCapabilities: string[] = ["read.file"]
+	readonly tags: string[] = ["self-healing", "incident-management", "recovery"]
 
 	private healingBus: HealingBus | null = null
 	private healingLoop: SelfHealingLoop | null = null

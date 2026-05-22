@@ -10,5 +10,10 @@ export default defineConfig({
 		alias: {
 			vscode: new URL("./src/__mocks__/vscode.ts", import.meta.url).pathname,
 		},
+		coverage: {
+			provider: "v8",
+			reporter: ["text", "json", "html"],
+			reportsDirectory: "./coverage",
+		},
 	},
 })

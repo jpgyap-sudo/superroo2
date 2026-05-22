@@ -19,6 +19,7 @@ export class ProductUpdatesAgent implements Agent {
 	readonly description =
 		"Records product updates (feature additions, bug fixes, UI changes, etc.) into product memory"
 	readonly requiredCapabilities: string[] = ["product_memory"]
+	readonly tags: string[] = ["product-memory", "updates", "changelog"]
 
 	private readonly service: ProductMemoryService
 

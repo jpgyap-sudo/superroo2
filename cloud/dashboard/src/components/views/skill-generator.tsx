@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useCallback } from "react"
+import { useState, useMemo, useCallback, useEffect } from "react"
 import { Card, StatCard } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -33,6 +33,7 @@ import {
 	RefreshCw,
 	AlertTriangle,
 	Info,
+	Loader2,
 } from "lucide-react"
 
 /* ─── Types ─────────────────────────────────────────── */
@@ -70,7 +71,7 @@ type RecommendedSkill = {
 
 /* ─── Mock Data ─────────────────────────────────────── */
 
-const EXISTING_SKILLS: ExistingSkill[] = [
+const FALLBACK_SKILLS: ExistingSkill[] = [
 	{
 		id: "autonomous",
 		name: "Autonomous Mode",
@@ -256,39 +257,6 @@ const RECOMMENDED_SKILLS: RecommendedSkill[] = [
 	},
 ]
 
-const MOCK_DRAFTS: DraftItem[] = [
-	{
-		id: "draft-1",
-		type: "skill",
-		title: "seo-meta-tag-optimization.md",
-		targetAgent: "homeu-seo-agent",
-		beforeScore: 72,
-		afterScore: 91,
-		status: "pending",
-		createdAt: "2026-05-02T14:30:00Z",
-	},
-	{
-		id: "draft-2",
-		type: "workflow",
-		title: "batch-image-alt-generation.md",
-		targetAgent: "homeu-seo-agent",
-		beforeScore: 65,
-		afterScore: 88,
-		status: "pending",
-		createdAt: "2026-05-02T16:00:00Z",
-	},
-	{
-		id: "draft-3",
-		type: "resource",
-		title: "homeu-furniture-keywords.md",
-		targetAgent: "homeu-seo-agent",
-		beforeScore: 80,
-		afterScore: 85,
-		status: "approved",
-		createdAt: "2026-05-01T10:00:00Z",
-	},
-]
-
 /* ─── Helpers ───────────────────────────────────────── */
 
 function typeLabel(t: string) {
@@ -341,7 +309,15 @@ function SkillCard({ skill }: { skill: ExistingSkill }) {
 	)
 }
 
-function RecommendationCard({ rec, onGenerate }: { rec: RecommendedSkill; onGenerate: (id: string) => void }) {
+function RecommendationCard({
+	rec,
+	onGenerate,
+	isGenerating,
+}: {
+	rec: RecommendedSkill
+	onGenerate: (id: string) => void
+	isGenerating: boolean
+}) {
 	return (
 		<Card className="group border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a] transition-all hover:border-[#2a3550]">
 			<div className="flex items-start gap-3">
@@ -371,8 +347,13 @@ function RecommendationCard({ rec, onGenerate }: { rec: RecommendedSkill; onGene
 				</div>
 				<button
 					onClick={() => onGenerate(rec.id)}
-					className="shrink-0 rounded border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] text-emerald-400 transition-all hover:bg-emerald-500/20 active:scale-95">
-					<Plus className="mr-1 inline h-3 w-3" />
+					disabled={isGenerating}
+					className="shrink-0 rounded border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] text-emerald-400 transition-all hover:bg-emerald-500/20 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50">
+					{isGenerating ? (
+						<Loader2 className="mr-1 inline h-3 w-3 animate-spin" />
+					) : (
+						<Plus className="mr-1 inline h-3 w-3" />
+					)}
 					Generate
 				</button>
 			</div>
@@ -383,15 +364,55 @@ function RecommendationCard({ rec, onGenerate }: { rec: RecommendedSkill; onGene
 /* ─── Main View ─────────────────────────────────────── */
 
 export function SkillGeneratorView() {
-	const [drafts, setDrafts] = useState<DraftItem[]>(MOCK_DRAFTS)
+	const [existingSkills, setExistingSkills] = useState<ExistingSkill[]>([])
+	const [skillsLoading, setSkillsLoading] = useState(true)
+	const [skillsError, setSkillsError] = useState<string | null>(null)
+
+	const [drafts, setDrafts] = useState<DraftItem[]>([])
 	const [activeTab, setActiveTab] = useState<"library" | "recommendations" | "drafts">("library")
 	const [searchQuery, setSearchQuery] = useState("")
 	const [categoryFilter, setCategoryFilter] = useState<string>("all")
 	const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null)
+	const [generatingIds, setGeneratingIds] = useState<Set<string>>(new Set())
+	const [generateAllLoading, setGenerateAllLoading] = useState(false)
 
 	const showToast = useCallback((message: string, type: "success" | "error" | "info" = "info") => {
 		setToast({ message, type })
 		setTimeout(() => setToast(null), 3000)
+	}, [])
+
+	// Fetch existing skills on mount
+	useEffect(() => {
+		const fetchSkills = async () => {
+			setSkillsLoading(true)
+			setSkillsError(null)
+			try {
+				const res = await fetch("/api/brain/skills")
+				const data = await res.json()
+				if (data.success && Array.isArray(data.skills) && data.skills.length > 0) {
+					const mapped: ExistingSkill[] = data.skills.map((s: any) => ({
+						id: s.id || s.name?.toLowerCase().replace(/\s+/g, "-") || String(Math.random()),
+						name: s.name || s.title || "Unnamed Skill",
+						description: s.description || "",
+						emoji: s.emoji || "📄",
+						category: ["automation", "integration", "quality", "deployment", "ai"].includes(s.category)
+							? s.category
+							: "automation",
+						status: ["active", "beta", "draft"].includes(s.status) ? s.status : "active",
+						lines: typeof s.lines === "number" ? s.lines : typeof s.lineCount === "number" ? s.lineCount : 100,
+					}))
+					setExistingSkills(mapped)
+				} else {
+					setExistingSkills(FALLBACK_SKILLS)
+				}
+			} catch (err) {
+				setSkillsError(err instanceof Error ? err.message : "Failed to load skills")
+				setExistingSkills(FALLBACK_SKILLS)
+			} finally {
+				setSkillsLoading(false)
+			}
+		}
+		fetchSkills()
 	}, [])
 
 	const setStatus = (id: string, status: DraftItem["status"]) => {
@@ -402,44 +423,154 @@ export function SkillGeneratorView() {
 	}
 
 	const handleGenerate = useCallback(
-		(id: string) => {
+		async (id: string) => {
 			const rec = RECOMMENDED_SKILLS.find((r) => r.id === id)
 			if (!rec) return
-			const newDraft: DraftItem = {
-				id: `draft-${Date.now()}`,
-				type: "skill",
-				title: rec.title.toLowerCase().replace(/\s+/g, "-") + ".md",
-				targetAgent: "superroo-agent",
-				beforeScore: 60 + Math.floor(Math.random() * 20),
-				afterScore: 80 + Math.floor(Math.random() * 15),
-				status: "pending",
-				createdAt: new Date().toISOString(),
+
+			setGeneratingIds((prev) => new Set(prev).add(id))
+			try {
+				const res = await fetch("/api/brain/skill-generate", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						failureType: "missing-skill",
+						goal: rec.title,
+						solution: rec.description,
+					}),
+				})
+				const data = await res.json()
+
+				if (data.success && data.skill) {
+					const skill = data.skill
+					const newDraft: DraftItem = {
+						id: `draft-${Date.now()}-${rec.id}`,
+						type: "skill",
+						title: skill.title || skill.name || rec.title.toLowerCase().replace(/\s+/g, "-") + ".md",
+						targetAgent: skill.targetAgent || "superroo-agent",
+						beforeScore: skill.beforeScore || 60 + Math.floor(Math.random() * 20),
+						afterScore: skill.afterScore || 80 + Math.floor(Math.random() * 15),
+						status: "pending",
+						createdAt: new Date().toISOString(),
+					}
+					setDrafts((prev) => [...prev, newDraft])
+					showToast(`Generated draft: ${rec.title}`, "success")
+				} else {
+					// Fallback to mock generation if API fails
+					const newDraft: DraftItem = {
+						id: `draft-${Date.now()}-${rec.id}`,
+						type: "skill",
+						title: rec.title.toLowerCase().replace(/\s+/g, "-") + ".md",
+						targetAgent: "superroo-agent",
+						beforeScore: 60 + Math.floor(Math.random() * 20),
+						afterScore: 80 + Math.floor(Math.random() * 15),
+						status: "pending",
+						createdAt: new Date().toISOString(),
+					}
+					setDrafts((prev) => [...prev, newDraft])
+					showToast(`Generated draft (fallback): ${rec.title}`, "info")
+				}
+			} catch (err) {
+				// Fallback to mock generation on network error
+				const newDraft: DraftItem = {
+					id: `draft-${Date.now()}-${rec.id}`,
+					type: "skill",
+					title: rec.title.toLowerCase().replace(/\s+/g, "-") + ".md",
+					targetAgent: "superroo-agent",
+					beforeScore: 60 + Math.floor(Math.random() * 20),
+					afterScore: 80 + Math.floor(Math.random() * 15),
+					status: "pending",
+					createdAt: new Date().toISOString(),
+				}
+				setDrafts((prev) => [...prev, newDraft])
+				showToast(`Generated draft (fallback): ${rec.title}`, "info")
+			} finally {
+				setGeneratingIds((prev) => {
+					const next = new Set(prev)
+					next.delete(id)
+					return next
+				})
 			}
-			setDrafts((prev) => [...prev, newDraft])
-			showToast(`Generated draft: ${rec.title}`, "success")
 		},
 		[showToast],
 	)
 
-	const handleGenerateAll = useCallback(() => {
-		RECOMMENDED_SKILLS.forEach((rec) => {
-			const newDraft: DraftItem = {
+	const handleGenerateAll = useCallback(async () => {
+		setGenerateAllLoading(true)
+		try {
+			const results = await Promise.allSettled(
+				RECOMMENDED_SKILLS.map((rec) =>
+					fetch("/api/brain/skill-generate", {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({
+							failureType: "missing-skill",
+							goal: rec.title,
+							solution: rec.description,
+						}),
+					}).then((r) => r.json()),
+				),
+			)
+
+			let successCount = 0
+			const newDrafts: DraftItem[] = []
+
+			results.forEach((result, index) => {
+				const rec = RECOMMENDED_SKILLS[index]
+				if (result.status === "fulfilled" && result.value.success && result.value.skill) {
+					const skill = result.value.skill
+					newDrafts.push({
+						id: `draft-${Date.now()}-${rec.id}`,
+						type: "skill",
+						title: skill.title || skill.name || rec.title.toLowerCase().replace(/\s+/g, "-") + ".md",
+						targetAgent: skill.targetAgent || "superroo-agent",
+						beforeScore: skill.beforeScore || 60 + Math.floor(Math.random() * 20),
+						afterScore: skill.afterScore || 80 + Math.floor(Math.random() * 15),
+						status: "pending",
+						createdAt: new Date().toISOString(),
+					})
+					successCount++
+				} else {
+					newDrafts.push({
+						id: `draft-${Date.now()}-${rec.id}`,
+						type: "skill",
+						title: rec.title.toLowerCase().replace(/\s+/g, "-") + ".md",
+						targetAgent: "superroo-agent",
+						beforeScore: 60 + Math.floor(Math.random() * 20),
+						afterScore: 80 + Math.floor(Math.random() * 15),
+						status: "pending",
+						createdAt: new Date().toISOString(),
+					})
+				}
+			})
+
+			setDrafts((prev) => [...prev, ...newDrafts])
+			showToast(
+				successCount > 0
+					? `Generated ${RECOMMENDED_SKILLS.length} drafts (${successCount} from API)`
+					: `Generated ${RECOMMENDED_SKILLS.length} drafts (API unavailable, used fallback)`,
+				"success",
+			)
+		} catch {
+			// Complete fallback
+			const newDrafts = RECOMMENDED_SKILLS.map((rec) => ({
 				id: `draft-${Date.now()}-${rec.id}`,
-				type: "skill",
+				type: "skill" as const,
 				title: rec.title.toLowerCase().replace(/\s+/g, "-") + ".md",
 				targetAgent: "superroo-agent",
 				beforeScore: 60 + Math.floor(Math.random() * 20),
 				afterScore: 80 + Math.floor(Math.random() * 15),
-				status: "pending",
+				status: "pending" as const,
 				createdAt: new Date().toISOString(),
-			}
-			setDrafts((prev) => [...prev, newDraft])
-		})
-		showToast(`Generated ${RECOMMENDED_SKILLS.length} draft skills`, "success")
+			}))
+			setDrafts((prev) => [...prev, ...newDrafts])
+			showToast(`Generated ${RECOMMENDED_SKILLS.length} drafts (fallback)`, "success")
+		} finally {
+			setGenerateAllLoading(false)
+		}
 	}, [showToast])
 
 	const filteredSkills = useMemo(() => {
-		return EXISTING_SKILLS.filter((s) => {
+		return existingSkills.filter((s) => {
 			const matchesSearch =
 				searchQuery === "" ||
 				s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -447,17 +578,17 @@ export function SkillGeneratorView() {
 			const matchesCategory = categoryFilter === "all" || s.category === categoryFilter
 			return matchesSearch && matchesCategory
 		})
-	}, [searchQuery, categoryFilter])
+	}, [searchQuery, categoryFilter, existingSkills])
 
 	const categories = useMemo(() => {
-		const cats = new Set(EXISTING_SKILLS.map((s) => s.category))
+		const cats = new Set(existingSkills.map((s) => s.category))
 		return ["all", ...Array.from(cats)]
-	}, [])
+	}, [existingSkills])
 
 	const pendingDrafts = drafts.filter((d) => d.status === "pending")
 	const approvedDrafts = drafts.filter((d) => d.status === "approved")
 
-	const totalSkillLines = EXISTING_SKILLS.reduce((acc, s) => acc + s.lines, 0)
+	const totalSkillLines = existingSkills.reduce((acc, s) => acc + s.lines, 0)
 
 	return (
 		<div className="space-y-5">
@@ -470,7 +601,7 @@ export function SkillGeneratorView() {
 					</p>
 				</div>
 				<div className="flex items-center gap-2">
-					<Badge status="success" label={`${EXISTING_SKILLS.length} skills`} />
+					<Badge status="success" label={`${existingSkills.length} skills`} />
 					<Badge status="warning" label={`${pendingDrafts.length} pending`} />
 				</div>
 			</div>
@@ -481,7 +612,7 @@ export function SkillGeneratorView() {
 					label="Existing Skills"
 					value={
 						<span className="flex items-center gap-2">
-							{EXISTING_SKILLS.length}
+							{existingSkills.length}
 							<span className="text-[11px] font-normal text-gray-500">skills</span>
 						</span>
 					}
@@ -590,8 +721,30 @@ export function SkillGeneratorView() {
 						</div>
 					</div>
 
+					{/* Loading State */}
+					{skillsLoading && (
+						<Card className="border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a]">
+							<div className="flex flex-col items-center gap-2 py-8 text-center">
+								<Loader2 className="h-8 w-8 animate-spin text-gray-600" />
+								<p className="text-sm text-gray-500">Loading skills library...</p>
+							</div>
+						</Card>
+					)}
+
+					{/* Error State */}
+					{!skillsLoading && skillsError && (
+						<Card className="border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a]">
+							<div className="flex flex-col items-center gap-2 py-8 text-center">
+								<AlertTriangle className="h-8 w-8 text-amber-500" />
+								<p className="text-sm text-gray-500">Failed to load skills from API</p>
+								<p className="text-[11px] text-gray-600">{skillsError}</p>
+								<p className="text-[11px] text-gray-600">Showing fallback skills instead.</p>
+							</div>
+						</Card>
+					)}
+
 					{/* Skills Grid */}
-					{filteredSkills.length === 0 ? (
+					{!skillsLoading && filteredSkills.length === 0 ? (
 						<Card className="border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a]">
 							<div className="flex flex-col items-center gap-2 py-8 text-center">
 								<Search className="h-8 w-8 text-gray-600" />
@@ -607,25 +760,29 @@ export function SkillGeneratorView() {
 							</div>
 						</Card>
 					) : (
-						<div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-							{filteredSkills.map((skill) => (
-								<SkillCard key={skill.id} skill={skill} />
-							))}
-						</div>
+						!skillsLoading && (
+							<div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+								{filteredSkills.map((skill) => (
+									<SkillCard key={skill.id} skill={skill} />
+								))}
+							</div>
+						)
 					)}
 
 					{/* Summary */}
-					<Card className="border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a]">
-						<div className="flex items-center justify-between text-[11px] text-gray-500">
-							<span>
-								Showing {filteredSkills.length} of {EXISTING_SKILLS.length} skills
-							</span>
-							<span className="flex items-center gap-1">
-								<Code className="h-3 w-3" />
-								{totalSkillLines} total instruction lines across all skills
-							</span>
-						</div>
-					</Card>
+					{!skillsLoading && (
+						<Card className="border-[#1e2535] bg-gradient-to-b from-[#0f1117] to-[#0a0e1a]">
+							<div className="flex items-center justify-between text-[11px] text-gray-500">
+								<span>
+									Showing {filteredSkills.length} of {existingSkills.length} skills
+								</span>
+								<span className="flex items-center gap-1">
+									<Code className="h-3 w-3" />
+									{totalSkillLines} total instruction lines across all skills
+								</span>
+							</div>
+						</Card>
+					)}
 				</div>
 			)}
 
@@ -648,15 +805,25 @@ export function SkillGeneratorView() {
 						</Card>
 						<button
 							onClick={handleGenerateAll}
-							className="ml-3 flex shrink-0 items-center gap-1.5 rounded border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[11px] font-medium text-emerald-400 transition-all hover:bg-emerald-500/20 active:scale-95">
-							<Zap className="h-3.5 w-3.5" />
+							disabled={generateAllLoading}
+							className="ml-3 flex shrink-0 items-center gap-1.5 rounded border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[11px] font-medium text-emerald-400 transition-all hover:bg-emerald-500/20 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50">
+							{generateAllLoading ? (
+								<Loader2 className="h-3.5 w-3.5 animate-spin" />
+							) : (
+								<Zap className="h-3.5 w-3.5" />
+							)}
 							Generate All
 						</button>
 					</div>
 
 					<div className="space-y-2">
 						{RECOMMENDED_SKILLS.map((rec) => (
-							<RecommendationCard key={rec.id} rec={rec} onGenerate={handleGenerate} />
+							<RecommendationCard
+								key={rec.id}
+								rec={rec}
+								onGenerate={handleGenerate}
+								isGenerating={generatingIds.has(rec.id)}
+							/>
 						))}
 					</div>
 

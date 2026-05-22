@@ -106,7 +106,7 @@ export async function sendTerminalCommand(
 export async function importGithubRepo(repoUrl: string, branch?: string) {
 	return apiFetch<{ success: boolean; workspaceId: string }>("/ide-workspace/workspace/import-github", {
 		method: "POST",
-		body: JSON.stringify({ repoUrl, branch }),
+		body: JSON.stringify({ url: repoUrl, branch }),
 	})
 }
 
@@ -156,6 +156,13 @@ export async function fetchBrainSession(sessionId: string) {
 	return apiFetch<{ summary: string; commands: string[] }>(
 		`/brain/session?sessionId=${encodeURIComponent(sessionId)}`,
 	)
+}
+
+export async function sendIdeChatMessage(message: string, context?: Record<string, unknown>) {
+	return apiFetch<{ reply: string; suggestions?: string[] }>("/ide-workspace/chat", {
+		method: "POST",
+		body: JSON.stringify({ message, context }),
+	})
 }
 
 /* ── Search ────────────────────────────────────────────── */

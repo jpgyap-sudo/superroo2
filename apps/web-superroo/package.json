@@ -46,6 +46,7 @@
 		"zod": "^3.25.61"
 	},
 	"devDependencies": {
+		"@playwright/test": "^1.60.0",
 		"@superroo/config-eslint": "workspace:^",
 		"@superroo/config-typescript": "workspace:^",
 		"@tailwindcss/typography": "^0.5.19",

@@ -19,5 +19,10 @@ export default defineConfig({
 		alias: {
 			vscode: path.resolve(__dirname, "./__mocks__/vscode.js"),
 		},
+		coverage: {
+			provider: "v8",
+			reporter: ["text", "json", "html"],
+			reportsDirectory: "./coverage",
+		},
 	},
 })

@@ -54,122 +54,10 @@ interface PermissionRow {
 	secrets: boolean
 }
 
-// ─── Mock Data ───────────────────────────────────────────────────────────────
-
-const MOCK_APPROVALS: ApprovalRequest[] = [
-	{
-		id: "DEPLOY-221",
-		agent: "Deploy Agent",
-		type: "Production Deployment",
-		action: "Deploy to production environment",
-		details: "Changes: 18 files • 2,341 additions",
-		risk: "high",
-		score: 82,
-		status: "pending",
-		age: "2m ago",
-		icon: "rocket",
-	},
-	{
-		id: "TERM-884",
-		agent: "Debugger Agent",
-		type: "Terminal Command",
-		action: "Run command: sudo apt install nginx",
-		details: "Packages: nginx, nginx-common, nginx-core",
-		risk: "medium",
-		score: 56,
-		status: "review",
-		age: "4m ago",
-		icon: "terminal",
-	},
-	{
-		id: "GIT-472",
-		agent: "Coder Agent",
-		type: "GitHub Action",
-		action: "Force push to main branch",
-		details: "Repository: superroo/cloud • 7 commits",
-		risk: "critical",
-		score: 95,
-		status: "pending",
-		age: "7m ago",
-		icon: "github",
-	},
-	{
-		id: "API-117",
-		agent: "Research Agent",
-		type: "API Access",
-		action: "Access OpenAI Billing API",
-		details: "Endpoint: /v1/organization/usage",
-		risk: "medium",
-		score: 48,
-		status: "review",
-		age: "11m ago",
-		icon: "cloud",
-	},
-	{
-		id: "FILE-316",
-		agent: "Tester Agent",
-		type: "File Operation",
-		action: "Delete cache directory",
-		details: "Path: /app/.next/cache (1.2 GB)",
-		risk: "low",
-		score: 18,
-		status: "auto-approved",
-		age: "13m ago",
-		icon: "folder",
-	},
-	{
-		id: "DEPLOY-222",
-		agent: "Deploy Agent",
-		type: "Staging Deployment",
-		action: "Deploy to staging environment",
-		details: "Changes: 5 files • 342 additions",
-		risk: "low",
-		score: 12,
-		status: "pending",
-		age: "18m ago",
-		icon: "rocket",
-	},
-	{
-		id: "DB-019",
-		agent: "Coder Agent",
-		type: "Database Migration",
-		action: "Run migration: add_users_table",
-		details: "SQL: CREATE TABLE users (id UUID PRIMARY KEY, ...)",
-		risk: "high",
-		score: 74,
-		status: "pending",
-		age: "22m ago",
-		icon: "folder",
-	},
-	{
-		id: "SEC-003",
-		agent: "Research Agent",
-		type: "Secrets Access",
-		action: "Read AWS production secrets",
-		details: "Vault path: /secrets/aws/production/*",
-		risk: "critical",
-		score: 98,
-		status: "review",
-		age: "25m ago",
-		icon: "cloud",
-	},
-]
-
-const MOCK_PERMISSIONS: PermissionRow[] = [
-	{ agent: "Coder Agent", terminal: true, github: true, deploy: false, database: "-", secrets: false },
-	{ agent: "Debugger Agent", terminal: true, github: false, deploy: false, database: "Read", secrets: false },
-	{ agent: "Deploy Agent", terminal: true, github: true, deploy: true, database: "-", secrets: false },
-	{ agent: "Research Agent", terminal: false, github: false, deploy: false, database: "Read", secrets: false },
-	{ agent: "Tester Agent", terminal: true, github: false, deploy: false, database: "-", secrets: false },
-]
-
-const MOCK_TIMELINE = [
-	{ time: "20:41", event: "Coder Agent modified API router" },
-	{ time: "20:42", event: "Tester Agent ran regression tests" },
-	{ time: "20:43", event: "Debugger Agent found memory leak" },
-	{ time: "20:44", event: "Deploy Agent requested approval" },
-	{ time: "20:45", event: "Sandbox tests initiated" },
-]
+interface TimelineEvent {
+	time: string
+	event: string
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -195,9 +83,38 @@ const iconMap: Record<string, React.ReactNode> = {
 	folder: <Folder className="h-4 w-4" />,
 }
 
+function formatEventTime(ts: number): string {
+	return new Date(ts).toLocaleTimeString("en-US", {
+		hour: "2-digit",
+		minute: "2-digit",
+		hour12: false,
+	})
+}
+
+function formatEventDesc(e: any): string {
+	if (e.payload && typeof e.payload === "object") {
+		if (e.payload.message) return e.payload.message
+		if (e.payload.event) return e.payload.event
+		if (e.payload.title) return e.payload.title
+	}
+	return `${e.source || "System"} — ${e.type || "event"}`
+}
+
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
-function ApprovalRow({ item, selected, onSelect }: { item: ApprovalRequest; selected: boolean; onSelect: () => void }) {
+function ApprovalRow({
+	item,
+	selected,
+	onSelect,
+	onApprove,
+	onReject,
+}: {
+	item: ApprovalRequest
+	selected: boolean
+	onSelect: () => void
+	onApprove: (id: string) => void
+	onReject: (id: string) => void
+}) {
 	const riskBorder: Record<RiskLevel, string> = {
 		low: "border-emerald-500/20",
 		medium: "border-amber-500/20",
@@ -265,6 +182,7 @@ function ApprovalRow({ item, selected, onSelect }: { item: ApprovalRequest; sele
 						<button
 							onClick={(e) => {
 								e.stopPropagation()
+								onSelect()
 							}}
 							className="rounded-md bg-violet-600 px-2.5 py-1.5 text-[11px] font-medium text-white hover:bg-violet-500">
 							Review
@@ -272,6 +190,7 @@ function ApprovalRow({ item, selected, onSelect }: { item: ApprovalRequest; sele
 						<button
 							onClick={(e) => {
 								e.stopPropagation()
+								onReject(item.id)
 							}}
 							className="rounded-md border border-slate-700/50 bg-slate-800/50 px-2.5 py-1.5 text-[11px] text-slate-400 hover:border-slate-600 hover:text-slate-300">
 							Reject
@@ -283,7 +202,15 @@ function ApprovalRow({ item, selected, onSelect }: { item: ApprovalRequest; sele
 	)
 }
 
-function DetailPanel({ request }: { request: ApprovalRequest | null }) {
+function DetailPanel({
+	request,
+	onApprove,
+	onReject,
+}: {
+	request: ApprovalRequest | null
+	onApprove: (id: string) => void
+	onReject: (id: string) => void
+}) {
 	if (!request) {
 		return (
 			<Card className="flex h-full items-center justify-center border-dashed border-slate-700/30 bg-gradient-to-b from-[#0f1117] to-[#0a0e1a]">
@@ -404,7 +331,9 @@ function DetailPanel({ request }: { request: ApprovalRequest | null }) {
 
 			{/* Actions */}
 			<div className="mt-4 grid grid-cols-3 gap-2">
-				<button className="flex items-center justify-center gap-1.5 rounded-md bg-violet-600 px-3 py-2.5 text-[11px] font-medium text-white hover:bg-violet-500">
+				<button
+					onClick={() => onApprove(request.id)}
+					className="flex items-center justify-center gap-1.5 rounded-md bg-violet-600 px-3 py-2.5 text-[11px] font-medium text-white hover:bg-violet-500">
 					<Check className="h-3.5 w-3.5" />
 					Approve
 				</button>
@@ -412,7 +341,9 @@ function DetailPanel({ request }: { request: ApprovalRequest | null }) {
 					<Box className="h-3.5 w-3.5" />
 					Sandbox Test First
 				</button>
-				<button className="flex items-center justify-center gap-1.5 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-[11px] text-red-400 hover:bg-red-500/20">
+				<button
+					onClick={() => onReject(request.id)}
+					className="flex items-center justify-center gap-1.5 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-[11px] text-red-400 hover:bg-red-500/20">
 					<XCircle className="h-3.5 w-3.5" />
 					Reject
 				</button>
@@ -428,25 +359,44 @@ function DetailPanel({ request }: { request: ApprovalRequest | null }) {
 }
 
 function LiveActivityTimeline() {
-	const [timeline, setTimeline] = useState(MOCK_TIMELINE)
+	const [timeline, setTimeline] = useState<TimelineEvent[]>([])
 	const scrollRef = useRef<HTMLDivElement>(null)
 
 	useEffect(() => {
+		fetch("/api/orchestrator/events?limit=20")
+			.then((r) => r.json())
+			.then((d) => {
+				if (d.success && Array.isArray(d.events)) {
+					setTimeline(
+						d.events.map((e: any) => ({
+							time: formatEventTime(e.createdAt || Date.now()),
+							event: formatEventDesc(e),
+						})),
+					)
+				}
+			})
+			.catch(() => {
+				// silently fail — keep empty timeline
+			})
+	}, [])
+
+	useEffect(() => {
 		const iv = setInterval(() => {
-			const events = [
-				"Heartbeat check passed",
-				"Cache invalidation triggered",
-				"Agent health report received",
-				"Queue depth: 12 items",
-				"WebSocket reconnected",
-			]
-			setTimeline((prev) => [
-				...prev.slice(-20),
-				{
-					time: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false }),
-					event: events[Math.floor(Math.random() * events.length)],
-				},
-			])
+			fetch("/api/orchestrator/events?limit=20")
+				.then((r) => r.json())
+				.then((d) => {
+					if (d.success && Array.isArray(d.events)) {
+						setTimeline(
+							d.events.map((e: any) => ({
+								time: formatEventTime(e.createdAt || Date.now()),
+								event: formatEventDesc(e),
+							})),
+						)
+					}
+				})
+				.catch(() => {
+					// silently fail on poll
+				})
 		}, 6000)
 		return () => clearInterval(iv)
 	}, [])
@@ -459,51 +409,59 @@ function LiveActivityTimeline() {
 
 	return (
 		<div ref={scrollRef} className="max-h-48 space-y-1 overflow-y-auto">
-			{timeline.map((t, i) => (
-				<div key={i} className="flex gap-2 border-l border-violet-500/30 pl-3 text-[11px]">
-					<span className="shrink-0 text-slate-500">{t.time}</span>
-					<span className="text-slate-400">{t.event}</span>
-				</div>
-			))}
+			{timeline.length === 0 ? (
+				<p className="text-[11px] text-slate-600">No recent events</p>
+			) : (
+				timeline.map((t, i) => (
+					<div key={i} className="flex gap-2 border-l border-violet-500/30 pl-3 text-[11px]">
+						<span className="shrink-0 text-slate-500">{t.time}</span>
+						<span className="text-slate-400">{t.event}</span>
+					</div>
+				))
+			)}
 		</div>
 	)
 }
 
-function PermissionMatrix() {
+function PermissionMatrix({ permissions }: { permissions: PermissionRow[] }) {
 	return (
 		<div className="overflow-x-auto">
-			<table className="w-full text-left text-[11px]">
-				<thead>
-					<tr className="border-b border-[#1e2535] text-[10px] uppercase tracking-wider text-slate-500">
-						<th className="py-1.5 pr-2 font-medium">Agent</th>
-						<th className="px-2 py-1.5 font-medium">Terminal</th>
-						<th className="px-2 py-1.5 font-medium">GitHub</th>
-						<th className="px-2 py-1.5 font-medium">Deploy</th>
-						<th className="px-2 py-1.5 font-medium">DB</th>
-						<th className="pl-2 py-1.5 font-medium">Secrets</th>
-					</tr>
-				</thead>
-				<tbody>
-					{MOCK_PERMISSIONS.map((p) => (
-						<tr key={p.agent} className="border-b border-[#1e2535]/50">
-							<td className="py-1.5 pr-2 text-slate-300">{p.agent}</td>
-							<td className="px-2 py-1.5 text-center text-slate-500">
-								{p.terminal ? <span className="text-emerald-400">✓</span> : "—"}
-							</td>
-							<td className="px-2 py-1.5 text-center text-slate-500">
-								{p.github ? <span className="text-emerald-400">✓</span> : "—"}
-							</td>
-							<td className="px-2 py-1.5 text-center text-slate-500">
-								{p.deploy ? <span className="text-emerald-400">✓</span> : "—"}
-							</td>
-							<td className="px-2 py-1.5 text-center text-slate-500">{p.database}</td>
-							<td className="pl-2 py-1.5 text-center text-slate-500">
-								{p.secrets ? <span className="text-emerald-400">✓</span> : "—"}
-							</td>
+			{permissions.length === 0 ? (
+				<p className="text-[11px] text-slate-600">No permissions configured</p>
+			) : (
+				<table className="w-full text-left text-[11px]">
+					<thead>
+						<tr className="border-b border-[#1e2535] text-[10px] uppercase tracking-wider text-slate-500">
+							<th className="py-1.5 pr-2 font-medium">Agent</th>
+							<th className="px-2 py-1.5 font-medium">Terminal</th>
+							<th className="px-2 py-1.5 font-medium">GitHub</th>
+							<th className="px-2 py-1.5 font-medium">Deploy</th>
+							<th className="px-2 py-1.5 font-medium">DB</th>
+							<th className="pl-2 py-1.5 font-medium">Secrets</th>
 						</tr>
-					))}
-				</tbody>
-			</table>
+					</thead>
+					<tbody>
+						{permissions.map((p) => (
+							<tr key={p.agent} className="border-b border-[#1e2535]/50">
+								<td className="py-1.5 pr-2 text-slate-300">{p.agent}</td>
+								<td className="px-2 py-1.5 text-center text-slate-500">
+									{p.terminal ? <span className="text-emerald-400">✓</span> : "—"}
+								</td>
+								<td className="px-2 py-1.5 text-center text-slate-500">
+									{p.github ? <span className="text-emerald-400">✓</span> : "—"}
+								</td>
+								<td className="px-2 py-1.5 text-center text-slate-500">
+									{p.deploy ? <span className="text-emerald-400">✓</span> : "—"}
+								</td>
+								<td className="px-2 py-1.5 text-center text-slate-500">{p.database}</td>
+								<td className="pl-2 py-1.5 text-center text-slate-500">
+									{p.secrets ? <span className="text-emerald-400">✓</span> : "—"}
+								</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
+			)}
 			<button className="mt-2 w-full text-center text-[11px] text-violet-400 hover:text-violet-300">
 				Manage Permissions
 			</button>
@@ -514,12 +472,75 @@ function PermissionMatrix() {
 // ─── Main View ──────────────────────────────────────────────────────────────
 
 export function ApprovalsView() {
-	const [approvals] = useState<ApprovalRequest[]>(MOCK_APPROVALS)
+	const [approvals, setApprovals] = useState<ApprovalRequest[]>([])
+	const [permissions] = useState<PermissionRow[]>([])
 	const [selectedId, setSelectedId] = useState<string | null>(null)
 	const [filterTab, setFilterTab] = useState<string>("all")
 	const [searchQuery, setSearchQuery] = useState("")
+	const [loading, setLoading] = useState(true)
+	const [error, setError] = useState<string | null>(null)
+	const [actionLoading, setActionLoading] = useState<Set<string>>(() => new Set())
 
 	const selectedRequest = approvals.find((a) => a.id === selectedId) || null
+
+	useEffect(() => {
+		fetch("/api/approvals")
+			.then((r) => r.json())
+			.then((d) => {
+				if (d.success && Array.isArray(d.approvals)) {
+					setApprovals(d.approvals as ApprovalRequest[])
+				} else {
+					setError("Unexpected response from approvals API")
+				}
+				setLoading(false)
+			})
+			.catch((e) => {
+				setError(e.message || "Failed to load approvals")
+				setLoading(false)
+			})
+	}, [])
+
+	const handleApprove = async (id: string) => {
+		if (actionLoading.has(id)) return
+		setActionLoading((prev) => new Set(prev).add(id))
+		try {
+			const r = await fetch(`/api/approvals/${id}/approve`, { method: "POST" })
+			const d = await r.json()
+			if (d.success) {
+				setApprovals((prev) => prev.filter((a) => a.id !== id))
+				if (selectedId === id) setSelectedId(null)
+			}
+		} catch {
+			// silently fail
+		} finally {
+			setActionLoading((prev) => {
+				const next = new Set(prev)
+				next.delete(id)
+				return next
+			})
+		}
+	}
+
+	const handleReject = async (id: string) => {
+		if (actionLoading.has(id)) return
+		setActionLoading((prev) => new Set(prev).add(id))
+		try {
+			const r = await fetch(`/api/approvals/${id}/reject`, { method: "POST" })
+			const d = await r.json()
+			if (d.success) {
+				setApprovals((prev) => prev.filter((a) => a.id !== id))
+				if (selectedId === id) setSelectedId(null)
+			}
+		} catch {
+			// silently fail
+		} finally {
+			setActionLoading((prev) => {
+				const next = new Set(prev)
+				next.delete(id)
+				return next
+			})
+		}
+	}
 
 	const pendingCount = approvals.filter((a) => a.status === "pending").length
 	const highRiskCount = approvals.filter((a) => a.risk === "high" || a.risk === "critical").length
@@ -544,6 +565,30 @@ export function ApprovalsView() {
 				a.type.toLowerCase().includes(q)
 			)
 		})
+
+	if (loading) {
+		return (
+			<div className="flex items-center justify-center py-20">
+				<div className="h-8 w-8 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
+			</div>
+		)
+	}
+
+	if (error) {
+		return (
+			<div className="flex items-center justify-center py-20">
+				<div className="text-center">
+					<AlertTriangle className="mx-auto h-10 w-10 text-red-400" />
+					<p className="mt-3 text-sm text-slate-300">{error}</p>
+					<button
+						onClick={() => window.location.reload()}
+						className="mt-4 rounded-md bg-violet-600 px-4 py-2 text-[11px] font-medium text-white hover:bg-violet-500">
+						Retry
+					</button>
+				</div>
+			</div>
+		)
+	}
 
 	return (
 		<div className="space-y-4">
@@ -710,7 +755,9 @@ export function ApprovalsView() {
 							{filteredApprovals.length === 0 ? (
 								<div className="flex flex-col items-center justify-center py-8 text-slate-600">
 									<ShieldCheck className="mb-2 h-8 w-8" />
-									<p className="text-sm">No matching approvals</p>
+									<p className="text-sm">
+										{searchQuery ? "No matching approvals" : "No approvals pending"}
+									</p>
 								</div>
 							) : (
 								filteredApprovals.map((item) => (
@@ -719,6 +766,8 @@ export function ApprovalsView() {
 										item={item}
 										selected={selectedId === item.id}
 										onSelect={() => setSelectedId(selectedId === item.id ? null : item.id)}
+										onApprove={handleApprove}
+										onReject={handleReject}
 									/>
 								))
 							)}
@@ -743,7 +792,7 @@ export function ApprovalsView() {
 							<h3 className="mb-3 text-[10px] uppercase tracking-widest text-slate-500">
 								PERMISSION MATRIX
 							</h3>
-							<PermissionMatrix />
+							<PermissionMatrix permissions={permissions} />
 						</Card>
 
 						{/* Approval Analytics */}
@@ -801,7 +850,7 @@ export function ApprovalsView() {
 				</div>
 
 				{/* Right Column — Detail Panel */}
-				<DetailPanel request={selectedRequest} />
+				<DetailPanel request={selectedRequest} onApprove={handleApprove} onReject={handleReject} />
 			</div>
 		</div>
 	)

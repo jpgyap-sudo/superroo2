@@ -56,6 +56,7 @@ export class WorkingTreeAgent implements Agent {
 	readonly description =
 		"Monitors product updates, bug fixes, and feature changes to keep the Working Tree in sync with the codebase"
 	readonly requiredCapabilities: string[] = ["product_memory", "read"]
+	readonly tags: string[] = ["product-memory", "working-tree", "monitoring"]
 
 	private readonly service: ProductMemoryService
 	private readonly events: EventLog

@@ -1,13 +1,5 @@
 import { PostHog } from "posthog-node"
-
-// Conditional vscode import — safe for cloud/test environments without VS Code host
-let vscode: typeof import("vscode") | undefined
-try {
-	// eslint-disable-next-line @typescript-eslint/no-require-imports
-	vscode = require("vscode")
-} catch {
-	vscode = undefined
-}
+import { vscode } from "./vscode-access"
 
 import {
 	type TelemetryProperties,
@@ -31,7 +23,7 @@ import { BaseTelemetryClient } from "./BaseTelemetryClient"
  */
 export class PostHogTelemetryClient extends BaseTelemetryClient {
 	private client: PostHog
-	private distinctId: string = vscode?.env.machineId || `cloud-${process.pid}-${Date.now()}`
+	private distinctId: string = process.env.TELEMETRY_MACHINE_ID || vscode?.env.machineId || `cloud-${process.pid}-${Date.now()}`
 	// Git repository properties that should be filtered out
 	private readonly gitPropertyNames = ["repositoryUrl", "repositoryName", "defaultBranch"]
 

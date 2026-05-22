@@ -5,10 +5,13 @@
  * tags, and relevance scoring. Used to inject institutional knowledge
  * into model prompts.
  *
- * Supports cross-project learning:
- * - When running inside superroo2 repo: loads local memory/lesson-index.jsonl
- * - When running in any other project: falls back to Central Brain via MCP
- * - The remote fallback is transparent to callers
+ * Supports cross-project learning with 4-layer fallback:
+ *   Layer 1 — Local memory/lesson-index.jsonl (fastest, no network)
+ *   Layer 2 — Central Brain via MCP (cross-project, network required)
+ *   Layer 3 — Markdown fallback (memory/lessons-learned.md)
+ *   Layer 4 — pgvector semantic search (Postgres, best relevance)
+ *
+ * All layers are transparent to callers — the system degrades gracefully.
  */
 
 import fs from "fs/promises"
@@ -66,6 +69,25 @@ interface RemoteLessonResult {
 	}>
 }
 
+/**
+ * pgvector memory result from Central Brain v2 API
+ */
+interface PgVectorMemoryResult {
+	id: string
+	title: string
+	summary: string
+	content: string
+	memory_type: string
+	confidence: number
+	importance: number
+	tags: string[]
+	files: string[]
+	agent: string
+	model: string
+	similarity: number
+	created_at: string
+}
+
 export interface RetrieveOptions {
 	/** Filter by tags (lessons must have ALL specified tags) */
 	tags?: string[]
@@ -85,6 +107,10 @@ export interface RetrieveOptions {
 	sortOrder?: "asc" | "desc"
 	/** Prefer lessons from specific model */
 	preferModel?: string
+	/** Query string for semantic search (pgvector layer) */
+	query?: string
+	/** Project ID for pgvector queries */
+	projectId?: string
 }
 
 /**
@@ -95,34 +121,42 @@ export class LessonRetriever {
 	private indexPath: string
 	private loaded = false
 	private useRemote = false
+	private usePgVector = false
 	private remoteUrl: string
 	private remoteProject: string
+	private brainApiUrl: string
 
 	constructor(indexPath?: string, remoteUrl?: string, remoteProject?: string) {
 		this.indexPath = indexPath || path.resolve(process.cwd(), "memory/lesson-index.jsonl")
 		this.remoteUrl = remoteUrl || process.env.SUPERROO_MCP_URL || "http://127.0.0.1:3419/mcp"
 		this.remoteProject = remoteProject || process.env.SUPERROO_PROJECT || ""
+		this.brainApiUrl = process.env.BRAIN_API_URL || "http://127.0.0.1:3456/api/brain"
 	}
 
 	/**
-	 * Load lessons from local JSONL index or fall back to Central Brain.
+	 * Load lessons from available sources using 4-layer fallback.
 	 *
 	 * Strategy:
 	 *   1. Try local memory/lesson-index.jsonl (fast, no network)
 	 *   2. If local file doesn't exist, try Central Brain via MCP
-	 *   3. If both fail, return empty (no crash)
+	 *   3. If MCP fails, try pgvector via Central Brain v2 API (health check only)
+	 *   4. If all fail, return empty (no crash)
+	 *
+	 * Note: Layer 3 (pgvector) is a lightweight health check during load().
+	 * Actual semantic search via pgvector happens at query time in retrieve()
+	 * when options.query is provided.
 	 */
 	async load(): Promise<void> {
 		if (this.loaded) return
 
-		// Try local first
+		// Layer 1: Local JSONL (fastest, no network)
 		const localLoaded = await this._tryLoadLocal()
 		if (localLoaded) {
 			this.loaded = true
 			return
 		}
 
-		// Fall back to remote Central Brain
+		// Layer 2: Central Brain via MCP (cross-project)
 		const remoteLoaded = await this._tryLoadRemote()
 		if (remoteLoaded) {
 			this.loaded = true
@@ -130,8 +164,16 @@ export class LessonRetriever {
 			return
 		}
 
-		// Both failed — empty state, no crash
-		console.warn("[LessonRetriever] No local or remote lesson source available. Running without lesson context.")
+		// Layer 3: pgvector via Central Brain v2 API (semantic search)
+		const pgVectorLoaded = await this._tryLoadPgVector()
+		if (pgVectorLoaded) {
+			this.loaded = true
+			this.usePgVector = true
+			return
+		}
+
+		// All layers failed — empty state, no crash
+		console.warn("[LessonRetriever] No lesson source available (JSONL, MCP, pgvector). Running without lesson context.")
 		this.lessons = []
 		this.loaded = true
 	}
@@ -231,10 +273,133 @@ export class LessonRetriever {
 	}
 
 	/**
+	 * Try to load lessons from pgvector via Central Brain v2 API.
+	 * This is Layer 4 — semantic search via Postgres.
+	 *
+	 * Unlike the other layers which pre-load all lessons, pgvector
+	 * is a lightweight health check during load(). Actual semantic
+	 * search happens at query time in _searchPgVector().
+	 */
+	private async _tryLoadPgVector(): Promise<boolean> {
+		try {
+			// Health check — just verify the API is reachable
+			const response = await fetch(`${this.brainApiUrl}/v2/stats`, {
+				method: "GET",
+				headers: { "Content-Type": "application/json" },
+				signal: AbortSignal.timeout(3000),
+			})
+
+			if (!response.ok) return false
+
+			const result = await response.json()
+			const available = result?.success === true || result?.data !== undefined
+			if (!available) return false
+
+			console.log(`[LessonRetriever] pgvector API available at ${this.brainApiUrl}`)
+			return true
+		} catch {
+			return false
+		}
+	}
+
+	/**
+	 * Perform semantic search against pgvector via Central Brain v2 API.
+	 * Called during retrieve() when a query string is provided.
+	 */
+	private async _searchPgVector(options: RetrieveOptions): Promise<Lesson[]> {
+		try {
+			const searchBody: Record<string, unknown> = {
+				query: options.query || "",
+				limit: options.limit || 10,
+				minSimilarity: 0.3,
+			}
+
+			if (options.projectId) {
+				searchBody.projectId = options.projectId
+			}
+
+			if (options.tags && options.tags.length > 0) {
+				searchBody.tags = options.tags
+			}
+
+			if (options.type) {
+				searchBody.memoryType = options.type === "bugfix" ? "bug" : options.type
+			}
+
+			const response = await fetch(`${this.brainApiUrl}/v2/memory/search`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(searchBody),
+				signal: AbortSignal.timeout(5000),
+			})
+
+			if (!response.ok) return []
+
+			const result = await response.json()
+			const memories = result?.data?.memories || result?.memories || []
+			if (!Array.isArray(memories) || memories.length === 0) return []
+
+			const lessons = this._convertPgVectorResults(memories)
+			console.log(
+				`[LessonRetriever] Found ${lessons.length} pgvector results for query "${(options.query || "").slice(0, 40)}"`,
+			)
+			return lessons
+		} catch {
+			return []
+		}
+	}
+
+	/**
+	 * Convert pgvector memory results to Lesson format.
+	 */
+	private _convertPgVectorResults(memories: PgVectorMemoryResult[]): Lesson[] {
+		return memories.map((mem, i) => ({
+			id: mem.id || `pgvector-${i + 1}`,
+			title: mem.title || "Untitled memory",
+			type: this._mapMemoryType(mem.memory_type),
+			date: mem.created_at ? mem.created_at.split("T")[0] : new Date().toISOString().split("T")[0],
+			source: `pgvector/${mem.agent || "unknown"}`,
+			model: mem.model || "unknown",
+			confidence: mem.confidence >= 0.8 ? "high" : mem.confidence >= 0.5 ? "medium" : "low",
+			files: mem.files || [],
+			tags: mem.tags || [],
+			relevance_score: mem.similarity || 0.5,
+			relevance_factors: {},
+			rule_summary: mem.summary?.slice(0, 200) || "",
+			lesson_summary: mem.content?.slice(0, 300) || mem.summary?.slice(0, 300) || "",
+		}))
+	}
+
+	/**
+	 * Map pgvector memory_type to Lesson type.
+	 */
+	private _mapMemoryType(memoryType: string): "lesson" | "bugfix" | "decision" {
+		switch (memoryType) {
+			case "bug":
+				return "bugfix"
+			case "decision":
+			case "insight":
+				return "decision"
+			case "lesson":
+			case "pattern":
+			case "reference":
+			default:
+				return "lesson"
+		}
+	}
+
+	/**
 	 * Check if this retriever is using remote (Central Brain) fallback.
 	 */
 	isUsingRemote(): boolean {
 		return this.useRemote
+	}
+
+	/**
+	 * Check if this retriever is using pgvector (Central Brain v2) fallback.
+	 */
+	isUsingPgVector(): boolean {
+		return this.usePgVector
 	}
 
 	/**
@@ -249,6 +414,14 @@ export class LessonRetriever {
 	 */
 	async retrieve(options: RetrieveOptions = {}): Promise<Lesson[]> {
 		await this.load()
+
+		// If pgvector is available and a query is provided, use semantic search
+		if (this.usePgVector && options.query) {
+			const pgResults = await this._searchPgVector(options)
+			if (pgResults.length > 0) {
+				return pgResults
+			}
+		}
 
 		let results = this.lessons.filter((lesson) => {
 			// Filter by tags

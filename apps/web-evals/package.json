@@ -9,6 +9,7 @@
 		"format": "prettier --write src",
 		"build": "next build",
 		"start": "next start -p 3446",
+		"test": "vitest run",
 		"clean": "rimraf tsconfig.tsbuildinfo .next .turbo"
 	},
 	"dependencies": {

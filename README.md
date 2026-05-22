@@ -6,16 +6,17 @@
   <a href="https://www.reddit.com/r/SuperRoo/"><img src="https://img.shields.io/badge/Join%20r%2FSuperRoo-FF4500?style=flat&logo=reddit&logoColor=white" alt="Join r/SuperRoo"></a>
 </p>
 
-<h1 align="center">SuperRoo</h1>
-<p align="center"><strong>Autonomous AI Engineering Platform — Central Brain · Cloud Dashboard · Telegram Control Plane · Self-Healing</strong></p>
+<h1 align="center">SuperRoo2 Cloud IDE</h1>
+<p align="center"><strong>Cloud IDE · Persistent Memory · Autonomous Debugging · Self-Healing Infrastructure</strong></p>
 
 <p align="center">
-  SuperRoo is a full-stack AI engineering system that plans, codes, tests, deploys, observes, learns, and repairs — all through an auditable multi-agent workflow. It combines a VS Code extension, a cloud dashboard, a Telegram operator interface, persistent Central Brain memory, deployment orchestration, and self-healing incident pipelines.
+  SuperRoo2 is a full-stack AI engineering platform built on top of the SuperRoo VS Code extension. It adds a <strong>cloud dashboard</strong>, <strong>persistent Central Brain memory</strong>, <strong>autonomous multi-agent debugging</strong>, <strong>self-healing incident pipelines</strong>, and a <strong>Telegram control plane</strong> — all working together as one system.
 </p>
 
 <p align="center">
   <a href="#-one-click-demo">One-Click Demo</a> ·
-  <a href="#-what-makes-superroo-different">What Makes SuperRoo Different</a> ·
+  <a href="#-screenshots">Screenshots</a> ·
+  <a href="#-what-makes-superroo2-different">What Makes SuperRoo2 Different</a> ·
   <a href="#-operator-surfaces">Operator Surfaces</a> ·
   <a href="#-architecture">Architecture</a> ·
   <a href="ROADMAP.md">Roadmap</a> ·
@@ -28,26 +29,48 @@
 ## 🚀 One-Click Demo
 
 ```bash
-# Start the full SuperRoo stack — API, Dashboard, Postgres, Redis
+# Start the full SuperRoo2 stack — API, Dashboard, Postgres, Redis
 docker compose up -d
 
 # Open http://localhost:3001
 # The dashboard auto-discovers your agents and shows live system status
 ```
 
-**What you get:** Cloud Dashboard (Next.js), Cloud API (Express), PostgreSQL + pgvector (Central Brain), Redis (queue). All containerized, zero configuration.
+**What you get:** Cloud Dashboard (Next.js 14), Cloud API (Express), PostgreSQL + pgvector (Central Brain), Redis (queue), Mini IDE (Monaco Editor). All containerized, zero configuration.
 
 > **Prerequisites:** Docker, Node.js 20+. See [Local Development](#-local-development) for manual setup.
 
 ---
 
-## 🧠 What Makes SuperRoo Different
+## 📸 Screenshots
 
-SuperRoo isn't just another AI coding tool. It's a **complete engineering platform** that treats AI agents as first-class team members with memory, accountability, and self-healing capabilities.
+> **Note:** Replace these placeholder paths with actual screenshots of your running instance.
+
+### Cloud Dashboard — System Overview
+![Dashboard Overview](releases/3.45.0-release.png)
+*Live system monitoring: agents, jobs, queue, memory, deployment health, and infrastructure trends.*
+
+### Memory Explorer — Central Brain
+![Memory Explorer](releases/3.28.0-release.png)
+*Browse lessons, pgvector memories, agent scores, brain events, and pending approvals.*
+
+### Mini IDE — Browser-Based Cloud IDE
+![Mini IDE](releases/3.34.0-release.png)
+*Monaco Editor with file tree, terminal, AI chat, diff viewer, and pipeline visualization.*
+
+### Agent Pipeline — Task Execution Flow
+![Agent Pipeline](releases/3.36.0-release.png)
+*Real-time task execution pipeline showing agent orchestration, parallel debugging, and deployment stages.*
+
+---
+
+## 🧠 What Makes SuperRoo2 Different
+
+SuperRoo2 is not just a VS Code extension fork. It's a **complete AI engineering platform** with cloud infrastructure, persistent memory, and autonomous operations that make AI agents behave like accountable team members.
 
 ### 🔁 Agents That Learn From Mistakes
 
-Most AI coding tools start fresh every session. SuperRoo's **Central Brain** stores cross-project lessons, task history, model decisions, and reusable engineering knowledge. Agents query this memory before starting work and contribute new lessons after every task. Mistakes are captured once and never repeated.
+Most AI coding tools start fresh every session. SuperRoo2's **Central Brain** stores cross-project lessons, task history, model decisions, and reusable engineering knowledge in a pgvector database. Agents query this memory before starting work and contribute new lessons after every task. Mistakes are captured once and never repeated.
 
 ```bash
 # Query lessons across all projects
@@ -59,15 +82,15 @@ superroo-learn store "React performance" "Disable strict mode in production to a
 
 ### 🩺 Self-Healing Infrastructure
 
-When something breaks, SuperRoo doesn't just log it — it **diagnoses, repairs, and verifies** automatically. The Self-Healing Loop detects incidents, classifies root causes, builds repair plans, tracks repair attempts, and escalates repeated failures to human operators.
+When something breaks, SuperRoo2 doesn't just log it — it **diagnoses, repairs, and verifies** automatically. The Self-Healing Loop detects incidents, classifies root causes, builds repair plans, tracks repair attempts, and escalates repeated failures to human operators. All incidents are recorded in the healing metrics database for pattern analysis.
 
 ### 🧪 Parallel Swarm Debugging
 
-Instead of debugging one hypothesis at a time, SuperRoo runs **logs, Docker, database, security, regression, and memory agents simultaneously** to diagnose incidents. The Swarm Debugger coordinates these agents in parallel and synthesizes findings into a unified diagnosis.
+Instead of debugging one hypothesis at a time, SuperRoo2 runs **logs, Docker, database, security, regression, and memory agents simultaneously** to diagnose incidents. The Swarm Debugger coordinates these agents in parallel and synthesizes findings into a unified diagnosis. This cuts mean-time-to-resolution from hours to minutes.
 
 ### 🚦 Predictive Deployment Risk
 
-Before every deployment, the **Predictive Risk Engine** assesses risk using historical failure patterns. If risk exceeds thresholds, deployments are gated behind consensus-based approval. Health checks run before and after deployment, with automatic rollback on failure.
+Before every deployment, the **Predictive Risk Engine** assesses risk using historical failure patterns. If risk exceeds thresholds, deployments are gated behind consensus-based approval. Health checks run before and after deployment, with automatic rollback on failure. The system learns from every deployment outcome.
 
 ### 🎮 Three Operator Surfaces
 
@@ -81,7 +104,7 @@ Switch between surfaces without losing context — they share the same workspace
 
 ### 📚 Institutional Memory That Persists
 
-Every commit, every deployment, every bug fix, every model decision is recorded in the **Commit & Deploy Log** and the **Learning Layer**. This isn't just logging — it's structured, searchable, cross-project institutional memory that makes every agent smarter over time.
+Every commit, every deployment, every bug fix, every model decision is recorded in the **Commit & Deploy Log** and the **Learning Layer**. This isn't just logging — it's structured, searchable, cross-project institutional memory that makes every agent smarter over time. The Memory Explorer in the dashboard provides full visibility into lesson reuse, agent scores, and brain events.
 
 ### 🏗️ Built for Extensibility
 
@@ -294,7 +317,7 @@ cd cloud/dashboard && npx playwright test
 
 ## 🔐 Security
 
-SuperRoo handles sensitive infrastructure — MCP servers, VPS endpoints, Tailscale IPs, brain endpoints, and autonomous execution. See [SECURITY_MODEL.md](SECURITY_MODEL.md) for the full security model.
+SuperRoo2 handles sensitive infrastructure — MCP servers, VPS endpoints, Tailscale IPs, brain endpoints, and autonomous execution. See [SECURITY_MODEL.md](SECURITY_MODEL.md) for the full security model.
 
 Key security measures:
 
@@ -316,7 +339,7 @@ Key security measures:
 | [Architecture Deep Dive](ARCHITECTURE.md)                         | System architecture, data flow, modules   |
 | [Security Model](SECURITY_MODEL.md)                               | Security architecture and threat model    |
 | [Product Roadmap](ROADMAP.md)                                     | Current status and future plans           |
-| [Onboarding Guide](docs/super-roo/ONBOARDING_GUIDE.md)            | Get started with SuperRoo                 |
+| [Onboarding Guide](docs/super-roo/ONBOARDING_GUIDE.md)            | Get started with SuperRoo2                |
 | [Deployment Guide](docs/super-roo/DEPLOYMENT_GUIDE.md)            | Deploy to VPS with Tailscale SSH          |
 | [Central Brain](docs/super-roo/CENTRAL_BRAIN.md)                  | Memory, lessons, and knowledge management |
 | [Self-Healing Guide](docs/super-roo/HEALING_MODULE_GUIDE.md)      | Incident detection and repair pipeline    |
@@ -349,7 +372,7 @@ We love community contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 ---
 
 <p align="center">
-  <strong>SuperRoo</strong> — Whether you keep it on a short leash or let it roam autonomously, we can't wait to see what you build.
+  <strong>SuperRoo2</strong> — Cloud IDE with persistent memory, autonomous debugging, and self-healing infrastructure.
   <br>
   <a href="https://discord.gg/superroo">Discord</a> ·
   <a href="https://www.reddit.com/r/SuperRoo/">Reddit</a> ·

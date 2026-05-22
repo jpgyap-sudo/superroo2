@@ -18,6 +18,7 @@ export class ProductFeatureAgent implements Agent {
 	readonly name = "product-feature"
 	readonly description = "Manages product feature registration, improvement recommendations, and feature lifecycle"
 	readonly requiredCapabilities: string[] = ["product_memory"]
+	readonly tags: string[] = ["product-memory", "feature-management", "lifecycle"]
 
 	private readonly service: ProductMemoryService
 

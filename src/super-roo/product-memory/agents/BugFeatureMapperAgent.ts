@@ -16,6 +16,7 @@ export class BugFeatureMapperAgent implements Agent {
 	readonly name = "bug-feature-mapper"
 	readonly description = "Maps bug reports to product features in product memory"
 	readonly requiredCapabilities: string[] = ["product_memory"]
+	readonly tags: string[] = ["product-memory", "bug-mapping", "feature-tracking"]
 
 	private readonly service: ProductMemoryService
 

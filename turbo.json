@@ -11,7 +11,7 @@
 			"cache": false
 		},
 		"build": {
-			"outputs": ["dist/**"],
+			"outputs": ["dist/**", ".next/**"],
 			"inputs": ["src/**", "package.json", "tsconfig.json", "tsup.config.ts", "vite.config.ts"]
 		},
 		"bundle": {

@@ -254,6 +254,55 @@ Ask:
 4. What test catches this issue?
 5. What reusable rule should be enforced?
 
+## Lesson Obligation Policy
+
+**ALL coding agents MUST register a lesson intent before starting work and fulfill it after completing the task.** This policy ensures no agent completes work without contributing to the learning layer.
+
+### How It Works
+
+The Lesson Obligation System is implemented in the Central Brain MCP server ([`server/src/memory/McpMemoryServer.ts`](server/src/memory/McpMemoryServer.ts)) via the `LessonObligationTracker` class. It exposes three MCP tools:
+
+| Tool | Purpose | When to Call |
+|------|---------|-------------|
+| `brain_register_lesson_intent` | Register intent to write a lesson | **Before** starting any substantial coding task |
+| `brain_store_lesson` | Store a lesson in Central Brain v2 | **After** completing the task |
+| `brain_lesson_status` | Check obligation status for an agent | Any time to verify compliance |
+
+### Mandatory Rules
+
+1. **Register before coding**: Call `brain_register_lesson_intent` with `{ agent, projectId, task }` before starting any substantial work. The MCP server tracks this as a pending obligation.
+
+2. **Store lesson after coding**: Call `brain_store_lesson` with `{ title, content, agent, projectId, tags?, files?, summary?, confidence? }` after completing the task. This fulfills the obligation.
+
+3. **Warn on pending**: The MCP server automatically warns agents with pending obligations when they connect. Agents MUST resolve warnings by either storing the lesson or explicitly marking it as fulfilled.
+
+4. **Compliance check**: Use `brain_lesson_status` to verify compliance. The server returns per-agent status and aggregate stats.
+
+### Workflow
+
+```mermaid
+sequenceDiagram
+    Agent->>MCP: brain_register_lesson_intent({agent, projectId, task})
+    MCP->>Tracker: register(agent, projectId, task)
+    Tracker-->>MCP: {obligation, fulfilled: false}
+    MCP-->>Agent: {success, message, obligation}
+    Note over Agent: ... does coding work ...
+    Agent->>MCP: brain_store_lesson({title, content, agent, ...})
+    MCP->>BrainV2: POST /api/brain/v2/memory (store lesson)
+    MCP->>Tracker: fulfill(agent, lessonId)
+    Tracker-->>MCP: true
+    MCP-->>Agent: {success, memoryId}
+```
+
+### Stats & Monitoring
+
+The system tracks:
+- **Total obligations**: How many lessons were promised
+- **Fulfilled**: How many were actually written
+- **Pending**: How many are still outstanding
+
+Use `brain_lesson_status` to get aggregate stats or per-agent status.
+
 ## Cross-Project Learning Layer
 
 The SuperRoo learning layer now works across **any project**, not just this repo.
@@ -501,6 +550,40 @@ This rule applies to ALL projects in the SuperRoo ecosystem. When working on a n
 ### Workflow
 
 ```
+
+## MCP Workflow Enforcement (Mandated)
+
+**ALL agents connecting to the SuperRoo Brain MCP server MUST follow the mandated workflow.** The MCP server enforces this via:
+
+1. **`initialize` response `workflowRules` extension** — Every MCP client receives the mandated workflow rules during the initial handshake. The response includes `workflowRules.version`, `defaultCoder`, `defaultEmbeddings`, `defaultMemory`, `lessonObligation`, and a `rules` array with 6 rules (4 mandatory, 2 recommended).
+
+2. **`brain_get_workflow_rules` tool** — Agents can retrieve the full ruleset at any time by calling this tool. Returns the same rules as the initialize response.
+
+3. **`submit_task` workflow validation** — When calling `submit_task`, the server validates the `agent` parameter. If the agent is not `"deepseek-coder"` or `"deepseek"`, a `workflowWarnings` array is attached to the result warning about wf-001.
+
+### Mandated Rules
+
+| ID | Rule | Severity |
+|----|------|----------|
+| wf-001 | DeepSeek is the DEFAULT coder for all implementation tasks. Use the `deepseek-coder` MCP server for code generation, refactoring, and debugging. | mandatory |
+| wf-002 | Ollama is the DEFAULT embeddings provider for semantic search, lesson summarization, and vector operations. Use the `ollama` MCP server for embeddings. | mandatory |
+| wf-003 | Central Brain (pgvector) is the DEFAULT memory store for all persistent memory operations. Use `brain_search_memory` for semantic search. | mandatory |
+| wf-004 | Every coding agent MUST contribute at least one lesson per session via `brain_store_lesson` or `brain_register_lesson_intent`. | mandatory |
+| wf-005 | When submitting tasks via `submit_task`, the `agent` parameter should default to `"deepseek-coder"`. | recommended |
+| wf-006 | Use `brain_search_memory` (pgvector semantic search) instead of `hermes_recall` for memory retrieval. | recommended |
+
+### Client Implementation
+
+MCP clients SHOULD:
+
+1. Parse `workflowRules` from the `initialize` response and auto-configure their tooling (e.g., set DeepSeek as default coder, Ollama as default embeddings provider).
+2. Call `brain_get_workflow_rules` at session start to confirm the mandated workflow.
+3. Respect `workflowWarnings` returned by `submit_task` and adjust the agent parameter accordingly.
+4. Register lesson intent via `brain_register_lesson_intent` before starting work and store the lesson via `brain_store_lesson` after completion.
+
+### Compliance
+
+The MCP server tracks compliance via the `LessonObligationTracker` (wf-004). Use `brain_lesson_status` to check per-agent compliance. Agents with pending obligations receive warnings on reconnection.
 Agent wants to deploy
         │
         ▼

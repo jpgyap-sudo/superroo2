@@ -6,8 +6,10 @@
  * 2. A lesson is saved after the agent completes
  * 3. The agent's score is updated
  * 4. Safety limits are enforced (max memories, max tokens, dangerous patterns)
+ * 5. (v4) Model routing selects the best agent/model based on performance scores
+ * 6. (v4) Consensus voting gates high-risk operations
  *
- * This is the "mandatory enforcement" layer of Central Brain v2.
+ * This is the "mandatory enforcement" layer of Central Brain v2/v4.
  */
 
 const crypto = require("crypto")
@@ -20,6 +22,9 @@ const DEFAULT_LIMITS = {
 	maxRetries: 2,
 }
 
+// Task types that trigger consensus voting before execution
+const HIGH_RISK_TASK_TYPES = new Set(["deployment", "compliance", "security"])
+
 class AgentRunWrapper {
 	/**
 	 * @param {import('./MemoryService')} memoryService
@@ -28,6 +33,8 @@ class AgentRunWrapper {
 	 * @param {import('./BrainEventBus')} eventBus
 	 * @param {import('./MemoryApprovalService')} approvalService
 	 * @param {object} [limits]
+	 * @param {import('./ModelRouter')} [modelRouter] - v4: performance-tracking model router
+	 * @param {import('./ConsensusService')} [consensus] - v4: multi-agent consensus voting
 	 */
 	constructor(memoryService, embeddingService, scoringService, eventBus, approvalService, limits = {}) {
 		this.memoryService = memoryService
@@ -36,6 +43,24 @@ class AgentRunWrapper {
 		this.eventBus = eventBus
 		this.approvalService = approvalService
 		this.limits = { ...DEFAULT_LIMITS, ...limits }
+		this.modelRouter = null  // Set via setModelRouter()
+		this.consensus = null    // Set via setConsensus()
+	}
+
+	/**
+	 * Set the model router service (v4).
+	 * @param {import('./ModelRouter')} modelRouter
+	 */
+	setModelRouter(modelRouter) {
+		this.modelRouter = modelRouter
+	}
+
+	/**
+	 * Set the consensus service (v4).
+	 * @param {import('./ConsensusService')} consensus
+	 */
+	setConsensus(consensus) {
+		this.consensus = consensus
 	}
 
 	/**
@@ -50,13 +75,68 @@ class AgentRunWrapper {
 		const taskId = task.id || crypto.randomUUID()
 		const projectId = task.projectId || "default"
 		const runId = crypto.randomUUID()
+		const taskType = task.type || "general"
+
+		// Track routing info for outcome recording
+		let routingInfo = null
 
 		try {
-			// 1. Record task start
+			// 1. (v4) Model routing: select best agent/model based on performance
+			if (this.modelRouter && taskType !== "general") {
+				try {
+					const route = await this.modelRouter.route({
+						projectId,
+						taskType,
+						taskId,
+						runId,
+					})
+					routingInfo = route
+					// Override agent with the routed selection
+					agent = {
+						...agent,
+						name: route.agent,
+						model: route.model,
+					}
+				} catch (err) {
+					// Fall through with original agent if routing fails
+				}
+			}
+
+			// 2. (v4) Consensus check for high-risk tasks
+			if (this.consensus && HIGH_RISK_TASK_TYPES.has(taskType)) {
+				try {
+					const consensusResult = await this.consensus.decide({
+						projectId,
+						decisionType: "task_approval",
+						contextId: taskId,
+						votes: [
+							{
+								agent: agent.name || "unknown",
+								model: agent.model || null,
+								decision: "approve",
+								confidence: 0.8,
+								reason: `Auto-approve task: ${task.goal?.substring(0, 100)}`,
+							},
+						],
+						createdBy: "agent-run-wrapper",
+					})
+
+					if (consensusResult.finalDecision === "block") {
+						throw new Error(`Consensus blocked task "${task.goal}": ${consensusResult.reasons.join("; ")}`)
+					}
+				} catch (err) {
+					if (err.message?.includes("Consensus blocked")) {
+						throw err
+					}
+					// Fall through if consensus service is unavailable
+				}
+			}
+
+			// 3. Record task start
 			await this.memoryService.query(
 				`INSERT INTO agent_tasks (id, project_id, goal, agent, model, status, priority, tags, files)
-         VALUES ($1, $2, $3, $4, $5, 'running', $6, $7, $8)
-         ON CONFLICT (id) DO UPDATE SET status = 'running', updated_at = NOW()`,
+	        VALUES ($1, $2, $3, $4, $5, 'running', $6, $7, $8)
+	        ON CONFLICT (id) DO UPDATE SET status = 'running', updated_at = NOW()`,
 				[
 					taskId,
 					projectId,
@@ -69,17 +149,17 @@ class AgentRunWrapper {
 				],
 			)
 
-			// 2. Record agent run
+			// 4. Record agent run
 			await this.memoryService.query(
 				`INSERT INTO agent_runs (id, task_id, agent, model, status, input_summary)
-         VALUES ($1, $2, $3, $4, 'running', $5)`,
+	        VALUES ($1, $2, $3, $4, 'running', $5)`,
 				[runId, taskId, agent.name || "unknown", agent.model || null, task.goal],
 			)
 
-			// 3. Recall relevant memories (context injection)
+			// 5. Recall relevant memories (context injection)
 			const memories = await this._recallMemories(projectId, task.goal, agent)
 
-			// 4. Emit brain event: recall
+			// 6. Emit brain event: recall
 			await this.eventBus.emit(projectId, "memory.recall", {
 				taskId,
 				runId,
@@ -87,7 +167,7 @@ class AgentRunWrapper {
 				memoryCount: memories.length,
 			})
 
-			// 5. Run the agent with memory context
+			// 7. Run the agent with memory context
 			const agentInput = {
 				...task,
 				memories, // injected context
@@ -115,42 +195,68 @@ class AgentRunWrapper {
 
 			const duration = Date.now() - startTime
 
-			// 6. Extract and save lesson from agent output
+			// 8. Extract and save lesson from agent output
 			const lesson = await this._saveLesson(projectId, task, agent, runId, taskId, agentResult)
 
-			// 7. Update agent score
+			// 9. Update agent score (v4: includes hallucination, cost, latency)
 			const score = await this.scoringService.updateScore({
 				projectId,
 				agent: agent.name,
 				model: agent.model,
-				taskType: task.type || "general",
+				taskType,
 				success: true,
 				duration,
 				usedMemories: memories.length,
+				costUsd: agentResult?.costUsd || null,
+				latencyMs: duration,
+				hallucinated: agentResult?.hallucinated || false,
 			})
 
-			// 8. Mark task and run as completed
+			// 10. (v4) Record routing outcome
+			if (this.modelRouter && routingInfo) {
+				try {
+					await this.modelRouter.recordOutcome({
+						projectId,
+						taskType,
+						agent: agent.name,
+						model: agent.model,
+						success: true,
+						costUsd: agentResult?.costUsd || null,
+						latencyMs: duration,
+						hallucinated: agentResult?.hallucinated || false,
+						taskId,
+						runId,
+						logId: routingInfo._logId,
+					})
+				} catch (err) {
+					// Non-blocking
+				}
+			}
+
+			// 11. Mark task and run as completed
 			await this.memoryService.query(
 				`UPDATE agent_tasks SET status = 'completed', completed_at = NOW(), updated_at = NOW() WHERE id = $1`,
 				[taskId],
 			)
 			await this.memoryService.query(
 				`UPDATE agent_runs SET status = 'completed', output_summary = $1, lesson_id = $2,
-                completed_at = NOW(), duration_ms = $3
-         WHERE id = $4`,
+	               completed_at = NOW(), duration_ms = $3
+	        WHERE id = $4`,
 				[agentResult?.summary || task.goal, lesson?.id || null, duration, runId],
 			)
 
-			// 9. Emit brain event: completion
+			// 12. Emit brain event: completion
 			await this.eventBus.emit(projectId, "memory.agent_completed", {
 				taskId,
 				runId,
 				agent: agent.name,
 				duration,
 				lessonId: lesson?.id,
+				routingAgent: routingInfo?.agent,
+				routingModel: routingInfo?.model,
 			})
 
-			return { runId, taskId, memories, lesson, score, duration }
+			return { runId, taskId, memories, lesson, score, duration, routingInfo }
 		} catch (error) {
 			const duration = Date.now() - startTime
 
@@ -166,18 +272,37 @@ class AgentRunWrapper {
 				)
 				.catch(() => {})
 
-			// Update score with failure
+			// Update score with failure (v4: includes hallucination, cost, latency)
 			await this.scoringService
 				.updateScore({
 					projectId: task.projectId || "default",
 					agent: agent.name || "unknown",
 					model: agent.model,
-					taskType: task.type || "general",
+					taskType,
 					success: false,
 					duration,
 					usedMemories: 0,
 				})
 				.catch(() => {})
+
+			// (v4) Record routing outcome as failure
+			if (this.modelRouter && routingInfo) {
+				try {
+					await this.modelRouter.recordOutcome({
+						projectId,
+						taskType,
+						agent: agent.name,
+						model: agent.model,
+						success: false,
+						error: error.message,
+						taskId,
+						runId,
+						logId: routingInfo._logId,
+					})
+				} catch (err) {
+					// Non-blocking
+				}
+			}
 
 			// Emit failure event
 			await this.eventBus

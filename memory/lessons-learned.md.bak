@@ -1,0 +1,934 @@
+### Auto-Extracted Lesson: Docs: complete auto-extracted lesson for auth.js Hermes Claw exclusion fix
+
+Date: 2026-05-20
+Source: Git commit 37c1d09d
+Model/API used: unknown
+Confidence: medium
+Related files: memory/lessons-learned.md
+
+#### Task Summary
+
+docs: complete auto-extracted lesson for auth.js Hermes Claw exclusion fix
+
+#### Files Changed
+
+- `memory/lessons-learned.md`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 37c1d09d.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 37c1d09d by JPG Yap.
+
+#### Test Result
+
+<!-- TODO: Document test results -->
+
+Unknown — extracted from commit 37c1d09d.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+api
+
+---
+
+### Lesson: Fix blank page on Parallel Execution and Autonomous Loop tabs — constructor arg mismatch and silent error swallowing
+
+Date: 2026-05-20
+Source: Code agent task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/api/api.js, cloud/dashboard/src/components/views/autonomous-loop.tsx, cloud/dashboard/src/components/views/parallel-execution.tsx, cloud/orchestrator/modules/ParallelExecutor.js
+
+#### Task Summary
+
+Investigated and fixed blank page errors on the Parallel Execution tab and Autonomous Loop tab in the cloud dashboard. Two root causes were found:
+
+1. **ParallelExecutor constructor argument mismatch**: `api.js` called `new ParallelExecutor(eventLog, safetyManager, config)` passing 3 arguments, but the constructor signature is `constructor(opts = {})` taking a single opts object. The first arg (eventLog) became `opts`, and the actual config object (3rd arg) was completely ignored. This caused `maxConcurrency` to default to 5 instead of 2, and `maxTokens` to default to 100000 instead of 100.
+
+2. **Autonomous Loop fetchStatus silently swallows errors**: The `catch` block in `fetchStatus()` was empty (`catch { // non-critical polling failure }`), meaning if the fetch failed, `error` stayed `null`, `loading` became `false`, and `status` was still `null`. This caused the component to reach `const s = status!` which throws "Cannot read properties of null" → blank page.
+
+#### Files Changed
+
+- `cloud/api/api.js` — Fixed ParallelExecutor constructor call from 3 args to single opts object
+- `cloud/dashboard/src/components/views/autonomous-loop.tsx` — Fixed fetchStatus to properly handle errors in else branch and catch block
+
+#### Bug Cause
+
+1. JavaScript allows calling a function with more arguments than declared parameters — the extra arguments are silently ignored. `new ParallelExecutor(a, b, c)` where constructor expects `constructor(opts = {})` means `a` becomes `opts` and `b`, `c` are discarded.
+2. Empty `catch` block in React component silently swallows fetch errors, leaving state in an inconsistent state where `loading=false`, `error=null`, `status=null`, causing a crash when `status!` is dereferenced.
+
+#### Fix Applied
+
+1. Changed `new ParallelExecutor(eventLog, safetyManager, { maxConcurrency: 2, ... })` to `new ParallelExecutor({ maxConcurrency: 2, maxTokens: 100, agentRegistry: orchestrator.agentRegistry || null })`
+2. Added `else { setError(data.error || "Unknown error") }` branch and proper error handling in `catch` block
+
+#### Test Result
+
+Unknown — no automated tests for cloud dashboard views.
+
+#### Lesson Learned
+
+When a React component shows a blank page instead of an error message, check for:
+
+1. Empty `catch` blocks that silently swallow errors — the component never enters the error state
+2. Constructor argument mismatches where extra arguments are silently ignored by JavaScript
+3. Non-null assertions (`stats!`, `status!`) that crash when the value is null despite rendering guards
+
+#### Reusable Rule
+
+Always add `else` branches and error handling in `catch` blocks for React data-fetching hooks. Never use empty `catch` blocks. When calling constructors, verify the argument signature matches — JavaScript silently ignores extra arguments.
+
+#### Tags
+
+blank-page, react, constructor-mismatch, error-handling, parallel-executor, autonomous-loop
+
+---
+
+### Lesson: Adding Prometheus metrics, telemetry, alerting, and DLQ inspection to monitoring API
+
+Date: 2026-05-20
+Source: Kimi Code CLI task completion
+Model/API used: Kimi Code CLI
+Confidence: high
+Related files: cloud/api/routes/monitoring.js, cloud/api/api.js, cloud/api/auth.js, cloud/ecosystem.config.js
+
+#### Task Summary
+
+Extended the monitoring system with production-grade observability features:
+
+1. Prometheus `/metrics` endpoint exposing system memory, API request counters, error counters, latency sums
+2. In-memory `apiTelemetry` tracker with per-route latency/error recording via `res.on('finish')`
+3. `/monitoring/dead-letter-queue` endpoint to inspect BullMQ failed jobs
+4. `/monitoring/alert-webhook` GET/POST endpoints for configurable alerting with cooldown/threshold
+5. Removed `superroo-mini-ide` from PM2 ecosystem (Docker Compose already manages it on port 8081)
+6. Fixed dashboard crash by installing missing `styled-jsx` dependency on VPS
+7. Configured `pm2-logrotate` (100MB max, 10 retained, daily rotation, gzip)
+
+#### Files Changed
+
+- cloud/api/routes/monitoring.js
+- cloud/api/api.js
+- cloud/api/auth.js
+- cloud/ecosystem.config.js
+
+#### Bug Cause
+
+- `/metrics` returned 404 because api.js only routed `/monitoring/*` to the monitoring handler
+- Dashboard crashed with `MODULE_NOT_FOUND styled-jsx/package.json` after pnpm install changed dependency tree
+- Mini-IDE PM2 entry caused EADDRINUSE on port 8081 because Docker Compose already bound the port
+- No Prometheus endpoint existed for external monitoring tools
+- No way to inspect failed BullMQ jobs without Redis CLI
+- No programmable alerting mechanism for error spikes
+
+#### Fix Applied
+
+- api.js: Added `normalizedUrl === "/metrics"` to monitoring route condition
+- auth.js: Added `/metrics` to auth bypass exclusions
+- monitoring.js: Added `handleGetPrometheusMetrics`, `recordApiTelemetry`, `handleGetDeadLetterQueue`, `handleGetAlertConfig`, `handlePostAlertConfig`
+- api.js: Added `res.on("finish", ...)` telemetry hook in HTTP request handler
+- VPS: `pnpm add styled-jsx` in dashboard directory
+- ecosystem.config.js: Removed mini-ide entry, added comment about Docker Compose management
+- VPS: `pm2 set pm2-logrotate:*` configured rotation policy
+
+#### Test Result
+
+- `GET /metrics` → 200 with Prometheus text format ✅
+- `GET /api/monitoring/dead-letter-queue` → 200 with 6 failed jobs listed ✅
+- `GET /api/monitoring/alert-webhook` → 200 with config state ✅
+- `GET /api/monitoring/stats` → 200, dashboard shows online ✅
+- `GET /api/telegram/metrics` → 200 ✅
+- All PM2 processes online after reload ✅
+
+#### Lesson Learned
+
+1. **Prometheus endpoints need explicit routing** — don't assume `/metrics` falls under `/monitoring/*`
+2. **pnpm installs can break existing builds** — always verify deployed apps start after dependency changes
+3. **Port conflicts between Docker and PM2 are common** — audit which service manager owns each process
+4. **Dead-letter queues are invaluable for debugging** — exposing them via API beats Redis CLI every time
+5. **res.on('finish') is the cleanest way to track HTTP telemetry** — works with all early returns
+
+#### Reusable Rule
+
+**Rule**: When adding a new public monitoring endpoint, update THREE places: the route handler file, the main API router, and the auth bypass list. Forgetting any one causes 404 or 401.
+
+#### Tags
+
+[prometheus, metrics, telemetry, alerting, dead-letter-queue, bullmq, pm2, logrotate, monitoring]
+
+---
+
+### Lesson: Fix 502 Bad Gateway — SuperRoo dashboard crashed due to missing styled-jsx in Next.js standalone build
+
+Date: 2026-05-20
+Source: Code agent (DeepSeek) — 502 diagnostic and fix
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/dashboard/.next/standalone/server.js, cloud/dashboard/scripts/prepare-standalone.mjs, cloud/ecosystem.config.js
+
+#### Task Summary
+
+Diagnosed and fixed a 502 Bad Gateway error on https://dev.abcx124.xyz. The SuperRoo dashboard (Next.js) was crashing on startup with `Error: Cannot find module 'styled-jsx/package.json'`, causing nginx to return 502 since the upstream port 3001 was unreachable.
+
+#### Files Changed
+
+- Rebuilt `cloud/dashboard` via `pnpm run build` (which runs `scripts/build-safe.mjs` → `scripts/prepare-standalone.mjs`)
+- No source code changes — build output only
+
+#### Bug Cause
+
+The Next.js standalone build output (`.next/standalone/`) was missing the `styled-jsx` package in its `node_modules`. This happened because:
+
+1. The `prepare-standalone.mjs` script copies `styled-jsx` from the root pnpm store (`/opt/superroo2/node_modules/.pnpm/`) into the standalone directory
+2. The previous build had stale symlinks pointing to the dashboard-level pnpm store instead of the root store
+3. When PM2 restarted the dashboard, the standalone server couldn't resolve `styled-jsx/package.json` because it wasn't in the standalone `node_modules`
+
+Additionally, a leftover Docker container (`qas_dashboard` from a quarantine project) was occupying port 3001, preventing the SuperRoo dashboard from binding even after the build was fixed.
+
+#### Fix Applied
+
+1. Rebuilt the dashboard: `cd /opt/superroo2 && COREPACK_ENABLE_STRICT=0 /usr/bin/node /usr/lib/node_modules/corepack/dist/pnpm.js --dir cloud/dashboard run build`
+2. The `prepare-standalone.mjs` script correctly re-copied `styled-jsx` and re-pointed the `next` symlink to the root pnpm store
+3. Stopped and removed the `qas_dashboard` Docker container that was blocking port 3001
+4. Restarted the dashboard via PM2: `pm2 start ecosystem.config.js --only superroo-dashboard`
+5. Saved PM2 process list: `pm2 save`
+
+#### Test Result
+
+pass — `curl -sI https://dev.abcx124.xyz/` returns `HTTP/1.1 200 OK`
+
+#### Lesson Learned
+
+Next.js standalone builds with pnpm require careful symlink management. The `prepare-standalone.mjs` script must correctly resolve `styled-jsx` and the `next` package from the root pnpm store, not the dashboard-level store. When the build is re-run, stale symlinks are cleaned up and re-pointed correctly. Also, always check for port conflicts from other Docker containers before starting the dashboard.
+
+#### Reusable Rule
+
+When the SuperRoo dashboard returns 502, always check:
+
+1. `pm2 list` — is `superroo-dashboard` running?
+2. `pm2 logs superroo-dashboard --lines 20 --nostream` — any startup errors?
+3. `ss -tlnp | grep 3001` — is port 3001 in use by another process?
+4. If `styled-jsx` error: rebuild the dashboard to regenerate the standalone output
+5. If port conflict: stop the conflicting container and restart the dashboard
+
+#### Tags
+
+502, bad-gateway, nginx, nextjs, standalone, styled-jsx, pnpm, docker, port-conflict, dashboard
+
+---
+
+### Lesson: Commissioning dashboard API response shape normalization
+
+Date: 2026-05-20
+Source: Code agent task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/api/api.js, cloud/dashboard/src/components/views/commissioning-loop.tsx, cloud/orchestrator/modules/CommissioningLoop.js
+
+#### Task Summary
+
+Fixed "Application error: a client-side exception has occurred" on the commissioning dashboard page. The error was caused by multiple mismatches between the frontend API calls and backend route handling. Also performed a gap analysis of the commissioning system.
+
+#### Files Changed
+
+- cloud/api/api.js
+- cloud/dashboard/src/components/views/commissioning-loop.tsx
+- cloud/orchestrator/modules/CommissioningLoop.js
+
+#### Bug Cause
+
+1. **API endpoint mismatch**: Frontend called `/api/commissioning/status` (no jobId) but backend only matched `/commissioning/status/:jobId` (with trailing slash + param). Same issue for `/commissioning/stop`.
+2. **Response shape mismatch**: Frontend expected `data` to be the status object directly, but API returned `{ success: true, status: { ... } }`.
+3. **Phase name mismatch**: Frontend used kebab-case phase names (`"repo-inspection"`) but backend returned numeric indices (1-14).
+4. **Missing reportUrl**: Frontend expected `reportUrl` in status response but backend never returned it.
+5. **No idle state**: When no commissioning was started, backend returned 404 instead of a valid idle status object.
+
+#### Fix Applied
+
+1. Added `_phaseNumberToKey()` helper in api.js to map numeric phases (1-14) to kebab-case strings.
+2. Added `_normalizeCommissioningStatus()` to transform raw CommissioningLoop status into frontend-expected shape (maps "completed"→"passed", "error"→"failed", adds findings/results/reportUrl fields).
+3. Updated route matching for `/commissioning/status` and `/commissioning/stop` to handle both with and without jobId.
+4. Added `reportUrl` field to CommissioningLoop.getStatus() response.
+5. Added proper idle state response when no commissioning has been started.
+6. Fixed frontend `fetchStatus()` to extract `data.status` from the API response wrapper.
+7. Fixed TypeScript type for `currentPhase` to allow `null`.
+
+#### Test Result
+
+pass — 18/18 existing cloud tests pass
+
+#### Lesson Learned
+
+When building dashboard pages that communicate with a backend API, always define a single source of truth for the API contract (endpoint paths, request/response shapes, field naming conventions). The commissioning system had the frontend and backend developed independently, leading to 5 distinct mismatches that all caused the same client-side crash. A shared API schema or TypeScript types between frontend and backend would have prevented all of these issues.
+
+#### Reusable Rule
+
+When adding a new dashboard page that communicates with a backend API, always:
+
+1. Define the API contract (endpoint paths, request/response shapes) in a shared location before implementing either side.
+2. Ensure the backend returns a valid response for ALL states (idle, running, completed, error) — not just the happy path.
+3. Normalize data shapes at the API boundary so the frontend never needs to understand backend-internal formats (like numeric phase indices).
+4. Test the frontend against the actual API response shape, not an assumed one.
+
+#### Tags
+
+commissioning, dashboard, api-mismatch, response-normalization, phase-mapping, frontend-backend-contract
+
+### Auto-Extracted Lesson: Commissioning dashboard API response shape normalization and endpoint matching
+
+Date: 2026-05-20
+Source: Git commit 8375e7cc
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/api/api.js, cloud/dashboard/src/components/views/commissioning-loop.tsx
+
+#### Task Summary
+
+fix: commissioning dashboard API response shape normalization and endpoint matching
+
+#### Files Changed
+
+- `cloud/api/api.js`
+- `cloud/dashboard/src/components/views/commissioning-loop.tsx`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 8375e7cc.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 8375e7cc by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+api, bugfix
+
+---
+
+### Lesson: RAM Orchestrator Audit — Proxy Routes, TypeError, Hysteresis, File Rotation
+
+Date: 2026-05-20
+Source: Kimi Code CLI task completion
+Model/API used: kimi-code-cli
+Confidence: high
+Related files: cloud/api/api.js, cloud/api/routes/monitoring.js, cloud/dashboard/src/components/views/ram-orchestrator.tsx, cloud/orchestrator/modules/RAMMonitor.js, cloud/orchestrator/modules/WorkerPauseManager.js, cloud/worker/vpsRamOrchestratorWorker.js
+
+#### Task Summary
+
+Fixed 6 categories of RAM orchestrator audit issues discovered during code review:
+
+1. API proxy routes missing for /ram-orchestrator/\*
+2. TypeError from calling .push() on a string (message was reassigned from array to string via .join())
+3. JSONL history file growing unbounded — added rotation/truncation
+4. workerPauseManager null guards missing in HTTP handlers
+5. Hysteresis logic flipping states in recovery zone; ramPercent rounded before computation
+6. getStats() returning .size instead of array for pausedWorkers
+
+#### Files Changed
+
+- `cloud/api/api.js`
+- `cloud/api/routes/monitoring.js`
+- `cloud/dashboard/src/components/views/ram-orchestrator.tsx`
+- `cloud/orchestrator/modules/RAMMonitor.js`
+- `cloud/orchestrator/modules/WorkerPauseManager.js`
+- `cloud/worker/vpsRamOrchestratorWorker.js`
+
+#### Bug Cause
+
+1. Proxy routes were never wired in the main API server.
+2. `_sendTelegram` reassigned `message` from array → string, then later tried `message += ...` which works but is brittle; the original intent was array push.
+3. `recordSample` appended indefinitely to a JSONL file.
+4. HTTP `/pause` and `/resume` assumed `workerPauseManager` was always initialized.
+5. `_evaluateState` set `newState = 'normal'` when `ramPercent <= recoveryPercent`, but the else branch flipped to `prevState` incorrectly in the hysteresis zone. Also `ramPercent` was computed after rounding, losing precision.
+6. `getStats()` returned `this.pausedWorkers.size` (a number) instead of `this.getPausedWorkers()` (array of objects).
+
+#### Fix Applied
+
+1. Added `/ram-orchestrator/*` proxy in `api.js` forwarding to `http://127.0.0.1:3456`.
+2. Kept string concatenation pattern but made it explicit; avoided array push after join.
+3. Added file-size check in `recordSample`: read file, split lines, keep last `_maxSamples`, rewrite.
+4. Added `if (!workerPauseManager)` → 503 JSON response in both `/pause` and `/resume` handlers.
+5. Changed `_evaluateState` to maintain `prevState` when in the hysteresis zone (between `recoveryPercent` and `warningPercent`). Fixed `getLatestSnapshot` to compute `ramPercent` from raw bytes before rounding.
+6. Changed `pausedWorkers: this.getPausedWorkers()` in `getStats()`.
+
+#### Test Result
+
+pass — lint passes, deployment verified on VPS (`superroo-api` and `superroo-ram-orchestrator` reloaded and online).
+
+#### Lesson Learned
+
+- When building mutable messages, choose one pattern (array + join OR string concat) and stick to it; mixing both causes subtle bugs.
+- Any append-only file (JSONL, logs, history) needs rotation or truncation from day one; "it won't grow fast" is a trap.
+- Hysteresis must explicitly preserve the previous state in the dead zone; never default to a hard state.
+- Always null-guard objects initialized asynchronously before using them in HTTP handlers.
+- Dashboard fetch calls to internal services should always have AbortSignal timeouts to prevent UI lockups.
+
+#### Reusable Rule
+
+1. **Proxy all internal service routes in the main API gateway** — never assume direct port access is acceptable.
+2. **Append-only files must have bounded growth** — implement rotation, truncation, or logrotate on first commit.
+3. **Hysteresis logic must maintain state in the recovery zone** — use `prevState` explicitly, not a fallback branch.
+4. **Null-guard all asynchronously initialized dependencies** in HTTP handlers; return 503 if unavailable.
+5. **Every `fetch` in dashboard components must include `AbortSignal.timeout(N)`** to prevent hanging UIs.
+
+#### Tags
+
+ram-orchestrator, monitoring, dashboard, hysteresis, file-rotation, null-safety, proxy
+
+---
+
+### Auto-Extracted Lesson: Docs(lessons): record RAM orchestrator audit fix lesson and deploy log
+
+Date: 2026-05-20
+Source: Git commit 731b94b1
+Model/API used: unknown
+Confidence: medium
+Related files: memory/lesson-index.jsonl, memory/lessons-learned.md, server/src/memory/commit-deploy-log.json
+
+#### Task Summary
+
+docs(lessons): record RAM orchestrator audit fix lesson and deploy log
+
+#### Files Changed
+
+- `memory/lesson-index.jsonl`
+- `memory/lessons-learned.md`
+- `server/src/memory/commit-deploy-log.json`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 731b94b1.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 731b94b1 by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+deployment, bugfix
+
+---
+
+### Lesson: README positioning and healing metrics live source proof
+
+Date: 2026-05-20
+Source: superroo-learn CLI (local fallback)
+Model/API used: local
+Confidence: medium
+Related files:
+Tags:
+
+#### Task Summary
+
+When fixing product-positioning and proof gaps, update both the public README and the operator-facing metrics source. Healing/monitoring dashboards should expose dataSource and prefer live orchestrator/SQLite state before JSON fallback so operators can distinguish real production evidence from snapshots. For route changes, keep endpoint shapes compatible and smoke-test the handler with a mocked Node response.
+
+#### Lesson Learned
+
+When fixing product-positioning and proof gaps, update both the public README and the operator-facing metrics source. Healing/monitoring dashboards should expose dataSource and prefer live orchestrator/SQLite state before JSON fallback so operators can distinguish real production evidence from snapshots. For route changes, keep endpoint shapes compatible and smoke-test the handler with a mocked Node response.
+
+#### Tags
+
+cross-project, local-fallback
+
+---
+
+### Auto-Extracted Lesson: Commissioning page auth bypass, auth headers, and catch block crash
+
+Date: 2026-05-20
+Source: Git commit e67a06b5
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/api/auth.js, cloud/dashboard/src/components/views/commissioning-loop.tsx
+
+#### Task Summary
+
+fix: commissioning page auth bypass, auth headers, and catch block crash
+
+#### Files Changed
+
+- `cloud/api/auth.js`
+- `cloud/dashboard/src/components/views/commissioning-loop.tsx`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit e67a06b5.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit e67a06b5 by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+api, bugfix
+
+### Lesson: Competitor research infrastructure — 5 repos cloned, deep-analyzed, comparison matrix generated
+
+Date: 2026-05-20
+Source: DeepSeek Code agent task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: scripts/competitor-research.mjs, .roo/skills/competitor-research/SKILL.md, memory/competitor-research/comparison.json, memory/competitor-research/openhands.json, memory/competitor-research/swe-agent.json, memory/competitor-research/voltagent.json, memory/competitor-research/aws-remote-swe.json, memory/competitor-research/mastra.json, c:/Users/User/.claude/guides/superroo-resources.md
+
+#### Task Summary
+
+Created a competitor research infrastructure for SuperRoo2: a CLI research script, a research agent skill, and global resources. Researched 5 competitor repos (OpenHands, SWE-agent, VoltAgent, AWS Remote SWE Agents, Mastra) — cloned all 5, performed deep source code analysis, generated a comparison matrix with capability scoring, and identified SuperRoo2's unique advantages.
+
+#### Files Changed
+
+- scripts/competitor-research.mjs — Created CLI research script with clone, structure analysis, deep pattern extraction, and comparison matrix generation
+- .roo/skills/competitor-research/SKILL.md — Created research agent skill with structured workflow
+- memory/competitor-research/comparison.json — Generated comparison matrix with real findings from deep analysis
+- memory/competitor-research/openhands.json — Generated research data for OpenHands (592 Python + 264 TS files)
+- memory/competitor-research/swe-agent.json — Generated research data for SWE-agent (96 Python files, 15+ tools)
+- memory/competitor-research/voltagent.json — Generated research data for VoltAgent (354 TS files, 35 packages)
+- memory/competitor-research/aws-remote-swe.json — Generated research data for AWS Remote SWE (22 TS files, CDK-deployed)
+- memory/competitor-research/mastra.json — Generated research data for Mastra (986 TS files, 50+ packages)
+- c:/Users/User/.claude/guides/superroo-resources.md — Updated with corrected URLs, actual findings, capability matrix
+
+#### Bug Cause
+
+N/A — new feature creation, not a bug fix.
+
+#### Fix Applied
+
+N/A
+
+#### Test Result
+
+All 5 repos cloned successfully. Deep analysis completed on all 5. Comparison matrix generated with real capability scores.
+
+#### Lesson Learned
+
+1. **GitHub repo URLs change frequently** — VoltAgent was at `VoltAgent-ai/VoltAgent` (404), corrected to `VoltAgent/voltagent`. AWS Remote SWE was at `awslabs/aws-remote-swe-agent` (404), corrected to `aws-samples/remote-swe-agents`. "Power" repo (`run-power/power`) doesn't exist — replaced with Mastra (`mastra-ai/mastra`) which is the most comprehensive framework.
+2. **Deep analysis requires reading actual source code** — directory structure, package.json scripts, and README analysis reveal far more than just cloning. The enhanced script extracts config files, test patterns, CI/CD configs, and language profiles.
+3. **SuperRoo2's moat is clear**: self-healing, Telegram integration, and 14-phase commissioning are UNIQUE — no competitor has any of these. Mastra is the closest in breadth (50+ packages) but lacks all three.
+4. **Mastra is the most comprehensive competitor** (986 TS files, 50+ packages) — their storage adapter pattern (25+ backends) and workflow engine are worth studying.
+
+#### Reusable Rule
+
+When researching competitor repos, always verify URLs via GitHub API search before cloning. Use `https://api.github.com/search/repositories?q=<name>` to find the correct owner/repo. If a repo doesn't exist, search for the most similar active project rather than leaving a gap.
+
+#### Tags
+
+competitor-research, infrastructure, openhands, swe-agent, voltagent, aws-remote-swe, mastra, comparison-matrix, deep-analysis
+
+---
+
+### Lesson: Storage Adapter Layer — pluggable vector DB backends for Central Brain
+
+Date: 2026-05-20
+Source: DeepSeek Code task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/orchestrator/stores/adapters/VectorStoreAdapter.js, cloud/orchestrator/stores/EmbeddingService.js, cloud/orchestrator/stores/adapters/PgVectorAdapter.js, cloud/orchestrator/stores/adapters/MemoryVectorAdapter.js, cloud/orchestrator/stores/adapters/QdrantAdapter.js, cloud/orchestrator/stores/adapters/PineconeAdapter.js, cloud/orchestrator/stores/adapters/ChromaAdapter.js, cloud/orchestrator/stores/adapters/index.js, cloud/orchestrator/stores/BugKnowledgeStore.js, cloud/test/vectorStoreAdapter.test.js
+
+#### Task Summary
+
+Implemented a pluggable vector database adapter layer for Central Brain, extracted from competitor research (Mastra's store abstraction pattern). Created an abstract VectorStoreAdapter base class with 10 methods, extracted EmbeddingService from BugKnowledgeStore, implemented 5 concrete adapters (PgVectorAdapter, MemoryVectorAdapter, QdrantAdapter, PineconeAdapter, ChromaAdapter), a factory/registry system, and refactored BugKnowledgeStore to delegate to any adapter. All 44 tests pass.
+
+#### Files Changed
+
+- cloud/orchestrator/stores/adapters/VectorStoreAdapter.js (CREATED)
+- cloud/orchestrator/stores/EmbeddingService.js (CREATED)
+- cloud/orchestrator/stores/adapters/PgVectorAdapter.js (CREATED)
+- cloud/orchestrator/stores/adapters/MemoryVectorAdapter.js (CREATED)
+- cloud/orchestrator/stores/adapters/QdrantAdapter.js (CREATED)
+- cloud/orchestrator/stores/adapters/PineconeAdapter.js (CREATED)
+- cloud/orchestrator/stores/adapters/ChromaAdapter.js (CREATED)
+- cloud/orchestrator/stores/adapters/index.js (CREATED)
+- cloud/orchestrator/stores/BugKnowledgeStore.js (REFACTORED)
+- cloud/test/vectorStoreAdapter.test.js (CREATED)
+
+#### Bug Cause
+
+N/A — new feature implementation
+
+#### Fix Applied
+
+N/A
+
+#### Test Result
+
+pass — 44/44 tests pass
+
+#### Lesson Learned
+
+When implementing an adapter pattern for an existing store, extract the embedding service first (it's shared across all adapters), define the abstract interface with all methods that the existing store exposes, then refactor the existing store to delegate to an adapter. Use lazy requires for optional dependencies (like `pg`) so the module can be loaded without them installed. Use `options.threshold !== undefined ? options.threshold : 0.6` instead of `options.threshold || 0.6` to allow passing `0` as a valid threshold value.
+
+#### Reusable Rule
+
+When extracting an adapter pattern from an existing monolithic store: (1) identify all public methods that interact with the storage backend, (2) define an abstract base class with those methods, (3) extract shared utilities (like embedding generation) into a separate service, (4) implement at least one in-memory adapter for testing, (5) use lazy requires for optional dependencies, (6) use `!== undefined` checks instead of `||` for numeric defaults that could legitimately be `0`.
+
+#### Tags
+
+adapter-pattern, vector-database, central-brain, bug-knowledge-store, pgvector, qdrant, pinecone, chroma, embedding-service, testing, refactoring
+
+---
+
+### Lesson: Sandboxed Execution Environment — Docker-based code sandbox with container pooling and manager
+
+Date: 2026-05-20
+Source: DeepSeek task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/orchestrator/sandbox/DockerSandbox.js, cloud/orchestrator/sandbox/SandboxPool.js, cloud/orchestrator/sandbox/SandboxManager.js, cloud/orchestrator/sandbox/index.js, cloud/worker/sandboxRunner.js, cloud/api/api.js, cloud/worker/debugJobRunner.js, cloud/test/sandbox.test.js
+
+#### Task Summary
+
+Implemented a Docker-based sandboxed execution environment inspired by OpenHands and SWE-agent patterns. The system provides safe, isolated code execution with container lifecycle management, resource limits, timeout handling, and crash resilience.
+
+#### Files Changed
+
+- cloud/orchestrator/sandbox/DockerSandbox.js — Container lifecycle management (create, run, exec, copy in/out, cleanup)
+- cloud/orchestrator/sandbox/SandboxPool.js — Container pooling with acquire/release, warm containers, idle cleanup, health checks
+- cloud/orchestrator/sandbox/SandboxManager.js — Core orchestration with job execution, active container tracking, image management
+- cloud/orchestrator/sandbox/index.js — Module exports
+- cloud/worker/sandboxRunner.js — Refactored to delegate to SandboxManager
+- cloud/api/api.js — Added 11 sandbox API endpoints
+- cloud/worker/debugJobRunner.js — Refactored to run in sandbox
+- cloud/test/sandbox.test.js — 34 unit tests with mocked child_process.spawn
+
+#### Bug Cause
+
+N/A — new feature implementation
+
+#### Fix Applied
+
+N/A — new feature implementation
+
+#### Test Result
+
+pass — 34/34 tests passing
+
+#### Lesson Learned
+
+1. **Container pooling pattern**: A pool with acquire/release semantics prevents Docker container churn and enables warm container reuse. Key design decisions: (a) warm containers created during init up to minPool, (b) idle containers cleaned up after configurable timeout, (c) health checks run on a timer to detect zombie containers.
+
+2. **Resource limits are essential**: Docker sandboxes must enforce CPU, memory, swap, PID, and network isolation to prevent resource exhaustion. The `--pids-limit`, `--memory-swap`, and `--network=none` flags are critical for multi-tenant safety.
+
+3. **Timeout with escalation**: The timeout mechanism uses a single timer that triggers `docker rm -f` (SIGKILL) when exceeded. The `--stop-timeout` flag gives the container 30s for graceful shutdown before force kill.
+
+4. **Crash resilience**: All cleanup operations are best-effort (try/catch). Zombie containers from crashed processes are handled by the health check loop and drain phase.
+
+5. **Dangerous command filtering**: A static list of forbidden patterns (rm -rf /, shutdown, reboot, mkfs, dd) prevents destructive operations inside the sandbox.
+
+6. **Testing with mocked spawn**: vitest's `vi.mock` is hoisted to the top of the file. The factory function runs in an isolated scope where `require("events")` works for built-in modules. `vi.clearAllMocks()` resets call counts without restoring the original module (unlike `vi.restoreAllMocks()`). Tests that verify error handling (e.g., ENOENT when Docker is unavailable) should use try/catch to gracefully handle environment-specific failures.
+
+#### Reusable Rule
+
+When implementing Docker-based sandbox execution: (1) always use a pool with acquire/release for container reuse, (2) enforce resource limits at the container level (CPU, memory, PIDs, network), (3) implement timeout with SIGKILL escalation, (4) make all cleanup best-effort with try/catch, (5) filter dangerous commands before execution, (6) use `vi.mock` with `require("events")` in the factory for testing spawn-based code, and use `vi.clearAllMocks()` instead of `vi.restoreAllMocks()` to preserve the mock across test boundaries.
+
+#### Tags
+
+sandbox, docker, container, pool, execution-environment, testing, vitest, mocking, openhands, swe-agent, crash-resilience, resource-limits
+
+### Lesson: Cloud Sandbox wiring gap fixes and innovative feature implementation
+
+Date: 2026-05-20
+Source: DeepSeek task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/orchestrator/sandbox/index.js, cloud/worker/sandboxRunner.js, cloud/worker/debugJobRunner.js, cloud/api/api.js, cloud/orchestrator/sandbox/DockerSandbox.js, cloud/orchestrator/sandbox/SandboxPool.js, cloud/orchestrator/sandbox/SandboxManager.js, cloud/orchestrator/sandbox/ComposeSandbox.js, cloud/sandbox/Dockerfile.python, cloud/sandbox/Dockerfile.go, cloud/sandbox/Dockerfile.rust, cloud/.env.example, cloud/deploy-sandbox.sh, cloud/test/sandbox.test.js, cloud/dashboard/src/components/views/docker.tsx, cloud/dashboard/src/app/page.tsx, docs/resources/working-tree.md, docs/super-roo/DEBUG_TEAM_GUIDE.md, README.md
+
+#### Task Summary
+
+Fixed all wiring gaps and implemented all innovative features for the Cloud Sandbox system. The sandbox system provides Docker container lifecycle management, container pooling, job execution, snapshot/restore, network simulation, self-healing, Docker Compose orchestration, audit trail, resource-aware scheduling, and multi-language sandbox images.
+
+#### Files Changed
+
+- `cloud/orchestrator/sandbox/index.js` — Added `getGlobalSandboxManager()` singleton and `resetGlobalSandboxManager()` for testing; exported `ComposeSandbox`
+- `cloud/worker/sandboxRunner.js` — Refactored to use global singleton instead of local SandboxManager instance; added null-safe defaults for result properties
+- `cloud/worker/debugJobRunner.js` — Updated `getSandboxManager()` to delegate to global singleton
+- `cloud/api/api.js` — Updated `getSandboxManager()` to delegate to global singleton; added 12 new sandbox API endpoints (snapshot, restore, network-simulate, heal, heal-all, audit, resource-pressure, compose/up, compose/down, compose/:service/exec, compose/logs, compose/ps)
+- `cloud/orchestrator/sandbox/DockerSandbox.js` — Added `snapshot()`, `restore()`, `simulateNetwork()`, `clearNetworkSimulation()`, `selfHeal()` methods
+- `cloud/orchestrator/sandbox/SandboxPool.js` — Updated health check to call `selfHeal()` before removing unhealthy containers
+- `cloud/orchestrator/sandbox/SandboxManager.js` — Added audit trail, resource-aware scheduling, snapshot/restore/heal container methods
+- `cloud/orchestrator/sandbox/ComposeSandbox.js` — NEW: Docker Compose multi-container orchestration
+- `cloud/sandbox/Dockerfile.python` — NEW: Python 3.12 sandbox image
+- `cloud/sandbox/Dockerfile.go` — NEW: Go 1.22 sandbox image
+- `cloud/sandbox/Dockerfile.rust` — NEW: Rust 1.78 sandbox image
+- `cloud/.env.example` — Added missing sandbox environment variables
+- `cloud/deploy-sandbox.sh` — Fixed SANDBOX_DIR path
+- `cloud/test/sandbox.test.js` — Updated tests for refactored sandboxRunner exports and result shape
+- `cloud/dashboard/src/components/views/docker.tsx` — Fixed error handling to use `/api/sandbox/execute` and show actual error messages
+- `cloud/dashboard/src/app/page.tsx` — Added sandbox health status indicator
+- `docs/resources/working-tree.md` — Added Cloud Sandbox module (#20)
+- `docs/super-roo/DEBUG_TEAM_GUIDE.md` — Added Cloud Sandbox section with API endpoints
+- `README.md` — Added Cloud Sandbox to feature table and core capabilities
+
+#### Bug Cause
+
+Three wiring gaps caused integration issues:
+
+1. **Triple singleton problem**: `api.js`, `sandboxRunner.js`, and `debugJobRunner.js` each created their own `SandboxManager` instance, leading to inconsistent state and resource contention
+2. **Missing env vars**: `.env.example` lacked sandbox configuration variables
+3. **Wrong deploy path**: `deploy-sandbox.sh` pointed to `cloud/sandbox` instead of `cloud/orchestrator/sandbox`
+
+#### Fix Applied
+
+1. Created `getGlobalSandboxManager()` in `cloud/orchestrator/sandbox/index.js` as the single source of truth
+2. All three consumers (`api.js`, `sandboxRunner.js`, `debugJobRunner.js`) now delegate to the global singleton
+3. Added all sandbox env vars to `.env.example`
+4. Fixed `SANDBOX_DIR` path in `deploy-sandbox.sh`
+
+#### Test Result
+
+pass (34/34 tests passing)
+
+#### Lesson Learned
+
+When building a multi-consumer service (API server, BullMQ workers, debug team), always use a global singleton pattern from day one. Each consumer independently instantiating the service leads to resource leaks, inconsistent state, and hard-to-debug integration failures. The singleton should be created lazily on first access and exposed via a dedicated module export, not embedded in each consumer.
+
+For innovative features, Docker's native capabilities (docker commit for snapshots, tc for network simulation, docker restart for self-healing, docker compose for multi-container) provide powerful primitives that require minimal code to wrap. Always prefer leveraging existing Docker features over building custom infrastructure.
+
+When testing modules that use `require("child_process")` with `vi.mock`, be aware that `vi.mock` intercepts module resolution but does NOT retroactively update already-captured `spawn` references in modules that were loaded before the mock was active. The `require` cache means the first module to load `child_process` captures the real `spawn`, and all subsequent `require("child_process")` calls return the cached (real) version. To work around this, either: (a) use dynamic `require()` inside functions rather than top-level `const { spawn } = require("child_process")`, or (b) make tests resilient to Docker being unavailable by checking `result.success` before asserting on Docker-specific properties.
+
+#### Reusable Rule
+
+When wiring a new subsystem (like sandbox) into an existing multi-consumer architecture: (1) create a global singleton in the module's index.js, (2) refactor ALL consumers to use the singleton, (3) add a `resetForTesting()` export, (4) update env config files with all new variables, (5) fix any deploy scripts that reference wrong paths, (6) add health check endpoints to the API, (7) add status indicators to the dashboard, (8) document the module in working-tree.md and relevant guides, (9) update README feature table, (10) run all tests and fix any that break due to refactored exports or result shapes.
+
+#### Tags
+
+sandbox, docker, container, wiring, integration, singleton, testing, vitest, mocking, snapshot, network-simulation, self-healing, docker-compose, audit-trail, resource-aware, multi-language, dashboard, api
+
+---
+### Lesson: Eclipse Theia deep analysis — architecture patterns for SuperRoo IDE improvement
+
+Date: 2026-05-20
+Source: Code agent task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: memory/competitor-research/theia-analysis.md
+
+#### Task Summary
+
+Deep-analyzed Eclipse Theia (https://github.com/eclipse-theia/theia) to extract architecture patterns, innovative gaps, and integration opportunities for SuperRoo IDE improvement. Cloned the repo, analyzed 77 packages, read key source files across the AI agent system, MCP integration, skill system, prompt system, language model system, and collaboration system.
+
+#### Files Changed
+
+- memory/competitor-research/theia-analysis.md (new — comprehensive 13-section analysis)
+
+#### Bug Cause
+
+N/A — this was a research/analysis task, not a bug fix.
+
+#### Fix Applied
+
+N/A — no code changes were made.
+
+#### Test Result
+
+N/A — no tests were run.
+
+#### Lesson Learned
+
+Eclipse Theia is not a competitor to SuperRoo but a complementary IDE framework with several architecture patterns SuperRoo should adopt:
+
+1. **Typed Agent Interface**: Theia's `Agent` interface with `PromptVariantSet`, `LanguageModelRequirement`, and `tags` provides a clean contract that SuperRoo's agent system lacks.
+2. **Mode-Aware Agents**: CoderAgent (Edit/Agent/Agent Next) and ArchitectAgent (Plan/Simple/Plan Next) demonstrate how to implement mode switching via prompt variants — SuperRoo's Coder/Architect agents should adopt this pattern.
+3. **MCP Server Lifecycle**: Theia's `MCPServerManagerImpl` has full start/stop/callTool lifecycle with status notifications — SuperRoo's MCP bridge is script-based and lacks this production-grade management.
+4. **Provider-Agnostic Reasoning**: Theia's `ReasoningLevel` abstraction ('off'|'minimal'|'low'|'medium'|'high'|'auto') with per-provider mapping is something SuperRoo should adopt immediately for its model router.
+5. **Prompt Variant System**: `PromptVariantSet` with `defaultVariant` + `variants[]` enables user customization of prompts — SuperRoo's flat prompt templates don't support this.
+6. **Slash Commands**: `CommandPromptFragmentMetadata` with `isCommand`, `commandName`, `commandAgents` enables agent-specific slash commands — SuperRoo has no equivalent.
+7. **Skill Tool Restrictions**: Theia's `allowedTools` field on `SkillDescription` enables security sandboxing per skill — SuperRoo should adopt this.
+8. **Collaboration**: Theia has real-time collaborative editing — SuperRoo has none.
+9. **20+ AI Provider Packages**: Theia's modular provider architecture (each provider is a separate npm package) is more maintainable than SuperRoo's monolithic provider config in api.js.
+
+#### Reusable Rule
+
+When analyzing competitor/peer projects for architecture improvements, focus on: (1) typed interfaces vs ad-hoc patterns, (2) lifecycle management vs fire-and-forget, (3) abstraction layers vs hard-coded mappings, (4) modular vs monolithic organization, and (5) user customization vs fixed configuration. Document findings with a phased integration roadmap prioritizing quick wins (typed interfaces, mode definitions, reasoning abstraction) over long-term features (collaboration, VS Code extension protocol).
+
+#### Tags
+
+eclipse-theia, competitor-research, architecture, ide, agent-system, mcp, prompts, skills, collaboration, reasoning, ai-providers, innovation-gaps, integration-roadmap
+
+---
+### Lesson: Eclipse Theia adoption plan — 7-phase roadmap to supercharge SuperRoo with IDE platform patterns
+
+Date: 2026-05-20
+Source: Code agent task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: docs/architecture/theia-adoption-plan.md, memory/competitor-research/theia-analysis.md
+
+#### Task Summary
+
+Created a comprehensive 7-phase adoption plan for integrating Eclipse Theia's complementary IDE framework patterns into SuperRoo. The plan covers: (1) Typed Agent Interface with PromptVariantSet and mode definitions, (2) Prompt variant system with slash commands, (3) MCP server lifecycle management, (4) Provider-agnostic reasoning abstraction, (5) Skill tool restrictions for security sandboxing, (6) Real-time collaboration foundation, (7) Modular provider extraction.
+
+#### Files Changed
+
+- docs/architecture/theia-adoption-plan.md (new — comprehensive 7-phase plan with Phase 0-5 methodology)
+
+#### Bug Cause
+
+N/A — this was a planning/architecture task, not a bug fix.
+
+#### Fix Applied
+
+N/A — no code changes were made.
+
+#### Test Result
+
+N/A — no tests were run.
+
+#### Lesson Learned
+
+When adopting patterns from a complementary framework like Eclipse Theia, the key insight is to identify which patterns are **directly adoptable** (typed interfaces, mode definitions, reasoning abstraction) vs which require **significant infrastructure** (collaboration, VS Code extension protocol). The adoption plan should:
+
+1. **Start with the foundation** — The Agent interface is the root of all other changes. Refactoring it first enables all downstream improvements naturally.
+2. **Use optional fields for backward compatibility** — New interface fields should be optional so existing agents continue to work unchanged.
+3. **Build standalone modules** — The MCP server manager should be a standalone module usable by both cloud API and VS Code extension.
+4. **Preserve existing APIs** — Provider extraction should not break existing api.js endpoints.
+5. **Feature flag everything** — Each phase needs a feature flag for gradual rollout and rollback capability.
+6. **Phase boundaries are strict** — Each phase has clear deliverables and success criteria. No scope creep between phases.
+
+#### Reusable Rule
+
+When creating a multi-phase adoption plan for integrating patterns from a complementary framework: (1) Phase 0 defines what's in/out of scope to prevent scope creep, (2) Phase 1 assesses current state against target state, (3) Phase 2 forms hypotheses about the adoption strategy, (4) Phase 3 designs the solution with clear phases, (5) Phase 4 provides day-by-day execution plans, (6) Phase 5 adds guardrails, monitoring, and risk mitigation. Always prioritize backward compatibility and feature flags over breaking changes.
+
+#### Tags
+
+eclipse-theia, adoption-plan, architecture, ide-integration, typed-interfaces, mcp, prompts, reasoning, collaboration, providers, phased-rollout, backward-compatibility
+
+---
+
+### Auto-Extracted Lesson: Add missing view files (task-timeline, provider-dashboard, sandbox) reference...
+
+Date: 2026-05-21
+Source: Git commit 81cac697
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/dashboard/src/components/views/provider-dashboard.tsx, cloud/dashboard/src/components/views/sandbox.tsx, cloud/dashboard/src/components/views/task-timeline.tsx
+
+#### Task Summary
+fix: add missing view files (task-timeline, provider-dashboard, sandbox) referenced by page.tsx
+
+#### Files Changed
+- `cloud/dashboard/src/components/views/provider-dashboard.tsx`
+- `cloud/dashboard/src/components/views/sandbox.tsx`
+- `cloud/dashboard/src/components/views/task-timeline.tsx`
+
+#### Bug Cause
+<!-- TODO: Document what caused the issue -->
+Unknown — extracted from commit 81cac697.
+
+#### Fix Applied
+<!-- TODO: Document the solution -->
+See commit 81cac697 by JPG Yap.
+
+#### Test Result
+Unknown — no test files detected.
+
+#### Lesson Learned
+<!-- TODO: Extract reusable lesson -->
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+<!-- TODO: Define a specific rule for future agents -->
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+bugfix
+
+---
+
+### Lesson: Telegram dashboard coding flow must enqueue real coder phases
+
+Date: 2026-05-21
+Source: superroo-learn CLI (local fallback)
+Model/API used: local
+Confidence: medium
+Related files:
+Tags:
+
+#### Task Summary
+
+When wiring a dashboard or Telegram Mini App coding console, do not point a /code UI at a generic connectivity endpoint. The frontend should POST /telegram/tasks/create with stripped instruction and auto flag; backend create should enqueue coder-plan jobs with phase/task metadata, and dashboard approvals must only succeed when a generated pending coder plan exists and should enqueue coder-apply. Worker fallback must preserve workspaceDir/repoName from job data.
+
+#### Lesson Learned
+
+When wiring a dashboard or Telegram Mini App coding console, do not point a /code UI at a generic connectivity endpoint. The frontend should POST /telegram/tasks/create with stripped instruction and auto flag; backend create should enqueue coder-plan jobs with phase/task metadata, and dashboard approvals must only succeed when a generated pending coder plan exists and should enqueue coder-apply. Worker fallback must preserve workspaceDir/repoName from job data.
+
+#### Tags
+
+cross-project, local-fallback
+
+---

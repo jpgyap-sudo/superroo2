@@ -26,19 +26,48 @@
  *     - codex_task_list(limit?) — List recent Codex tasks
  *     - codex_task_get(id) — Fetch one Codex task
  *     - codex_task_get_active() — Fetch the current active Codex task
+ *     - brain_search_memory(query, projectId?, limit?, minSimilarity?, status?) — Semantic search pgvector
+ *     - brain_get_scores(projectId?, limit?) — Agent scores leaderboard
+ *     - brain_get_events(projectId?, limit?, eventType?) — Brain events log
+ *     - brain_get_approvals(projectId?, limit?) — Pending memory approvals
+ *     - brain_approve_memory(approvalId, reviewedBy?) — Approve a pending memory
+ *     - brain_reject_memory(approvalId, reviewedBy?) — Reject a pending memory
+ *     - brain_store_lesson(title, content, agent?, projectId?, tags?, files?, summary?, confidence?) — Store a lesson in pgvector (MANDATORY: every coding agent MUST call this before disconnecting)
+ *     - brain_register_lesson_intent(agent, projectId?, task?) — Register intent to contribute a lesson (call at session start)
+ *     - brain_lesson_status(agent?) — Check pending lesson obligations for an agent
+ *     - brain_get_workflow_rules() — Get the mandated workflow rules (DeepSeek coder + Ollama embeddings)
  *
  *   Resources:
  *     - memory://{project}/context — Full RAG context for a project
  *     - memory://{project}/tasks — Task list for a project
  *     - memory://{project}/bugs — Bug list for a project
  *
+ *   Lesson Obligation Policy:
+ *     Every coding agent that connects to this MCP server MUST contribute at
+ *     least one lesson before disconnecting. The server tracks lesson obligations
+ *     per agent. Agents call brain_register_lesson_intent at session start and
+ *     brain_store_lesson when they have a lesson to contribute. The server logs
+ *     warnings for agents that disconnect without fulfilling their obligation.
+ *
+ *   Mandated Workflow:
+ *     All coding agents connecting to this MCP server MUST follow the mandated
+ *     workflow:
+ *       1. DeepSeek is the DEFAULT coder for all implementation tasks
+ *       2. Ollama is the DEFAULT embeddings provider for semantic search and lesson summarization
+ *       3. Central Brain (pgvector) is the DEFAULT memory store
+ *       4. Every agent MUST contribute at least one lesson per session
+ *     The initialize response includes workflowRules that clients can parse
+ *     to auto-configure their tooling. Use brain_get_workflow_rules to retrieve
+ *     the full ruleset at any time.
+ *
  * Architecture:
  *   Claude Code / Codex Extension
  *        ↓  (MCP Protocol via stdio or HTTP)
  *   McpMemoryServer (this file)
- *        ↓  (HTTP to Central Brain daemon OR REST API fallback)
+ *        ↓  (HTTP to Central Brain daemon OR REST API fallback OR Brain v2 API)
  *   Central Brain Daemon (port 3417) ← Primary
  *   REST API (port 8787) ← Fallback
+ *   Central Brain v2 API (port 3456) ← pgvector memory, scores, events, approvals, lesson storage
  *        ↓
  *   ProjectMemoryManager → Qdrant / PostgreSQL / JSON Memory
  *
@@ -58,6 +87,7 @@ import * as os from "node:os"
 
 const CENTRAL_BRAIN_URL = process.env.CENTRAL_BRAIN_URL || "http://127.0.0.1:3417"
 const REST_API_FALLBACK_URL = process.env.REST_API_FALLBACK_URL || "http://127.0.0.1:8787"
+const BRAIN_V2_API_URL = process.env.BRAIN_V2_API_URL || "http://127.0.0.1:3456/api/brain"
 const MCP_SERVER_PORT = Number(process.env.MCP_SERVER_PORT || "3419")
 const MCP_SERVER_HOST = process.env.MCP_SERVER_HOST || "127.0.0.1"
 const DAEMON_TOKEN = process.env.SUPERROO_DAEMON_TOKEN || ""
@@ -171,6 +201,120 @@ class RateLimiter {
 	}
 }
 
+// ── Lesson Obligation Tracker ──
+
+interface LessonObligation {
+	agent: string
+	projectId: string
+	task: string
+	registeredAt: number
+	fulfilled: boolean
+	lessonId?: string
+}
+
+/**
+ * Tracks lesson obligations for coding agents connected via MCP.
+ * Every coding agent MUST contribute at least one lesson before disconnecting.
+ * The tracker logs warnings for agents that disconnect without fulfilling.
+ */
+class LessonObligationTracker {
+	private obligations = new Map<string, LessonObligation>()
+
+	/**
+	 * Register an agent's intent to contribute a lesson.
+	 * Call this at the start of an agent session.
+	 */
+	register(agent: string, projectId: string, task: string): LessonObligation {
+		const existing = this.obligations.get(agent)
+		if (existing && !existing.fulfilled) {
+			// Agent already has a pending obligation — return it
+			return existing
+		}
+		const obligation: LessonObligation = {
+			agent,
+			projectId,
+			task,
+			registeredAt: Date.now(),
+			fulfilled: false,
+		}
+		this.obligations.set(agent, obligation)
+		console.log(`[LessonObligation] Registered lesson intent for agent "${agent}" (project: ${projectId}, task: "${task.slice(0, 60)}")`)
+		return obligation
+	}
+
+	/**
+	 * Mark an agent's lesson obligation as fulfilled.
+	 * Returns true if the obligation was found and fulfilled.
+	 */
+	fulfill(agent: string, lessonId: string): boolean {
+		const obligation = this.obligations.get(agent)
+		if (!obligation) {
+			console.log(`[LessonObligation] No pending obligation for agent "${agent}" — lesson stored anyway`)
+			return false
+		}
+		obligation.fulfilled = true
+		obligation.lessonId = lessonId
+		console.log(`[LessonObligation] Agent "${agent}" fulfilled lesson obligation (lessonId: ${lessonId})`)
+		return true
+	}
+
+	/**
+	 * Get the current obligation status for an agent.
+	 */
+	getStatus(agent: string): { registered: boolean; fulfilled: boolean; obligation: LessonObligation | null } {
+		const obligation = this.obligations.get(agent) || null
+		return {
+			registered: obligation !== null,
+			fulfilled: obligation?.fulfilled ?? false,
+			obligation,
+		}
+	}
+
+	/**
+	 * Get all pending (unfulfilled) obligations.
+	 */
+	getPending(): LessonObligation[] {
+		const pending: LessonObligation[] = []
+		for (const obligation of this.obligations.values()) {
+			if (!obligation.fulfilled) {
+				pending.push(obligation)
+			}
+		}
+		return pending
+	}
+
+	/**
+	 * Log warnings for all agents that have pending obligations.
+	 * Call this periodically or on server shutdown.
+	 */
+	warnPending(): void {
+		const pending = this.getPending()
+		if (pending.length > 0) {
+			console.warn(`[LessonObligation] WARNING: ${pending.length} agent(s) have unfulfilled lesson obligations:`)
+			for (const ob of pending) {
+				console.warn(
+					`  - Agent "${ob.agent}" (project: ${ob.projectId}, task: "${ob.task.slice(0, 60)}", registered: ${new Date(ob.registeredAt).toISOString()})`,
+				)
+			}
+		}
+	}
+
+	/**
+	 * Get summary stats for the tracker.
+	 */
+	getStats(): { total: number; fulfilled: number; pending: number } {
+		let fulfilled = 0
+		for (const ob of this.obligations.values()) {
+			if (ob.fulfilled) fulfilled++
+		}
+		return {
+			total: this.obligations.size,
+			fulfilled,
+			pending: this.obligations.size - fulfilled,
+		}
+	}
+}
+
 function safeIsoTimestamp(value: unknown): string {
 	const date = new Date(value as string | number | Date)
 	return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString()
@@ -197,6 +341,7 @@ class McpMemoryServer {
 	private tools: McpToolDefinition[] = []
 	private resources: McpResourceDefinition[] = []
 	private rateLimiter = new RateLimiter()
+	private lessonTracker = new LessonObligationTracker()
 	private startTime = Date.now()
 
 	constructor() {
@@ -205,6 +350,8 @@ class McpMemoryServer {
 		this._registerResources()
 		// Clean up rate limiter entries every 5 minutes
 		setInterval(() => this.rateLimiter.cleanup(), 5 * 60 * 1000)
+		// Log warnings for agents with unfulfilled lesson obligations every 30 minutes
+		setInterval(() => this.lessonTracker.warnPending(), 30 * 60 * 1000)
 	}
 
 	/**
@@ -634,11 +781,475 @@ class McpMemoryServer {
 					properties: {},
 				},
 			},
-		]
-	}
+			// ── Central Brain v2 Tools (pgvector memory, scores, events, approvals) ──
+			{
+				name: "brain_search_memory",
+				description:
+					"Semantic search across pgvector memory using the Central Brain v2 API. Returns relevant memories ranked by cosine similarity. Use this to find lessons, bug fixes, and patterns stored in the pgvector knowledge base.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						query: {
+							type: "string",
+							description: "The semantic search query describing what you're looking for",
+						},
+						projectId: {
+							type: "string",
+							description: "Optional project ID to scope the search (default: all projects)",
+						},
+						limit: {
+							type: "number",
+							description: "Maximum number of results (default: 10)",
+						},
+						minSimilarity: {
+							type: "number",
+							description: "Minimum similarity threshold 0-1 (default: 0.3)",
+						},
+						status: {
+							type: "string",
+							description: "Filter by memory status: candidate, approved, archived (default: approved)",
+						},
+					},
+					required: ["query"],
+				},
+			},
+			{
+				name: "brain_get_scores",
+				description:
+					"Get the agent scores leaderboard from the Central Brain v2. Returns agent performance metrics including success rate, recency, volume, and composite score.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						projectId: {
+							type: "string",
+							description: "Optional project ID to scope the leaderboard (default: all projects)",
+						},
+						limit: {
+							type: "number",
+							description: "Maximum number of agents to return (default: 20)",
+						},
+					},
+				},
+			},
+			{
+				name: "brain_get_events",
+				description:
+					"Get the brain events log from the Central Brain v2. Returns a chronological log of memory operations including creation, recall, merge, decay, and approval events.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						projectId: {
+							type: "string",
+							description: "Optional project ID to scope the events (default: all projects)",
+						},
+						limit: {
+							type: "number",
+							description: "Maximum number of events to return (default: 50)",
+						},
+						eventType: {
+							type: "string",
+							description: "Optional filter by event type (e.g., memory.created, memory.recall, memory.merged)",
+						},
+					},
+				},
+			},
+			{
+				name: "brain_get_approvals",
+				description:
+					"Get pending memory approvals from the Central Brain v2. Returns memories that require human review before being committed to the knowledge base.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						projectId: {
+							type: "string",
+							description: "Optional project ID to scope the approvals (default: all projects)",
+						},
+						limit: {
+							type: "number",
+							description: "Maximum number of pending approvals to return (default: 50)",
+						},
+					},
+				},
+			},
+			{
+				name: "brain_approve_memory",
+				description:
+					"Approve a pending memory in the Central Brain v2. Moves a candidate memory to approved status so it becomes available for semantic search.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						approvalId: {
+							type: "string",
+							description: "The approval queue ID (from brain_get_approvals)",
+						},
+						reviewedBy: {
+							type: "string",
+							description: "Name of the reviewer (agent or human)",
+						},
+					},
+					required: ["approvalId"],
+				},
+			},
+			{
+				name: "brain_reject_memory",
+				description:
+					"Reject a pending memory in the Central Brain v2. Moves a candidate memory to rejected status so it is excluded from semantic search.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						approvalId: {
+							type: "string",
+							description: "The approval queue ID (from brain_get_approvals)",
+						},
+						reviewedBy: {
+							type: "string",
+							description: "Name of the reviewer (agent or human)",
+						},
+					},
+					required: ["approvalId"],
+				},
+			},
 
-	/**
-	 * Register all MCP resources.
+			// ── Lesson Obligation Tools ──
+			{
+				name: "brain_store_lesson",
+				description:
+					"MANDATORY: Store a lesson in the Central Brain v2 pgvector memory. EVERY coding agent MUST call this tool before disconnecting to contribute a lesson about what was learned. This creates a searchable memory entry that future agents can retrieve via brain_search_memory. Call brain_register_lesson_intent at session start, then call this when you have a lesson to contribute.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						title: {
+							type: "string",
+							description: "Short descriptive title for the lesson (e.g., 'Fixed WebSocket reconnection bug')",
+						},
+						content: {
+							type: "string",
+							description: "Full lesson content describing what was learned, the bug cause, fix applied, and reusable insight",
+						},
+						agent: {
+							type: "string",
+							description: "Your agent name (e.g., 'claude-code', 'codex', 'deepseek-coder')",
+						},
+						projectId: {
+							type: "string",
+							description: "Project ID (default: 'default')",
+						},
+						tags: {
+							type: "array",
+							items: { type: "string" },
+							description: "Optional tags for categorization (e.g., ['bugfix', 'deployment', 'docker'])",
+						},
+						files: {
+							type: "array",
+							items: { type: "string" },
+							description: "Optional file paths related to this lesson",
+						},
+						summary: {
+							type: "string",
+							description: "Optional one-line summary (default: auto-generated from title)",
+						},
+						confidence: {
+							type: "number",
+							description: "Confidence score 0-1 (default: 0.7)",
+						},
+					},
+					required: ["title", "content", "agent"],
+				},
+			},
+			{
+				name: "brain_register_lesson_intent",
+				description:
+					"Register your intent to contribute a lesson. Call this at the START of your session to declare that you will store a lesson before disconnecting. The server tracks obligations and warns if agents disconnect without fulfilling them.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						agent: {
+							type: "string",
+							description: "Your agent name (e.g., 'claude-code', 'codex', 'deepseek-coder')",
+						},
+						projectId: {
+							type: "string",
+							description: "Project ID (default: 'default')",
+						},
+						task: {
+							type: "string",
+							description: "Brief description of the task you're working on",
+						},
+					},
+					required: ["agent"],
+				},
+			},
+			{
+				name: "brain_lesson_status",
+				description:
+					"Check your pending lesson obligation status. Returns whether you have registered intent and whether it has been fulfilled. Use this to verify you've met the lesson contribution requirement before disconnecting.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						agent: {
+							type: "string",
+							description: "Your agent name (optional — returns all pending if omitted)",
+						},
+					},
+				},
+			},
+			// ── Workflow Enforcement Tools ──
+			{
+				name: "brain_get_workflow_rules",
+				description:
+					"Get the mandated workflow rules for agents connecting to this MCP server. Returns the full ruleset including: (1) DeepSeek is the DEFAULT coder for all implementation tasks, (2) Ollama is the DEFAULT embeddings provider, (3) Central Brain (pgvector) is the DEFAULT memory store, (4) Every agent MUST contribute at least one lesson per session. Call this at session start to understand the required workflow.",
+				inputSchema: {
+					type: "object",
+					properties: {},
+				},
+			},
+
+			// ── Memory Evolution v3 Tools (versioning, feedback, propose, diff) ──
+			{
+				name: "brain_evolve_memory",
+				description:
+					"Evolve a memory by creating a new version with updated content. This preserves the full version history while updating the current content, embedding, and boosting confidence by +0.05. Use this when a memory needs to be refined or corrected.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						memoryId: {
+							type: "string",
+							description: "The memory ID to evolve",
+						},
+						content: {
+							type: "string",
+							description: "The new/updated content for this memory",
+						},
+						reason: {
+							type: "string",
+							description: "Reason for the evolution (e.g., 'corrected bug analysis', 'added new insight')",
+						},
+						agent: {
+							type: "string",
+							description: "Agent name making the evolution (default: 'mcp-agent')",
+						},
+						projectId: {
+							type: "string",
+							description: "Project ID (default: 'default')",
+						},
+					},
+					required: ["memoryId", "content", "reason"],
+				},
+			},
+			{
+				name: "brain_memory_versions",
+				description:
+					"Get the full version history for a memory. Returns all versions with content, change reason, agent, and timestamp. Use this to audit how a memory has evolved over time.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						memoryId: {
+							type: "string",
+							description: "The memory ID to get version history for",
+						},
+						limit: {
+							type: "number",
+							description: "Maximum number of versions to return (default: 50)",
+						},
+					},
+					required: ["memoryId"],
+				},
+			},
+			{
+				name: "brain_memory_diff",
+				description:
+					"Compare two versions of a memory and get a line-by-line diff. Shows what changed between any two version numbers, including the content, change reason, and timestamps for both versions.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						memoryId: {
+							type: "string",
+							description: "The memory ID to diff",
+						},
+						fromVersion: {
+							type: "number",
+							description: "The source version number (e.g., 1)",
+						},
+						toVersion: {
+							type: "number",
+							description: "The target version number (e.g., 3)",
+						},
+					},
+					required: ["memoryId", "fromVersion", "toVersion"],
+				},
+			},
+			{
+				name: "brain_memory_feedback",
+				description:
+					"Submit outcome-based feedback for a memory. This adjusts the memory's usefulness score: success feedback increases it, failure decreases it. Use this to train the brain which memories are actually useful in practice.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						memoryId: {
+							type: "string",
+							description: "The memory ID to provide feedback for",
+						},
+						outcome: {
+							type: "string",
+							enum: ["success", "failure", "neutral"],
+							description: "The outcome: 'success' (memory was helpful), 'failure' (memory was misleading), 'neutral' (no strong signal)",
+						},
+						score: {
+							type: "number",
+							description: "Score magnitude 0-1 (default: 0.1). Positive for success, negative applied for failure.",
+						},
+						agentName: {
+							type: "string",
+							description: "Agent providing the feedback (default: 'mcp-agent')",
+						},
+						taskId: {
+							type: "string",
+							description: "Optional task ID associated with this feedback",
+						},
+						note: {
+							type: "string",
+							description: "Optional note explaining the feedback",
+						},
+					},
+					required: ["memoryId", "outcome"],
+				},
+			},
+			{
+				name: "brain_memory_usefulness",
+				description:
+					"Get the aggregated usefulness score for a memory. Returns the current usefulness (0-1), total feedback count, success/failure breakdown, and last feedback timestamp. Higher usefulness means the memory has proven valuable in practice.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						memoryId: {
+							type: "string",
+							description: "The memory ID to get usefulness for",
+						},
+					},
+					required: ["memoryId"],
+				},
+			},
+			{
+				name: "brain_propose_memory",
+				description:
+					"Propose a new memory with auto-trust logic. If confidence >= 0.82 and risk is low, the memory is auto-approved. Otherwise it enters the approval queue. Use this to suggest new knowledge for the brain with automatic quality gating.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						projectId: {
+							type: "string",
+							description: "Project ID",
+						},
+						title: {
+							type: "string",
+							description: "Title for the memory",
+						},
+						content: {
+							type: "string",
+							description: "The memory content",
+						},
+						summary: {
+							type: "string",
+							description: "Optional one-line summary",
+						},
+						memoryType: {
+							type: "string",
+							enum: ["lesson", "bug", "pattern", "decision", "insight", "reference"],
+							description: "Type of memory (default: 'lesson')",
+						},
+						tags: {
+							type: "array",
+							items: { type: "string" },
+							description: "Optional tags for categorization",
+						},
+						files: {
+							type: "array",
+							items: { type: "string" },
+							description: "Optional file paths related to this memory",
+						},
+						agent: {
+							type: "string",
+							description: "Agent name (default: 'mcp-agent')",
+						},
+						model: {
+							type: "string",
+							description: "Model used to generate this memory",
+						},
+						confidence: {
+							type: "number",
+							description: "Confidence score 0-1 (default: 0.75). >= 0.82 triggers auto-trust",
+						},
+						importance: {
+							type: "number",
+							description: "Importance score 0-1 (default: 0.5)",
+						},
+						riskLevel: {
+							type: "string",
+							enum: ["low", "medium", "high"],
+							description: "Risk level (default: 'low'). Only 'low' risk + high confidence triggers auto-trust",
+						},
+					},
+					required: ["projectId", "content"],
+					},
+				},
+				{
+					name: "brain_confidence_trend",
+					description:
+						"Get the confidence trend timeline for a memory. Returns data points showing how confidence has changed over time due to versions and feedback. Useful for understanding if a memory is improving or degrading.",
+					inputSchema: {
+						type: "object",
+						properties: {
+							memoryId: {
+								type: "string",
+								description: "The memory ID to get the confidence trend for",
+							},
+						},
+						required: ["memoryId"],
+					},
+				},
+				{
+					name: "brain_memory_health",
+					description:
+						"Get a comprehensive memory health dashboard for a project. Returns 7 key metrics: total count, status breakdown, type breakdown, usage stats, decay count, version count, feedback count, and a health score (0-100).",
+					inputSchema: {
+						type: "object",
+						properties: {
+							projectId: {
+								type: "string",
+								description: "Project ID to get health metrics for",
+							},
+						},
+						required: ["projectId"],
+					},
+				},
+				{
+					name: "brain_merge_suggestions",
+					description:
+						"Find memory pairs that are similar enough to suggest merging. Uses cosine similarity on embeddings to detect duplicates or near-duplicates. Returns pairs sorted by merge priority (0-100).",
+					inputSchema: {
+						type: "object",
+						properties: {
+							projectId: {
+								type: "string",
+								description: "Project ID to search for merge candidates",
+							},
+							threshold: {
+								type: "number",
+								description: "Similarity threshold 0-1 (default: 0.85). Higher = stricter matching",
+							},
+							limit: {
+								type: "number",
+								description: "Maximum number of suggestions (default: 20)",
+							},
+						},
+						required: ["projectId"],
+					},
+				},
+			]
+		}
+	
+		/**
+			* Register all MCP resources.
 	 */
 	private _registerResources(): void {
 		this.resources = [
@@ -817,6 +1428,55 @@ class McpMemoryServer {
 						name: "superroo-mcp-memory",
 						version: "1.1.0",
 					},
+					// ── Mandated Workflow Rules ──
+					// All MCP clients MUST follow these rules. The workflowRules field
+					// is an extension to the standard MCP initialize response that
+					// SuperRoo agents can parse to auto-configure their tooling.
+					workflowRules: {
+						version: "1.0.0",
+						defaultCoder: "deepseek",
+						defaultEmbeddings: "ollama",
+						defaultMemory: "central-brain-pgvector",
+						lessonObligation: true,
+						rules: [
+							{
+								id: "wf-001",
+								description:
+									"DeepSeek is the DEFAULT coder for all implementation tasks. Use the deepseek-coder MCP server for code generation, refactoring, and debugging.",
+								severity: "mandatory",
+							},
+							{
+								id: "wf-002",
+								description:
+									"Ollama is the DEFAULT embeddings provider for semantic search, lesson summarization, and vector generation. Use the ollama MCP server for embedding operations.",
+								severity: "mandatory",
+							},
+							{
+								id: "wf-003",
+								description:
+									"Central Brain (pgvector) is the DEFAULT memory store. Use brain_search_memory for semantic search and brain_store_lesson for persisting lessons.",
+								severity: "mandatory",
+							},
+							{
+								id: "wf-004",
+								description:
+									"Every coding agent MUST contribute at least one lesson per session. Call brain_register_lesson_intent at session start and brain_store_lesson before disconnecting.",
+								severity: "mandatory",
+							},
+							{
+								id: "wf-005",
+								description:
+									"When submitting tasks via submit_task, the 'agent' parameter should default to 'deepseek-coder' for implementation work.",
+								severity: "recommended",
+							},
+							{
+								id: "wf-006",
+								description:
+									"Use brain_search_memory (pgvector semantic search) instead of hermes_recall for memory retrieval. hermes_recall is deprecated for new agents.",
+								severity: "recommended",
+							},
+						],
+					},
 				}
 
 			case "ping":
@@ -902,11 +1562,26 @@ class McpMemoryServer {
 			}
 
 			case "submit_task": {
-				return await this._proxyWithFallback("submit_task", {
+				const taskAgent = (args?.agent as string) || "coder"
+				// Workflow enforcement: warn if agent is not deepseek-coder
+				const workflowWarnings: string[] = []
+				if (taskAgent !== "deepseek-coder" && taskAgent !== "deepseek") {
+					workflowWarnings.push(
+						`Workflow Rule wf-001: DeepSeek is the DEFAULT coder. Consider using agent="deepseek-coder" instead of "${taskAgent}".`,
+					)
+				}
+				const result = await this._proxyWithFallback("submit_task", {
 					goal: args?.goal || query,
 					project,
-					agent: args?.agent || "coder",
+					agent: taskAgent,
 				})
+				// Attach workflow warnings to the result
+				if (workflowWarnings.length > 0) {
+					const resultObj = (result as Record<string, unknown>) || {}
+					resultObj.workflowWarnings = workflowWarnings
+					return resultObj
+				}
+				return result
 			}
 
 			// ── Hermes Claw tools (try daemon first, fall back to REST API) ──
@@ -1098,6 +1773,424 @@ class McpMemoryServer {
 
 			case "claude_task_get_active": {
 				return { success: true, task: await this._getActiveClaudeTask(), source: "claude_task_log" }
+			}
+
+			// ── Central Brain v2 Tools (pgvector memory, scores, events, approvals) ──
+			case "brain_search_memory": {
+				const searchQuery = (args?.query as string) || ""
+				if (!searchQuery) throw new Error("'query' is required")
+				const searchBody: Record<string, unknown> = {
+					query: searchQuery,
+					limit: Number(args?.limit || 10),
+					minSimilarity: Number(args?.minSimilarity || 0.3),
+				}
+				if (args?.projectId) searchBody.projectId = args.projectId
+				if (args?.status) searchBody.status = args.status
+				return await this._proxyToBrainV2("POST", "/v2/memory/search", searchBody)
+			}
+
+			case "brain_get_scores": {
+				const scoresParams: Record<string, unknown> = {
+					limit: Number(args?.limit || 20),
+				}
+				if (args?.projectId) scoresParams.projectId = args.projectId
+				const queryString = scoresParams.projectId
+					? `?limit=${scoresParams.limit}&projectId=${encodeURIComponent(scoresParams.projectId as string)}`
+					: `?limit=${scoresParams.limit}`
+				return await this._proxyToBrainV2("GET", `/v2/scores${queryString}`)
+			}
+
+			case "brain_get_events": {
+				const eventsParams: Record<string, unknown> = {
+					limit: Number(args?.limit || 50),
+				}
+				if (args?.projectId) eventsParams.projectId = args.projectId
+				if (args?.eventType) eventsParams.eventType = args.eventType
+				let eventsQuery = `?limit=${eventsParams.limit}`
+				if (eventsParams.projectId) eventsQuery += `&projectId=${encodeURIComponent(eventsParams.projectId as string)}`
+				if (eventsParams.eventType) eventsQuery += `&eventType=${encodeURIComponent(eventsParams.eventType as string)}`
+				return await this._proxyToBrainV2("GET", `/v2/events${eventsQuery}`)
+			}
+
+			case "brain_get_approvals": {
+				const approvalsParams: Record<string, unknown> = {
+					limit: Number(args?.limit || 50),
+				}
+				if (args?.projectId) approvalsParams.projectId = args.projectId
+				const approvalsQuery = approvalsParams.projectId
+					? `?limit=${approvalsParams.limit}&projectId=${encodeURIComponent(approvalsParams.projectId as string)}`
+					: `?limit=${approvalsParams.limit}`
+				return await this._proxyToBrainV2("GET", `/v2/approvals${approvalsQuery}`)
+			}
+
+			case "brain_approve_memory": {
+				const approvalId = (args?.approvalId as string) || ""
+				if (!approvalId) throw new Error("'approvalId' is required")
+				return await this._proxyToBrainV2("POST", "/v2/approve", {
+					approvalId,
+					reviewedBy: (args?.reviewedBy as string) || "mcp-agent",
+				})
+			}
+
+			case "brain_reject_memory": {
+				const rejectId = (args?.approvalId as string) || ""
+				if (!rejectId) throw new Error("'approvalId' is required")
+				return await this._proxyToBrainV2("POST", "/v2/reject", {
+					approvalId: rejectId,
+					reviewedBy: (args?.reviewedBy as string) || "mcp-agent",
+				})
+			}
+
+			case "brain_store_lesson": {
+				const title = (args?.title as string) || ""
+				if (!title) throw new Error("'title' is required")
+				const content = (args?.content as string) || ""
+				if (!content) throw new Error("'content' is required")
+				const agent = (args?.agent as string) || "unknown-agent"
+				const projectId = (args?.projectId as string) || "default"
+				const tags = args?.tags as string[] | undefined
+				const files = args?.files as string[] | undefined
+				const summary = (args?.summary as string) || ""
+				const confidence = args?.confidence as number | undefined
+
+				const memoryBody: Record<string, unknown> = {
+					title,
+					content,
+					agent,
+					projectId,
+					memoryType: "lesson",
+					status: "candidate",
+				}
+				if (tags && Array.isArray(tags)) memoryBody.tags = tags
+				if (files && Array.isArray(files)) memoryBody.files = files
+				if (summary) memoryBody.summary = summary
+				if (confidence !== undefined) memoryBody.importance = confidence
+
+				const result = (await this._proxyToBrainV2("POST", "/v2/memory", memoryBody)) as Record<string, unknown>
+
+				// Fulfill the lesson obligation for this agent
+				const data = result?.data as Record<string, unknown> | undefined
+				const memoryId = data?.id as string | undefined
+				if (memoryId) {
+					this.lessonTracker.fulfill(agent, memoryId)
+				}
+
+				return result
+			}
+
+			case "brain_register_lesson_intent": {
+				const agent = (args?.agent as string) || ""
+				if (!agent) throw new Error("'agent' is required")
+				const projectId = (args?.projectId as string) || "default"
+				const task = (args?.task as string) || "unspecified task"
+				const obligation = this.lessonTracker.register(agent, projectId, task)
+				return {
+					success: true,
+					message: `Lesson intent registered for agent "${agent}"`,
+					obligation: {
+						agent: obligation.agent,
+						projectId: obligation.projectId,
+						task: obligation.task.slice(0, 100),
+						registeredAt: new Date(obligation.registeredAt).toISOString(),
+						fulfilled: obligation.fulfilled,
+					},
+				}
+			}
+
+			case "brain_lesson_status": {
+				const agent = (args?.agent as string) || ""
+				if (!agent) {
+					// Return summary for all agents
+					const stats = this.lessonTracker.getStats()
+					const pending = this.lessonTracker.getPending().map((ob) => ({
+						agent: ob.agent,
+						projectId: ob.projectId,
+						task: ob.task.slice(0, 100),
+						registeredAt: new Date(ob.registeredAt).toISOString(),
+					}))
+					return {
+						success: true,
+						stats,
+						pending,
+					}
+				}
+				const status = this.lessonTracker.getStatus(agent)
+				return {
+					success: true,
+					agent,
+					registered: status.registered,
+					fulfilled: status.fulfilled,
+					obligation: status.obligation
+						? {
+								agent: status.obligation.agent,
+								projectId: status.obligation.projectId,
+								task: status.obligation.task.slice(0, 100),
+								registeredAt: new Date(status.obligation.registeredAt).toISOString(),
+								fulfilled: status.obligation.fulfilled,
+								lessonId: status.obligation.lessonId,
+							}
+						: null,
+				}
+			}
+
+			// ── Memory Evolution v3 Tools (versioning, feedback, propose, diff) ──
+			case "brain_evolve_memory": {
+				const memoryId = (args?.memoryId as string) || ""
+				if (!memoryId) throw new Error("'memoryId' is required")
+				const content = (args?.content as string) || ""
+				if (!content) throw new Error("'content' is required")
+				const reason = (args?.reason as string) || "update"
+				const agent = (args?.agent as string) || "mcp-agent"
+				return await this._proxyToBrainV2("POST", `/v2/memory/${memoryId}/evolve`, {
+					content,
+					reason,
+					agent,
+					projectId: (args?.projectId as string) || "default",
+				})
+			}
+
+			case "brain_memory_versions": {
+				const memId = (args?.memoryId as string) || ""
+				if (!memId) throw new Error("'memoryId' is required")
+				const limit = Number(args?.limit || 50)
+				return await this._proxyToBrainV2("GET", `/v2/memory/${memId}/versions?limit=${limit}`)
+			}
+
+			case "brain_memory_diff": {
+				const diffMemId = (args?.memoryId as string) || ""
+				if (!diffMemId) throw new Error("'memoryId' is required")
+				const fromVersion = Number(args?.fromVersion || 0)
+				const toVersion = Number(args?.toVersion || 0)
+				if (!fromVersion || !toVersion) throw new Error("'fromVersion' and 'toVersion' are required")
+				return await this._proxyToBrainV2(
+					"GET",
+					`/v2/memory/${diffMemId}/diff?from=${fromVersion}&to=${toVersion}`,
+				)
+			}
+
+			case "brain_memory_feedback": {
+				const fbMemId = (args?.memoryId as string) || ""
+				if (!fbMemId) throw new Error("'memoryId' is required")
+				const outcome = (args?.outcome as string) || ""
+				if (!["success", "failure", "neutral"].includes(outcome))
+					throw new Error("'outcome' must be 'success', 'failure', or 'neutral'")
+				const score = Number(args?.score || 0.1)
+				return await this._proxyToBrainV2("POST", `/v2/memory/${fbMemId}/feedback`, {
+					outcome,
+					score,
+					agentName: (args?.agentName as string) || "mcp-agent",
+					taskId: (args?.taskId as string) || undefined,
+					note: (args?.note as string) || undefined,
+				})
+			}
+
+			case "brain_memory_usefulness": {
+				const uMemId = (args?.memoryId as string) || ""
+				if (!uMemId) throw new Error("'memoryId' is required")
+				return await this._proxyToBrainV2("GET", `/v2/memory/${uMemId}/usefulness`)
+			}
+
+			case "brain_propose_memory": {
+				const projectId = (args?.projectId as string) || ""
+				if (!projectId) throw new Error("'projectId' is required")
+				const proposeContent = (args?.content as string) || ""
+				if (!proposeContent) throw new Error("'content' is required")
+				// Validate memoryType against allowed values
+				const VALID_MEMORY_TYPES = ["lesson", "bug", "pattern", "decision", "insight", "reference"]
+				const rawMemoryType = (args?.memoryType as string) || "lesson"
+				const memoryType = VALID_MEMORY_TYPES.includes(rawMemoryType) ? rawMemoryType : "lesson"
+				if (rawMemoryType !== memoryType) {
+					console.warn(`[McpMemoryServer] Invalid memoryType "${rawMemoryType}", defaulting to "lesson"`)
+				}
+				const proposeBody: Record<string, unknown> = {
+					projectId,
+					title: (args?.title as string) || "",
+					content: proposeContent,
+					summary: (args?.summary as string) || "",
+					memoryType,
+					tags: args?.tags as string[] | undefined,
+					agent: (args?.agent as string) || "mcp-agent",
+					model: (args?.model as string) || undefined,
+					confidence: args?.confidence !== undefined ? Number(args.confidence) : 0.75,
+					importance: args?.importance !== undefined ? Number(args.importance) : 0.5,
+					riskLevel: (args?.riskLevel as string) || "low",
+				}
+				if (args?.files) proposeBody.files = args.files
+				return await this._proxyToBrainV2("POST", "/v2/memory", proposeBody)
+			}
+
+			// ── Memory Evolution Innovative Tools ──
+			case "brain_confidence_trend": {
+				const ctMemId = (args?.memoryId as string) || ""
+				if (!ctMemId) throw new Error("'memoryId' is required")
+				return await this._proxyToBrainV2("GET", `/v2/memory/${ctMemId}/confidence-trend`)
+			}
+
+			case "brain_memory_health": {
+				const mhProjectId = (args?.projectId as string) || ""
+				if (!mhProjectId) throw new Error("'projectId' is required")
+				return await this._proxyToBrainV2("GET", `/v2/memory/health?project=${encodeURIComponent(mhProjectId)}`)
+			}
+
+			case "brain_merge_suggestions": {
+				const msProjectId = (args?.projectId as string) || ""
+				if (!msProjectId) throw new Error("'projectId' is required")
+				const msThreshold = args?.threshold !== undefined ? Number(args.threshold) : 0.85
+				const msLimit = args?.limit !== undefined ? Number(args.limit) : 20
+				return await this._proxyToBrainV2(
+					"GET",
+					`/v2/memory/merge-suggestions?project=${encodeURIComponent(msProjectId)}&threshold=${msThreshold}&limit=${msLimit}`,
+				)
+			}
+
+			// ── Consensus & Model Routing Tools ──
+			case "brain_consensus_decide": {
+				const cdProjectId = (args?.projectId as string) || "default"
+				const cdDecisionType = args?.decisionType as string
+				if (!cdDecisionType) throw new Error("'decisionType' is required (deploy|memory_approval|task_approval|model_selection|custom)")
+				const cdContextId = args?.contextId as string
+				const cdVotes = args?.votes as Array<{ agent: string; vote: string; confidence: number; reason?: string }>
+				if (!cdVotes || !Array.isArray(cdVotes) || cdVotes.length === 0)
+					throw new Error("'votes' is required and must be a non-empty array")
+				const cdCreatedBy = (args?.createdBy as string) || "mcp"
+				return await this._proxyToBrainV2("POST", "/v2/consensus/decide", {
+					projectId: cdProjectId,
+					decisionType: cdDecisionType,
+					contextId: cdContextId,
+					votes: cdVotes,
+					createdBy: cdCreatedBy,
+				})
+			}
+
+			case "brain_consensus_list": {
+				const clProjectId = args?.projectId as string
+				const clDecisionType = args?.decisionType as string
+				const clFinalDecision = args?.finalDecision as string
+				const clLimit = args?.limit !== undefined ? Number(args.limit) : 50
+				const clOffset = args?.offset !== undefined ? Number(args.offset) : 0
+				const queryParams = new URLSearchParams()
+				if (clProjectId) queryParams.set("projectId", clProjectId)
+				if (clDecisionType) queryParams.set("decisionType", clDecisionType)
+				if (clFinalDecision) queryParams.set("finalDecision", clFinalDecision)
+				queryParams.set("limit", String(clLimit))
+				queryParams.set("offset", String(clOffset))
+				return await this._proxyToBrainV2("GET", `/v2/consensus/decisions?${queryParams.toString()}`)
+			}
+
+			case "brain_consensus_stats": {
+				const csProjectId = (args?.projectId as string) || "default"
+				return await this._proxyToBrainV2("GET", `/v2/consensus/stats?projectId=${encodeURIComponent(csProjectId)}`)
+			}
+
+			case "brain_router_select": {
+				const rsProjectId = (args?.projectId as string) || "default"
+				const rsTaskType = args?.taskType as string
+				if (!rsTaskType) throw new Error("'taskType' is required")
+				const rsTaskId = args?.taskId as string
+				const rsRunId = args?.runId as string
+				return await this._proxyToBrainV2("POST", "/v2/router/route", {
+					projectId: rsProjectId,
+					taskType: rsTaskType,
+					taskId: rsTaskId,
+					runId: rsRunId,
+				})
+			}
+
+			case "brain_router_outcome": {
+				const roProjectId = (args?.projectId as string) || "default"
+				const roTaskType = args?.taskType as string
+				if (!roTaskType) throw new Error("'taskType' is required")
+				const roAgent = args?.agent as string
+				if (!roAgent) throw new Error("'agent' is required")
+				const roModelSelected = args?.modelSelected as string
+				if (!roModelSelected) throw new Error("'modelSelected' is required")
+				const roSuccess = args?.success as boolean
+				if (roSuccess === undefined) throw new Error("'success' is required")
+				return await this._proxyToBrainV2("POST", "/v2/router/outcome", {
+					projectId: roProjectId,
+					taskType: roTaskType,
+					taskId: args?.taskId as string,
+					runId: args?.runId as string,
+					agent: roAgent,
+					modelSelected: roModelSelected,
+					fallbackChain: args?.fallbackChain,
+					attempt: args?.attempt !== undefined ? Number(args.attempt) : 1,
+					success: roSuccess,
+					durationMs: args?.durationMs !== undefined ? Number(args.durationMs) : undefined,
+					costUsd: args?.costUsd !== undefined ? Number(args.costUsd) : undefined,
+					hallucinated: args?.hallucinated === true,
+					error: args?.error as string,
+				})
+			}
+
+			case "brain_router_logs": {
+				const rlProjectId = args?.projectId as string
+				const rlTaskType = args?.taskType as string
+				const rlAgent = args?.agent as string
+				const rlLimit = args?.limit !== undefined ? Number(args.limit) : 50
+				const rlOffset = args?.offset !== undefined ? Number(args.offset) : 0
+				const queryParams = new URLSearchParams()
+				if (rlProjectId) queryParams.set("projectId", rlProjectId)
+				if (rlTaskType) queryParams.set("taskType", rlTaskType)
+				if (rlAgent) queryParams.set("agent", rlAgent)
+				queryParams.set("limit", String(rlLimit))
+				queryParams.set("offset", String(rlOffset))
+				return await this._proxyToBrainV2("GET", `/v2/router/logs?${queryParams.toString()}`)
+			}
+
+			case "brain_router_performance": {
+				const rpProjectId = (args?.projectId as string) || "default"
+				return await this._proxyToBrainV2("GET", `/v2/router/performance?projectId=${encodeURIComponent(rpProjectId)}`)
+			}
+
+			// ── Workflow Enforcement Tools ──
+			case "brain_get_workflow_rules": {
+				return {
+					success: true,
+					version: "1.0.0",
+					defaultCoder: "deepseek",
+					defaultEmbeddings: "ollama",
+					defaultMemory: "central-brain-pgvector",
+					lessonObligation: true,
+					rules: [
+						{
+							id: "wf-001",
+							description:
+								"DeepSeek is the DEFAULT coder for all implementation tasks. Use the deepseek-coder MCP server for code generation, refactoring, and debugging.",
+							severity: "mandatory",
+						},
+						{
+							id: "wf-002",
+							description:
+								"Ollama is the DEFAULT embeddings provider for semantic search, lesson summarization, and vector generation. Use the ollama MCP server for embedding operations.",
+							severity: "mandatory",
+						},
+						{
+							id: "wf-003",
+							description:
+								"Central Brain (pgvector) is the DEFAULT memory store. Use brain_search_memory for semantic search and brain_store_lesson for persisting lessons.",
+							severity: "mandatory",
+						},
+						{
+							id: "wf-004",
+							description:
+								"Every coding agent MUST contribute at least one lesson per session. Call brain_register_lesson_intent at session start and brain_store_lesson before disconnecting.",
+							severity: "mandatory",
+						},
+						{
+							id: "wf-005",
+							description:
+								"When submitting tasks via submit_task, the 'agent' parameter should default to 'deepseek-coder' for implementation work.",
+							severity: "recommended",
+						},
+						{
+							id: "wf-006",
+							description:
+								"Use brain_search_memory (pgvector semantic search) instead of hermes_recall for memory retrieval. hermes_recall is deprecated for new agents.",
+							severity: "recommended",
+						},
+					],
+				}
 			}
 
 			default:
@@ -1675,6 +2768,35 @@ class McpMemoryServer {
 		if (!res.ok) {
 			const text = await res.text()
 			throw new Error(`REST API fallback error (${res.status}): ${text}`)
+		}
+
+		const json = await res.json()
+		return json
+	}
+
+	/**
+	 * Proxy a request to the Central Brain v2 REST API (port 3456 /api/brain/v2/*).
+	 * Used by brain_search_memory, brain_get_scores, brain_get_events,
+	 * brain_get_approvals, brain_approve_memory, brain_reject_memory.
+	 */
+	private async _proxyToBrainV2(method: string, path: string, body?: Record<string, unknown>): Promise<unknown> {
+		const url = `${BRAIN_V2_API_URL}${path}`
+		const fetchOptions: RequestInit = {
+			method,
+			headers: {
+				"content-type": "application/json",
+			},
+			signal: AbortSignal.timeout(10_000),
+		}
+		if (body && (method === "POST" || method === "PATCH")) {
+			fetchOptions.body = JSON.stringify(body)
+		}
+
+		const res = await fetch(url, fetchOptions)
+
+		if (!res.ok) {
+			const text = await res.text()
+			throw new Error(`Brain v2 API error (${res.status}): ${text}`)
 		}
 
 		const json = await res.json()

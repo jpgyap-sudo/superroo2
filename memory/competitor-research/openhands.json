@@ -1,0 +1,101 @@
+{
+  "repo": "openhands",
+  "url": "https://github.com/all-hands-ai/openhands.git",
+  "focus": "agent-coordination",
+  "analyzed": "2026-05-20T17:39:16.119Z",
+  "structure": {
+    "readme": {
+      "length": 8359,
+      "lines": 154,
+      "headline": "<a name=\"readme-top\"></a>",
+      "hasInstallGuide": false,
+      "hasArchitecture": false,
+      "hasApiDocs": true
+    },
+    "dirs": {
+      "containers": {
+        "app": "📁",
+        "dev": "📁"
+      },
+      "dev_config": {
+        "python": "📁"
+      },
+      "enterprise": {
+        "analytics": "📁",
+        "dev_config": "📁",
+        "doc": "📁",
+        "enterprise_local": "📁",
+        "integrations": "📁",
+        "migrations": "📁",
+        "server": "📁",
+        "storage": "📁",
+        "sync": "📁",
+        "tests": "📁",
+        "utils": "📁"
+      },
+      "frontend": {
+        "public": "📁",
+        "scripts": "📁",
+        "src": "📁",
+        "tests": "📁",
+        "__mocks__": "📁",
+        "__tests__": "📁"
+      },
+      "kind": {
+        "manifests": "📁"
+      },
+      "openhands": {
+        "analytics": "📁",
+        "app_server": "📁",
+        "server": "📁"
+      },
+      "openhands-ui": {
+        "components": "📁",
+        "shared": "📁"
+      },
+      "scripts": "📁",
+      "skills": "📁",
+      "tests": {
+        "unit": "📁"
+      }
+    }
+  },
+  "patterns": [
+    {
+      "name": "openhands-directory-architecture",
+      "source": "openhands",
+      "description": "Directory structure suggests containers, dev_config, enterprise, frontend, kind architecture",
+      "details": "Top-level directories: containers, dev_config, enterprise, frontend, kind, openhands, openhands-ui, scripts, skills, tests"
+    },
+    {
+      "name": "openhands-readme-positioning",
+      "source": "openhands",
+      "description": "README headline: \"<a name=\"readme-top\"></a>\"",
+      "details": "154 lines, hasArchitecture=false, hasApiDocs=true"
+    },
+    {
+      "name": "openhands-config-stack",
+      "source": "openhands",
+      "description": "Config files found: docker-compose.yml",
+      "details": "Indicates tech stack: docker-compose"
+    },
+    {
+      "name": "openhands-test-pattern",
+      "source": "openhands",
+      "description": "Test directories: tests",
+      "details": "Testing approach: dedicated test dirs"
+    },
+    {
+      "name": "openhands-cicd",
+      "source": "openhands",
+      "description": "CI/CD: \\.github\\workflows",
+      "details": "CI/CD system detected"
+    },
+    {
+      "name": "openhands-language-profile",
+      "source": "openhands",
+      "description": "File type distribution: .py: 592, .ts: 264, .tsx: 162, .svg: 115, .md: 66, .css: 7, .json: 6, .png: 6",
+      "details": "Primary language: py"
+    }
+  ]
+}

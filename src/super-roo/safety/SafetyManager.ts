@@ -1,7 +1,7 @@
 /**
  * Super Roo — Safety module.
  *
- * Two responsibilities:
+ * Three responsibilities:
  *
  *   1. Hold the current SafetyMode (OFF / SAFE / AUTO / FULL_AUTONOMOUS) and
  *      decide whether a given Capability is permitted at this mode.
@@ -10,6 +10,10 @@
  *      a data-driven blocklist sourced from config/blocklist.json. The
  *      blocklist is loaded once at construction; callers can supply their
  *      own config object for tests.
+ *
+ *   3. Validate skill tool usage against SkillToolPolicy (allowedTools/deniedTools).
+ *      This provides security sandboxing for skills, preventing them from using
+ *      tools outside their declared scope.
  *
  * Phase 1 design notes
  * --------------------
@@ -26,6 +30,8 @@ import * as path from "node:path"
 
 import type { Capability, SafetyDecision } from "../types"
 import { SafetyMode } from "../types"
+import { validateSkillToolUse } from "./SkillToolPolicy"
+import type { SkillToolPolicy } from "./SkillToolPolicy"
 
 interface BlocklistConfig {
 	commandPatterns: string[]
@@ -209,6 +215,31 @@ export class SafetyManager {
 			}
 		}
 		return { allowed: true, reason: "ok", rule: "blocklist" }
+	}
+
+	// ──────────────────────────────────────────────────────────────────────
+	// Skill tool policy check
+	// ──────────────────────────────────────────────────────────────────────
+
+	/**
+	 * Check whether a skill is allowed to use a specific tool.
+	 *
+	 * Delegates to `validateSkillToolUse` from SkillToolPolicy.ts.
+	 * Returns a SafetyDecision compatible with the rest of the safety system.
+	 *
+	 * @param policy - The skill's tool policy (allowedTools/deniedTools).
+	 * @param toolName - The tool the skill wants to use.
+	 */
+	checkSkillTool(policy: SkillToolPolicy | undefined | null, toolName: string): SafetyDecision {
+		const result = validateSkillToolUse(policy, toolName)
+		if (!result.allowed) {
+			return {
+				allowed: false,
+				reason: result.reason ?? `Skill tool "${toolName}" denied by policy`,
+				rule: "skill_tool_policy",
+			}
+		}
+		return { allowed: true, reason: "ok", rule: "skill_tool_policy" }
 	}
 
 	// ──────────────────────────────────────────────────────────────────────

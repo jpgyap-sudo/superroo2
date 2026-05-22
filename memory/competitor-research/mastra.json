@@ -1,0 +1,361 @@
+{
+  "repo": "mastra",
+  "url": "https://github.com/mastra-ai/mastra.git",
+  "focus": "plan-execute-verify",
+  "analyzed": "2026-05-20T17:40:10.778Z",
+  "structure": {
+    "readme": {
+      "length": 6308,
+      "lines": 83,
+      "headline": "# Mastra\r",
+      "hasInstallGuide": true,
+      "hasArchitecture": false,
+      "hasApiDocs": true
+    },
+    "package": {
+      "name": "mastra-turbo",
+      "version": "0.1.11",
+      "dependencies": 4,
+      "devDependencies": 20,
+      "scripts": [
+        "changeset",
+        "changeset-cli",
+        "ci:publish",
+        "build",
+        "build:server-adapters",
+        "build:integrations",
+        "build:packages",
+        "build:combined-stores",
+        "build:deployers",
+        "build:speech",
+        "build:cli",
+        "build:deployer",
+        "build:server",
+        "build:core",
+        "build:mcp",
+        "build:playground-ui",
+        "build:rag",
+        "build:memory",
+        "build:docs-mcp",
+        "build:evals",
+        "build:mastracode",
+        "build:clients",
+        "build:schema-compat",
+        "build:auth",
+        "build:observability",
+        "build:workspaces",
+        "dev:playground",
+        "generate:integration",
+        "test",
+        "test:watch",
+        "test:watch:combined-stores",
+        "test:auth",
+        "test:cli",
+        "test:deployer",
+        "test:server",
+        "test:server-adapters",
+        "test:core",
+        "test:mcp",
+        "test:rag",
+        "test:clients",
+        "test:combined-stores",
+        "test:memory",
+        "test:tool-builder",
+        "test:schema-compat",
+        "test:docs-mcp",
+        "test:editor",
+        "test:evals",
+        "test:durable",
+        "test:durable:core",
+        "test:durable:inngest",
+        "test:durable:inngest:unit",
+        "test:mastracode",
+        "test:agent-builder",
+        "test:agent-builder:integration",
+        "test:observability",
+        "test:e2e:client-js",
+        "lint-staged",
+        "lint",
+        "preinstall",
+        "prepare",
+        "prettier:format",
+        "prettier:format:check",
+        "list-changed-files",
+        "list-prettier-files",
+        "prettier:changed",
+        "typecheck",
+        "format",
+        "dev:services:up",
+        "dev:services:down",
+        "setup",
+        "cleanup"
+      ]
+    },
+    "dirs": {
+      "auth": {
+        "auth0": "📁",
+        "better-auth": "📁",
+        "clerk": "📁",
+        "cloud": "📁",
+        "firebase": "📁",
+        "okta": "📁",
+        "studio": "📁",
+        "supabase": "📁",
+        "workos": "📁"
+      },
+      "browser": {
+        "agent-browser": "📁",
+        "browser-viewer": "📁",
+        "stagehand": "📁",
+        "_test-utils": "📁"
+      },
+      "channels": {
+        "slack": "📁"
+      },
+      "client-sdks": {
+        "ai-sdk": "📁",
+        "client-js": "📁",
+        "react": "📁"
+      },
+      "deployers": {
+        "cloud": "📁",
+        "cloudflare": "📁",
+        "netlify": "📁",
+        "vercel": "📁"
+      },
+      "docs": {
+        "e2e-learn": "📁",
+        "scripts": "📁",
+        "src": "📁",
+        "static": "📁",
+        "styleguides": "📁",
+        "styles": "📁",
+        "tests": "📁"
+      },
+      "e2e-tests": {
+        "client-js": "📁",
+        "commonjs": "📁",
+        "create-mastra": "📁",
+        "deployers": "📁",
+        "monorepo": "📁",
+        "no-bundling": "📁",
+        "pkg-outputs": "📁",
+        "type-check": "📁",
+        "workspace-compat": "📁",
+        "workspace-tools": "📁",
+        "_local-registry-setup": "📁"
+      },
+      "ee": "📁",
+      "examples": {
+        "agent": "📁",
+        "agent-v6": "📁",
+        "durable-agents": "📁",
+        "evals-with-memory": "📁",
+        "inngest": "📁",
+        "voice": "📁"
+      },
+      "explorations": {
+        "longmemeval": "📁"
+      },
+      "integrations": {
+        "brightdata": "📁",
+        "opencode": "📁",
+        "perplexity": "📁",
+        "tavily": "📁"
+      },
+      "mastracode": {
+        "scripts": "📁",
+        "src": "📁"
+      },
+      "observability": {
+        "arize": "📁",
+        "arthur": "📁",
+        "braintrust": "📁",
+        "clickhouse-design": "📁",
+        "datadog": "📁",
+        "laminar": "📁",
+        "langfuse": "📁",
+        "langsmith": "📁",
+        "mastra": "📁",
+        "otel-bridge": "📁",
+        "otel-exporter": "📁",
+        "posthog": "📁",
+        "sentry": "📁",
+        "_examples": "📁",
+        "_test-utils": "📁"
+      },
+      "packages": {
+        "acp": "📁",
+        "agent-builder": "📁",
+        "auth": "📁",
+        "cli": "📁",
+        "codemod": "📁",
+        "core": "📁",
+        "create-mastra": "📁",
+        "deployer": "📁",
+        "editor": "📁",
+        "evals": "📁",
+        "fastembed": "📁",
+        "loggers": "📁",
+        "mcp": "📁",
+        "mcp-docs-server": "📁",
+        "mcp-registry-registry": "📁",
+        "memory": "📁",
+        "playground": "📁",
+        "playground-ui": "📁",
+        "rag": "📁",
+        "schema-compat": "📁",
+        "server": "📁",
+        "_changeset-cli": "📁",
+        "_config": "📁",
+        "_external-types": "📁",
+        "_internal-core": "📁",
+        "_llm-recorder": "📁",
+        "_test-utils": "📁",
+        "_types-builder": "📁",
+        "_vendored": "📁"
+      },
+      "patches": "📁",
+      "pubsub": {
+        "google-cloud-pubsub": "📁",
+        "redis-streams": "📁"
+      },
+      "scripts": {
+        "gh-dane-command": "📁",
+        "gh-issue-triage": "📁"
+      },
+      "server-adapters": {
+        "express": "📁",
+        "fastify": "📁",
+        "hono": "📁",
+        "koa": "📁",
+        "nestjs": "📁",
+        "_test-utils": "📁"
+      },
+      "stores": {
+        "astra": "📁",
+        "chroma": "📁",
+        "clickhouse": "📁",
+        "cloudflare": "📁",
+        "cloudflare-d1": "📁",
+        "convex": "📁",
+        "couchbase": "📁",
+        "dsql": "📁",
+        "duckdb": "📁",
+        "dynamodb": "📁",
+        "elasticsearch": "📁",
+        "lance": "📁",
+        "libsql": "📁",
+        "mongodb": "📁",
+        "mssql": "📁",
+        "opensearch": "📁",
+        "pg": "📁",
+        "pinecone": "📁",
+        "qdrant": "📁",
+        "redis": "📁",
+        "s3vectors": "📁",
+        "turbopuffer": "📁",
+        "upstash": "📁",
+        "vectorize": "📁",
+        "_test-utils": "📁"
+      },
+      "templates": {
+        "template-browsing-agent": "📁",
+        "template-chat-with-pdf": "📁",
+        "template-chat-with-youtube": "📁",
+        "template-csv-to-questions": "📁",
+        "template-customer-feedback-summarization": "📁",
+        "template-deep-search": "📁",
+        "template-docs-chatbot": "📁",
+        "template-flash-cards-from-pdf": "📁",
+        "template-github-review-agent": "📁",
+        "template-google-sheets": "📁",
+        "template-slack-agent": "📁",
+        "template-text-to-sql": "📁",
+        "weather-agent": "📁"
+      },
+      "voice": {
+        "aws-nova-sonic": "📁",
+        "azure": "📁",
+        "cloudflare": "📁",
+        "deepgram": "📁",
+        "elevenlabs": "📁",
+        "gladia": "📁",
+        "google": "📁",
+        "google-gemini-live-api": "📁",
+        "inworld": "📁",
+        "modelslab": "📁",
+        "murf": "📁",
+        "openai": "📁",
+        "openai-realtime-api": "📁",
+        "playai": "📁",
+        "sarvam": "📁",
+        "speechify": "📁",
+        "xai-realtime-api": "📁"
+      },
+      "workflows": {
+        "inngest": "📁",
+        "temporal": "📁",
+        "_test-utils": "📁"
+      },
+      "workspaces": {
+        "agentfs": "📁",
+        "azure": "📁",
+        "blaxel": "📁",
+        "daytona": "📁",
+        "docker": "📁",
+        "e2b": "📁",
+        "gcs": "📁",
+        "google-drive": "📁",
+        "modal": "📁",
+        "s3": "📁",
+        "vercel": "📁",
+        "_test-utils": "📁"
+      }
+    }
+  },
+  "patterns": [
+    {
+      "name": "mastra-directory-architecture",
+      "source": "mastra",
+      "description": "Directory structure suggests auth, browser, channels, client-sdks, deployers architecture",
+      "details": "Top-level directories: auth, browser, channels, client-sdks, deployers, docs, e2e-tests, ee, examples, explorations, integrations, mastracode, observability, packages, patches, pubsub, scripts, server-adapters, stores, templates, voice, workflows, workspaces"
+    },
+    {
+      "name": "mastra-build-patterns",
+      "source": "mastra",
+      "description": "Build scripts: changeset, changeset-cli, ci:publish, build, build:server-adapters, build:integrations, build:packages, build:combined-stores, build:deployers, build:speech, build:cli, build:deployer, build:server, build:core, build:mcp, build:playground-ui, build:rag, build:memory, build:docs-mcp, build:evals, build:mastracode, build:clients, build:schema-compat, build:auth, build:observability, build:workspaces, dev:playground, generate:integration, test, test:watch, test:watch:combined-stores, test:auth, test:cli, test:deployer, test:server, test:server-adapters, test:core, test:mcp, test:rag, test:clients, test:combined-stores, test:memory, test:tool-builder, test:schema-compat, test:docs-mcp, test:editor, test:evals, test:durable, test:durable:core, test:durable:inngest, test:durable:inngest:unit, test:mastracode, test:agent-builder, test:agent-builder:integration, test:observability, test:e2e:client-js, lint-staged, lint, preinstall, prepare, prettier:format, prettier:format:check, list-changed-files, list-prettier-files, prettier:changed, typecheck, format, dev:services:up, dev:services:down, setup, cleanup",
+      "details": "4 deps, 20 devDeps"
+    },
+    {
+      "name": "mastra-readme-positioning",
+      "source": "mastra",
+      "description": "README headline: \"# Mastra\r\"",
+      "details": "83 lines, hasArchitecture=false, hasApiDocs=true"
+    },
+    {
+      "name": "mastra-config-stack",
+      "source": "mastra",
+      "description": "Config files found: tsconfig.json, turbo.json, vitest.config.ts",
+      "details": "Indicates tech stack: tsconfig, turbo, vitest.config"
+    },
+    {
+      "name": "mastra-cicd",
+      "source": "mastra",
+      "description": "CI/CD: \\.github\\workflows",
+      "details": "CI/CD system detected"
+    },
+    {
+      "name": "mastra-documentation",
+      "source": "mastra",
+      "description": "Documentation directory: docs",
+      "details": "Has dedicated docs folder"
+    },
+    {
+      "name": "mastra-language-profile",
+      "source": "mastra",
+      "description": "File type distribution: .ts: 986, .json: 604, .md: 342, .js: 249, .png: 40, .tsx: 39, .yaml: 39, .yml: 28",
+      "details": "Primary language: ts"
+    }
+  ]
+}

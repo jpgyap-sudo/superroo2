@@ -1,58 +1,64 @@
 # Latest Agent Context
 
-Generated: 2026-05-20T12:01:36.283Z
-Task: Implement all Telegram improvements: OpenClaw upgrade, frictionless coding phases, Redis sessions, metrics exporter, unit tests, VSIX build
+Generated: 2026-05-22T00:50:58.643Z
+Task: fix all dashboard frontend backend disconnections - approvals ide-terminal skill-generator parallel-execution file-importer intelligence-layer hermes-claw ml-engine product-memory deploy-orchestrator debug-team overview task-timeline memory-explorer ram-orchestrator
 
 ## Relevant Lessons
+1. **Advanced Features Gap Fix — 28 Gaps Across 9 Modules**
+   - Rule: Before claiming a module has 'no tests', run `find src/MODULE -name '*.test.ts'` and check all subdirectories. The test coverage may be partial, not zero.
+   - Why: Fixed all identified gaps in SuperRoo's advanced features across 9 modules: 4 dashboard views created, 4 API endpoints added, 186 tests added across 4 test files, 5 cross-module integrations wired, 5 documentation files written, 1 source bug fixed (MLSyncClient double re-queue on HTTP error).
+2. **Complete Codex's Unfinished Learning Layer Release + Security Hardening**
+   - Rule: When converting a hardcoded string to a runtime variable in JavaScript, always use a regex search for the exact old string value across the entire file to catch all string literal usages that need template literal interpolation.
+   - Why: When env-var-izing hardcoded URLs, always search for ALL usages of the old value — including string concatenation and template literals. A variable declaration change without updating all consumers creates silent bugs that manifest as broken links in production.
+3. **Comprehensive Gap Analysis and Full-Stack Improvement Execution**
+   - Rule: Before implementing any improvement from a gap analysis document, verify the actual source code to confirm the gap still exists. For Vitest ESM mocking of default imports, always include "default: { ... }" alongside named exports in the mock factory.
+   - Why: When doing a comprehensive codebase gap analysis, always verify which gaps have already been filled by checking the actual source code rather than relying on the gap analysis document. Many items from NEXT_IMPROVEMENTS.md had already been implemented in a previous pass. For ESM module mocking in Vitest, default imports (import fs from "fs/promises") require the "default:" key in the mock factory, not just named exports. The createPopulatedRetriever() pattern using type assertion to bypass load() is more reliable than mocking filesystem operations for filtering/sorting/formatting tests.
+4. **Protected dashboard views must use authenticated fetches and canonical data sources**
+   - Rule: For protected dashboard endpoints, reuse the authenticated request pattern already used elsewhere in the app, and point new views at the canonical backend data source rather than a one-off legacy file.
+   - Why: A dashboard route can exist and still fail if the frontend omits the expected auth contract, reads from an obsolete source, or assumes request/data helpers that do not actually exist. Verify the whole integration boundary, not just file presence.
+5. **Production deploys must keep source and dependency manifests in sync**
+   - Rule: When production source files change together with dependencies, deploy the matching `package.json` and verify generated runtime artifacts exist before declaring recovery complete.
+   - Why: Hotfixes can restore one failing layer while leaving another stale layer broken. For production recovery, validate the runtime artifact set as well as the source change, especially when a deploy spans both app code and dependency manifests.
 
-1. **Healing Module — Repair tracking, per-category escalation, notification routing, and circuit breaker**
-    - Rule: When building self-healing systems, always include: (1) repair attempt tracking with success/failure per category, (2) configurable per-category escalation thresholds, (3) notification routing to multiple channels, (4) circuit breaker to prevent infinite retry loops. Test all 4 subsystems independently.
-    - Why: Enhanced the Healing Module with 4 new subsystems: RepairTracker (records attempts, calculates success rates), CategoryEscalation (per-category maxRetries and escalation action overrides), NotificationRouter (routes alerts to Telegram/Slack/Email/Dashboard), CircuitBreaker (opens when repair failure rate exceeds 50% in a 10-attempt window). All 37 SelfHealingLoop tests and 22 HealingMetrics tests pass.
-2. **Telegram Bot Frictionless Coding & Context Awareness Improvements**
-    - Rule: Hide manual approval UI in auto-mode; use persistent reply keyboards; pass conversation context to classifiers; bound typing indicators with timeouts; handle new callbacks in both notifier and bot routing.
-    - Why: Fixed auto-mode UX confusion by hiding approval buttons when auto-chaining, added phase-transition progress messages, persistent reply keyboard, typing indicators, similar/audit buttons, and enhanced classifier with conversation context.
-3. **Ollama summarization added to build-agent-context.mjs before planning**
-    - Rule: When implementing multi-model orchestration, always add graceful degradation: if the cheap local model (Ollama) is unavailable, the expensive model should still get the raw context. Never make the pipeline dependent on a local-only service.
-    - Why: Added Ollama-powered summarization of lessons, source files, working tree, and bug memory to build-agent-context.mjs. The script now compresses context before feeding it to expensive coding models, with graceful fallback when Ollama is offline.
-4. **Next.js dev WebSocket proxying, Redis NoopQueue fallback, LSP Bridge Backend**
-    - Rule: Next.js rewrites do not proxy WebSocket upgrades. In dev, connect WS directly to the API server. Make Redis optional in dev with a NoopQueue fallback. LSP stdio requires Content-Length JSON-RPC framing with buffered reads.
-    - Why: Implemented full LSP Bridge Backend for Cloud IDE, fixed Next.js dev WebSocket proxy issue by connecting directly to API port, and eliminated Redis reconnect loops in dev via NoopQueue fallback.
-5. **Healing Module - add ML classification metrics, per-category escalation, repair tracking, and notification routing**
-    - Rule: When enhancing a healing/self-healing module: always add per-category overrides for escalation thresholds; notification routing should use numeric action levels for reliable comparison; repair attempt tracking enables automatic circuit breaker triggers; trend metrics need a rolling window; confusion matrices are essential for monitoring classifier drift; when testing escalation logic, explicitly pass the full escalationPolicy config.
-    - Why: Enhanced the Healing Module with four major improvements: (1) new root cause categories (CIRCUIT_BREAKER, DEPLOYMENT_FAILURE, DATABASE_CONNECTION) with classification patterns and diagnostic steps; (2) ML classification metrics with trend tracking, confusion matrix, precision/recall/F1; (3) repair tracking with RepairAttempt interface, repair history, per-category success rate, automatic circuit breaker; (4) per-category escalation with categoryThresholds/categoryActions overrides and notification routing. All 37 SelfHealingLoop tests and all HealingMetrics tests pass.
 
 ## Active Codex Tasks
-
 - Release learning layer workflow (codex_task_learning_layer_release_20260517)
 
 ## Architecture Reminder
-
+The SuperRoo system is organized into **21 core modules** spanning orchestration, agent execution, safety, persistence, self-healing, machine learning, product memory, commit/deploy tracking, parallel execution, cloud sandbox, and infrastructure. Each module has a status, owner, connections to other modules, and specific product features it enables.
          │     ├── Repair Plan Builder (structured fix generation)
-         │     ├── Provider Testers (Real SDK connection testing)
-
+         │     └── Infinite Improvement Loop (continuous learning)
 - **Features**: Priority queuing, Job retry & backoff, Concurrency control
 - **Features**: Feature lifecycle tracking (planned → building → testing → working → deprecated), Health monitoring (unknown → healthy → degraded → failing), Bug-to-feature mapping
+- **Features**: Incident detection, Root cause classification, Repair plan generation, Auto-fix deployment, Verification cycle
     - **Repair Plan Builder** ([`src/super-roo/healing/RepairPlanBuilder.ts`](../src/super-roo/healing/RepairPlanBuilder.ts)) - Structured fix generation
-    - **Super Debug Loop** ([`src/super-roo/debug-team/SuperDebugLoop.ts`](../src/super-roo/debug-team/SuperDebugLoop.ts)) - Main orchestrating loop with state machine (idle→analyzing→planning→snapshot→patching→testing→critic_review→committing/deploying→rollback_retry)
-- **Features**: Provider API key management, Encrypted secret storage (AES-256-GCM), Real provider connection testing, Agent routing sync, VPS control center (auto-approve, MCP, guardrails), Deployment safety validation - **API Keys View** ([`cloud/dashboard/src/components/views/api-keys.tsx`](../cloud/dashboard/src/components/views/api-keys.tsx)) - Provider key management UI with save/test/delete - **Provider Testers** ([`cloud/api/api.js`](../cloud/api/api.js)) - Real SDK connection testing for OpenAI, Anthropic, DeepSeek, Kimi, OpenRouter, Groq
-  Incident Detection → Healing Bus → Root Cause Classifier → Repair Plan Builder → Self-Healing Loop → Fix → Verify
+### 10. Machine Learning Engine
+- **Features**: Neural network training, Code pattern learning, Debug pattern learning, Test pattern learning, Infinite improvement loop
+    - **Learners** ([`src/super-roo/ml/learning/`](../src/super-roo/ml/learning/)) - CodeLearner, DebugLearner, TestLearner
+    > **IMPORTANT**: This is THE single source of truth for all commits and deployments across all coding agents. Every agent MUST use `CommitDeployLog.recordCommit()` and `CommitDeployLog.recordDeploy()` to record their work. The log is append-only (no deletions, only status updates) and agent-aware (records which agent made the change).
+- **Features**: Autonomous multi-agent debugging, Complex feature problem solving, Phase-by-phase breakdown, Hypothesis-driven iteration, Safe container execution (Docker), Automatic git snapshot/rollback, Multi-feature integration sync, Auto-generated skills from failures, Auto-approval mode (all approvals auto-granted, all deployments auto-run), 24/7 unlimited iteration
+- **Features**: GitHub Actions dispatch, VPS SSH deployment, Rollback management, Health check verification
+    - **SandboxPool** ([`cloud/orchestrator/sandbox/SandboxPool.js`](../cloud/orchestrator/sandbox/SandboxPool.js)) - Container pooling with warm containers, idle cleanup, health checks with self-healing, acquire/release pattern
+- **Features**: Provider API key management, Encrypted secret storage (AES-256-GCM), Real provider connection testing, Agent routing sync, VPS control center (auto-approve, MCP, guardrails), Deployment safety validation
+    - **API Keys View** ([`cloud/dashboard/src/components/views/api-keys.tsx`](../cloud/dashboard/src/components/views/api-keys.tsx)) - Provider key management UI with save/test/delete
+Incident Detection → Healing Bus → Root Cause Classifier → Repair Plan Builder → Self-Healing Loop → Fix → Verify
 
 ### DeepSeek Architecture Summary
 
-The **Repair Plan Builder** (`src/super-roo/healing/RepairPlanBuilder.ts`) and **Super Debug Loop** (`src/super-roo/debug-team/SuperDebugLoop.ts`) are the core modules affected, with the debug loop orchestrating a state machine (idle→analyzing→planning→snapshot→patching→testing→critic_review→committing/deploying→rollback_retry) that feeds into structured fix generation. The **Provider Testers** (`cloud/api/api.js`) and **API Keys View** (`cloud/dashboard/src/components/views/api-keys.tsx`) connect via encrypted secret storage (AES-256-GCM) and real SDK connection testing for OpenAI, Anthropic, DeepSeek, Kimi, OpenRouter, Groq. Architecture constraints include priority queuing, job retry/backoff, concurrency control, and feature lifecycle tracking (planned→building→testing→working→deprecated) with health monitoring (unknown→healthy→degraded→failing).
+The dashboard frontend-backend disconnections affect the **Self-Healing Loop** (Incident Detection → Healing Bus → Root Cause Classifier → Repair Plan Builder → Fix → Verify), **Machine Learning Engine** (Learners for code/debug/test patterns), and **CommitDeployLog** (append-only, agent-aware source of truth for all commits/deployments). These modules connect through the **Healing Bus** for incident propagation, **Repair Plan Builder** for structured fix generation, and the **Infinite Improvement Loop** for continuous learning. Architecture constraints include: the CommitDeployLog is append-only with no deletions, all agents must use `recordCommit()`/`recordDeploy()`, and the Self-Healing Loop requires verification cycles before fixes are considered complete.
+
 
 ## Task Signals
-
-Inferred tags: testing, ui
+Inferred tags: ui, learning, deployment
 
 ## Feature Knowledge
-
 # feature-knowledge.md
 
 Initialized by SuperRoo workflow check.
 
-## Recent Bug Memory
 
+
+## Recent Bug Memory
 # bugs-fixed.md
 
 Initialized by SuperRoo workflow check.
@@ -96,10 +102,10 @@ Implemented `safeJsonParse<T>(json, fallback)` helper function that:
 
 ### DeepSeek Bug Memory Summary
 
-The recurring bug pattern is unsafe `JSON.parse()` calls across multiple registry modules (`BugRegistry.ts`, `TaskQueue.ts`, `FeatureRegistry.ts`, `MemoryStore.ts`) that crash on corrupted database rows. The root cause is a lack of fallback handling for malformed JSON data. The fix involves adding a `safeJsonParse` helper function to each affected file, with `HealingBus.ts` already having it and receiving enhanced usage.
+The primary bug pattern is unsafe `JSON.parse()` usage across multiple registry and queue modules (`BugRegistry.ts`, `TaskQueue.ts`, `FeatureRegistry.ts`, `MemoryStore.ts`), causing crashes on corrupted database rows. The root cause is a lack of fallback handling for malformed JSON data. The fix involves adding a `safeJsonParse` helper function to each affected file, with `HealingBus.ts` already having the helper and receiving enhanced usage.
+
 
 ## Model Decisions
-
 # model-decisions.md
 
 Initialized by SuperRoo workflow check.
@@ -143,9 +149,12 @@ Created routing table with primary and fallback providers:
 
 ### DeepSeek Model Decision Summary
 
-For the Telegram improvements, the key model decision was to use **kimi-k2.5** for implementing the model routing service (`modelRouterService.ts`), chosen for its optimal balance of cost, quality, and speed when mapping task types to provider/model pairs. No other models or APIs were selected for the remaining tasks (OpenClaw upgrade, Redis sessions, metrics exporter, unit tests, VSIX build), as those are infrastructure or development workflow items rather than model-dependent decisions.
+For the dashboard disconnection fixes, the key decision was to use **kimi-k2.5** for the model router service, chosen for its optimal balance of cost, quality, and speed. This model powers the task-based routing logic in `modelRouterService.ts`, which maps task types to provider/model pairs to handle the diverse components (e.g., approvals, file-importer, ml-engine). The high-confidence migration ensures consistent, efficient routing across all listed modules.
+
+
 
 ### DeepSeek File Summaries
 
-- **src\super-roo\healing\SelfHealingLoop.ts**: This file exports the `SelfHealingLoop` class, which implements a state-machine-driven autonomous healing engine that monitors incidents, classifies root causes, generates repair plans, and tracks verification status. It exports supporting types (`EscalationAction`, `EscalationPolicy`, `IncidentSignature`, `FailureRecord`, `RepairAttempt`) and relies on `HealingBus`, `RootCauseClassifier`, and `RepairPlanBuilder` for event-driven communication and decision logic. The code follows a modular pattern with clear separation of concerns, typed interfaces for escalation policies and failure tracking, and a state machine with explicit failure branches, which aligns with the frictionless coding and Redis session requirements by ensuring deterministic, traceable healing workflows.
-- **src\super-roo\healing\HealingMetrics.ts**: This file exports the `HealingMetrics` class and related TypeScript interfaces (`CategoryMetrics`, `PlanTypeMetrics`, `MetricsSnapshot`, `OutcomeRecord`, `PrecisionRecall`, `ConfusionMatrix`, `HealingMetricsOptions`). Its main purpose is to track success/failure rates for healing actions per category and plan type, persist metrics to a JSON file, and support Phase 2 enhancements like trend tracking, precision/recall, and confusion matrix evaluation. The code follows a modular pattern with clear separation of types, defaults, and class implementation, using `Map` for efficient lookups and a rolling window for trend analysis.
+- **cloud\dashboard\src\components\views\parallel-execution.tsx**: This file exports a single React component `ParallelExecutionView` that displays real-time parallel execution statistics from the backend API endpoint `/api/orchestrator/parallel/stats`. It fetches stats on mount and polls every 10 seconds, mapping the backend response shape to a `ParallelStats` interface with fields like `maxConcurrency`, `activeTasks`, and `tokenBudgetRemaining`. The component handles loading, error (with retry button), and data states, using utility functions like `formatToken` and UI primitives (`StatCard`, `Badge`, `cn`) consistent with the dashboard's pattern.
+- **cloud\dashboard\src\components\views\autonomous-loop.tsx**: This file exports the `AutonomousLoopView` component, which provides a real-time dashboard for monitoring and controlling an autonomous CI/CD pipeline. It fetches status from `/api/autonomous/status` every 5 seconds and allows starting/stopping the loop via POST requests to `/api/autonomous/start` and `/api/autonomous/stop`. Key patterns include polling with `setInterval`, optimistic UI updates after actions, and a structured status object with step results, cycle count, and timestamps—critical for debugging disconnections between the frontend and backend APIs.
+

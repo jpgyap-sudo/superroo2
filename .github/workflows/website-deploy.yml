@@ -5,7 +5,7 @@ on:
         branches:
             - main
         paths:
-            - 'apps/web-roo-code/**'
+            - 'apps/web-superroo/**'
     workflow_dispatch:
 
 concurrency:
@@ -42,13 +42,13 @@ jobs:
               uses: ./.github/actions/setup-node-pnpm
             - name: Run lint
               run: pnpm lint
-              working-directory: apps/web-roo-code
+              working-directory: apps/web-superroo
             - name: Run type check
               run: pnpm check-types
-              working-directory: apps/web-roo-code
+              working-directory: apps/web-superroo
             - name: Run build
               run: pnpm build
-              working-directory: apps/web-roo-code
+              working-directory: apps/web-superroo
             - name: Install Vercel CLI
               run: npm install --global vercel@latest
             - name: Pull Vercel Environment Information

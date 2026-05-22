@@ -1,0 +1,119 @@
+{
+  "repo": "swe-agent",
+  "url": "https://github.com/SWE-agent/SWE-agent.git",
+  "focus": "codebase-navigation",
+  "analyzed": "2026-05-20T17:39:38.175Z",
+  "structure": {
+    "readme": {
+      "length": 8344,
+      "lines": 146,
+      "headline": "<p align=\"center\">\r",
+      "hasInstallGuide": true,
+      "hasArchitecture": false,
+      "hasApiDocs": false
+    },
+    "dirs": {
+      "assets": "📁",
+      "config": {
+        "benchmarks": "📁",
+        "demo": "📁",
+        "exotic": "📁",
+        "human": "📁",
+        "sweagent_0_7": "📁"
+      },
+      "docs": {
+        "assets": "📁",
+        "background": "📁",
+        "config": "📁",
+        "dev": "📁",
+        "installation": "📁",
+        "overrides": "📁",
+        "reference": "📁",
+        "usage": "📁"
+      },
+      "sweagent": {
+        "agent": "📁",
+        "environment": "📁",
+        "inspector": "📁",
+        "run": "📁",
+        "tools": "📁",
+        "utils": "📁"
+      },
+      "tests": {
+        "test_commands": "📁",
+        "test_data": "📁",
+        "tools": "📁"
+      },
+      "tools": {
+        "diff_state": "📁",
+        "edit_anthropic": "📁",
+        "filemap": "📁",
+        "forfeit": "📁",
+        "image_tools": "📁",
+        "multilingual_setup": "📁",
+        "registry": "📁",
+        "review_on_submit_m": "📁",
+        "search": "📁",
+        "submit": "📁",
+        "web_browser": "📁",
+        "windowed": "📁",
+        "windowed_edit_linting": "📁",
+        "windowed_edit_replace": "📁",
+        "windowed_edit_rewrite": "📁"
+      },
+      "trajectories": {
+        "demonstrations": "📁"
+      }
+    }
+  },
+  "patterns": [
+    {
+      "name": "swe-agent-directory-architecture",
+      "source": "swe-agent",
+      "description": "Directory structure suggests assets, config, docs, sweagent, tests architecture",
+      "details": "Top-level directories: assets, config, docs, sweagent, tests, tools, trajectories"
+    },
+    {
+      "name": "swe-agent-readme-positioning",
+      "source": "swe-agent",
+      "description": "README headline: \"<p align=\"center\">\r\"",
+      "details": "146 lines, hasArchitecture=false, hasApiDocs=false"
+    },
+    {
+      "name": "swe-agent-config-stack",
+      "source": "swe-agent",
+      "description": "Config files found: .env.example",
+      "details": "Indicates tech stack: .env"
+    },
+    {
+      "name": "swe-agent-source-organization",
+      "source": "swe-agent",
+      "description": "Source directories: tools",
+      "details": "Indicates code organization pattern"
+    },
+    {
+      "name": "swe-agent-test-pattern",
+      "source": "swe-agent",
+      "description": "Test directories: tests",
+      "details": "Testing approach: dedicated test dirs"
+    },
+    {
+      "name": "swe-agent-cicd",
+      "source": "swe-agent",
+      "description": "CI/CD: \\.github\\workflows",
+      "details": "CI/CD system detected"
+    },
+    {
+      "name": "swe-agent-documentation",
+      "source": "swe-agent",
+      "description": "Documentation directory: docs",
+      "details": "Has dedicated docs folder"
+    },
+    {
+      "name": "swe-agent-language-profile",
+      "source": "swe-agent",
+      "description": "File type distribution: .py: 96, .md: 61, .yaml: 44, .png: 17, .svg: 15, .sh: 13, .traj: 10, .json: 8",
+      "details": "Primary language: py"
+    }
+  ]
+}

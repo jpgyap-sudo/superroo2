@@ -78,7 +78,7 @@ const EVENT_ICON: Record<EventType, string> = {
 	task_transition: "🔄",
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8787"
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || ""
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

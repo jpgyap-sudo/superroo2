@@ -6,5 +6,10 @@ export default defineConfig({
 		environment: "node",
 		globalSetup: "./vitest-global-setup.ts",
 		watch: false,
+		coverage: {
+			provider: "v8",
+			reporter: ["text", "json", "html"],
+			reportsDirectory: "./coverage",
+		},
 	},
 })

@@ -852,11 +852,17 @@ async function cmdStore(topic, content) {
 	console.error(`📝 Storing lesson: "${topic}" (project: ${project})`)
 
 	const { success, result, fallbackUsed } = await withFallback(
-		// Primary: Central Brain
+		// Primary: Central Brain v2 (brain_store_lesson)
 		async () => {
-			const r = await mcpToolCall("hermes_learn", { topic, content, project })
+			const r = await mcpToolCall("brain_store_lesson", {
+				title: topic,
+				content,
+				agent: "superroo-learn",
+				projectId: project,
+				tags: ["auto-extracted"],
+			})
 			if (r && typeof r === "object" && (r.success === false || r.source === "local_json_fallback")) {
-				throw new Error(r.error || r.note || "Central Brain returned fallback/non-success")
+				throw new Error(r.error || r.note || "Central Brain v2 returned fallback/non-success")
 			}
 			// Also register the project if not already known
 			const config = await getConfig()
@@ -869,7 +875,24 @@ async function cmdStore(topic, content) {
 			}
 			return r
 		},
-		// Fallback: store locally
+		// Fallback 1: try hermes_learn (legacy)
+		async () => {
+			console.error("⚠️ brain_store_lesson failed, trying hermes_learn...")
+			const r = await mcpToolCall("hermes_learn", { topic, content, project })
+			if (r && typeof r === "object" && (r.success === false || r.source === "local_json_fallback")) {
+				throw new Error(r.error || r.note || "hermes_learn also returned fallback/non-success")
+			}
+			const config = await getConfig()
+			if (!config.projects[project]) {
+				config.projects[project] = {
+					firstSeen: new Date().toISOString(),
+					lastLesson: new Date().toISOString(),
+				}
+				await saveConfig(config)
+			}
+			return r
+		},
+		// Fallback 2: store locally
 		async () => {
 			await storeLessonLocally(topic, content)
 			return { success: true, stored: "local", topic, project }

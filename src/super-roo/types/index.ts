@@ -440,9 +440,76 @@ export interface LogEvent {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Agent contract (Phase 2 will implement this; we declare it now so Phase 1
-// orchestrator code can compile against the shape)
+// Agent contract (Theia-inspired typed interface)
 // ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A variable that an agent can declare for user customization.
+ * Mirrors Theia's AgentSpecificVariables pattern.
+ */
+export interface AgentVariable {
+	readonly key: string
+	readonly description: string
+	/** Default value if the user doesn't provide one. */
+	readonly defaultValue?: string
+}
+
+/**
+ * A language model requirement an agent declares.
+ * Mirrors Theia's LanguageModelRequirement pattern.
+ */
+export interface LanguageModelRequirement {
+	readonly model?: string
+	readonly provider?: string
+	/** Minimum capability the model must have (e.g. "reasoning", "vision", "tool-use"). */
+	readonly capability?: string
+}
+
+/**
+ * A single prompt variant within a variant set.
+ * Mirrors Theia's PromptVariant pattern.
+ */
+export interface PromptVariant {
+	readonly id: string
+	readonly name: string
+	readonly description: string
+	/** The system prompt template for this variant. */
+	readonly systemPrompt: string
+	/** Optional user-facing label for mode selection UI. */
+	readonly label?: string
+}
+
+/**
+ * A set of prompt variants for an agent.
+ * Mirrors Theia's PromptVariantSet pattern.
+ */
+export interface PromptVariantSet {
+	readonly id: string
+	readonly name: string
+	readonly description: string
+	/** The default variant ID to use when no selection is made. */
+	readonly defaultVariant: string
+	/** All available variants. */
+	readonly variants: PromptVariant[]
+}
+
+/**
+ * A mode definition for an agent.
+ * Mirrors Theia's mode-aware agent pattern (CoderAgent: Edit/Agent/Agent Next).
+ */
+export interface AgentMode {
+	readonly id: string
+	readonly name: string
+	readonly description: string
+	/** The Roo mode slug this mode maps to. */
+	readonly modeSlug: string
+	/** Prompt variant ID to use in this mode. */
+	readonly promptVariantId?: string
+	/** Capabilities granted in this mode. */
+	readonly capabilities?: Capability[]
+	/** Whether this mode can modify files. */
+	readonly canModifyFiles: boolean
+}
 
 export interface AgentRunContext {
 	task: Task
@@ -454,6 +521,10 @@ export interface AgentRunContext {
 	emit: (level: EventLevel, type: EventType, message: string, data?: Record<string, unknown>) => void
 	/** Cooperative cancellation — agents should poll this. */
 	signal: AbortSignal
+	/** The active mode ID if the agent supports multiple modes. */
+	activeModeId?: string
+	/** Resolved variable values for this run. */
+	variables?: Record<string, string>
 }
 
 export interface AgentRunResult {
@@ -468,10 +539,26 @@ export interface AgentRunResult {
 	error?: string
 }
 
+/**
+ * Typed Agent interface inspired by Eclipse Theia's Agent contract.
+ * Adds prompt variants, language model requirements, variables, modes, and tags.
+ */
 export interface Agent {
 	readonly name: string
 	readonly description: string
 	readonly requiredCapabilities: Capability[]
+
+	/** Optional prompt variant sets for user customization. */
+	readonly promptVariants?: PromptVariantSet[]
+	/** Optional language model requirements. */
+	readonly languageModelRequirements?: LanguageModelRequirement[]
+	/** Optional variables the agent exposes for user configuration. */
+	readonly variables?: AgentVariable[]
+	/** Optional mode definitions for multi-mode agents. */
+	readonly modes?: AgentMode[]
+	/** Optional tags for categorization and routing. */
+	readonly tags?: string[]
+
 	run(ctx: AgentRunContext): Promise<AgentRunResult>
 }
 

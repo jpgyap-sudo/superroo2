@@ -3,4 +3,5 @@ packages:
     - "webview-ui" # Should be apps/vscode-webview
     - "apps/*"
     - "cloud/dashboard"
+    - "cloud/mini-ide"
     - "packages/*"

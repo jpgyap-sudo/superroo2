@@ -17,6 +17,11 @@ const { BrainContextInjector } = require("./BrainContextInjector")
 const { MemoryApprovalService } = require("./MemoryApprovalService")
 const { AgentScoringService } = require("./AgentScoringService")
 const { BrainEventBus } = require("./BrainEventBus")
+const { ConsensusService } = require("./ConsensusService")
+const { ModelRouter } = require("./ModelRouter")
+const { PredictiveFailureEngine } = require("./PredictiveFailureEngine")
+const { SwarmDebugger } = require("./SwarmDebugger")
+const { DeployGate } = require("./DeployGate")
 
 /**
  * Create all brain services with a shared Postgres pool and optional Redis client.
@@ -31,7 +36,12 @@ const { BrainEventBus } = require("./BrainEventBus")
  *   approval: MemoryApprovalService,
  *   eventBus: BrainEventBus,
  *   contextInjector: BrainContextInjector,
- *   wrapper: AgentRunWrapper
+ *   wrapper: AgentRunWrapper,
+ *   consensus: ConsensusService,
+ *   modelRouter: ModelRouter,
+ *   riskEngine: PredictiveFailureEngine,
+ *   swarmDebugger: SwarmDebugger,
+ *   deployGate: DeployGate
  * }>}
  */
 async function createServices(pool, redisClient = null, options = {}) {
@@ -56,6 +66,31 @@ async function createServices(pool, redisClient = null, options = {}) {
 	// 7. Agent run wrapper (mandatory enforcement)
 	const wrapper = new AgentRunWrapper(memory, embedding, scoring, eventBus, approval, options.wrapper || {})
 
+	// 8. Consensus service (multi-agent weighted voting) — v4
+	const consensus = new ConsensusService(pool, options.consensus || {})
+
+	// 9. Model router (performance-tracking model selection) — v4
+	const modelRouter = new ModelRouter(pool, options.modelRouter || {})
+
+	// 10. Predictive failure engine (risk scoring) — v5
+	const riskEngine = new PredictiveFailureEngine(pool, options.riskEngine || {})
+
+	// 11. Swarm debugger (parallel multi-agent debug) — v5
+	const swarmDebugger = new SwarmDebugger(pool, {
+		memoryService: memory,
+		...(options.swarmDebugger || {}),
+	})
+
+	// 12. Deploy gate (3-stage: risk → swarm → consensus) — v5
+	const deployGate = new DeployGate(
+		{ riskEngine, swarmDebugger, consensus },
+		options.deployGate || {},
+	)
+
+	// 13. Wire v4 services into the wrapper
+	wrapper.setModelRouter(modelRouter)
+	wrapper.setConsensus(consensus)
+
 	return {
 		embedding,
 		memory,
@@ -64,6 +99,11 @@ async function createServices(pool, redisClient = null, options = {}) {
 		eventBus,
 		contextInjector,
 		wrapper,
+		consensus,
+		modelRouter,
+		riskEngine,
+		swarmDebugger,
+		deployGate,
 	}
 }
 
@@ -89,6 +129,11 @@ module.exports = {
 	MemoryApprovalService,
 	AgentScoringService,
 	BrainEventBus,
+	ConsensusService,
+	ModelRouter,
+	PredictiveFailureEngine,
+	SwarmDebugger,
+	DeployGate,
 	createServices,
 	applySchema,
 }

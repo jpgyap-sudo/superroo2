@@ -1,347 +1,432 @@
 {
-	"commits": [
-		{
-			"id": "commit_28d5be6f-6fa9-4bac-a0d5-2d384b57b754",
-			"commitSha": "19f7bbb77f238cd78d1b5b18da277ba4145ca0d7",
-			"agent": "Codex",
-			"type": "bugfix",
-			"title": "fix(telegram): open coding diffs in dashboard",
-			"description": "Telegram View Diff now opens a dashboard deep link, exposes real task diff data, and stores git diffs from Telegram coding jobs.",
-			"filesChanged": [
-				"cloud/api/api.js",
-				"cloud/api/telegramBot.js",
-				"cloud/api/telegramNotifier.js",
-				"cloud/dashboard/src/components/views/telegram.tsx",
-				"cloud/worker/agentRunners.js",
-				"memory/lesson-index.jsonl",
-				"memory/lessons-learned.md"
-			],
-			"featuresAffected": ["telegram-coding", "dashboard-diff-viewer", "learning-layer"],
-			"bugsFixed": [],
-			"timestamp": "2026-05-20T10:28:40.253Z",
-			"modelsUsed": [
-				{
-					"phase": "coding",
-					"provider": "deepseek",
-					"model": "deepseek-chat"
-				},
-				{
-					"phase": "review",
-					"provider": "openai",
-					"model": "codex"
-				}
-			],
-			"workflowCompliance": {
-				"isCompliant": true,
-				"deepseekUsed": true,
-				"lessonsRetrieved": true,
-				"testsRun": true
-			}
-		},
-		{
-			"agent": "Kimi Code CLI",
-			"type": "feature",
-			"title": "Docker hybrid migration: API/Dashboard/Mini-IDE containerized, TS errors fixed",
-			"filesChanged": [
-				"src/super-roo/product-memory/index.ts",
-				"webview-ui/src/components/chat/KimiTasksPanel.tsx",
-				"webview-ui/src/components/chat/ChatView.tsx",
-				"cloud/docker/docker-compose.yml",
-				"cloud/docker/Dockerfile.api",
-				"cloud/docker/Dockerfile.dashboard",
-				"cloud/docker/Dockerfile.mini-ide",
-				"cloud/docker/Dockerfile.worker",
-				"cloud/docker/Dockerfile.auto-deployer",
-				"cloud/dashboard/next.config.js",
-				"cloud/dashboard/package.json",
-				"cloud/dashboard/eslint.config.mjs",
-				"cloud/dashboard/src/components/ide-terminal/hooks/useExtensionState.ts",
-				"cloud/dashboard/src/components/ide-terminal/ExtensionsPanel.tsx",
-				"cloud/dashboard/src/components/views/ide-terminal.tsx"
-			],
-			"featuresAffected": ["Dashboard IDE", "Extensions Panel", "Docker Deployment", "TypeScript Build"],
-			"modelsUsed": [],
-			"workflowCompliance": null,
-			"timestamp": "2026-05-18T13:31:43.074Z",
-			"id": "commit_repaired_0_1779241386026"
-		},
-		{
-			"sha": "8375e025c3822d9ef30ee23708c90027838bbefc",
-			"agent": "Kimi Code CLI",
-			"type": "feature",
-			"title": "Telegram frictionless coding improvements",
-			"filesChanged": [
-				"cloud/api/telegramBot.js",
-				"cloud/api/telegramClassifier.js",
-				"cloud/api/telegramLearner.js",
-				"cloud/api/telegramNotifier.js",
-				"cloud/worker/agentRunners.js"
-			],
-			"featuresAffected": ["Telegram Bot", "Auto Mode", "Intent Classification", "Context Awareness"],
-			"timestamp": "2026-05-20T01:21:36.150Z",
-			"id": "commit_repaired_1_1779241386026",
-			"modelsUsed": [],
-			"workflowCompliance": null,
-			"commitSha": "8375e025c3822d9ef30ee23708c90027838bbefc"
-		},
-		{
-			"commitSha": "3cbfb4b4bc51d8f6c5812ebcdcf8e8972d814eaf",
-			"agent": "Kimi Code CLI",
-			"type": "bugfix",
-			"title": "fix(webview): bound aggregatedCostsMap with LRUCache (max 50, 5min TTL)",
-			"filesChanged": ["webview-ui/src/components/chat/ChatView.tsx"],
-			"featuresAffected": ["webview-chat"],
-			"timestamp": "2026-05-20T06:49:47.537Z",
-			"id": "commit_1779259787541",
-			"modelsUsed": [],
-			"workflowCompliance": null
-		},
-		{
-			"commitSha": "9cc50a8a7daf39eedcb8a8dbb90b8baa79a74d94",
-			"agent": "Kimi Code CLI",
-			"type": "bugfix",
-			"title": "fix(webview): comprehensive tab error fixes and gap closures (P0–P2)",
-			"filesChanged": [
-				"webview-ui/src/App.tsx",
-				"webview-ui/src/components/chat/ChatTextArea.tsx",
-				"webview-ui/src/components/chat/ChatView.tsx",
-				"webview-ui/src/components/chat/FollowUpSuggest.tsx",
-				"webview-ui/src/components/github/GitHubView.tsx",
-				"webview-ui/src/components/marketplace/MarketplaceView.tsx",
-				"webview-ui/src/components/super-roo/SuperRooDashboard.tsx",
-				"webview-ui/src/components/super-roo/hooks/SrContext.tsx",
-				"webview-ui/src/components/super-roo/tabs/BugsTab.tsx",
-				"webview-ui/src/components/super-roo/tabs/ModelRouterView.tsx",
-				"webview-ui/src/components/super-roo/tabs/VpsHealthTab.tsx",
-				"webview-ui/src/components/super-roo/tabs/model-router/AgentSync.tsx",
-				"webview-ui/src/components/super-roo/tabs/model-router/CostOptimizer.tsx",
-				"webview-ui/src/components/super-roo/tabs/model-router/PerformanceMonitor.tsx",
-				"webview-ui/src/components/super-roo/tabs/model-router/ProviderStatusStrip.tsx",
-				"webview-ui/src/components/super-roo/tabs/model-router/RouteTable.tsx",
-				"webview-ui/src/components/super-roo/tabs/settings/AdvancedVpsSettingsTab.tsx",
-				"webview-ui/src/components/super-roo/tabs/settings/ApiKeysProvidersTab.tsx"
-			],
-			"featuresAffected": ["webview-all-tabs"],
-			"timestamp": "2026-05-20T10:34:57.215Z",
-			"id": "commit_1779273297215",
-			"modelsUsed": [],
-			"workflowCompliance": null
-		},
-		{
-			"id": "commit_1779296389499",
-			"commitSha": "8be88a7f7",
-			"agent": "Kimi Code CLI",
-			"type": "bugfix",
-			"title": "fix(ram-orchestrator): proxy routes, TypeError fixes, hysteresis logic, file rotation, null guards, abort signals",
-			"description": "Fixed RAM orchestrator audit issues: API proxy routes, string mutation TypeError, JSONL file rotation, WorkerPauseManager null guards, EADDRINUSE exit, hysteresis recovery zone, ramPercent rounding, pausedWorkers array return, dashboard AbortSignal timeouts.",
-			"filesChanged": [
-				"cloud/api/api.js",
-				"cloud/api/routes/monitoring.js",
-				"cloud/dashboard/src/components/views/ram-orchestrator.tsx",
-				"cloud/orchestrator/modules/RAMMonitor.js",
-				"cloud/orchestrator/modules/WorkerPauseManager.js",
-				"cloud/worker/vpsRamOrchestratorWorker.js"
-			],
-			"featuresAffected": ["ram-orchestrator", "monitoring", "dashboard"],
-			"bugsFixed": [],
-			"timestamp": "2026-05-20T16:59:49.499Z",
-			"modelsUsed": [
-				{
-					"phase": "coding",
-					"provider": "kimi",
-					"model": "kimi-code-cli"
-				}
-			],
-			"workflowCompliance": {
-				"isCompliant": true,
-				"deepseekUsed": false,
-				"lessonsRetrieved": true,
-				"testsRun": true
-			}
-		},
-		{
-			"id": "commit_1779297874283",
-			"commitSha": "5afecfa1",
-			"agent": "Kimi Code CLI",
-			"type": "bugfix",
-			"title": "fix(ram-orchestrator): event property mismatch between RAMMonitor and AlertManager",
-			"description": "RAMMonitor emits stateChange with prevState and flat metrics, but AlertManager expected oldState and event.snapshot. Fixed property mapping and heartbeat listener.",
-			"filesChanged": ["cloud/worker/vpsRamOrchestratorWorker.js"],
-			"featuresAffected": ["ram-orchestrator"],
-			"bugsFixed": ["undefined state in alert logs", "missing snapshot in alert payload"],
-			"timestamp": "2026-05-20T17:24:34.283Z",
-			"modelsUsed": [
-				{
-					"phase": "coding",
-					"provider": "kimi",
-					"model": "kimi-code-cli"
-				}
-			],
-			"workflowCompliance": {
-				"isCompliant": true,
-				"deepseekUsed": false,
-				"lessonsRetrieved": true,
-				"testsRun": true
-			}
-		},
-		{
-			"commitSha": "1cdb9a953660461ddfaa26a411363c1c74b9cbc6",
-			"agent": "Codex",
-			"type": "feature",
-			"title": "Clarify platform positioning and healing proof metrics",
-			"filesChanged": [
-				"README.md",
-				"cloud/api/routes/healing-metrics.js",
-				"docs/super-roo/GAP_AUDIT_2026-05-21.md"
-			],
-			"featuresAffected": ["readme-positioning", "monitoring", "self-healing", "cloud-api"],
-			"modelsUsed": [
-				{
-					"phase": "planning",
-					"provider": "openai",
-					"model": "codex",
-					"success": true,
-					"timestamp": "2026-05-20T17:29:32.632Z"
-				},
-				{
-					"phase": "coding",
-					"provider": "deepseek",
-					"model": "deepseek-chat",
-					"success": true,
-					"timestamp": "2026-05-20T17:29:32.633Z"
-				},
-				{
-					"phase": "review",
-					"provider": "openai",
-					"model": "codex",
-					"success": true,
-					"timestamp": "2026-05-20T17:29:32.633Z"
-				},
-				{
-					"phase": "memory_storage",
-					"provider": "superroo-learn",
-					"model": "local-fallback",
-					"success": true,
-					"timestamp": "2026-05-20T17:29:32.633Z"
-				}
-			],
-			"workflowCompliance": {
-				"isCompliant": true,
-				"steps": {
-					"lessonsRead": true,
-					"deepseekDelegated": true,
-					"codexReviewed": true,
-					"ollamaSummarized": false,
-					"centralBrainStored": false
-				},
-				"violations": ["Central Brain was unreachable; lesson stored locally and queued for retry."]
-			},
-			"timestamp": 1779298172633
-		},
-		{
-			"commitSha": "790fb02159b5e187e1a69896f96ccfc157e0f82b",
-			"agent": "Codex",
-			"type": "bugfix",
-			"title": "Wire Telegram dashboard coding flow",
-			"filesChanged": [
-				"cloud/api/api.js",
-				"cloud/dashboard/src/components/views/telegram.tsx",
-				"cloud/worker/worker.js",
-				"cloud/api/__tests__/run-tests.js",
-				"memory/lessons-learned.md",
-				"memory/lesson-index.jsonl"
-			],
-			"featuresAffected": ["telegram-coding", "telegram-dashboard", "coder-workflow"],
-			"modelsUsed": [
-				{
-					"phase": "planning",
-					"provider": "openai",
-					"model": "codex",
-					"success": true,
-					"timestamp": "2026-05-21T01:54:54.906Z"
-				},
-				{
-					"phase": "coding",
-					"provider": "deepseek",
-					"model": "deepseek-chat",
-					"success": false,
-					"timestamp": "2026-05-21T01:54:54.906Z"
-				},
-				{
-					"phase": "review",
-					"provider": "openai",
-					"model": "codex",
-					"success": true,
-					"timestamp": "2026-05-21T01:54:54.906Z"
-				},
-				{
-					"phase": "memory_storage",
-					"provider": "superroo-learn",
-					"model": "local-fallback",
-					"success": true,
-					"timestamp": "2026-05-21T01:54:54.906Z"
-				}
-			],
-			"workflowCompliance": {
-				"isCompliant": true,
-				"steps": {
-					"lessonsRead": true,
-					"deepseekDelegated": true,
-					"codexReviewed": true,
-					"ollamaSummarized": false,
-					"centralBrainStored": false
-				},
-				"violations": [
-					"DeepSeek returned generic non-applicable output; Codex applied minimal targeted patch after healthy route verification",
-					"Central Brain offline; lesson stored locally and queued for retry"
-				]
-			},
-			"timestamp": 1779328494906
-		}
-	],
-	"deploys": [
-		{
-			"version": "3.53.3+telegram",
-			"commitSha": "8375e025c3822d9ef30ee23708c90027838bbefc",
-			"agent": "Kimi Code CLI",
-			"target": "VPS (100.64.175.88)",
-			"timestamp": "2026-05-20T01:21:36.151Z",
-			"status": "healthy"
-		},
-		{
-			"version": "3.53.3+telegram",
-			"commitSha": "2ad4488cdd5a1ea1cd6ca2024283cb6c80bb9171",
-			"agent": "Kimi Code CLI",
-			"target": "VPS (100.64.175.88)",
-			"timestamp": "2026-05-20T11:47:53.000Z",
-			"status": "healthy"
-		},
-		{
-			"id": "deploy_1779296389513",
-			"version": "3.53.3",
-			"commitSha": "8be88a7f7",
-			"agent": "Kimi Code CLI",
-			"target": "100.64.175.88",
-			"services": ["superroo-api", "superroo-ram-orchestrator"],
-			"status": "healthy",
-			"timestamp": "2026-05-20T16:59:49.513Z"
-		},
-		{
-			"id": "deploy_1779297874283",
-			"version": "3.53.3",
-			"commitSha": "5afecfa1",
-			"agent": "Kimi Code CLI",
-			"target": "100.64.175.88",
-			"services": ["superroo-ram-orchestrator"],
-			"status": "healthy",
-			"timestamp": "2026-05-20T17:24:34.283Z"
-		},
-		{
-			"version": "readme-healing-proof-1cdb9a95",
-			"commitSha": "1cdb9a953660461ddfaa26a411363c1c74b9cbc6",
-			"agent": "Codex",
-			"status": "healthy",
-			"timestamp": 1779298429769
-		}
-	]
+  "commits": [
+    {
+      "id": "commit_28d5be6f-6fa9-4bac-a0d5-2d384b57b754",
+      "commitSha": "19f7bbb77f238cd78d1b5b18da277ba4145ca0d7",
+      "agent": "Codex",
+      "type": "bugfix",
+      "title": "fix(telegram): open coding diffs in dashboard",
+      "description": "Telegram View Diff now opens a dashboard deep link, exposes real task diff data, and stores git diffs from Telegram coding jobs.",
+      "filesChanged": [
+        "cloud/api/api.js",
+        "cloud/api/telegramBot.js",
+        "cloud/api/telegramNotifier.js",
+        "cloud/dashboard/src/components/views/telegram.tsx",
+        "cloud/worker/agentRunners.js",
+        "memory/lesson-index.jsonl",
+        "memory/lessons-learned.md"
+      ],
+      "featuresAffected": [
+        "telegram-coding",
+        "dashboard-diff-viewer",
+        "learning-layer"
+      ],
+      "bugsFixed": [],
+      "timestamp": "2026-05-20T10:28:40.253Z",
+      "modelsUsed": [
+        {
+          "phase": "coding",
+          "provider": "deepseek",
+          "model": "deepseek-chat"
+        },
+        {
+          "phase": "review",
+          "provider": "openai",
+          "model": "codex"
+        }
+      ],
+      "workflowCompliance": {
+        "isCompliant": true,
+        "deepseekUsed": true,
+        "lessonsRetrieved": true,
+        "testsRun": true
+      }
+    },
+    {
+      "agent": "Kimi Code CLI",
+      "type": "feature",
+      "title": "Docker hybrid migration: API/Dashboard/Mini-IDE containerized, TS errors fixed",
+      "filesChanged": [
+        "src/super-roo/product-memory/index.ts",
+        "webview-ui/src/components/chat/KimiTasksPanel.tsx",
+        "webview-ui/src/components/chat/ChatView.tsx",
+        "cloud/docker/docker-compose.yml",
+        "cloud/docker/Dockerfile.api",
+        "cloud/docker/Dockerfile.dashboard",
+        "cloud/docker/Dockerfile.mini-ide",
+        "cloud/docker/Dockerfile.worker",
+        "cloud/docker/Dockerfile.auto-deployer",
+        "cloud/dashboard/next.config.js",
+        "cloud/dashboard/package.json",
+        "cloud/dashboard/eslint.config.mjs",
+        "cloud/dashboard/src/components/ide-terminal/hooks/useExtensionState.ts",
+        "cloud/dashboard/src/components/ide-terminal/ExtensionsPanel.tsx",
+        "cloud/dashboard/src/components/views/ide-terminal.tsx"
+      ],
+      "featuresAffected": [
+        "Dashboard IDE",
+        "Extensions Panel",
+        "Docker Deployment",
+        "TypeScript Build"
+      ],
+      "modelsUsed": [],
+      "workflowCompliance": null,
+      "timestamp": "2026-05-18T13:31:43.074Z",
+      "id": "commit_repaired_0_1779241386026"
+    },
+    {
+      "sha": "8375e025c3822d9ef30ee23708c90027838bbefc",
+      "agent": "Kimi Code CLI",
+      "type": "feature",
+      "title": "Telegram frictionless coding improvements",
+      "filesChanged": [
+        "cloud/api/telegramBot.js",
+        "cloud/api/telegramClassifier.js",
+        "cloud/api/telegramLearner.js",
+        "cloud/api/telegramNotifier.js",
+        "cloud/worker/agentRunners.js"
+      ],
+      "featuresAffected": [
+        "Telegram Bot",
+        "Auto Mode",
+        "Intent Classification",
+        "Context Awareness"
+      ],
+      "timestamp": "2026-05-20T01:21:36.150Z",
+      "id": "commit_repaired_1_1779241386026",
+      "modelsUsed": [],
+      "workflowCompliance": null,
+      "commitSha": "8375e025c3822d9ef30ee23708c90027838bbefc"
+    },
+    {
+      "commitSha": "3cbfb4b4bc51d8f6c5812ebcdcf8e8972d814eaf",
+      "agent": "Kimi Code CLI",
+      "type": "bugfix",
+      "title": "fix(webview): bound aggregatedCostsMap with LRUCache (max 50, 5min TTL)",
+      "filesChanged": [
+        "webview-ui/src/components/chat/ChatView.tsx"
+      ],
+      "featuresAffected": [
+        "webview-chat"
+      ],
+      "timestamp": "2026-05-20T06:49:47.537Z",
+      "id": "commit_1779259787541",
+      "modelsUsed": [],
+      "workflowCompliance": null
+    },
+    {
+      "commitSha": "9cc50a8a7daf39eedcb8a8dbb90b8baa79a74d94",
+      "agent": "Kimi Code CLI",
+      "type": "bugfix",
+      "title": "fix(webview): comprehensive tab error fixes and gap closures (P0–P2)",
+      "filesChanged": [
+        "webview-ui/src/App.tsx",
+        "webview-ui/src/components/chat/ChatTextArea.tsx",
+        "webview-ui/src/components/chat/ChatView.tsx",
+        "webview-ui/src/components/chat/FollowUpSuggest.tsx",
+        "webview-ui/src/components/github/GitHubView.tsx",
+        "webview-ui/src/components/marketplace/MarketplaceView.tsx",
+        "webview-ui/src/components/super-roo/SuperRooDashboard.tsx",
+        "webview-ui/src/components/super-roo/hooks/SrContext.tsx",
+        "webview-ui/src/components/super-roo/tabs/BugsTab.tsx",
+        "webview-ui/src/components/super-roo/tabs/ModelRouterView.tsx",
+        "webview-ui/src/components/super-roo/tabs/VpsHealthTab.tsx",
+        "webview-ui/src/components/super-roo/tabs/model-router/AgentSync.tsx",
+        "webview-ui/src/components/super-roo/tabs/model-router/CostOptimizer.tsx",
+        "webview-ui/src/components/super-roo/tabs/model-router/PerformanceMonitor.tsx",
+        "webview-ui/src/components/super-roo/tabs/model-router/ProviderStatusStrip.tsx",
+        "webview-ui/src/components/super-roo/tabs/model-router/RouteTable.tsx",
+        "webview-ui/src/components/super-roo/tabs/settings/AdvancedVpsSettingsTab.tsx",
+        "webview-ui/src/components/super-roo/tabs/settings/ApiKeysProvidersTab.tsx"
+      ],
+      "featuresAffected": [
+        "webview-all-tabs"
+      ],
+      "timestamp": "2026-05-20T10:34:57.215Z",
+      "id": "commit_1779273297215",
+      "modelsUsed": [],
+      "workflowCompliance": null
+    },
+    {
+      "id": "commit_1779296389499",
+      "commitSha": "8be88a7f7",
+      "agent": "Kimi Code CLI",
+      "type": "bugfix",
+      "title": "fix(ram-orchestrator): proxy routes, TypeError fixes, hysteresis logic, file rotation, null guards, abort signals",
+      "description": "Fixed RAM orchestrator audit issues: API proxy routes, string mutation TypeError, JSONL file rotation, WorkerPauseManager null guards, EADDRINUSE exit, hysteresis recovery zone, ramPercent rounding, pausedWorkers array return, dashboard AbortSignal timeouts.",
+      "filesChanged": [
+        "cloud/api/api.js",
+        "cloud/api/routes/monitoring.js",
+        "cloud/dashboard/src/components/views/ram-orchestrator.tsx",
+        "cloud/orchestrator/modules/RAMMonitor.js",
+        "cloud/orchestrator/modules/WorkerPauseManager.js",
+        "cloud/worker/vpsRamOrchestratorWorker.js"
+      ],
+      "featuresAffected": [
+        "ram-orchestrator",
+        "monitoring",
+        "dashboard"
+      ],
+      "bugsFixed": [],
+      "timestamp": "2026-05-20T16:59:49.499Z",
+      "modelsUsed": [
+        {
+          "phase": "coding",
+          "provider": "kimi",
+          "model": "kimi-code-cli"
+        }
+      ],
+      "workflowCompliance": {
+        "isCompliant": true,
+        "deepseekUsed": false,
+        "lessonsRetrieved": true,
+        "testsRun": true
+      }
+    },
+    {
+      "id": "commit_1779297874283",
+      "commitSha": "5afecfa1",
+      "agent": "Kimi Code CLI",
+      "type": "bugfix",
+      "title": "fix(ram-orchestrator): event property mismatch between RAMMonitor and AlertManager",
+      "description": "RAMMonitor emits stateChange with prevState and flat metrics, but AlertManager expected oldState and event.snapshot. Fixed property mapping and heartbeat listener.",
+      "filesChanged": [
+        "cloud/worker/vpsRamOrchestratorWorker.js"
+      ],
+      "featuresAffected": [
+        "ram-orchestrator"
+      ],
+      "bugsFixed": [
+        "undefined state in alert logs",
+        "missing snapshot in alert payload"
+      ],
+      "timestamp": "2026-05-20T17:24:34.283Z",
+      "modelsUsed": [
+        {
+          "phase": "coding",
+          "provider": "kimi",
+          "model": "kimi-code-cli"
+        }
+      ],
+      "workflowCompliance": {
+        "isCompliant": true,
+        "deepseekUsed": false,
+        "lessonsRetrieved": true,
+        "testsRun": true
+      }
+    },
+    {
+      "commitSha": "1cdb9a953660461ddfaa26a411363c1c74b9cbc6",
+      "agent": "Codex",
+      "type": "feature",
+      "title": "Clarify platform positioning and healing proof metrics",
+      "filesChanged": [
+        "README.md",
+        "cloud/api/routes/healing-metrics.js",
+        "docs/super-roo/GAP_AUDIT_2026-05-21.md"
+      ],
+      "featuresAffected": [
+        "readme-positioning",
+        "monitoring",
+        "self-healing",
+        "cloud-api"
+      ],
+      "modelsUsed": [
+        {
+          "phase": "planning",
+          "provider": "openai",
+          "model": "codex",
+          "success": true,
+          "timestamp": "2026-05-20T17:29:32.632Z"
+        },
+        {
+          "phase": "coding",
+          "provider": "deepseek",
+          "model": "deepseek-chat",
+          "success": true,
+          "timestamp": "2026-05-20T17:29:32.633Z"
+        },
+        {
+          "phase": "review",
+          "provider": "openai",
+          "model": "codex",
+          "success": true,
+          "timestamp": "2026-05-20T17:29:32.633Z"
+        },
+        {
+          "phase": "memory_storage",
+          "provider": "superroo-learn",
+          "model": "local-fallback",
+          "success": true,
+          "timestamp": "2026-05-20T17:29:32.633Z"
+        }
+      ],
+      "workflowCompliance": {
+        "isCompliant": true,
+        "steps": {
+          "lessonsRead": true,
+          "deepseekDelegated": true,
+          "codexReviewed": true,
+          "ollamaSummarized": false,
+          "centralBrainStored": false
+        },
+        "violations": [
+          "Central Brain was unreachable; lesson stored locally and queued for retry."
+        ]
+      },
+      "timestamp": 1779298172633
+    },
+    {
+      "commitSha": "790fb02159b5e187e1a69896f96ccfc157e0f82b",
+      "agent": "Codex",
+      "type": "bugfix",
+      "title": "Wire Telegram dashboard coding flow",
+      "filesChanged": [
+        "cloud/api/api.js",
+        "cloud/dashboard/src/components/views/telegram.tsx",
+        "cloud/worker/worker.js",
+        "cloud/api/__tests__/run-tests.js",
+        "memory/lessons-learned.md",
+        "memory/lesson-index.jsonl"
+      ],
+      "featuresAffected": [
+        "telegram-coding",
+        "telegram-dashboard",
+        "coder-workflow"
+      ],
+      "modelsUsed": [
+        {
+          "phase": "planning",
+          "provider": "openai",
+          "model": "codex",
+          "success": true,
+          "timestamp": "2026-05-21T01:54:54.906Z"
+        },
+        {
+          "phase": "coding",
+          "provider": "deepseek",
+          "model": "deepseek-chat",
+          "success": false,
+          "timestamp": "2026-05-21T01:54:54.906Z"
+        },
+        {
+          "phase": "review",
+          "provider": "openai",
+          "model": "codex",
+          "success": true,
+          "timestamp": "2026-05-21T01:54:54.906Z"
+        },
+        {
+          "phase": "memory_storage",
+          "provider": "superroo-learn",
+          "model": "local-fallback",
+          "success": true,
+          "timestamp": "2026-05-21T01:54:54.906Z"
+        }
+      ],
+      "workflowCompliance": {
+        "isCompliant": true,
+        "steps": {
+          "lessonsRead": true,
+          "deepseekDelegated": true,
+          "codexReviewed": true,
+          "ollamaSummarized": false,
+          "centralBrainStored": false
+        },
+        "violations": [
+          "DeepSeek returned generic non-applicable output; Codex applied minimal targeted patch after healthy route verification",
+          "Central Brain offline; lesson stored locally and queued for retry"
+        ]
+      },
+      "timestamp": 1779328494906
+    },
+    {
+      "commitSha": "9136531f0fe09febb4eefcef686c2d7bf4ca436d",
+      "agent": "Codex",
+      "type": "bugfix",
+      "title": "Include Telegram event bus runtime dependency",
+      "filesChanged": [
+        "cloud/package.json",
+        "cloud/orchestrator/modules/SuperRooEventBus.js",
+        "server/src/memory/commit-deploy-log.json"
+      ],
+      "featuresAffected": [
+        "telegram-coding",
+        "cloud-api",
+        "worker-runtime"
+      ],
+      "modelsUsed": [],
+      "workflowCompliance": {
+        "isCompliant": true,
+        "steps": {
+          "lessonsRead": true,
+          "deepseekDelegated": true,
+          "codexReviewed": true,
+          "ollamaSummarized": false,
+          "centralBrainStored": false
+        },
+        "violations": [
+          "Emergency deploy repair after runtime missing module detected; Central Brain still offline"
+        ]
+      },
+      "timestamp": 1779329970461
+    }
+  ],
+  "deploys": [
+    {
+      "version": "3.53.3+telegram",
+      "commitSha": "8375e025c3822d9ef30ee23708c90027838bbefc",
+      "agent": "Kimi Code CLI",
+      "target": "VPS (100.64.175.88)",
+      "timestamp": "2026-05-20T01:21:36.151Z",
+      "status": "healthy"
+    },
+    {
+      "version": "3.53.3+telegram",
+      "commitSha": "2ad4488cdd5a1ea1cd6ca2024283cb6c80bb9171",
+      "agent": "Kimi Code CLI",
+      "target": "VPS (100.64.175.88)",
+      "timestamp": "2026-05-20T11:47:53.000Z",
+      "status": "healthy"
+    },
+    {
+      "id": "deploy_1779296389513",
+      "version": "3.53.3",
+      "commitSha": "8be88a7f7",
+      "agent": "Kimi Code CLI",
+      "target": "100.64.175.88",
+      "services": [
+        "superroo-api",
+        "superroo-ram-orchestrator"
+      ],
+      "status": "healthy",
+      "timestamp": "2026-05-20T16:59:49.513Z"
+    },
+    {
+      "id": "deploy_1779297874283",
+      "version": "3.53.3",
+      "commitSha": "5afecfa1",
+      "agent": "Kimi Code CLI",
+      "target": "100.64.175.88",
+      "services": [
+        "superroo-ram-orchestrator"
+      ],
+      "status": "healthy",
+      "timestamp": "2026-05-20T17:24:34.283Z"
+    },
+    {
+      "version": "readme-healing-proof-1cdb9a95",
+      "commitSha": "1cdb9a953660461ddfaa26a411363c1c74b9cbc6",
+      "agent": "Codex",
+      "status": "healthy",
+      "timestamp": 1779298429769
+    },
+    {
+      "version": "telegram-coding-9136531f",
+      "commitSha": "9136531f0fe09febb4eefcef686c2d7bf4ca436d",
+      "agent": "Codex",
+      "status": "healthy",
+      "timestamp": 1779330175940
+    }
+  ]
 }

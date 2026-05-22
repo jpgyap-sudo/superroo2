@@ -38,6 +38,7 @@
 		"@superroo/config-typescript": "workspace:^",
 		"@types/glob": "^9.0.0",
 		"@types/node": "^24.1.0",
+		"@vitest/coverage-v8": "^4.1.7",
 		"@vscode/vsce": "3.3.2",
 		"esbuild": "^0.25.0",
 		"eslint": "^9.27.0",

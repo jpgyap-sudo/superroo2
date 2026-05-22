@@ -1,0 +1,89 @@
+{
+  "crawlId": "crawl-1779324803374",
+  "url": "http://100.64.175.88:3001/?page=healing",
+  "timestamp": "2026-05-21T00:53:41.171Z",
+  "viewportsTested": 5,
+  "issuesFound": 0,
+  "results": [
+    {
+      "viewport": "desktop-dark",
+      "width": 1920,
+      "height": 1080,
+      "colorScheme": "dark",
+      "baselinePath": "c:\\Users\\User\\superroo\\superroo2\\cloud\\e2e\\baselines\\crawl-1779324803374-desktop-dark.png",
+      "currentPath": "c:\\Users\\User\\superroo\\superroo2\\cloud\\e2e\\current\\crawl-1779324803374-desktop-dark.png",
+      "diffPath": null,
+      "comparison": {
+        "match": true,
+        "diffPixels": 0,
+        "diffPercent": 0,
+        "isNewBaseline": true
+      },
+      "analysis": null
+    },
+    {
+      "viewport": "desktop-light",
+      "width": 1920,
+      "height": 1080,
+      "colorScheme": "light",
+      "baselinePath": "c:\\Users\\User\\superroo\\superroo2\\cloud\\e2e\\baselines\\crawl-1779324803374-desktop-light.png",
+      "currentPath": "c:\\Users\\User\\superroo\\superroo2\\cloud\\e2e\\current\\crawl-1779324803374-desktop-light.png",
+      "diffPath": null,
+      "comparison": {
+        "match": true,
+        "diffPixels": 0,
+        "diffPercent": 0,
+        "isNewBaseline": true
+      },
+      "analysis": null
+    },
+    {
+      "viewport": "ipad-dark",
+      "width": 768,
+      "height": 1024,
+      "colorScheme": "dark",
+      "baselinePath": "c:\\Users\\User\\superroo\\superroo2\\cloud\\e2e\\baselines\\crawl-1779324803374-ipad-dark.png",
+      "currentPath": "c:\\Users\\User\\superroo\\superroo2\\cloud\\e2e\\current\\crawl-1779324803374-ipad-dark.png",
+      "diffPath": null,
+      "comparison": {
+        "match": true,
+        "diffPixels": 0,
+        "diffPercent": 0,
+        "isNewBaseline": true
+      },
+      "analysis": null
+    },
+    {
+      "viewport": "iphone-dark",
+      "width": 390,
+      "height": 844,
+      "colorScheme": "dark",
+      "baselinePath": "c:\\Users\\User\\superroo\\superroo2\\cloud\\e2e\\baselines\\crawl-1779324803374-iphone-dark.png",
+      "currentPath": "c:\\Users\\User\\superroo\\superroo2\\cloud\\e2e\\current\\crawl-1779324803374-iphone-dark.png",
+      "diffPath": null,
+      "comparison": {
+        "match": true,
+        "diffPixels": 0,
+        "diffPercent": 0,
+        "isNewBaseline": true
+      },
+      "analysis": null
+    },
+    {
+      "viewport": "iphone-light",
+      "width": 390,
+      "height": 844,
+      "colorScheme": "light",
+      "baselinePath": "c:\\Users\\User\\superroo\\superroo2\\cloud\\e2e\\baselines\\crawl-1779324803374-iphone-light.png",
+      "currentPath": "c:\\Users\\User\\superroo\\superroo2\\cloud\\e2e\\current\\crawl-1779324803374-iphone-light.png",
+      "diffPath": null,
+      "comparison": {
+        "match": true,
+        "diffPixels": 0,
+        "diffPercent": 0,
+        "isNewBaseline": true
+      },
+      "analysis": null
+    }
+  ]
+}
