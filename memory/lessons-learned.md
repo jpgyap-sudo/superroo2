@@ -2440,3 +2440,68 @@ After creating any file over 200 lines via write_to_file, immediately verify the
 sprint3, sprint4, sandbox, prompt-customization, reasoning-config, typescript-ports, auth, browser-agent, artifact-storage, deployer-adapters, bugfix
 
 ---
+
+### Auto-Extracted Lesson: Feat: Sprint 3+4 — Multi-Provider Sandbox, Prompt Customization, Reasoning Co...
+
+Date: 2026-05-22
+Source: Git commit 8fc922fc
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/orchestrator/CloudOrchestrator.js, cloud/orchestrator/modules/PromptCustomizer.js, cloud/orchestrator/modules/ReasoningConfig.js, cloud/orchestrator/sandbox/DaytonaSandbox.js, cloud/orchestrator/sandbox/E2BSandbox.js
+
+#### Task Summary
+
+feat: Sprint 3+4 — Multi-Provider Sandbox, Prompt Customization, Reasoning Config, TypeScript ports (G19/G22/G25), Auth (F7), Browser Agent (F8), Artifact Storage (F9), Deployer Adapters (F10)
+
+#### Files Changed
+
+- `cloud/orchestrator/CloudOrchestrator.js`
+- `cloud/orchestrator/modules/PromptCustomizer.js`
+- `cloud/orchestrator/modules/ReasoningConfig.js`
+- `cloud/orchestrator/sandbox/DaytonaSandbox.js`
+- `cloud/orchestrator/sandbox/E2BSandbox.js`
+- `cloud/orchestrator/sandbox/SandboxProvider.js`
+- `cloud/orchestrator/sandbox/index.js`
+- `memory/lessons-learned.md`
+- `src/super-roo/artifact-storage/index.ts`
+- `src/super-roo/auth/index.ts`
+- `src/super-roo/autonomous-loop/index.ts`
+- `src/super-roo/browser-agent/index.ts`
+- `src/super-roo/commissioning-loop/index.ts`
+- `src/super-roo/deployer-adapters/index.ts`
+- `src/super-roo/hermes-claw/index.ts`
+- `src/super-roo/index.ts`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 8fc922fc.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 8fc922fc by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+deployment
+
+---

@@ -1,16 +1,16 @@
 {
-	"generatedAt": "2026-05-22T11:22:29.844Z",
+	"generatedAt": "2026-05-22T12:15:38.123Z",
 	"deepseekModel": "deepseek-chat",
 	"ollamaUrl": "http://100.64.175.88:11434",
 	"sourceFile": "memory/lessons-learned.md",
 	"count": 1,
 	"summaries": [
 		{
-			"title": "A2A Protocol sendMessage must check localAgentId, not agent registry",
+			"title": "Sprint 3+4 — Multi-Provider Sandbox, Prompt Customization, Reasoning Config, TypeScript Ports, and Sprint 4 Features (F7-F10)",
 			"date": "2026-05-22",
 			"model": "deepseek-chat",
 			"confidence": "high",
-			"summary": "In A2A protocol implementations, `sendMessage()` must check `message.target === this._localAgentId` to route messages locally only for the local agent, not `this._agents.has(message.target)` which incorrectly routes remote agent messages locally. Additionally, avoid duplicate event emissions in `delegateTask()` since `_handleTask()` already emits `task:completed`, and always use explicit semicolons after destructuring assignments like `({ X } = require(...))` to prevent JavaScript ASI from misinterpreting the code.",
+			"summary": "This lesson covers the implementation of Sprint 3 and 4 features, including a multi-provider sandbox system (E2B and Daytona), a prompt customization system with four variants and slash commands, and a reasoning configuration layer supporting multiple AI providers. Additional features include TypeScript ports for core loops, an auth system abstraction, a browser automation agent, an artifact storage system, and deployer adapters for Vercel, Cloudflare, and Netlify. The key takeaway is the creation of a modular, provider-agnostic architecture that abstracts sandbox, auth, storage, and deployment functionalities for flexible integration.",
 			"hasEmbeddings": true
 		}
 	]
