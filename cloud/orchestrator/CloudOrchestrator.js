@@ -22,6 +22,8 @@ const { TaskExecutor } = require("./modules/TaskExecutor")
 const { RAMMonitor } = require("./modules/RAMMonitor")
 const { RAMScheduler } = require("./modules/RAMScheduler")
 const { WorkerPauseManager } = require("./modules/WorkerPauseManager")
+const { PromptCustomizer } = require("./modules/PromptCustomizer")
+const { ReasoningConfig } = require("./modules/ReasoningConfig")
 
 // ─── Safety Modes ─────────────────────────────────────────────────────
 
@@ -90,6 +92,10 @@ class CloudOrchestrator extends EventEmitter {
 		this.ramMonitor = null
 		this.ramScheduler = null
 		this.workerPauseManager = null
+
+		// Sprint 3 modules
+		this.promptCustomizer = null
+		this.reasoningConfig = null
 
 		// Internal state
 		this._running = false
@@ -633,6 +639,28 @@ class CloudOrchestrator extends EventEmitter {
 		console.log("[CloudOrchestrator] WorkerPauseManager registered")
 	}
 
+	// ─── Sprint 3 Module Registration ───────────────────────────────────
+
+	/**
+	 * Register the PromptCustomizer module.
+	 * Provides prompt variant sets, slash commands, and agent variable documentation.
+	 * @param {import('./modules/PromptCustomizer')} promptCustomizer
+	 */
+	registerPromptCustomizer(promptCustomizer) {
+		this.promptCustomizer = promptCustomizer
+		console.log("[CloudOrchestrator] PromptCustomizer registered")
+	}
+
+	/**
+	 * Register the ReasoningConfig module.
+	 * Provides provider-agnostic reasoning level abstraction and per-provider mapping.
+	 * @param {import('./modules/ReasoningConfig')} reasoningConfig
+	 */
+	registerReasoningConfig(reasoningConfig) {
+		this.reasoningConfig = reasoningConfig
+		console.log("[CloudOrchestrator] ReasoningConfig registered")
+	}
+
 	// ─── Status ─────────────────────────────────────────────────────────
 
 	/**
@@ -664,6 +692,8 @@ class CloudOrchestrator extends EventEmitter {
 			ramMonitor: !!this.ramMonitor,
 			ramScheduler: !!this.ramScheduler,
 			workerPauseManager: !!this.workerPauseManager,
+			promptCustomizer: !!this.promptCustomizer,
+			reasoningConfig: !!this.reasoningConfig,
 		}
 		return {
 			running: this._running,

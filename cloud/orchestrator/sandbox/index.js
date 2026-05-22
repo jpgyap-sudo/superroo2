@@ -22,6 +22,9 @@ const { DockerSandbox, isDangerousCommand, containerName } = require("./DockerSa
 const { SandboxPool } = require("./SandboxPool")
 const { SandboxManager } = require("./SandboxManager")
 const { ComposeSandbox } = require("./ComposeSandbox")
+const { SandboxProvider } = require("./SandboxProvider")
+const { E2BSandbox } = require("./E2BSandbox")
+const { DaytonaSandbox } = require("./DaytonaSandbox")
 
 // ── Global Singleton ──────────────────────────────────────────────────────────
 
@@ -73,6 +76,9 @@ module.exports = {
 	SandboxPool,
 	SandboxManager,
 	ComposeSandbox,
+	SandboxProvider,
+	E2BSandbox,
+	DaytonaSandbox,
 	isDangerousCommand,
 	containerName,
 	getGlobalSandboxManager,

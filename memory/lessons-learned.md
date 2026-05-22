@@ -2371,3 +2371,72 @@ To be determined — this commit was auto-flagged as potentially containing a le
 testing, api, bugfix
 
 ---
+
+### Lesson: Sprint 3+4 — Multi-Provider Sandbox, Prompt Customization, Reasoning Config, TypeScript Ports, and Sprint 4 Features (F7-F10)
+
+Date: 2026-05-22
+Source: Code agent task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/orchestrator/sandbox/SandboxProvider.js, cloud/orchestrator/sandbox/E2BSandbox.js, cloud/orchestrator/sandbox/DaytonaSandbox.js, cloud/orchestrator/modules/PromptCustomizer.js, cloud/orchestrator/modules/ReasoningConfig.js, src/super-roo/autonomous-loop/index.ts, src/super-roo/commissioning-loop/index.ts, src/super-roo/hermes-claw/index.ts, src/super-roo/auth/index.ts, src/super-roo/browser-agent/index.ts, src/super-roo/artifact-storage/index.ts, src/super-roo/deployer-adapters/index.ts, src/super-roo/index.ts
+
+#### Task Summary
+
+Implemented Sprint 3 features (F4-F6) and Sprint 4 features (F7-F10) from the gap analysis:
+
+- **F4 — Multi-Provider Sandbox**: Abstract SandboxProvider interface with E2B and Daytona cloud sandbox implementations
+- **F5 — Prompt Customization System**: PromptVariantSet with 4 variants (concise/balanced/thorough/educational), slash commands (fix/explain/test/deploy/review), agent variable substitution
+- **F6 — Reasoning Configuration**: ReasoningLevel enum (off→auto), per-provider mappings (OpenAI reasoning_effort, Anthropic thinking.budget_tokens, DeepSeek native, Google thinking_config, Ollama no-op), model defaults, task type overrides
+- **G19/G22/G25 TypeScript ports**: Created src/super-roo/autonomous-loop/, commissioning-loop/, hermes-claw/ with types, constants, and utility functions
+- **F7 — Auth System Abstraction**: AuthProvider interface + AuthManager singleton with Telegram/Auth0/Clerk/Supabase provider types
+- **F8 — Browser Automation Agent**: BrowserAgent class with Playwright-based navigation, clicking, typing, screenshots, form filling, visual diff, and test scenarios
+- **F9 — Artifact Storage System**: ArtifactStore interface + LocalArtifactStore (filesystem) + ArtifactManager singleton with MIME inference, checksums, size limits
+- **F10 — Deployer Adapters**: DeployerAdapter interface + VercelAdapter, CloudflareAdapter, NetlifyAdapter + factory function
+
+#### Files Changed
+
+- cloud/orchestrator/sandbox/SandboxProvider.js — CREATED (172 lines)
+- cloud/orchestrator/sandbox/E2BSandbox.js — CREATED (157 lines)
+- cloud/orchestrator/sandbox/DaytonaSandbox.js — CREATED (165 lines)
+- cloud/orchestrator/sandbox/index.js — MODIFIED (added exports)
+- cloud/orchestrator/modules/PromptCustomizer.js — CREATED (397 lines)
+- cloud/orchestrator/modules/ReasoningConfig.js — CREATED (359 lines)
+- cloud/orchestrator/CloudOrchestrator.js — MODIFIED (wired PromptCustomizer + ReasoningConfig)
+- src/super-roo/autonomous-loop/index.ts — CREATED
+- src/super-roo/commissioning-loop/index.ts — CREATED
+- src/super-roo/hermes-claw/index.ts — CREATED
+- src/super-roo/auth/index.ts — CREATED
+- src/super-roo/browser-agent/index.ts — CREATED (fixed VisualDiffResult error property)
+- src/super-roo/artifact-storage/index.ts — CREATED
+- src/super-roo/deployer-adapters/index.ts — CREATED (completed truncated CloudflareAdapter + NetlifyAdapter)
+- src/super-roo/index.ts — MODIFIED (added exports for all 7 new modules)
+
+#### Bug Cause
+
+1. VisualDiffResult interface was missing `error?: string` property, causing TS error when catch block tried to set it
+2. deployer-adapters/index.ts was truncated during write — CloudflareAdapter deploy method was incomplete, missing getDeployUrl and listDeployments, and NetlifyAdapter was entirely absent
+3. src/super-roo/index.ts had duplicate `TestResult` identifier — browser-agent's TestResult conflicted with existing TestResult from ./agents
+
+#### Fix Applied
+
+1. Added `error?: string` to VisualDiffResult interface
+2. Rewrote deployer-adapters/index.ts with complete CloudflareAdapter (wrangler CLI deploy, Cloudflare API for getDeployUrl/listDeployments) and full NetlifyAdapter (netlify CLI deploy, Netlify API for getDeployUrl/listDeployments) plus factory function
+3. Renamed browser-agent's TestResult export to BrowserTestResult via `as BrowserTestResult` in index.ts
+
+#### Test Result
+
+pass — TypeScript compiles cleanly (7 pre-existing errors in unrelated files)
+
+#### Lesson Learned
+
+When writing large TypeScript files via write_to_file, the tool may truncate output silently. Always verify file completeness after creation, especially for files exceeding ~200 lines. For interfaces used in catch blocks, ensure error properties are declared. When re-exporting types from multiple modules, check for naming conflicts with existing exports.
+
+#### Reusable Rule
+
+After creating any file over 200 lines via write_to_file, immediately verify the last 10 lines are complete and not truncated. For catch blocks that return typed objects, ensure the return type includes an `error?: string` property. When adding exports to a barrel file (index.ts), grep for duplicate identifiers before committing.
+
+#### Tags
+
+sprint3, sprint4, sandbox, prompt-customization, reasoning-config, typescript-ports, auth, browser-agent, artifact-storage, deployer-adapters, bugfix
+
+---

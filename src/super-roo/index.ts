@@ -213,3 +213,95 @@ export type {
 	LogQueryResult,
 	LogAggregatorConfig,
 } from "./infrastructure"
+
+// Autonomous Loop (G19)
+export {
+	checkHardSafety as autonomousCheckHardSafety,
+	getStepName as autonomousGetStepName,
+	formatDuration as autonomousFormatDuration,
+} from "./autonomous-loop"
+export type {
+	AutonomousLoopOptions,
+	AutonomousLoopStatus,
+	StepResult,
+	StartResult,
+	StopResult,
+	SafetyRule,
+	SafetyCheckResult,
+} from "./autonomous-loop"
+
+// Commissioning Loop (G22)
+export {
+	COMMISSIONING_PHASES,
+	checkHardSafety as commissioningCheckHardSafety,
+	getPhaseName,
+	formatDuration as commissioningFormatDuration,
+} from "./commissioning-loop"
+export type {
+	CommissioningLoopOptions,
+	CommissioningPhase,
+	PhaseResult,
+	CommissioningStatus,
+	CommissioningReport,
+} from "./commissioning-loop"
+
+// Hermes Claw (G25)
+export { DEFAULT_HERMES_CONFIG, SYSTEM_PROMPTS as HERMES_SYSTEM_PROMPTS } from "./hermes-claw"
+export type {
+	HermesOperation,
+	HermesRequest,
+	HermesResult,
+	HermesMemoryEntry,
+	HermesClawConfig,
+	OllamaGrowthEvent,
+	SkillFile,
+} from "./hermes-claw"
+
+// Auth System Abstraction (F7)
+export { getAuthManager } from "./auth"
+export type {
+	AuthProviderType,
+	AuthProviderConfig,
+	AuthUser,
+	AuthSession,
+	AuthResult,
+	AuthProvider,
+	AuthManager,
+} from "./auth"
+
+// Browser Automation Agent (F8)
+export { BrowserAgent, DEFAULT_BROWSER_CONFIG } from "./browser-agent"
+export type {
+	BrowserAction,
+	BrowserConfig,
+	BrowserActionResult,
+	NavigationOptions,
+	ClickOptions,
+	TypeOptions,
+	ScreenshotOptions,
+	ExtractOptions,
+	FormField,
+	FormFillOptions,
+	VisualDiffOptions,
+	VisualDiffResult,
+	TestStep,
+	TestScenario,
+	TestResult as BrowserTestResult,
+} from "./browser-agent"
+
+// Artifact Storage System (F9)
+export { getArtifactManager, LocalArtifactStore, ArtifactManager } from "./artifact-storage"
+export type {
+	StorageProviderType,
+	StorageProviderConfig,
+	ArtifactMetadata,
+	UploadResult,
+	DownloadResult,
+	ListResult,
+	DeleteResult,
+	ArtifactStore,
+} from "./artifact-storage"
+
+// Deployer Adapters (F10)
+export { VercelAdapter, CloudflareAdapter, NetlifyAdapter, createDeployerAdapter } from "./deployer-adapters"
+export type { DeployerType, DeployerConfig, DeployResult, BuildResult, DeployerAdapter } from "./deployer-adapters"
