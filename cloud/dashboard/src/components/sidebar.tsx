@@ -47,6 +47,7 @@ import {
 	Search as SearchIcon,
 	Upload,
 	History,
+	ShieldAlert,
 } from "lucide-react"
 
 const NAV = [
@@ -99,6 +100,7 @@ const NAV = [
 	{ id: "savepoints", icon: History, label: "Savepoints" },
 	{ id: "events", icon: Activity, label: "Events" },
 	{ id: "build-queue", icon: Layers, label: "Build Queue" },
+	{ id: "predictive-risk", icon: ShieldAlert, label: "Predictive Risk" },
 ]
 
 export function Sidebar({ page, setPage }: { page: string; setPage: (p: string) => void }) {
@@ -145,9 +147,9 @@ export function Sidebar({ page, setPage }: { page: string; setPage: (p: string) 
 					mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
 					collapsed ? "md:w-14" : "md:w-56",
 				)}>
-				{/* Header */}
+				{/* Header — product branding */}
 				<div
-					className="flex items-center gap-2 border-b border-[#1e2535] px-3 py-3 cursor-pointer"
+					className="flex items-center gap-2 border-b border-[#1e2535] px-3 py-3 cursor-pointer select-none"
 					onClick={() => {
 						if (window.innerWidth < 768) {
 							setMobileOpen(false)
@@ -155,10 +157,15 @@ export function Sidebar({ page, setPage }: { page: string; setPage: (p: string) 
 							setCollapsed(!collapsed)
 						}
 					}}>
-					<div className="flex h-8 w-8 items-center justify-center rounded bg-violet-600/20 text-violet-400 shrink-0">
+					<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-violet-600 to-violet-500 text-white shadow-lg shadow-violet-600/20 shrink-0">
 						<Sparkles className="h-4 w-4" />
 					</div>
-					{!collapsed && <span className="text-sm font-bold text-[#e2e8f0]">SuperRoo</span>}
+					{!collapsed && (
+						<div className="min-w-0 flex-1">
+							<span className="text-sm font-bold text-[#e2e8f0]">SuperRoo</span>
+							<p className="text-[10px] text-gray-600 leading-tight">AI Agent Cloud</p>
+						</div>
+					)}
 					{/* Close button on mobile — larger touch target */}
 					<button
 						onClick={(e) => {
@@ -203,8 +210,13 @@ export function Sidebar({ page, setPage }: { page: string; setPage: (p: string) 
 
 				{/* Version footer */}
 				{!collapsed && (
-					<div className="border-t border-[#1e2535] px-3 py-2 text-[10px] text-gray-700">
-						v2.0.0 · /opt/superroo2
+					<div className="border-t border-[#1e2535] px-3 py-2">
+						<div className="flex items-center gap-2 text-[10px] text-gray-700">
+							<span className="rounded bg-violet-600/10 px-1.5 py-0.5 text-[9px] text-violet-400 font-medium">
+								v2.0.0
+							</span>
+							<span>Cloud Console</span>
+						</div>
 					</div>
 				)}
 			</aside>

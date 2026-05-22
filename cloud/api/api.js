@@ -11588,13 +11588,23 @@ const server = http.createServer(async (req, res) => {
 				// Wire riskEngine into SelfHealingLoop for auto-pattern recording after incidents
 				if (brainServices.riskEngine && orchestrator && orchestrator.selfHealingLoop) {
 					orchestrator.selfHealingLoop.setRiskEngine(brainServices.riskEngine)
-					writeApiLog("info", "brain-v2", "RiskEngine wired into SelfHealingLoop for auto-pattern recording", {})
+					writeApiLog(
+						"info",
+						"brain-v2",
+						"RiskEngine wired into SelfHealingLoop for auto-pattern recording",
+						{},
+					)
 				}
 
 				// Wire swarmDebugger into SelfHealingLoop for auto-triggering parallel debugging on critical incidents
 				if (brainServices.swarmDebugger && orchestrator && orchestrator.selfHealingLoop) {
 					orchestrator.selfHealingLoop.setSwarmDebugger(brainServices.swarmDebugger)
-					writeApiLog("info", "brain-v2", "SwarmDebugger wired into SelfHealingLoop for auto-debug on critical incidents", {})
+					writeApiLog(
+						"info",
+						"brain-v2",
+						"SwarmDebugger wired into SelfHealingLoop for auto-debug on critical incidents",
+						{},
+					)
 				}
 
 				writeApiLog("info", "brain-v2", "Central Brain v2 services initialized", {})
@@ -11892,6 +11902,95 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// GET /api/brain/v2/reuse — Lesson reuse analytics
+		if (method === "GET" && (url === "/api/brain/v2/reuse" || normalizedUrl === "/api/brain/v2/reuse")) {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
+			const svc = await requireBrain(res)
+			if (!svc) return
+			try {
+				const requestUrl = new URL(req.url || "", "http://localhost")
+				const projectId = requestUrl.searchParams.get("project") || "default"
+				const limit = parseInt(requestUrl.searchParams.get("limit") || "20", 10)
+
+				// Top reused memories (sorted by use_count DESC)
+				const topReused = await svc.memory.query(
+					`SELECT id, title, content, memory_type, tags, related_files, related_agents,
+					        confidence, importance, use_count, last_used_at, status, created_at, created_by
+					 FROM agent_memory
+					 WHERE project_id = $1 AND use_count > 0
+					 ORDER BY use_count DESC, last_used_at DESC NULLS LAST
+					 LIMIT $2`,
+					[projectId, limit],
+				)
+
+				// Usage stats
+				const usageStats = await svc.memory.query(
+					`SELECT
+					  COUNT(*) FILTER (WHERE use_count > 0) AS reused_count,
+					  COUNT(*) FILTER (WHERE use_count = 0) AS never_used_count,
+					  AVG(use_count) AS avg_use,
+					  MAX(use_count) AS max_use,
+					  SUM(use_count) AS total_recalls
+					 FROM agent_memory WHERE project_id = $1`,
+					[projectId],
+				)
+
+				// Recall timeline (last 30 days grouped by day)
+				const recallTimeline = await svc.memory.query(
+					`SELECT DATE(created_at) AS day, COUNT(*) AS recalls
+					 FROM memory_recall_logs
+					 WHERE project_id = $1 AND created_at >= now() - interval '30 days'
+					 GROUP BY DATE(created_at)
+					 ORDER BY day ASC`,
+					[projectId],
+				)
+
+				// Top recalled files/patterns
+				const topFiles = await svc.memory.query(
+					`SELECT unnest(related_files) AS file, COUNT(*) AS recall_count
+					 FROM agent_memory
+					 WHERE project_id = $1 AND use_count > 0 AND related_files IS NOT NULL
+					 GROUP BY file
+					 ORDER BY recall_count DESC
+					 LIMIT 10`,
+					[projectId],
+				)
+
+				// Top recalled agents
+				const topAgents = await svc.memory.query(
+					`SELECT unnest(related_agents) AS agent, COUNT(*) AS memory_count,
+					        SUM(use_count) AS total_recalls
+					 FROM agent_memory
+					 WHERE project_id = $1 AND use_count > 0 AND related_agents IS NOT NULL
+					 GROUP BY agent
+					 ORDER BY total_recalls DESC
+					 LIMIT 10`,
+					[projectId],
+				)
+
+				sendJson(res, 200, {
+					success: true,
+					data: {
+						topReused: topReused.rows,
+						usageStats: usageStats.rows[0] || {
+							reused_count: 0,
+							never_used_count: 0,
+							avg_use: 0,
+							max_use: 0,
+							total_recalls: 0,
+						},
+						recallTimeline: recallTimeline.rows,
+						topFiles: topFiles.rows,
+						topAgents: topAgents.rows,
+					},
+				})
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
 		// ═══════════════════════════════════════════════════════════════════════════
 		// BRAIN V3 ENDPOINTS — Memory Evolution (versioning, feedback, propose, diff)
 		// ═══════════════════════════════════════════════════════════════════════════
@@ -12032,7 +12131,8 @@ const server = http.createServer(async (req, res) => {
 		// POST /api/brain/v2/memory/search-with-recall — Search + auto-log recall
 		if (
 			method === "POST" &&
-			(url === "/api/brain/v2/memory/search-with-recall" || normalizedUrl === "/api/brain/v2/memory/search-with-recall")
+			(url === "/api/brain/v2/memory/search-with-recall" ||
+				normalizedUrl === "/api/brain/v2/memory/search-with-recall")
 		) {
 			const svc = await requireBrain(res)
 			if (!svc) return
@@ -12050,238 +12150,242 @@ const server = http.createServer(async (req, res) => {
 					model,
 				})
 				sendJson(res, 200, { success: true, data: { memories } })
-				} catch (err) {
-					sendJson(res, 500, { success: false, error: err.message })
-				}
-				return
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
 			}
-	
-			// ═══════════════════════════════════════════════════════════════════════════
-			// BRAIN V3 INNOVATIVE ENDPOINTS — Confidence Trend, Memory Health, Merge Suggestions
-			// ═══════════════════════════════════════════════════════════════════════════
-	
-			// GET /api/brain/v2/memory/:id/confidence-trend — Get confidence trend timeline
-			const trendMatch =
-				url.match(/^\/api\/brain\/v2\/memory\/([a-f0-9-]+)\/confidence-trend$/) ||
-				normalizedUrl.match(/^\/api\/brain\/v2\/memory\/([a-f0-9-]+)\/confidence-trend$/)
-			if (method === "GET" && trendMatch) {
-				const svc = await requireBrain(res)
-				if (!svc) return
-				try {
-					const memoryId = trendMatch[1]
-					const trend = await svc.memory.getConfidenceTrend(memoryId)
-					sendJson(res, 200, { success: true, data: trend })
-				} catch (err) {
-					sendJson(res, 500, { success: false, error: err.message })
-				}
-				return
+			return
+		}
+
+		// ═══════════════════════════════════════════════════════════════════════════
+		// BRAIN V3 INNOVATIVE ENDPOINTS — Confidence Trend, Memory Health, Merge Suggestions
+		// ═══════════════════════════════════════════════════════════════════════════
+
+		// GET /api/brain/v2/memory/:id/confidence-trend — Get confidence trend timeline
+		const trendMatch =
+			url.match(/^\/api\/brain\/v2\/memory\/([a-f0-9-]+)\/confidence-trend$/) ||
+			normalizedUrl.match(/^\/api\/brain\/v2\/memory\/([a-f0-9-]+)\/confidence-trend$/)
+		if (method === "GET" && trendMatch) {
+			const svc = await requireBrain(res)
+			if (!svc) return
+			try {
+				const memoryId = trendMatch[1]
+				const trend = await svc.memory.getConfidenceTrend(memoryId)
+				sendJson(res, 200, { success: true, data: trend })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
 			}
-	
-			// GET /api/brain/v2/memory/health — Get memory health dashboard for a project
-			if (
-				method === "GET" &&
-				(url === "/api/brain/v2/memory/health" || normalizedUrl === "/api/brain/v2/memory/health")
-			) {
-				const svc = await requireBrain(res)
-				if (!svc) return
-				try {
-					const requestUrl = new URL(req.url || "", "http://localhost")
-					const projectId = requestUrl.searchParams.get("project") || "default"
-					const health = await svc.memory.getMemoryHealth(projectId)
-					sendJson(res, 200, { success: true, data: health })
-				} catch (err) {
-					sendJson(res, 500, { success: false, error: err.message })
-				}
-				return
+			return
+		}
+
+		// GET /api/brain/v2/memory/health — Get memory health dashboard for a project
+		if (
+			method === "GET" &&
+			(url === "/api/brain/v2/memory/health" || normalizedUrl === "/api/brain/v2/memory/health")
+		) {
+			const svc = await requireBrain(res)
+			if (!svc) return
+			try {
+				const requestUrl = new URL(req.url || "", "http://localhost")
+				const projectId = requestUrl.searchParams.get("project") || "default"
+				const health = await svc.memory.getMemoryHealth(projectId)
+				sendJson(res, 200, { success: true, data: health })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
 			}
-	
-			// GET /api/brain/v2/memory/merge-suggestions — Get merge suggestions for a project
-			if (
-				method === "GET" &&
-				(url === "/api/brain/v2/memory/merge-suggestions" || normalizedUrl === "/api/brain/v2/memory/merge-suggestions")
-			) {
-				const svc = await requireBrain(res)
-				if (!svc) return
-				try {
-					const requestUrl = new URL(req.url || "", "http://localhost")
-					const projectId = requestUrl.searchParams.get("project") || "default"
-					const threshold = parseFloat(requestUrl.searchParams.get("threshold") || "0.85")
-					const limit = parseInt(requestUrl.searchParams.get("limit") || "20", 10)
-					const suggestions = await svc.memory.getMergeSuggestions(projectId, threshold, limit)
-					sendJson(res, 200, { success: true, data: { suggestions } })
-					} catch (err) {
-						sendJson(res, 500, { success: false, error: err.message })
-					}
-					return
-				}
-		
-				// ═══════════════════════════════════════════════════════════════════════════
-				// BRAIN V4 ENDPOINTS — Consensus Voting & Model Routing
-				// ═══════════════════════════════════════════════════════════════════════════
-		
-				// POST /api/brain/v2/consensus/decide — Run a weighted consensus vote
-				if (
-					method === "POST" &&
-					(url === "/api/brain/v2/consensus/decide" || normalizedUrl === "/api/brain/v2/consensus/decide")
-				) {
-					const svc = await requireBrain(res)
-					if (!svc) return
-					try {
-						const body = await parseBody(req)
-						const result = await svc.consensus.decide({
-							projectId: body.projectId || "default",
-							decisionType: body.decisionType,
-							contextId: body.contextId,
-							votes: body.votes,
-							createdBy: body.createdBy || "api",
-						})
-						sendJson(res, 200, { success: true, data: result })
-					} catch (err) {
-						sendJson(res, 500, { success: false, error: err.message })
-					}
-					return
-				}
-		
-				// GET /api/brain/v2/consensus/decisions — List consensus decisions
-				if (
-					method === "GET" &&
-					(url === "/api/brain/v2/consensus/decisions" || normalizedUrl === "/api/brain/v2/consensus/decisions")
-				) {
-					const svc = await requireBrain(res)
-					if (!svc) return
-					try {
-						const requestUrl = new URL(req.url || "", "http://localhost")
-						const decisions = await svc.consensus.listDecisions({
-							projectId: requestUrl.searchParams.get("projectId") || undefined,
-							decisionType: requestUrl.searchParams.get("decisionType") || undefined,
-							finalDecision: requestUrl.searchParams.get("finalDecision") || undefined,
-							contextId: requestUrl.searchParams.get("contextId") || undefined,
-							limit: parseInt(requestUrl.searchParams.get("limit") || "50", 10),
-							offset: parseInt(requestUrl.searchParams.get("offset") || "0", 10),
-						})
-						sendJson(res, 200, { success: true, data: decisions })
-					} catch (err) {
-						sendJson(res, 500, { success: false, error: err.message })
-					}
-					return
-				}
-		
-				// GET /api/brain/v2/consensus/stats — Get consensus statistics
-				if (
-					method === "GET" &&
-					(url === "/api/brain/v2/consensus/stats" || normalizedUrl === "/api/brain/v2/consensus/stats")
-				) {
-					const svc = await requireBrain(res)
-					if (!svc) return
-					try {
-						const requestUrl = new URL(req.url || "", "http://localhost")
-						const projectId = requestUrl.searchParams.get("projectId") || "default"
-						const stats = await svc.consensus.getStats(projectId)
-						sendJson(res, 200, { success: true, data: stats })
-					} catch (err) {
-						sendJson(res, 500, { success: false, error: err.message })
-					}
-					return
-				}
-		
-				// POST /api/brain/v2/router/route — Select best model for task type
-				if (
-					method === "POST" &&
-					(url === "/api/brain/v2/router/route" || normalizedUrl === "/api/brain/v2/router/route")
-				) {
-					const svc = await requireBrain(res)
-					if (!svc) return
-					try {
-						const body = await parseBody(req)
-						const result = await svc.modelRouter.route({
-							projectId: body.projectId || "default",
-							taskType: body.taskType,
-							taskId: body.taskId,
-							runId: body.runId,
-						})
-						sendJson(res, 200, { success: true, data: result })
-					} catch (err) {
-						sendJson(res, 500, { success: false, error: err.message })
-					}
-					return
-				}
-		
-				// POST /api/brain/v2/router/outcome — Record routing outcome
-				if (
-					method === "POST" &&
-					(url === "/api/brain/v2/router/outcome" || normalizedUrl === "/api/brain/v2/router/outcome")
-				) {
-					const svc = await requireBrain(res)
-					if (!svc) return
-					try {
-						const body = await parseBody(req)
-						const result = await svc.modelRouter.recordOutcome({
-							projectId: body.projectId || "default",
-							taskType: body.taskType,
-							taskId: body.taskId,
-							runId: body.runId,
-							agent: body.agent,
-							modelSelected: body.modelSelected,
-							fallbackChain: body.fallbackChain,
-							attempt: body.attempt || 1,
-							success: body.success,
-							durationMs: body.durationMs,
-							costUsd: body.costUsd,
-							hallucinated: body.hallucinated || false,
-							error: body.error,
-						})
-						sendJson(res, 200, { success: true, data: result })
-					} catch (err) {
-						sendJson(res, 500, { success: false, error: err.message })
-					}
-					return
-				}
-		
-				// GET /api/brain/v2/router/logs — Get routing logs
-				if (
-					method === "GET" &&
-					(url === "/api/brain/v2/router/logs" || normalizedUrl === "/api/brain/v2/router/logs")
-				) {
-					const svc = await requireBrain(res)
-					if (!svc) return
-					try {
-						const requestUrl = new URL(req.url || "", "http://localhost")
-						const logs = await svc.modelRouter.getRoutingLogs({
-							projectId: requestUrl.searchParams.get("projectId") || undefined,
-							taskType: requestUrl.searchParams.get("taskType") || undefined,
-							agent: requestUrl.searchParams.get("agent") || undefined,
-							success: requestUrl.searchParams.get("success") !== null ? requestUrl.searchParams.get("success") === "true" : undefined,
-							limit: parseInt(requestUrl.searchParams.get("limit") || "50", 10),
-							offset: parseInt(requestUrl.searchParams.get("offset") || "0", 10),
-						})
-						sendJson(res, 200, { success: true, data: logs })
-					} catch (err) {
-						sendJson(res, 500, { success: false, error: err.message })
-					}
-					return
-				}
-		
-				// GET /api/brain/v2/router/performance — Get performance summary
-				if (
-					method === "GET" &&
-					(url === "/api/brain/v2/router/performance" || normalizedUrl === "/api/brain/v2/router/performance")
-				) {
-					const svc = await requireBrain(res)
-					if (!svc) return
-					try {
-						const requestUrl = new URL(req.url || "", "http://localhost")
-						const projectId = requestUrl.searchParams.get("projectId") || "default"
-						const summary = await svc.modelRouter.getPerformanceSummary(projectId)
-						sendJson(res, 200, { success: true, data: summary })
-					} catch (err) {
-						sendJson(res, 500, { success: false, error: err.message })
-					}
-					return
-				}
-		
-				// ═══════════════════════════════════════════════════════════════════════════
-				// MCP COMPATIBLE ENDPOINT — Fallback MCP server on REST API
-				// ═══════════════════════════════════════════════════════════════════════════
+			return
+		}
+
+		// GET /api/brain/v2/memory/merge-suggestions — Get merge suggestions for a project
+		if (
+			method === "GET" &&
+			(url === "/api/brain/v2/memory/merge-suggestions" ||
+				normalizedUrl === "/api/brain/v2/memory/merge-suggestions")
+		) {
+			const svc = await requireBrain(res)
+			if (!svc) return
+			try {
+				const requestUrl = new URL(req.url || "", "http://localhost")
+				const projectId = requestUrl.searchParams.get("project") || "default"
+				const threshold = parseFloat(requestUrl.searchParams.get("threshold") || "0.85")
+				const limit = parseInt(requestUrl.searchParams.get("limit") || "20", 10)
+				const suggestions = await svc.memory.getMergeSuggestions(projectId, threshold, limit)
+				sendJson(res, 200, { success: true, data: { suggestions } })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// ═══════════════════════════════════════════════════════════════════════════
+		// BRAIN V4 ENDPOINTS — Consensus Voting & Model Routing
+		// ═══════════════════════════════════════════════════════════════════════════
+
+		// POST /api/brain/v2/consensus/decide — Run a weighted consensus vote
+		if (
+			method === "POST" &&
+			(url === "/api/brain/v2/consensus/decide" || normalizedUrl === "/api/brain/v2/consensus/decide")
+		) {
+			const svc = await requireBrain(res)
+			if (!svc) return
+			try {
+				const body = await parseBody(req)
+				const result = await svc.consensus.decide({
+					projectId: body.projectId || "default",
+					decisionType: body.decisionType,
+					contextId: body.contextId,
+					votes: body.votes,
+					createdBy: body.createdBy || "api",
+				})
+				sendJson(res, 200, { success: true, data: result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /api/brain/v2/consensus/decisions — List consensus decisions
+		if (
+			method === "GET" &&
+			(url === "/api/brain/v2/consensus/decisions" || normalizedUrl === "/api/brain/v2/consensus/decisions")
+		) {
+			const svc = await requireBrain(res)
+			if (!svc) return
+			try {
+				const requestUrl = new URL(req.url || "", "http://localhost")
+				const decisions = await svc.consensus.listDecisions({
+					projectId: requestUrl.searchParams.get("projectId") || undefined,
+					decisionType: requestUrl.searchParams.get("decisionType") || undefined,
+					finalDecision: requestUrl.searchParams.get("finalDecision") || undefined,
+					contextId: requestUrl.searchParams.get("contextId") || undefined,
+					limit: parseInt(requestUrl.searchParams.get("limit") || "50", 10),
+					offset: parseInt(requestUrl.searchParams.get("offset") || "0", 10),
+				})
+				sendJson(res, 200, { success: true, data: decisions })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /api/brain/v2/consensus/stats — Get consensus statistics
+		if (
+			method === "GET" &&
+			(url === "/api/brain/v2/consensus/stats" || normalizedUrl === "/api/brain/v2/consensus/stats")
+		) {
+			const svc = await requireBrain(res)
+			if (!svc) return
+			try {
+				const requestUrl = new URL(req.url || "", "http://localhost")
+				const projectId = requestUrl.searchParams.get("projectId") || "default"
+				const stats = await svc.consensus.getStats(projectId)
+				sendJson(res, 200, { success: true, data: stats })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /api/brain/v2/router/route — Select best model for task type
+		if (
+			method === "POST" &&
+			(url === "/api/brain/v2/router/route" || normalizedUrl === "/api/brain/v2/router/route")
+		) {
+			const svc = await requireBrain(res)
+			if (!svc) return
+			try {
+				const body = await parseBody(req)
+				const result = await svc.modelRouter.route({
+					projectId: body.projectId || "default",
+					taskType: body.taskType,
+					taskId: body.taskId,
+					runId: body.runId,
+				})
+				sendJson(res, 200, { success: true, data: result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /api/brain/v2/router/outcome — Record routing outcome
+		if (
+			method === "POST" &&
+			(url === "/api/brain/v2/router/outcome" || normalizedUrl === "/api/brain/v2/router/outcome")
+		) {
+			const svc = await requireBrain(res)
+			if (!svc) return
+			try {
+				const body = await parseBody(req)
+				const result = await svc.modelRouter.recordOutcome({
+					projectId: body.projectId || "default",
+					taskType: body.taskType,
+					taskId: body.taskId,
+					runId: body.runId,
+					agent: body.agent,
+					modelSelected: body.modelSelected,
+					fallbackChain: body.fallbackChain,
+					attempt: body.attempt || 1,
+					success: body.success,
+					durationMs: body.durationMs,
+					costUsd: body.costUsd,
+					hallucinated: body.hallucinated || false,
+					error: body.error,
+				})
+				sendJson(res, 200, { success: true, data: result })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /api/brain/v2/router/logs — Get routing logs
+		if (
+			method === "GET" &&
+			(url === "/api/brain/v2/router/logs" || normalizedUrl === "/api/brain/v2/router/logs")
+		) {
+			const svc = await requireBrain(res)
+			if (!svc) return
+			try {
+				const requestUrl = new URL(req.url || "", "http://localhost")
+				const logs = await svc.modelRouter.getRoutingLogs({
+					projectId: requestUrl.searchParams.get("projectId") || undefined,
+					taskType: requestUrl.searchParams.get("taskType") || undefined,
+					agent: requestUrl.searchParams.get("agent") || undefined,
+					success:
+						requestUrl.searchParams.get("success") !== null
+							? requestUrl.searchParams.get("success") === "true"
+							: undefined,
+					limit: parseInt(requestUrl.searchParams.get("limit") || "50", 10),
+					offset: parseInt(requestUrl.searchParams.get("offset") || "0", 10),
+				})
+				sendJson(res, 200, { success: true, data: logs })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /api/brain/v2/router/performance — Get performance summary
+		if (
+			method === "GET" &&
+			(url === "/api/brain/v2/router/performance" || normalizedUrl === "/api/brain/v2/router/performance")
+		) {
+			const svc = await requireBrain(res)
+			if (!svc) return
+			try {
+				const requestUrl = new URL(req.url || "", "http://localhost")
+				const projectId = requestUrl.searchParams.get("projectId") || "default"
+				const summary = await svc.modelRouter.getPerformanceSummary(projectId)
+				sendJson(res, 200, { success: true, data: summary })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// ═══════════════════════════════════════════════════════════════════════════
+		// MCP COMPATIBLE ENDPOINT — Fallback MCP server on REST API
+		// ═══════════════════════════════════════════════════════════════════════════
 		// This endpoint implements the Model Context Protocol (MCP) so that any
 		// MCP-compatible client (Claude Code, Codex, Cursor, etc.) can interact
 		// with the SuperRoo Central Brain through the REST API.

@@ -1,23 +1,25 @@
+# Dependencies
 .pnpm-store
+node_modules
+package-lock.json
+
+# Build outputs
 dist
 out
 out-*
-node_modules
-package-lock.json
 coverage/
-mock/
-
-.DS_Store
-
-# IDEs
-.idea
-
-# Builds
 .next/
 bin/
 *.vsix
 *.tsbuildinfo
 superroo.bundle
+
+# IDEs
+.idea
+.vscode/
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
 
 # Local prompts and rules
 /local-prompts
@@ -27,10 +29,10 @@ AGENTS.local.md
 .test_env
 .vscode-test/
 
-# Docs
+# Docs build
 docs/_site/
 
-# Dotenv
+# Environment & secrets
 .env
 .env.*
 !.env.*.sample
@@ -46,29 +48,71 @@ data/
 *.sqlite-shm
 *.sqlite-wal
 
-# Vite development
+# Vite / Turborepo
 .vite-port
-
-# Turborepo
 .turbo
 
-# IntelliJ and Qodo plugin folders
+# IntelliJ / Qodo / Vercel
 .idea/
 .qodo/
 .vercel
-.roo/mcp.json
 
-# Qdrant
+# Qdrant vector storage
 qdrant_storage/
 
 # Architect plans
 plans/
 
-# Cloud agent runtime state (tracks enabled/disabled toggles)
+# Cloud agent runtime state
 cloud/agent-state.json
 
+# CLI tarballs
 roo-cli-*.tar.gz*
 
 # Temp / scratch dirs
 tmp/
 temp/
+
+# === SECURITY: MCP configuration (contains local/Tailscale IPs, brain endpoints) ===
+.roo/mcp.json
+.mcp.json
+
+# === SECURITY: SSH keys, Tailscale config, deployment secrets ===
+*.pem
+*.key
+*.cert
+id_rsa*
+id_ed25519*
+known_hosts
+tailscale-*.json
+
+# === SECURITY: Runtime state with sensitive data ===
+cloud/data/
+cloud/*.db
+cloud/*.sqlite
+
+# === SECURITY: Service worker cache ===
+cloud/dashboard/public/sw.js
+
+# === SECURITY: Test artifacts that may contain secrets ===
+test-results/
+e2e-report/
+playwright-report/
+
+# === SECURITY: Commissioning artifacts ===
+commissioning/
+new-folder/
+dash-new-folder/
+
+# === Cleanup: Root-level clutter ===
+test.txt
+tmp_all_git.txt
+superroo_files_in_git.txt
+NEEDS_USER_APPROVAL.md
+dashboard-test.txt
+dashboard-tab-connectivity-audit.md
+original.mjs
+commissioning-original.tsx
+AUTONOMOUS_IMPROVEMENT_REPORT.md
+BUG_CRAWL_REPORT_2026-05-02.md
+NEXT_IMPROVEMENTS.md

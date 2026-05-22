@@ -12,6 +12,7 @@ import {
 	HeartPulse,
 	RefreshCw,
 	ShieldAlert,
+	Sparkles,
 	Terminal,
 	Zap,
 } from "lucide-react"
@@ -85,7 +86,9 @@ function Panel({
 }) {
 	return (
 		<section
-			className={`rounded-lg border border-[rgba(82,120,190,0.22)] bg-[linear-gradient(180deg,rgba(13,20,34,0.94),rgba(6,11,22,0.96))] p-4 ${className}`}>
+			className={`relative overflow-hidden rounded-lg border border-[rgba(82,120,190,0.22)] bg-[linear-gradient(180deg,rgba(13,20,34,0.94),rgba(6,11,22,0.96))] p-4 ${className}`}>
+			{/* Subtle top accent line */}
+			<div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-violet-500/20 to-transparent" />
 			<div className="mb-4 flex items-center justify-between gap-3">
 				<h3 className="text-xs font-semibold uppercase tracking-wide text-slate-100">{title}</h3>
 				{action}
@@ -253,28 +256,57 @@ export function Overview() {
 
 	return (
 		<div className="space-y-3">
-			<div className="rounded-lg border border-[rgba(82,120,190,0.22)] bg-[linear-gradient(180deg,rgba(13,20,34,0.94),rgba(6,11,22,0.96))] p-3">
-				<div className="flex flex-wrap items-center gap-2">
+			{/* Product Hero Section */}
+			<div className="relative overflow-hidden rounded-xl border border-[rgba(82,120,190,0.22)] bg-[linear-gradient(135deg,rgba(13,20,34,0.94),rgba(6,11,22,0.96))] p-5 sm:p-6">
+				{/* Background glow */}
+				<div className="pointer-events-none absolute -right-20 -top-20 h-60 w-60 rounded-full bg-violet-600/5 blur-3xl" />
+				<div className="pointer-events-none absolute -bottom-20 -left-20 h-40 w-40 rounded-full bg-blue-600/5 blur-3xl" />
+
+				<div className="relative z-10 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+					<div className="flex items-center gap-4">
+						<div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 to-violet-500 text-white shadow-lg shadow-violet-600/25 shrink-0">
+							<Sparkles className="h-6 w-6" />
+						</div>
+						<div>
+							<h2 className="text-lg font-bold text-slate-100">SuperRoo Cloud Console</h2>
+							<p className="text-xs text-slate-500 mt-0.5">Autonomous AI agent orchestration platform</p>
+						</div>
+					</div>
+					<div className="flex items-center gap-3 text-xs text-slate-500">
+						<div className="flex items-center gap-1.5 rounded-lg border border-slate-800/60 bg-slate-950/60 px-3 py-1.5">
+							<div
+								className={`h-2 w-2 rounded-full ${health.status === "online" ? "bg-emerald-400 shadow-sm shadow-emerald-400/50" : "bg-red-400"}`}
+							/>
+							<span className="text-slate-400">
+								{health.status === "online" ? "All Systems Operational" : "System Issues Detected"}
+							</span>
+						</div>
+						<div className="flex items-center gap-1.5 text-slate-600">
+							<RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
+							<span>
+								{lastUpdated ? `Updated ${formatRelative(lastUpdated.toISOString())}` : "Loading..."}
+							</span>
+						</div>
+					</div>
+				</div>
+
+				{/* Quick status chips */}
+				<div className="relative z-10 mt-4 flex flex-wrap gap-2">
 					{topStatus.map((item) => (
 						<button
 							key={item.label}
 							onClick={() => navigate(item.target)}
-							className="min-w-[110px] rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2 text-left hover:border-slate-600">
-							<p className="text-[11px] text-slate-500">{item.label}</p>
-							<p
-								className={`text-sm font-medium ${item.tone === "good" ? "text-emerald-400" : item.tone === "bad" ? "text-red-400" : "text-amber-400"}`}>
+							className="inline-flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-1.5 text-xs hover:border-slate-600 transition-colors">
+							<div
+								className={`h-1.5 w-1.5 rounded-full ${item.tone === "good" ? "bg-emerald-400" : item.tone === "bad" ? "bg-red-400" : "bg-amber-400"}`}
+							/>
+							<span className="text-slate-500">{item.label}:</span>
+							<span
+								className={`font-medium ${item.tone === "good" ? "text-emerald-300" : item.tone === "bad" ? "text-red-300" : "text-amber-300"}`}>
 								{item.value}
-							</p>
+							</span>
 						</button>
 					))}
-					<div className="ml-auto flex items-center gap-2 text-xs text-slate-500">
-						<RefreshCw className={loading ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"} />
-						<span>
-							{lastUpdated
-								? `Updated ${formatRelative(lastUpdated.toISOString())}`
-								: "Loading live data..."}
-						</span>
-					</div>
 				</div>
 			</div>
 

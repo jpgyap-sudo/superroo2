@@ -134,7 +134,56 @@ const EVENT_TYPE_STYLE: Record<string, string> = {
 	"memory.decay_applied": "bg-orange-900/40 text-orange-300",
 }
 
-type Tab = "lessons" | "pgvector" | "scores" | "events" | "approvals"
+interface ReuseMemory {
+	id: string
+	title: string
+	content: string
+	memory_type: string
+	tags: string[]
+	related_files: string[]
+	related_agents: string[]
+	confidence: number
+	importance: number
+	use_count: number
+	last_used_at: string
+	status: string
+	created_at: string
+	created_by: string
+}
+
+interface UsageStats {
+	reused_count: number
+	never_used_count: number
+	avg_use: number
+	max_use: number
+	total_recalls: number
+}
+
+interface RecallTimelineEntry {
+	day: string
+	recalls: number
+}
+
+interface TopFileEntry {
+	file: string
+	recall_count: number
+}
+
+interface TopAgentEntry {
+	agent: string
+	memory_count: number
+	total_recalls: number
+}
+
+interface ReuseData {
+	topReused: ReuseMemory[]
+	usageStats: UsageStats
+	recallTimeline: RecallTimelineEntry[]
+	topFiles: TopFileEntry[]
+	topAgents: TopAgentEntry[]
+}
+
+type Tab = "lessons" | "pgvector" | "scores" | "events" | "approvals" | "reuse"
 
 export function MemoryExplorerView() {
 	const [data, setData] = useState<MemoryData | null>(null)
@@ -164,6 +213,10 @@ export function MemoryExplorerView() {
 	// Approvals
 	const [approvals, setApprovals] = useState<BrainApproval[]>([])
 	const [approvalsLoading, setApprovalsLoading] = useState(false)
+
+	// Reuse analytics
+	const [reuseData, setReuseData] = useState<ReuseData | null>(null)
+	const [reuseLoading, setReuseLoading] = useState(false)
 
 	const buildQueryString = (q: string, tag: string | null, project: string) => {
 		const params = new URLSearchParams()
@@ -304,6 +357,24 @@ export function MemoryExplorerView() {
 		}
 	}
 
+	const fetchReuseData = async () => {
+		setReuseLoading(true)
+		try {
+			const token = localStorage.getItem("superroo_auth_token")
+			const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
+			const params = new URLSearchParams({ project: activeProject || "default", limit: "20" })
+			const res = await fetch(`/api/brain/v2/reuse?${params}`, { headers })
+			if (res.ok) {
+				const result = await res.json()
+				setReuseData(result?.data || null)
+			}
+		} catch {
+			// silently fail
+		} finally {
+			setReuseLoading(false)
+		}
+	}
+
 	const handleApprove = async (approvalId: string) => {
 		try {
 			const token = localStorage.getItem("superroo_auth_token")
@@ -354,6 +425,8 @@ export function MemoryExplorerView() {
 			fetchBrainEvents()
 		} else if (activeTab === "approvals") {
 			fetchApprovals()
+		} else if (activeTab === "reuse") {
+			fetchReuseData()
 		}
 	}, [activeTab])
 
@@ -388,6 +461,7 @@ export function MemoryExplorerView() {
 		{ id: "scores", label: "Scores", icon: <BarChart3 className="h-4 w-4" /> },
 		{ id: "events", label: "Events", icon: <Activity className="h-4 w-4" /> },
 		{ id: "approvals", label: "Approvals", icon: <Shield className="h-4 w-4" /> },
+		{ id: "reuse", label: "Reuse Analytics", icon: <TrendingUp className="h-4 w-4" /> },
 	]
 
 	return (
@@ -415,6 +489,7 @@ export function MemoryExplorerView() {
 						else if (activeTab === "scores") fetchAgentScores()
 						else if (activeTab === "events") fetchBrainEvents()
 						else if (activeTab === "approvals") fetchApprovals()
+						else if (activeTab === "reuse") fetchReuseData()
 					}}
 					className="flex items-center gap-1.5 rounded-lg border border-[#1e2535] bg-[#0f1117] px-3 py-1.5 text-xs text-gray-400 hover:text-gray-200 transition-colors">
 					<RefreshCw className={`h-3.5 w-3.5 ${loading || brainLoading ? "animate-spin" : ""}`} />
@@ -958,6 +1033,222 @@ export function MemoryExplorerView() {
 							</div>
 						))}
 					</div>
+				</>
+			)}
+
+			{/* ===== REUSE ANALYTICS TAB ===== */}
+			{activeTab === "reuse" && (
+				<>
+					{reuseLoading && !reuseData && (
+						<div className="py-12 text-center text-sm text-gray-500">Loading reuse analytics...</div>
+					)}
+
+					{!reuseLoading && !reuseData && (
+						<div className="py-12 text-center text-sm text-gray-500">
+							No reuse data available. Memories must be recalled at least once to appear here.
+						</div>
+					)}
+
+					{reuseData && (
+						<div className="flex flex-col gap-4">
+							{/* Usage Stats Cards */}
+							<div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+								<div className="rounded-xl border border-[#1e2535] bg-[#0f1117] p-3">
+									<div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
+										<TrendingUp className="h-3.5 w-3.5 text-green-400" />
+										Reused
+									</div>
+									<p className="text-lg font-semibold text-[#e2e8f0]">
+										{reuseData.usageStats.reused_count}
+									</p>
+								</div>
+								<div className="rounded-xl border border-[#1e2535] bg-[#0f1117] p-3">
+									<div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
+										<Archive className="h-3.5 w-3.5 text-yellow-400" />
+										Never Used
+									</div>
+									<p className="text-lg font-semibold text-[#e2e8f0]">
+										{reuseData.usageStats.never_used_count}
+									</p>
+								</div>
+								<div className="rounded-xl border border-[#1e2535] bg-[#0f1117] p-3">
+									<div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
+										<BarChart3 className="h-3.5 w-3.5 text-blue-400" />
+										Avg Use
+									</div>
+									<p className="text-lg font-semibold text-[#e2e8f0]">
+										{Number(reuseData.usageStats.avg_use || 0).toFixed(1)}
+									</p>
+								</div>
+								<div className="rounded-xl border border-[#1e2535] bg-[#0f1117] p-3">
+									<div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
+										<Star className="h-3.5 w-3.5 text-purple-400" />
+										Max Use
+									</div>
+									<p className="text-lg font-semibold text-[#e2e8f0]">
+										{reuseData.usageStats.max_use}
+									</p>
+								</div>
+								<div className="rounded-xl border border-[#1e2535] bg-[#0f1117] p-3">
+									<div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
+										<Activity className="h-3.5 w-3.5 text-cyan-400" />
+										Total Recalls
+									</div>
+									<p className="text-lg font-semibold text-[#e2e8f0]">
+										{reuseData.usageStats.total_recalls}
+									</p>
+								</div>
+							</div>
+
+							{/* Recall Timeline */}
+							{reuseData.recallTimeline.length > 0 && (
+								<div className="rounded-xl border border-[#1e2535] bg-[#0f1117] p-4">
+									<h3 className="text-sm font-semibold text-[#e2e8f0] mb-3 flex items-center gap-2">
+										<Activity className="h-4 w-4 text-[#60a5fa]" />
+										Recall Activity (Last 30 Days)
+									</h3>
+									<div className="flex items-end gap-1 h-24">
+										{reuseData.recallTimeline.map((entry, i) => {
+											const maxRecalls = Math.max(
+												...reuseData.recallTimeline.map((e) => e.recalls),
+												1,
+											)
+											const height = Math.max((entry.recalls / maxRecalls) * 100, 4)
+											const dayLabel = new Date(entry.day).toLocaleDateString(undefined, {
+												month: "short",
+												day: "numeric",
+											})
+											return (
+												<div
+													key={entry.day}
+													className="flex flex-col items-center gap-1 flex-1 min-w-0"
+													title={`${dayLabel}: ${entry.recalls} recalls`}>
+													<div
+														className="w-full rounded-t bg-[#60a5fa]/60 hover:bg-[#60a5fa]/80 transition-colors"
+														style={{ height: `${height}%` }}
+													/>
+													{i % 5 === 0 && (
+														<span className="text-[10px] text-gray-600 truncate w-full text-center">
+															{dayLabel}
+														</span>
+													)}
+												</div>
+											)
+										})}
+									</div>
+								</div>
+							)}
+
+							{/* Top Reused Lessons */}
+							{reuseData.topReused.length > 0 && (
+								<div className="rounded-xl border border-[#1e2535] bg-[#0f1117] p-4">
+									<h3 className="text-sm font-semibold text-[#e2e8f0] mb-3 flex items-center gap-2">
+										<TrendingUp className="h-4 w-4 text-green-400" />
+										Top Reused Memories
+									</h3>
+									<div className="flex flex-col gap-2">
+										{reuseData.topReused.map((mem, i) => (
+											<div
+												key={mem.id}
+												className="flex items-center justify-between gap-3 rounded-lg border border-[#1e2535] bg-[#0a0d14] p-3 transition-colors hover:border-[#1e2d45]">
+												<div className="flex items-center gap-3 min-w-0 flex-1">
+													<span className="text-xs font-bold text-gray-500 w-5 shrink-0 text-right">
+														#{i + 1}
+													</span>
+													<div className="min-w-0 flex-1">
+														<p className="text-sm font-medium text-[#e2e8f0] truncate">
+															{mem.title || "Untitled"}
+														</p>
+														<div className="flex items-center gap-2 mt-0.5">
+															<span
+																className={`rounded-full px-2 py-0.5 text-[10px] ${MEMORY_TYPE_STYLE[mem.memory_type] || "bg-gray-800 text-gray-400"}`}>
+																{mem.memory_type}
+															</span>
+															{mem.related_agents && mem.related_agents.length > 0 && (
+																<span className="text-[10px] text-gray-600">
+																	by {mem.related_agents[0]}
+																</span>
+															)}
+														</div>
+													</div>
+												</div>
+												<div className="flex items-center gap-3 shrink-0">
+													<div className="text-right">
+														<p className="text-sm font-bold text-green-400">
+															{mem.use_count}
+														</p>
+														<p className="text-[10px] text-gray-600">recalls</p>
+													</div>
+													{mem.last_used_at && (
+														<div className="text-right hidden sm:block">
+															<p className="text-xs text-gray-500">
+																{new Date(mem.last_used_at).toLocaleDateString()}
+															</p>
+															<p className="text-[10px] text-gray-600">last used</p>
+														</div>
+													)}
+												</div>
+											</div>
+										))}
+									</div>
+								</div>
+							)}
+
+							{/* Top Files & Top Agents */}
+							<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+								{reuseData.topFiles.length > 0 && (
+									<div className="rounded-xl border border-[#1e2535] bg-[#0f1117] p-4">
+										<h3 className="text-sm font-semibold text-[#e2e8f0] mb-3 flex items-center gap-2">
+											<Database className="h-4 w-4 text-orange-400" />
+											Most Recalled Files
+										</h3>
+										<div className="flex flex-col gap-1.5">
+											{reuseData.topFiles.map((file) => (
+												<div
+													key={file.file}
+													className="flex items-center justify-between gap-2 rounded px-2 py-1.5 hover:bg-[#1e2535]/50 transition-colors">
+													<span className="text-xs text-gray-400 font-mono truncate">
+														{file.file}
+													</span>
+													<span className="text-xs font-medium text-[#e2e8f0] shrink-0">
+														{file.recall_count}
+													</span>
+												</div>
+											))}
+										</div>
+									</div>
+								)}
+
+								{reuseData.topAgents.length > 0 && (
+									<div className="rounded-xl border border-[#1e2535] bg-[#0f1117] p-4">
+										<h3 className="text-sm font-semibold text-[#e2e8f0] mb-3 flex items-center gap-2">
+											<Users className="h-4 w-4 text-blue-400" />
+											Top Agents by Recall
+										</h3>
+										<div className="flex flex-col gap-1.5">
+											{reuseData.topAgents.map((agent) => (
+												<div
+													key={agent.agent}
+													className="flex items-center justify-between gap-2 rounded px-2 py-1.5 hover:bg-[#1e2535]/50 transition-colors">
+													<div className="flex items-center gap-2 min-w-0">
+														<span className="text-xs text-gray-400 truncate">
+															{agent.agent}
+														</span>
+														<span className="text-[10px] text-gray-600">
+															{agent.memory_count} memories
+														</span>
+													</div>
+													<span className="text-xs font-medium text-[#e2e8f0] shrink-0">
+														{agent.total_recalls} recalls
+													</span>
+												</div>
+											))}
+										</div>
+									</div>
+								)}
+							</div>
+						</div>
+					)}
 				</>
 			)}
 		</div>

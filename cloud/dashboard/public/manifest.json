@@ -1,12 +1,15 @@
 {
-	"name": "SuperRoo Cloud Dashboard",
+	"name": "SuperRoo — AI Agent Cloud Platform",
 	"short_name": "SuperRoo",
-	"description": "Monitor jobs, agents, and system health for SuperRoo Cloud",
+	"description": "Autonomous AI agent orchestration, memory management, and cloud deployment platform. Manage agents, monitor system health, and deploy with confidence.",
 	"start_url": "/",
 	"display": "standalone",
 	"background_color": "#070b14",
-	"theme_color": "#070b14",
+	"theme_color": "#7c3aed",
 	"orientation": "any",
+	"categories": ["developer-tools", "productivity", "artificial-intelligence"],
+	"screenshots": [],
+	"prefer_related_applications": false,
 	"icons": [
 		{
 			"src": "/icon.svg",

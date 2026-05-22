@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { Sparkles } from "lucide-react"
 import { Sidebar } from "@/components/sidebar"
 import { Badge } from "@/components/ui/badge"
 import { Overview } from "@/components/views/overview"
@@ -52,6 +53,7 @@ import { FileImporterView } from "@/components/views/file-importer"
 import { SavepointsView } from "@/components/views/savepoints"
 import { EventsView } from "@/components/views/events"
 import { BuildQueueView } from "@/components/views/build-queue"
+import { PredictiveRiskView } from "@/components/views/predictive-risk"
 import { LoginPage } from "@/components/auth/login"
 
 const PAGES: Record<string, React.FC> = {
@@ -104,6 +106,7 @@ const PAGES: Record<string, React.FC> = {
 	savepoints: SavepointsView,
 	events: EventsView,
 	"build-queue": BuildQueueView,
+	"predictive-risk": PredictiveRiskView,
 }
 
 function StatusDot({ online }: { online: boolean }) {
@@ -241,6 +244,7 @@ export default function Dashboard() {
 			"mcp-servers": "MCP Servers",
 			sandbox: "Sandbox",
 			"provider-dashboard": "Providers",
+			"predictive-risk": "Predictive Risk",
 		}[page] || page
 
 	// Show login page while checking auth or if not authenticated
@@ -261,9 +265,21 @@ export default function Dashboard() {
 			<Sidebar page={page} setPage={setPage} />
 
 			<div className="flex flex-1 flex-col overflow-hidden min-w-0">
-				{/* Header — responsive: hide status dots on very small screens */}
+				{/* Header — product branding bar */}
 				<div className="flex h-12 shrink-0 items-center gap-2 sm:gap-4 border-b border-[#1e2535] bg-[#0a0e1a] px-3 sm:px-5 pl-14 md:pl-5">
-					<div className="flex items-center gap-3 max-sm:hidden">
+					{/* Product branding — visible on all screens */}
+					<div className="flex items-center gap-2 shrink-0">
+						<div className="flex h-6 w-6 items-center justify-center rounded bg-violet-600/20 text-violet-400">
+							<Sparkles className="h-3.5 w-3.5" />
+						</div>
+						<span className="hidden sm:inline text-xs font-semibold text-slate-200">SuperRoo</span>
+						<span className="hidden lg:inline text-[10px] text-slate-600 border-l border-slate-700/50 pl-2">
+							AI Agent Cloud
+						</span>
+					</div>
+
+					{/* Status indicators — hide on very small screens */}
+					<div className="flex items-center gap-3 max-sm:hidden ml-4">
 						<div className="flex items-center gap-1.5">
 							<StatusDot online={health?.status === "online"} />
 							<span className="text-[11px] text-gray-500">API</span>
@@ -289,6 +305,7 @@ export default function Dashboard() {
 							<span className="text-[11px] text-gray-500">Ollama</span>
 						</div>
 					</div>
+
 					<div className="ml-auto flex items-center gap-2 sm:gap-3">
 						<div className="max-sm:hidden">
 							<Badge status="warning" label="1 pending approval" />
@@ -300,7 +317,14 @@ export default function Dashboard() {
 				{/* Content — responsive padding */}
 				<div className="flex-1 overflow-y-auto p-3 sm:p-5">
 					<div className="mb-4 flex items-center justify-between">
-						<h1 className="text-base sm:text-lg font-semibold">{pageLabel}</h1>
+						<div className="flex items-center gap-3">
+							<h1 className="text-base sm:text-lg font-semibold text-slate-100">{pageLabel}</h1>
+							{page === "overview" && (
+								<span className="hidden sm:inline text-[10px] text-slate-600 bg-slate-900/60 px-2 py-0.5 rounded border border-slate-800/50">
+									Cloud Console
+								</span>
+							)}
+						</div>
 					</div>
 					<PageComponent />
 				</div>
