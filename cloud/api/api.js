@@ -8341,15 +8341,15 @@ const server = http.createServer(async (req, res) => {
 			}
 
 			// Validate repoUrl is a safe Git URL
-			const safeGitUrlRegex = /^https?://[^s"';&|<>$]+/[w-.]+/[w-.]+(?:.git)?$/
-			const safeGitSshRegex = /^git@[w-.]+:[w-.]+/[w-.]+(?:.git)?$/
+			const safeGitUrlRegex = /^https?:\/\/[^\s"';&|<>$]+\/[\w\-.]+\/[\w\-.]+(?:\.git)?$/
+			const safeGitSshRegex = /^git@[\w\-.]+:[\w\-.]+\/[\w\-.]+(?:\.git)?$/
 			if (!safeGitUrlRegex.test(repoUrl) && !safeGitSshRegex.test(repoUrl)) {
 				sendJson(res, 400, { ok: false, error: "Invalid repoUrl format" })
 				return
 			}
 
 			// Validate branch name to prevent shell injection
-			const safeBranchRegex = /^[w-./]+$/
+			const safeBranchRegex = /^[\w.\-/]+$/
 			if (!safeBranchRegex.test(branch)) {
 				sendJson(res, 400, { ok: false, error: "Invalid branch name" })
 				return
