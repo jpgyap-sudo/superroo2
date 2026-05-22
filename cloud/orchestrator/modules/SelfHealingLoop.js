@@ -88,6 +88,12 @@ class SelfHealingLoop {
 		this.taskQueue = taskQueue
 		this.config = { ...DEFAULT_CONFIG, ...configOverrides }
 
+		/** @type {import('../stores/brain/PredictiveFailureEngine')|null} */
+		this.riskEngine = null
+
+		/** @type {import('../stores/brain/SwarmDebugger')|null} */
+		this.swarmDebugger = null
+
 		this._running = false
 		this._loopHandle = null
 		this._failureRecords = new Map()
@@ -101,6 +107,24 @@ class SelfHealingLoop {
 			lastCycleDuration: 0,
 			lastCycleTime: null,
 		}
+	}
+
+	/**
+	 * Set the risk engine for auto-recording failure patterns after incidents.
+	 * Called lazily when brain services become available.
+	 * @param {object} riskEngine - PredictiveFailureEngine instance
+	 */
+	setRiskEngine(riskEngine) {
+		this.riskEngine = riskEngine
+	}
+
+	/**
+	 * Set the swarm debugger for auto-triggering parallel debugging on incidents.
+	 * Called lazily when brain services become available.
+	 * @param {object} swarmDebugger - SwarmDebugger instance
+	 */
+	setSwarmDebugger(swarmDebugger) {
+		this.swarmDebugger = swarmDebugger
 	}
 
 	/**
@@ -236,6 +260,29 @@ class SelfHealingLoop {
 		// Record this occurrence
 		this.recordFailure(incident)
 
+		// Auto-trigger swarm debug for critical/high severity incidents
+		if (this.swarmDebugger && (incident.severity === "critical" || incident.severity === "high")) {
+			try {
+				// Fire-and-forget — don't block the incident pipeline
+				this.swarmDebugger.debug({
+					projectId: incident.projectId || "default",
+					taskId: incident.id,
+					problem: incident.title || incident.description || `Auto-detected incident: ${incident.type || "unknown"}`,
+					context: {
+						filesChanged: incident.filesChanged || [],
+						logs: incident.message || "",
+						environment: { severity: incident.severity, source: incident.source },
+					},
+				}).then((result) => {
+					console.log(`[orchestrator/self-healing] Swarm debug completed for incident ${incident.id}: ${result.runId}`)
+				}).catch((err) => {
+					console.warn(`[orchestrator/self-healing] Swarm debug failed for incident ${incident.id}: ${err.message}`)
+				})
+			} catch (swarmErr) {
+				// Non-blocking — don't fail the incident pipeline for a swarm debug error
+			}
+		}
+
 		// Auto-investigate new incidents
 		await this.healingBus.transitionState(
 			incident.id,
@@ -247,6 +294,30 @@ class SelfHealingLoop {
 	}
 
 	async _processInvestigatingIncident(incident) {
+		// Auto-trigger swarm debug for critical/high incidents that are being investigated
+		// (if not already triggered in _processNewIncident)
+		if (this.swarmDebugger && (incident.severity === "critical" || incident.severity === "high")) {
+			try {
+				// Fire-and-forget — don't block the incident pipeline
+				this.swarmDebugger.debug({
+					projectId: incident.projectId || "default",
+					taskId: incident.id,
+					problem: `Investigating: ${incident.title || incident.description || `Incident ${incident.id}`}`,
+					context: {
+						filesChanged: incident.filesChanged || [],
+						logs: incident.message || "",
+						environment: { severity: incident.severity, source: incident.source, status: "investigating" },
+					},
+				}).then((result) => {
+					console.log(`[orchestrator/self-healing] Swarm debug completed during investigation for incident ${incident.id}: ${result.runId}`)
+				}).catch((err) => {
+					console.warn(`[orchestrator/self-healing] Swarm debug during investigation failed for incident ${incident.id}: ${err.message}`)
+				})
+			} catch (swarmErr) {
+				// Non-blocking
+			}
+		}
+
 		// Check if auto-fix is allowed
 		if (this.config.autoFixEnabled && this.healingBus.isAutoFixAllowed(incident)) {
 			await this.healingBus.transitionState(
@@ -351,6 +422,25 @@ class SelfHealingLoop {
 			this.stats.autoFixesApplied++
 			this._writeRepairRun(incident, "fixed", "auto-verified after grace period")
 			this.clearFailureRecord(incident)
+
+			// Auto-record failure pattern in PredictiveFailureEngine for future risk scoring
+			if (this.riskEngine) {
+				try {
+					const fingerprint = incident.fingerprint || computeFingerprint(incident)
+					await this.riskEngine.recordFailurePattern({
+						projectId: incident.projectId || "default",
+						patternType: incident.severity === "critical" ? "crash" : "error",
+						signature: fingerprint,
+						description: incident.title || incident.description || `Auto-detected: ${incident.type || "unknown"}`,
+						severity: incident.severity || "medium",
+						suggestedFix: incident.fixDescription || "",
+						source: "self-healing",
+					})
+				} catch (patternErr) {
+					// Non-blocking — don't fail the verification for a pattern recording error
+				}
+			}
+
 			return `verified:${incident.id}`
 		}
 		return null
