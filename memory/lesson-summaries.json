@@ -1,17 +1,17 @@
 {
-	"generatedAt": "2026-05-22T03:03:06.821Z",
+	"generatedAt": "2026-05-22T11:22:29.844Z",
 	"deepseekModel": "deepseek-chat",
-	"ollamaUrl": "http://localhost:11434",
+	"ollamaUrl": "http://100.64.175.88:11434",
 	"sourceFile": "memory/lessons-learned.md",
 	"count": 1,
 	"summaries": [
 		{
-			"title": "Telegram recommendation follow-up routing",
+			"title": "A2A Protocol sendMessage must check localAgentId, not agent registry",
 			"date": "2026-05-22",
-			"model": "local",
-			"confidence": "medium",
-			"summary": "When Telegram users request project improvement recommendations and follow up with phrases like \"ask coder to proceed,\" route those to code_task using recent recommendation context. However, explicit self-upgrade phrases like \"ask coder to upgrade you\" must be classified as upgrade_self before project follow-up detection. Add tests for both routing paths.",
-			"hasEmbeddings": false
+			"model": "deepseek-chat",
+			"confidence": "high",
+			"summary": "In A2A protocol implementations, `sendMessage()` must check `message.target === this._localAgentId` to route messages locally only for the local agent, not `this._agents.has(message.target)` which incorrectly routes remote agent messages locally. Additionally, avoid duplicate event emissions in `delegateTask()` since `_handleTask()` already emits `task:completed`, and always use explicit semicolons after destructuring assignments like `({ X } = require(...))` to prevent JavaScript ASI from misinterpreting the code.",
+			"hasEmbeddings": true
 		}
 	]
 }
