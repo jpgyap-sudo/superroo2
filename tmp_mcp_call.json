@@ -1,9 +1,0 @@
-{
-	"jsonrpc": "2.0",
-	"id": 2,
-	"method": "tools/call",
-	"params": {
-		"name": "hermes_recall",
-		"arguments": { "query": "telegram bot messages conversation logs improvements", "limit": 10 }
-	}
-}

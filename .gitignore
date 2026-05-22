@@ -106,7 +106,7 @@ dash-new-folder/
 
 # === Cleanup: Root-level clutter ===
 test.txt
-tmp_all_git.txt
+tmp_*
 superroo_files_in_git.txt
 NEEDS_USER_APPROVAL.md
 dashboard-test.txt
@@ -116,3 +116,32 @@ commissioning-original.tsx
 AUTONOMOUS_IMPROVEMENT_REPORT.md
 BUG_CRAWL_REPORT_2026-05-02.md
 NEXT_IMPROVEMENTS.md
+BUG_FIX_LOG.md
+CODERS_CHANGELOG.md
+ellipsis.yaml
+knip.json
+superroo-daemon.service
+progress.txt
+test-e2e-brain.sh
+website_response.html
+e2e-test.js
+e2e-mini.txt
+filters.xml
+wfpstate.xml
+tailscale-user-mode.cmd
+.mini-shared.txt
+.mcp.json.example
+
+# === Cleanup: Garbage files from corrupted terminals ===
+1778391856793)*
+console.log*
+0){*
+{try{const*
+{*
+
+# === Cleanup: VSIX build artifacts ===
+*.vsix
+superroo.bundle
+
+# === Cleanup: Turbo watch logs ===
+.turbo-watch.*

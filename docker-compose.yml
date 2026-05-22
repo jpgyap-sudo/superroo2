@@ -1,0 +1,234 @@
+# =============================================================================
+# SuperRoo — One-Click Demo
+# =============================================================================
+# Start the full SuperRoo stack with a single command:
+#
+#   docker compose up -d
+#
+# This starts:
+#   - Redis (queue backend)
+#   - PostgreSQL + pgvector (Central Brain memory store)
+#   - SuperRoo API (REST API, port 8787)
+#   - SuperRoo Dashboard (Next.js web UI, port 3001)
+#   - SuperRoo Mini-IDE (cloud IDE terminal, port 8081)
+#
+# Optional (enable with --profile full):
+#   - Worker (background job processor)
+#   - Auto-Deployer (GitHub webhook watcher)
+#
+# Prerequisites:
+#   - Docker Engine 24+ with Compose plugin
+#   - Ollama running on host (for local embeddings)
+#     → https://ollama.com/download
+#     → Pull a model: ollama pull nomic-embed-text
+#
+# After starting:
+#   - Dashboard: http://localhost:3001
+#   - API:       http://localhost:8787/api/health
+#   - Mini-IDE:  http://localhost:8081
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Redis — Queue backend for BullMQ
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    mem_limit: 256m
+    networks:
+      - superroo-net
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL + pgvector — Central Brain v2 memory store
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: superroo
+      POSTGRES_PASSWORD: superroo
+      POSTGRES_DB: superroo_brain
+    volumes:
+      - pgvector-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U superroo -d superroo_brain"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    mem_limit: 512m
+    networks:
+      - superroo-net
+
+  # ---------------------------------------------------------------------------
+  # SuperRoo API — REST API server
+  # ---------------------------------------------------------------------------
+  superroo-api:
+    build:
+      context: .
+      dockerfile: cloud/docker/Dockerfile.api
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - BRAIN_DATABASE_URL=postgresql://superroo:superroo@postgres:5432/superroo_brain
+      - ORCHESTRATOR_DB_PATH=/opt/superroo2/cloud/orchestrator/data/orchestrator.db
+      - NODE_ENV=production
+      - EMBEDDING_PROVIDER=ollama
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+    volumes:
+      - orchestrator-data:/opt/superroo2/cloud/orchestrator/data
+      - hermes-data:/opt/superroo2/cloud/data
+      - logs:/opt/superroo2/cloud/logs
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8787/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - superroo-net
+
+  # ---------------------------------------------------------------------------
+  # SuperRoo Dashboard — Next.js web UI
+  # ---------------------------------------------------------------------------
+  superroo-dashboard:
+    build:
+      context: .
+      dockerfile: cloud/docker/Dockerfile.dashboard
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - HOSTNAME=0.0.0.0
+      - NEXT_PUBLIC_API_URL=http://localhost:8787
+      - API_INTERNAL_URL=http://superroo-api:8787
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      superroo-api:
+        condition: service_healthy
+    networks:
+      - superroo-net
+
+  # ---------------------------------------------------------------------------
+  # SuperRoo Mini-IDE — Cloud IDE terminal
+  # ---------------------------------------------------------------------------
+  superroo-mini-ide:
+    build:
+      context: .
+      dockerfile: cloud/docker/Dockerfile.mini-ide
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      - MINI_IDE_PORT=8081
+      - SUPERROO_API_URL=http://superroo-api:8787
+    volumes:
+      - uploads:/opt/superroo2/cloud/mini-ide/uploads
+      - logs:/opt/superroo2/cloud/logs
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      superroo-api:
+        condition: service_healthy
+    networks:
+      - superroo-net
+
+  # ---------------------------------------------------------------------------
+  # Worker (optional — enable with: docker compose --profile full up -d)
+  # ---------------------------------------------------------------------------
+  superroo-worker:
+    build:
+      context: .
+      dockerfile: cloud/docker/Dockerfile.worker
+    restart: unless-stopped
+    profiles:
+      - full
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - API_BASE_URL=http://superroo-api:8787
+      - WORKSPACE_ROOT=/srv/superroo/workspaces
+    volumes:
+      - workspaces:/srv/superroo/workspaces
+      - logs:/opt/superroo2/cloud/logs
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    mem_limit: 512m
+    depends_on:
+      redis:
+        condition: service_healthy
+      superroo-api:
+        condition: service_healthy
+    networks:
+      - superroo-net
+
+  # ---------------------------------------------------------------------------
+  # Auto-Deployer (optional — enable with: docker compose --profile full up -d)
+  # ---------------------------------------------------------------------------
+  superroo-auto-deployer:
+    build:
+      context: .
+      dockerfile: cloud/docker/Dockerfile.auto-deployer
+    restart: unless-stopped
+    profiles:
+      - full
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=accept-new
+    volumes:
+      - logs:/opt/superroo2/cloud/logs
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${HOME}/.ssh:/root/.ssh:ro
+    mem_limit: 128m
+    depends_on:
+      redis:
+        condition: service_healthy
+      superroo-api:
+        condition: service_healthy
+    networks:
+      - superroo-net
+
+volumes:
+  redis-data:
+  pgvector-data:
+  orchestrator-data:
+  hermes-data:
+  logs:
+  workspaces:
+  uploads:
+
+networks:
+  superroo-net:
+    driver: bridge

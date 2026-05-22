@@ -4,12 +4,16 @@ import { useEffect, useState } from "react"
 import {
 	ArrowRight,
 	Bot,
+	BrainCircuit,
 	Bug,
+	BookMarked,
 	CheckCircle2,
 	CircleAlert,
+	Database,
 	GitBranch,
 	GitCommit,
 	HeartPulse,
+	Library,
 	RefreshCw,
 	ShieldAlert,
 	Sparkles,
@@ -53,6 +57,13 @@ type AttentionItem = {
 	action: string
 	target: string
 }
+type MemoryStats = {
+	lessons: number
+	memories: number
+	brainOnline: boolean
+	hermesOnline: boolean
+}
+
 type OverviewSummary = {
 	system: SystemMetrics
 	health: Health
@@ -70,6 +81,7 @@ type OverviewSummary = {
 	}
 	activity: ActivityItem[]
 	attention: AttentionItem[]
+	memory?: MemoryStats
 	generatedAt: string
 }
 
@@ -143,6 +155,12 @@ export function Overview() {
 	const [attention, setAttention] = useState<AttentionItem[]>([])
 	const [timeline, setTimeline] = useState<TimelinePoint[]>([])
 	const [eventBusStats, setEventBusStats] = useState<EventBusStats>({ activeTasks: 0, totalEvents: 0 })
+	const [memoryStats, setMemoryStats] = useState<MemoryStats>({
+		lessons: 0,
+		memories: 0,
+		brainOnline: false,
+		hermesOnline: false,
+	})
 	const [loading, setLoading] = useState(true)
 	const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
@@ -172,6 +190,7 @@ export function Overview() {
 					setUsageSummary(data.usage)
 					setActivity(data.activity || [])
 					setAttention(data.attention || [])
+					if (data.memory) setMemoryStats(data.memory)
 					setTimeline((prev) =>
 						[
 							...prev,
@@ -250,6 +269,9 @@ export function Overview() {
 		{ label: "Monitor Health", icon: HeartPulse, target: "monitoring", disabled: false },
 		{ label: "Review Agents", icon: Bot, target: "agents", disabled: agents.length === 0 },
 		{ label: "Task Timeline", icon: GitBranch, target: "task-timeline", disabled: eventBusStats.activeTasks === 0 },
+		{ label: "Memory Explorer", icon: Database, target: "memory-explorer", disabled: false },
+		{ label: "Central Brain", icon: BrainCircuit, target: "brain", disabled: false },
+		{ label: "Intelligence Layer", icon: Library, target: "intelligence-layer", disabled: false },
 	]
 
 	const successRate = jobStats.total > 0 ? Math.round((jobStats.completed / jobStats.total) * 1000) / 10 : 0
@@ -579,6 +601,64 @@ export function Overview() {
 					) : (
 						<p className="text-sm text-slate-500">No commit history available.</p>
 					)}
+				</Panel>
+
+				{/* Memory & Learning Panel */}
+				<Panel
+					title="Memory & Learning"
+					action={
+						<span className="rounded-full bg-violet-500/15 px-3 py-1 text-xs text-violet-300">
+							{memoryStats.brainOnline ? "Brain Online" : "Brain Offline"}
+						</span>
+					}
+					className="col-span-12 lg:col-span-4">
+					<div className="grid grid-cols-3 gap-2">
+						<Stat label="Lessons" value={String(memoryStats.lessons)} sub="stored" />
+						<Stat label="Memories" value={String(memoryStats.memories)} sub="in pgvector" />
+						<Stat
+							label="Hermes"
+							value={memoryStats.hermesOnline ? "Online" : "Offline"}
+							sub="context agent"
+						/>
+					</div>
+					<div className="mt-4 grid grid-cols-2 gap-2">
+						<button
+							onClick={() => navigate("memory-explorer")}
+							className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/70 p-3 text-left text-xs text-slate-200 hover:border-violet-400">
+							<Database className="h-4 w-4 text-violet-400" />
+							<div>
+								<p className="font-medium">Memory Explorer</p>
+								<p className="text-slate-500">Browse lessons & memories</p>
+							</div>
+						</button>
+						<button
+							onClick={() => navigate("brain")}
+							className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/70 p-3 text-left text-xs text-slate-200 hover:border-violet-400">
+							<BrainCircuit className="h-4 w-4 text-violet-400" />
+							<div>
+								<p className="font-medium">Central Brain</p>
+								<p className="text-slate-500">MCP server & search</p>
+							</div>
+						</button>
+						<button
+							onClick={() => navigate("intelligence-layer")}
+							className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/70 p-3 text-left text-xs text-slate-200 hover:border-violet-400">
+							<Library className="h-4 w-4 text-violet-400" />
+							<div>
+								<p className="font-medium">Intelligence Layer</p>
+								<p className="text-slate-500">Cross-project learning</p>
+							</div>
+						</button>
+						<button
+							onClick={() => navigate("hermes-claw")}
+							className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/70 p-3 text-left text-xs text-slate-200 hover:border-violet-400">
+							<BookMarked className="h-4 w-4 text-violet-400" />
+							<div>
+								<p className="font-medium">Hermes Claw</p>
+								<p className="text-slate-500">Context & patterns</p>
+							</div>
+						</button>
+					</div>
 				</Panel>
 			</div>
 		</div>

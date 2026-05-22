@@ -8520,12 +8520,18 @@ const server = http.createServer(async (req, res) => {
 				const cpu = cpus.length > 0 ? Math.min(100, Math.round((loadAvg[0] / cpus.length) * 100)) : 0
 				const ram = totalMem > 0 ? Math.round(((totalMem - freeMem) / totalMem) * 100) : 0
 
-				const [queueStats, disk, commitDeploy, usageRecords, logs] = await Promise.all([
+				const [queueStats, disk, commitDeploy, usageRecords, logs, brainHealth] = await Promise.all([
 					getJobCounts(),
 					getDiskUsagePercent(),
 					loadOverviewCommitDeploy(8),
 					loadOverviewUsage(200),
 					getLogs(12),
+					orchestrator?.learningGateway
+						? orchestrator.learningGateway
+								.health()
+								.then((h) => h)
+								.catch(() => null)
+						: Promise.resolve(null),
 				])
 
 				const redisHealthy = connection?.status === "ready"
@@ -8538,6 +8544,26 @@ const server = http.createServer(async (req, res) => {
 				const bugs = orchestrator?.bugRegistry ? orchestrator.bugRegistry.list({ limit: 50 }) : []
 				const events = orchestrator?.eventLog ? orchestrator.eventLog.list({ limit: 8 }) : []
 				const latestDeploy = commitDeploy.deploys[0] || null
+
+				// Gather memory/learning stats for the overview
+				let memoryStats = { lessons: 0, memories: 0, brainOnline: false, hermesOnline: false }
+				try {
+					if (orchestrator?.learningGateway) {
+						const health = await orchestrator.learningGateway
+							.health()
+							.catch(() => ({ brainOnline: false, hermesOnline: false }))
+						memoryStats.brainOnline = health.brainOnline || false
+						memoryStats.hermesOnline = health.hermesOnline || false
+					}
+					if (orchestrator?.hermesClaw) {
+						const lessons = await orchestrator.hermesClaw
+							.listLessons({ limit: 0 })
+							.catch(() => ({ total: 0 }))
+						memoryStats.lessons = lessons.total || 0
+					}
+				} catch (_e) {
+					// memory stats are best-effort
+				}
 
 				sendJson(res, 200, {
 					success: true,
@@ -8566,6 +8592,7 @@ const server = http.createServer(async (req, res) => {
 					usage: buildOverviewUsageSummary(usageRecords),
 					activity: buildOverviewActivity({ commits: commitDeploy.commits, events, logs }),
 					attention: buildOverviewAttention({ health, queueStats, bugs, latestDeploy }),
+					memory: memoryStats,
 				})
 			} catch (err) {
 				writeApiLog("error", "overview-summary", "Failed to build overview summary", { error: err.message })

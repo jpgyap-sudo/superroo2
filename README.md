@@ -13,45 +13,82 @@
   SuperRoo is a full-stack AI engineering system that plans, codes, tests, deploys, observes, learns, and repairs — all through an auditable multi-agent workflow. It combines a VS Code extension, a cloud dashboard, a Telegram operator interface, persistent Central Brain memory, deployment orchestration, and self-healing incident pipelines.
 </p>
 
+<p align="center">
+  <a href="#-one-click-demo">One-Click Demo</a> ·
+  <a href="#-what-makes-superroo-different">What Makes SuperRoo Different</a> ·
+  <a href="#-operator-surfaces">Operator Surfaces</a> ·
+  <a href="#-architecture">Architecture</a> ·
+  <a href="ROADMAP.md">Roadmap</a> ·
+  <a href="ARCHITECTURE.md">Architecture Deep Dive</a> ·
+  <a href="SECURITY_MODEL.md">Security Model</a>
+</p>
+
 ---
 
-## 🚀 Quick Start
+## 🚀 One-Click Demo
 
 ```bash
-# 1. Install the VS Code extension
-# Search "SuperRoo" in VS Code Marketplace or install via CLI:
-code --install-extension superroo.vsix
+# Start the full SuperRoo stack — API, Dashboard, Postgres, Redis
+docker compose up -d
 
-# 2. Clone and run the cloud dashboard
-git clone https://github.com/SuperRooInc/SuperRoo.git
-cd SuperRoo
-pnpm install
-cd cloud/dashboard
-pnpm dev
-
-# 3. Open http://localhost:3000 — the dashboard auto-discovers your agents
+# Open http://localhost:3001
+# The dashboard auto-discovers your agents and shows live system status
 ```
 
-**New to SuperRoo?** Read the [Onboarding Guide](docs/super-roo/ONBOARDING_GUIDE.md) or join our [Discord](https://discord.gg/superroo).
+**What you get:** Cloud Dashboard (Next.js), Cloud API (Express), PostgreSQL + pgvector (Central Brain), Redis (queue). All containerized, zero configuration.
+
+> **Prerequisites:** Docker, Node.js 20+. See [Local Development](#-local-development) for manual setup.
 
 ---
 
 ## 🧠 What Makes SuperRoo Different
 
-| Layer                      | What It Does                                                                                                                                  |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Central Brain**          | Stores cross-project lessons, task history, model decisions, and reusable engineering knowledge so agents stop repeating mistakes.            |
-| **Learning Layer**         | Captures lessons from commits and task completions, indexes them locally and centrally, and injects relevant memory before new work starts.   |
-| **Cloud Dashboard**        | Gives operators live views for agents, jobs, logs, monitoring, healing, deployments, model routing, product memory, and workflow compliance.  |
-| **Telegram Control Plane** | Lets you command, approve, inspect, and improve the system from Telegram instead of staying inside the IDE.                                   |
-| **Self-Healing Engine**    | Detects incidents, classifies root causes, builds repair plans, tracks repair attempts, verifies outcomes, and escalates repeated failures.   |
-| **Unified Deploy System**  | Queues builds and deployments through a single orchestrator with health checks, rollback paths, and commit/deploy audit records.              |
-| **Cloud Sandbox**          | Docker container orchestration with pooling, snapshot/restore, network simulation, self-healing, audit trail, and multi-language support.     |
-| **Provider Registry**      | Auto-discovers providers, tracks cost/latency per request, selects cheapest provider for task type, and exposes a dashboard view.             |
-| **Collaboration System**   | Real-time multi-user sessions with cursor sync, file change broadcast, workspace provider, and WebSocket + REST API.                          |
-| **MCP Server Manager**     | Manages MCP server lifecycle (start/stop/restart), health checks, tool/resource discovery, and notification broadcasting.                     |
-| **Predictive Risk Engine** | Assesses deployment risk using historical failure patterns, runs swarm debugging on critical incidents, and gates deployments on risk scores. |
-| **Swarm Debugger**         | Parallel multi-agent debugging — runs logs, Docker, database, security, regression, and memory agents simultaneously to diagnose incidents.   |
+SuperRoo isn't just another AI coding tool. It's a **complete engineering platform** that treats AI agents as first-class team members with memory, accountability, and self-healing capabilities.
+
+### 🔁 Agents That Learn From Mistakes
+
+Most AI coding tools start fresh every session. SuperRoo's **Central Brain** stores cross-project lessons, task history, model decisions, and reusable engineering knowledge. Agents query this memory before starting work and contribute new lessons after every task. Mistakes are captured once and never repeated.
+
+```bash
+# Query lessons across all projects
+superroo-learn query "how to fix database connection leaks"
+
+# Store a lesson manually
+superroo-learn store "React performance" "Disable strict mode in production to avoid double-rendering"
+```
+
+### 🩺 Self-Healing Infrastructure
+
+When something breaks, SuperRoo doesn't just log it — it **diagnoses, repairs, and verifies** automatically. The Self-Healing Loop detects incidents, classifies root causes, builds repair plans, tracks repair attempts, and escalates repeated failures to human operators.
+
+### 🧪 Parallel Swarm Debugging
+
+Instead of debugging one hypothesis at a time, SuperRoo runs **logs, Docker, database, security, regression, and memory agents simultaneously** to diagnose incidents. The Swarm Debugger coordinates these agents in parallel and synthesizes findings into a unified diagnosis.
+
+### 🚦 Predictive Deployment Risk
+
+Before every deployment, the **Predictive Risk Engine** assesses risk using historical failure patterns. If risk exceeds thresholds, deployments are gated behind consensus-based approval. Health checks run before and after deployment, with automatic rollback on failure.
+
+### 🎮 Three Operator Surfaces
+
+| Surface                     | Best For                                 |
+| --------------------------- | ---------------------------------------- |
+| **VS Code Extension**       | Day-to-day coding, debugging, testing    |
+| **Cloud Dashboard**         | System monitoring, operations, analytics |
+| **Telegram Bot / Mini IDE** | Remote operations, approvals, alerts     |
+
+Switch between surfaces without losing context — they share the same workspace state, memory, and orchestration layer.
+
+### 📚 Institutional Memory That Persists
+
+Every commit, every deployment, every bug fix, every model decision is recorded in the **Commit & Deploy Log** and the **Learning Layer**. This isn't just logging — it's structured, searchable, cross-project institutional memory that makes every agent smarter over time.
+
+### 🏗️ Built for Extensibility
+
+- **MCP Server Manager** — Add custom MCP servers for tools, resources, and prompts
+- **Provider Registry** — Auto-discovers AI providers, tracks cost/latency, selects cheapest for task type
+- **Collaboration System** — Real-time multi-user sessions with cursor sync and file broadcast
+- **Cloud Sandbox** — Docker container orchestration with pooling, snapshot/restore, network simulation
 
 ---
 
@@ -146,6 +183,8 @@ superroo-learn health
 └─────────────────────────────────────────────────────────┘
 ```
 
+See [ARCHITECTURE.md](ARCHITECTURE.md) for a deep dive into each layer, data flow, and module interactions.
+
 ---
 
 ## 🧩 Core Modules
@@ -176,10 +215,10 @@ superroo-learn health
 
 - Node.js 20+ (see [`.nvmrc`](.nvmrc))
 - pnpm (install via `npm install -g pnpm`)
-- Docker (for sandbox features)
+- Docker (for sandbox features and one-click demo)
 - Redis (for queue features)
 
-### Setup
+### Quick Start (Manual)
 
 ```bash
 # Clone
@@ -200,6 +239,15 @@ pnpm dev
 # Start the API server (in another terminal)
 cd cloud/api
 node api.js
+```
+
+### Docker (One-Click)
+
+```bash
+# Start everything — API, Dashboard, Postgres, Redis
+docker compose up -d
+
+# Open http://localhost:3001
 ```
 
 ### VS Code Extension Development
@@ -246,10 +294,12 @@ cd cloud/dashboard && npx playwright test
 
 ## 🔐 Security
 
-SuperRoo handles sensitive infrastructure — MCP servers, VPS endpoints, Tailscale IPs, brain endpoints, and autonomous execution. Key security measures:
+SuperRoo handles sensitive infrastructure — MCP servers, VPS endpoints, Tailscale IPs, brain endpoints, and autonomous execution. See [SECURITY_MODEL.md](SECURITY_MODEL.md) for the full security model.
+
+Key security measures:
 
 - **`.gitignore`** — MCP config, SSH keys, Tailscale configs, runtime state, and test artifacts are excluded from version control
-- **`.mcp.json`** — Contains local/Tailscale endpoints and model routing details; excluded from git (see [`.mcp.json.example`](.mcp.json.example) for the template)
+- **`.mcp.json`** — Contains local/Tailscale endpoints and model routing details; excluded from git
 - **Safety Manager** — Approval gates, command restrictions, path traversal guards, self-improvement boundary checks
 - **Deploy Gate** — Risk assessment before deployment, consensus-based approval, automatic rollback on health check failure
 - **Auth** — Bearer token authentication for dashboard API, Telegram initData for Mini IDE
@@ -263,6 +313,9 @@ SuperRoo handles sensitive infrastructure — MCP servers, VPS endpoints, Tailsc
 
 | Document                                                          | Description                               |
 | ----------------------------------------------------------------- | ----------------------------------------- |
+| [Architecture Deep Dive](ARCHITECTURE.md)                         | System architecture, data flow, modules   |
+| [Security Model](SECURITY_MODEL.md)                               | Security architecture and threat model    |
+| [Product Roadmap](ROADMAP.md)                                     | Current status and future plans           |
 | [Onboarding Guide](docs/super-roo/ONBOARDING_GUIDE.md)            | Get started with SuperRoo                 |
 | [Deployment Guide](docs/super-roo/DEPLOYMENT_GUIDE.md)            | Deploy to VPS with Tailscale SSH          |
 | [Central Brain](docs/super-roo/CENTRAL_BRAIN.md)                  | Memory, lessons, and knowledge management |
