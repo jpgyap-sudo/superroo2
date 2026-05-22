@@ -198,6 +198,10 @@ class RedisBackedMap {
 		this._map.forEach(fn)
 	}
 
+	[Symbol.iterator]() {
+		return this._map[Symbol.iterator]()
+	}
+
 	async _scheduleFlush(id, value) {
 		// Debounced flush: wait 2s after last mutation before writing to Redis
 		if (this._flushTimeouts.has(id)) {
