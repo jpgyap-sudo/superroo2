@@ -165,7 +165,8 @@ const FALLBACK_SKILLS: ExistingSkill[] = [
 	{
 		id: "vercel",
 		name: "Vercel",
-		description: "Deploy and integrate Vercel (Next.js, Edge Functions, Serverless, Analytics, ISR) into SuperRoo apps",
+		description:
+			"Deploy and integrate Vercel (Next.js, Edge Functions, Serverless, Analytics, ISR) into SuperRoo apps",
 		emoji: "▲",
 		category: "deployment",
 		status: "active",
@@ -381,39 +382,40 @@ export function SkillGeneratorView() {
 		setTimeout(() => setToast(null), 3000)
 	}, [])
 
-	// Fetch existing skills on mount
-	useEffect(() => {
-		const fetchSkills = async () => {
-			setSkillsLoading(true)
-			setSkillsError(null)
-			try {
-				const res = await fetch("/api/brain/skills")
-				const data = await res.json()
-				if (data.success && Array.isArray(data.skills) && data.skills.length > 0) {
-					const mapped: ExistingSkill[] = data.skills.map((s: any) => ({
-						id: s.id || s.name?.toLowerCase().replace(/\s+/g, "-") || String(Math.random()),
-						name: s.name || s.title || "Unnamed Skill",
-						description: s.description || "",
-						emoji: s.emoji || "📄",
-						category: ["automation", "integration", "quality", "deployment", "ai"].includes(s.category)
-							? s.category
-							: "automation",
-						status: ["active", "beta", "draft"].includes(s.status) ? s.status : "active",
-						lines: typeof s.lines === "number" ? s.lines : typeof s.lineCount === "number" ? s.lineCount : 100,
-					}))
-					setExistingSkills(mapped)
-				} else {
-					setExistingSkills(FALLBACK_SKILLS)
-				}
-			} catch (err) {
-				setSkillsError(err instanceof Error ? err.message : "Failed to load skills")
+	// Fetch existing skills
+	const loadSkills = useCallback(async () => {
+		setSkillsLoading(true)
+		setSkillsError(null)
+		try {
+			const res = await fetch("/api/brain/skills")
+			const data = await res.json()
+			if (data.success && Array.isArray(data.skills) && data.skills.length > 0) {
+				const mapped: ExistingSkill[] = data.skills.map((s: any) => ({
+					id: s.id || s.name?.toLowerCase().replace(/\s+/g, "-") || String(Math.random()),
+					name: s.name || s.title || "Unnamed Skill",
+					description: s.description || "",
+					emoji: s.emoji || "📄",
+					category: ["automation", "integration", "quality", "deployment", "ai"].includes(s.category)
+						? s.category
+						: "automation",
+					status: ["active", "beta", "draft"].includes(s.status) ? s.status : "active",
+					lines: typeof s.lines === "number" ? s.lines : typeof s.lineCount === "number" ? s.lineCount : 100,
+				}))
+				setExistingSkills(mapped)
+			} else {
 				setExistingSkills(FALLBACK_SKILLS)
-			} finally {
-				setSkillsLoading(false)
 			}
+		} catch (err) {
+			setSkillsError(err instanceof Error ? err.message : "Failed to load skills")
+			setExistingSkills(FALLBACK_SKILLS)
+		} finally {
+			setSkillsLoading(false)
 		}
-		fetchSkills()
 	}, [])
+
+	useEffect(() => {
+		loadSkills()
+	}, [loadSkills])
 
 	const setStatus = (id: string, status: DraftItem["status"]) => {
 		setDrafts((prev) => prev.map((d) => (d.id === id ? { ...d, status } : d)))
@@ -433,9 +435,10 @@ export function SkillGeneratorView() {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({
-						failureType: "missing-skill",
-						goal: rec.title,
-						solution: rec.description,
+						failureType: rec.title,
+						goal: rec.description,
+						solution: rec.reason,
+						tags: [rec.category],
 					}),
 				})
 				const data = await res.json()
@@ -454,6 +457,7 @@ export function SkillGeneratorView() {
 					}
 					setDrafts((prev) => [...prev, newDraft])
 					showToast(`Generated draft: ${rec.title}`, "success")
+					loadSkills().catch(() => null)
 				} else {
 					// Fallback to mock generation if API fails
 					const newDraft: DraftItem = {
@@ -491,7 +495,7 @@ export function SkillGeneratorView() {
 				})
 			}
 		},
-		[showToast],
+		[showToast, loadSkills],
 	)
 
 	const handleGenerateAll = useCallback(async () => {
@@ -503,9 +507,10 @@ export function SkillGeneratorView() {
 						method: "POST",
 						headers: { "Content-Type": "application/json" },
 						body: JSON.stringify({
-							failureType: "missing-skill",
-							goal: rec.title,
-							solution: rec.description,
+							failureType: rec.title,
+							goal: rec.description,
+							solution: rec.reason,
+							tags: [rec.category],
 						}),
 					}).then((r) => r.json()),
 				),
@@ -550,6 +555,7 @@ export function SkillGeneratorView() {
 					: `Generated ${RECOMMENDED_SKILLS.length} drafts (API unavailable, used fallback)`,
 				"success",
 			)
+			loadSkills().catch(() => null)
 		} catch {
 			// Complete fallback
 			const newDrafts = RECOMMENDED_SKILLS.map((rec) => ({
@@ -567,7 +573,7 @@ export function SkillGeneratorView() {
 		} finally {
 			setGenerateAllLoading(false)
 		}
-	}, [showToast])
+	}, [showToast, loadSkills])
 
 	const filteredSkills = useMemo(() => {
 		return existingSkills.filter((s) => {

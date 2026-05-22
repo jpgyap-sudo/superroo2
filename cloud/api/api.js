@@ -74,6 +74,122 @@ global.__collaborationWss = collaborationWss
 const WORKSPACE_STORE_PATH = path.join(__dirname, "..", "data", "ide-workspace.json")
 const codexTaskLog = new CodexTaskLog()
 
+// ── Approvals Store ─────────────────────────────────────────────────────────────
+const approvalStore = []
+let approvalIdCounter = 1
+function generateApprovalId() {
+	return `APR-${String(approvalIdCounter++).padStart(4, "0")}`
+}
+function createApproval(data) {
+	const id = generateApprovalId()
+	const approval = {
+		id,
+		agent: data.agent || "System",
+		type: data.type || "Action",
+		action: data.action || "Unknown action",
+		details: data.details || "",
+		risk: data.risk || "medium",
+		score: data.score ?? 50,
+		status: data.status || "pending",
+		age: data.age || "just now",
+		icon: data.icon || "folder",
+		createdAt: Date.now(),
+	}
+	approvalStore.push(approval)
+	return approval
+}
+function seedApprovals() {
+	if (approvalStore.length > 0) return
+	createApproval({
+		agent: "Deploy Agent",
+		type: "Production Deployment",
+		action: "Deploy to production environment",
+		details: "Changes: 18 files • 2,341 additions",
+		risk: "high",
+		score: 82,
+		status: "pending",
+		age: "2m ago",
+		icon: "rocket",
+	})
+	createApproval({
+		agent: "Debugger Agent",
+		type: "Terminal Command",
+		action: "Run command: sudo apt install nginx",
+		details: "Packages: nginx, nginx-common, nginx-core",
+		risk: "medium",
+		score: 56,
+		status: "review",
+		age: "4m ago",
+		icon: "terminal",
+	})
+	createApproval({
+		agent: "Coder Agent",
+		type: "GitHub Action",
+		action: "Force push to main branch",
+		details: "Repository: superroo/cloud • 7 commits",
+		risk: "critical",
+		score: 95,
+		status: "pending",
+		age: "7m ago",
+		icon: "github",
+	})
+	createApproval({
+		agent: "Research Agent",
+		type: "API Access",
+		action: "Access OpenAI Billing API",
+		details: "Endpoint: /v1/organization/usage",
+		risk: "medium",
+		score: 48,
+		status: "review",
+		age: "11m ago",
+		icon: "cloud",
+	})
+	createApproval({
+		agent: "Tester Agent",
+		type: "File Operation",
+		action: "Delete cache directory",
+		details: "Path: /app/.next/cache (1.2 GB)",
+		risk: "low",
+		score: 18,
+		status: "auto-approved",
+		age: "13m ago",
+		icon: "folder",
+	})
+	createApproval({
+		agent: "Deploy Agent",
+		type: "Staging Deployment",
+		action: "Deploy to staging environment",
+		details: "Changes: 5 files • 342 additions",
+		risk: "low",
+		score: 12,
+		status: "pending",
+		age: "18m ago",
+		icon: "rocket",
+	})
+	createApproval({
+		agent: "Coder Agent",
+		type: "Database Migration",
+		action: "Run migration: add_users_table",
+		details: "SQL: CREATE TABLE users (id UUID PRIMARY KEY, ...)",
+		risk: "high",
+		score: 74,
+		status: "pending",
+		age: "22m ago",
+		icon: "folder",
+	})
+	createApproval({
+		agent: "Research Agent",
+		type: "Secrets Access",
+		action: "Read AWS production secrets",
+		details: "Vault path: /secrets/aws/production/*",
+		risk: "critical",
+		score: 98,
+		status: "review",
+		age: "25m ago",
+		icon: "cloud",
+	})
+}
+
 // ── ML Sync Modules ────────────────────────────────────────────────────────────
 
 const {
@@ -4847,13 +4963,18 @@ const server = http.createServer(async (req, res) => {
 
 		// Approvals list
 		if (method === "GET" && url === "/approvals") {
-			sendJson(res, 200, { success: true, approvals: [] })
+			seedApprovals()
+			sendJson(res, 200, { success: true, approvals: approvalStore })
 			return
 		}
 
 		// Approve
 		if (method === "POST" && url.match(/^\/approvals\/[^/]+\/approve$/)) {
 			const id = url.split("/")[2]
+			const approval = approvalStore.find((a) => a.id === id)
+			if (approval) {
+				approval.status = "approved"
+			}
 			sendJson(res, 200, { success: true, approvalId: id, status: "approved" })
 			return
 		}
@@ -4861,6 +4982,10 @@ const server = http.createServer(async (req, res) => {
 		// Reject
 		if (method === "POST" && url.match(/^\/approvals\/[^/]+\/reject$/)) {
 			const id = url.split("/")[2]
+			const approval = approvalStore.find((a) => a.id === id)
+			if (approval) {
+				approval.status = "rejected"
+			}
 			sendJson(res, 200, { success: true, approvalId: id, status: "rejected" })
 			return
 		}
@@ -11492,9 +11617,37 @@ const server = http.createServer(async (req, res) => {
 				if (orchestrator && orchestrator.hermesClaw) {
 					const skills = await orchestrator.hermesClaw.execute({ operation: "list_skills" })
 					sendJson(res, 200, { success: true, skills: skills.skills || [] })
-				} else {
-					sendJson(res, 200, { success: true, skills: [] })
+					return
 				}
+				// Fallback: scan .roo/skills directory
+				const skillsDir = path.join(process.cwd(), ".roo", "skills")
+				const skills = []
+				if (fsSync.existsSync(skillsDir)) {
+					const entries = fsSync.readdirSync(skillsDir, { withFileTypes: true })
+					for (const entry of entries) {
+						if (entry.isDirectory()) {
+							const skillFile = path.join(skillsDir, entry.name, "SKILL.md")
+							let lines = 0
+							let description = ""
+							if (fsSync.existsSync(skillFile)) {
+								const content = fsSync.readFileSync(skillFile, "utf8")
+								lines = content.split("\n").length
+								const descMatch = content.match(/##?\s*Description\s*\n+([^#]+)/i)
+								if (descMatch) description = descMatch[1].trim().split("\n")[0]
+							}
+							skills.push({
+								id: entry.name,
+								name: entry.name.replace(/-/g, " ").replace(/\b\w/g, (l) => l.toUpperCase()),
+								description: description || `Skill for ${entry.name}`,
+								emoji: "📄",
+								category: "automation",
+								status: "active",
+								lines,
+							})
+						}
+					}
+				}
+				sendJson(res, 200, { success: true, skills })
 			} catch (err) {
 				sendJson(res, 500, { success: false, error: err.message })
 			}

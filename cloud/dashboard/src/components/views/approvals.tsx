@@ -483,7 +483,9 @@ export function ApprovalsView() {
 
 	const selectedRequest = approvals.find((a) => a.id === selectedId) || null
 
-	useEffect(() => {
+	const loadApprovals = () => {
+		setLoading(true)
+		setError(null)
 		fetch("/api/approvals")
 			.then((r) => r.json())
 			.then((d) => {
@@ -492,54 +494,57 @@ export function ApprovalsView() {
 				} else {
 					setError("Unexpected response from approvals API")
 				}
-				setLoading(false)
 			})
 			.catch((e) => {
 				setError(e.message || "Failed to load approvals")
-				setLoading(false)
 			})
-	}, [])
-
-	const handleApprove = async (id: string) => {
-		if (actionLoading.has(id)) return
-		setActionLoading((prev) => new Set(prev).add(id))
-		try {
-			const r = await fetch(`/api/approvals/${id}/approve`, { method: "POST" })
-			const d = await r.json()
-			if (d.success) {
-				setApprovals((prev) => prev.filter((a) => a.id !== id))
-				if (selectedId === id) setSelectedId(null)
-			}
-		} catch {
-			// silently fail
-		} finally {
-			setActionLoading((prev) => {
-				const next = new Set(prev)
-				next.delete(id)
-				return next
-			})
-		}
+			.finally(() => setLoading(false))
 	}
 
-	const handleReject = async (id: string) => {
+	useEffect(() => {
+		loadApprovals()
+	}, [])
+
+	const handleApprove = (id: string) => {
 		if (actionLoading.has(id)) return
 		setActionLoading((prev) => new Set(prev).add(id))
-		try {
-			const r = await fetch(`/api/approvals/${id}/reject`, { method: "POST" })
-			const d = await r.json()
-			if (d.success) {
-				setApprovals((prev) => prev.filter((a) => a.id !== id))
-				if (selectedId === id) setSelectedId(null)
-			}
-		} catch {
-			// silently fail
-		} finally {
-			setActionLoading((prev) => {
-				const next = new Set(prev)
-				next.delete(id)
-				return next
+		fetch(`/api/approvals/${id}/approve`, { method: "POST" })
+			.then((r) => r.json())
+			.then((d) => {
+				if (d.success) {
+					loadApprovals()
+					if (selectedId === id) setSelectedId(null)
+				}
 			})
-		}
+			.catch(() => null)
+			.finally(() => {
+				setActionLoading((prev) => {
+					const next = new Set(prev)
+					next.delete(id)
+					return next
+				})
+			})
+	}
+
+	const handleReject = (id: string) => {
+		if (actionLoading.has(id)) return
+		setActionLoading((prev) => new Set(prev).add(id))
+		fetch(`/api/approvals/${id}/reject`, { method: "POST" })
+			.then((r) => r.json())
+			.then((d) => {
+				if (d.success) {
+					loadApprovals()
+					if (selectedId === id) setSelectedId(null)
+				}
+			})
+			.catch(() => null)
+			.finally(() => {
+				setActionLoading((prev) => {
+					const next = new Set(prev)
+					next.delete(id)
+					return next
+				})
+			})
 	}
 
 	const pendingCount = approvals.filter((a) => a.status === "pending").length

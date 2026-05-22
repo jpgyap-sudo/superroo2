@@ -123,6 +123,7 @@ import KeyboardShortcutsModal from "@/components/ide-terminal/KeyboardShortcutsM
 import DiffViewModal from "@/components/ide-terminal/DiffViewModal"
 import { useIdeTerminal } from "@/components/ide-terminal/hooks/useIdeTerminal"
 import { useExtensionState } from "@/components/ide-terminal/hooks/useExtensionState"
+import { fetchWorkspace } from "@/components/ide-terminal/api"
 import type { BrainTab } from "@/components/ide-terminal/types"
 
 // ── Pipeline Icon ─────────────────────────────────────────────────────────
@@ -195,6 +196,33 @@ export default function IdeTerminalView() {
 	// ── All logic extracted into hook ─────────────────────────────────────
 	const hook = useIdeTerminal()
 	const extensionState = useExtensionState()
+
+	// ── Load workspace from API on mount ─────────────────────────────────
+	useEffect(() => {
+		if (!state._hydrated) return
+		let cancelled = false
+		async function loadWorkspace() {
+			try {
+				const data = await fetchWorkspace()
+				if (cancelled) return
+				if (data.success) {
+					if (data.files) dispatch({ type: "SET_FILES", payload: data.files })
+					if (data.repoName) dispatch({ type: "SET_REPO_NAME", payload: data.repoName })
+					if (data.branch) dispatch({ type: "SET_BRANCH", payload: data.branch })
+					if (data.status) dispatch({ type: "SET_STATUS", payload: { ...state.status, ...data.status } })
+					if (data.pipeline) dispatch({ type: "SET_PIPELINE", payload: data.pipeline })
+				}
+			} catch {
+				// silent fallback to local/demo state
+			} finally {
+				if (!cancelled) dispatch({ type: "SET_LOADING", payload: false })
+			}
+		}
+		loadWorkspace()
+		return () => {
+			cancelled = true
+		}
+	}, [state._hydrated, dispatch])
 
 	// Gap #8: Global keyboard shortcuts
 	useEffect(() => {

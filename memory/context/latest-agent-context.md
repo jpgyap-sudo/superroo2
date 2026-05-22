@@ -1,55 +1,68 @@
 # Latest Agent Context
 
-Generated: 2026-05-22T00:50:58.643Z
-Task: fix all dashboard frontend backend disconnections - approvals ide-terminal skill-generator parallel-execution file-importer intelligence-layer hermes-claw ml-engine product-memory deploy-orchestrator debug-team overview task-timeline memory-explorer ram-orchestrator
+Generated: 2026-05-22T02:49:58.818Z
+Task: Investigate Telegram message experience when user asks recommendations then asks coder to proceed upgrade or improvement
 
 ## Relevant Lessons
-1. **Advanced Features Gap Fix — 28 Gaps Across 9 Modules**
-   - Rule: Before claiming a module has 'no tests', run `find src/MODULE -name '*.test.ts'` and check all subdirectories. The test coverage may be partial, not zero.
-   - Why: Fixed all identified gaps in SuperRoo's advanced features across 9 modules: 4 dashboard views created, 4 API endpoints added, 186 tests added across 4 test files, 5 cross-module integrations wired, 5 documentation files written, 1 source bug fixed (MLSyncClient double re-queue on HTTP error).
-2. **Complete Codex's Unfinished Learning Layer Release + Security Hardening**
-   - Rule: When converting a hardcoded string to a runtime variable in JavaScript, always use a regex search for the exact old string value across the entire file to catch all string literal usages that need template literal interpolation.
-   - Why: When env-var-izing hardcoded URLs, always search for ALL usages of the old value — including string concatenation and template literals. A variable declaration change without updating all consumers creates silent bugs that manifest as broken links in production.
-3. **Comprehensive Gap Analysis and Full-Stack Improvement Execution**
-   - Rule: Before implementing any improvement from a gap analysis document, verify the actual source code to confirm the gap still exists. For Vitest ESM mocking of default imports, always include "default: { ... }" alongside named exports in the mock factory.
-   - Why: When doing a comprehensive codebase gap analysis, always verify which gaps have already been filled by checking the actual source code rather than relying on the gap analysis document. Many items from NEXT_IMPROVEMENTS.md had already been implemented in a previous pass. For ESM module mocking in Vitest, default imports (import fs from "fs/promises") require the "default:" key in the mock factory, not just named exports. The createPopulatedRetriever() pattern using type assertion to bypass load() is more reliable than mocking filesystem operations for filtering/sorting/formatting tests.
-4. **Protected dashboard views must use authenticated fetches and canonical data sources**
-   - Rule: For protected dashboard endpoints, reuse the authenticated request pattern already used elsewhere in the app, and point new views at the canonical backend data source rather than a one-off legacy file.
-   - Why: A dashboard route can exist and still fail if the frontend omits the expected auth contract, reads from an obsolete source, or assumes request/data helpers that do not actually exist. Verify the whole integration boundary, not just file presence.
-5. **Production deploys must keep source and dependency manifests in sync**
-   - Rule: When production source files change together with dependencies, deploy the matching `package.json` and verify generated runtime artifacts exist before declaring recovery complete.
-   - Why: Hotfixes can restore one failing layer while leaving another stale layer broken. For production recovery, validate the runtime artifact set as well as the source change, especially when a deploy spans both app code and dependency manifests.
 
+1. **Telegram dashboard coding flow must enqueue real coder phases**
+    - Rule: When wiring a dashboard or Telegram Mini App coding console, do not point a /code UI at a generic connectivity endpoint. The frontend should POST /telegram/tasks/create with stripped instruction and a
+    - Why: When wiring a dashboard or Telegram Mini App coding console, do not point a /code UI at a generic connectivity endpoint. The frontend should POST /telegram/tasks/create with stripped instruction and auto flag; backend create should enqueue coder-plan jobs with phase/task metadata, and dashboard appr
+2. **DeepSeek V4 Coder MCP — enforce agent routing workflow for Claude Code**
+    - Rule: When designing agent routing workflows for Claude Code, do NOT rely on CLAUDE.md instructions alone. Create MCP servers that expose delegated capabilities as tools — Claude auto-discovers them from .mcp.json and uses them when appropriate, making the workflow programmatically enforceable.
+    - Why: CLAUDE.md is advisory text and cannot enforce agent routing. To make Claude follow a multi-model workflow (Claude plans/reviews → DeepSeek codes → Ollama summarizes), provide MCP tools that Claude can programmatically call. The MCP protocol (JSON-RPC over stdio) is the correct mechanism for Claude to delegate tasks to other models/APIs.
+3. **Deterministic product-to-image pattern matching with scoring system**
+    - Rule: Prefer deterministic pattern matching over AI for structured data matching tasks. Implement multiple matching strategies with weighted scoring. Set confidence thresholds. Only fall back to AI when deterministic score is below threshold.
+    - Why: AI-based product-to-image matching was unreliable and expensive. Implemented a deterministic scoring system that matches product codes (e.g., "ABC-123") to image filenames using multiple pattern strategies with weighted scores.
+4. **Telegram Bot Frictionless Coding & Context Awareness Improvements**
+    - Rule: Hide manual approval UI in auto-mode; use persistent reply keyboards; pass conversation context to classifiers; bound typing indicators with timeouts; handle new callbacks in both notifier and bot routing.
+    - Why: Fixed auto-mode UX confusion by hiding approval buttons when auto-chaining, added phase-transition progress messages, persistent reply keyboard, typing indicators, similar/audit buttons, and enhanced classifier with conversation context.
+5. **Separate Retryable System Failures from User Clarification**
+    - Rule: Before chaining promise methods onto an integration helper, verify whether it actually returns a promise; for Telegram workflows, keep clarification and retryable_failure as distinct states with distinct copy and recovery actions.
+    - Why: Telegram coding tasks were throwing because a synchronous bridge method was treated like a promise, and retryable model failures were mislabeled as user clarification. Fixed by using try/catch for the sync bridge path and adding a separate retryable failure flow that preserves retry context.
 
 ## Active Codex Tasks
+
 - Release learning layer workflow (codex_task_learning_layer_release_20260517)
 
 ## Architecture Reminder
+
+# SuperRoo Working Tree
+
+> **Purpose**: This document is the single source of truth for the SuperRoo product architecture. All agents should read this to understand the system structure, module interactions, and product features before making changes.
+
+## Overview
+
 The SuperRoo system is organized into **21 core modules** spanning orchestration, agent execution, safety, persistence, self-healing, machine learning, product memory, commit/deploy tracking, parallel execution, cloud sandbox, and infrastructure. Each module has a status, owner, connections to other modules, and specific product features it enables.
-         │     ├── Repair Plan Builder (structured fix generation)
-         │     └── Infinite Improvement Loop (continuous learning)
-- **Features**: Priority queuing, Job retry & backoff, Concurrency control
-- **Features**: Feature lifecycle tracking (planned → building → testing → working → deprecated), Health monitoring (unknown → healthy → degraded → failing), Bug-to-feature mapping
-- **Features**: Incident detection, Root cause classification, Repair plan generation, Auto-fix deployment, Verification cycle
-    - **Repair Plan Builder** ([`src/super-roo/healing/RepairPlanBuilder.ts`](../src/super-roo/healing/RepairPlanBuilder.ts)) - Structured fix generation
-### 10. Machine Learning Engine
-- **Features**: Neural network training, Code pattern learning, Debug pattern learning, Test pattern learning, Infinite improvement loop
-    - **Learners** ([`src/super-roo/ml/learning/`](../src/super-roo/ml/learning/)) - CodeLearner, DebugLearner, TestLearner
-    > **IMPORTANT**: This is THE single source of truth for all commits and deployments across all coding agents. Every agent MUST use `CommitDeployLog.recordCommit()` and `CommitDeployLog.recordDeploy()` to record their work. The log is append-only (no deletions, only status updates) and agent-aware (records which agent made the change).
-- **Features**: Autonomous multi-agent debugging, Complex feature problem solving, Phase-by-phase breakdown, Hypothesis-driven iteration, Safe container execution (Docker), Automatic git snapshot/rollback, Multi-feature integration sync, Auto-generated skills from failures, Auto-approval mode (all approvals auto-granted, all deployments auto-run), 24/7 unlimited iteration
-- **Features**: GitHub Actions dispatch, VPS SSH deployment, Rollback management, Health check verification
-    - **SandboxPool** ([`cloud/orchestrator/sandbox/SandboxPool.js`](../cloud/orchestrator/sandbox/SandboxPool.js)) - Container pooling with warm containers, idle cleanup, health checks with self-healing, acquire/release pattern
-- **Features**: Provider API key management, Encrypted secret storage (AES-256-GCM), Real provider connection testing, Agent routing sync, VPS control center (auto-approve, MCP, guardrails), Deployment safety validation
-    - **API Keys View** ([`cloud/dashboard/src/components/views/api-keys.tsx`](../cloud/dashboard/src/components/views/api-keys.tsx)) - Provider key management UI with save/test/delete
-Incident Detection → Healing Bus → Root Cause Classifier → Repair Plan Builder → Self-Healing Loop → Fix → Verify
+
+## Module Map
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        ORCHESTRATOR                                 │
+│  Task dispatch, agent lifecycle, workflow orchestration             │
+└──────────┬────────────────────────────────────────────────┬─────────┘
+           │ routes tasks to                                  │ manages
+           ▼                                                 ▼
+┌──────────────────┐  ┌──────────────────┐  ┌──────────────────────────┐
+│   AGENT SYSTEM   │  │   SAFETY SYSTEM  │  │      TASK QUEUE          │
+│  Coder, Debugger │◄─┤  Mode-based ACL  │  │  Priority-based queue    │
+│  PM, Tester, ... │  │  Capability gate │  │  BullMQ integration      │
+└────────┬─────────┘  └──────────────────┘  └──────────────────────────┘
+         │
+         ├──► MEMORY SYSTEM (SQLite persistence for all entities)
+         ├──► FEATURE REGISTRY (Feature lifecycle & health tracking)
+         ├──► BUG REGISTRY (Bug tracking & fix management)
+         ├──► EVENT LOG (Append-only event stream for observability)
+         │
 
 ### DeepSeek Architecture Summary
 
-The dashboard frontend-backend disconnections affect the **Self-Healing Loop** (Incident Detection → Healing Bus → Root Cause Classifier → Repair Plan Builder → Fix → Verify), **Machine Learning Engine** (Learners for code/debug/test patterns), and **CommitDeployLog** (append-only, agent-aware source of truth for all commits/deployments). These modules connect through the **Healing Bus** for incident propagation, **Repair Plan Builder** for structured fix generation, and the **Infinite Improvement Loop** for continuous learning. Architecture constraints include: the CommitDeployLog is append-only with no deletions, all agents must use `recordCommit()`/`recordDeploy()`, and the Self-Healing Loop requires verification cycles before fixes are considered complete.
+The investigation affects the **Orchestrator** (task dispatch, workflow orchestration), **Agent System** (specifically the Coder agent for upgrades/improvements), and **Memory System** (SQLite persistence for conversation context). The flow requires the Orchestrator to route the recommendation request to the appropriate agent, then pass the coder's upgrade task through the **Safety System** (mode-based ACL) before execution. Architecture constraints include the **Task Queue** (BullMQ) for priority-based task ordering and the **Event Log** for observability of the entire interaction sequence.
 
 
 ## Task Signals
-Inferred tags: ui, learning, deployment
+No strong task tags inferred.
 
 ## Feature Knowledge
 # feature-knowledge.md
@@ -102,7 +115,7 @@ Implemented `safeJsonParse<T>(json, fallback)` helper function that:
 
 ### DeepSeek Bug Memory Summary
 
-The primary bug pattern is unsafe `JSON.parse()` usage across multiple registry and queue modules (`BugRegistry.ts`, `TaskQueue.ts`, `FeatureRegistry.ts`, `MemoryStore.ts`), causing crashes on corrupted database rows. The root cause is a lack of fallback handling for malformed JSON data. The fix involves adding a `safeJsonParse` helper function to each affected file, with `HealingBus.ts` already having the helper and receiving enhanced usage.
+The bug entries reveal a recurring pattern of crashes caused by unsafe `JSON.parse()` usage across multiple registry modules (`BugRegistry.ts`, `TaskQueue.ts`, `FeatureRegistry.ts`, `MemoryStore.ts`) when encountering corrupted database rows. The root cause is the lack of a safe fallback mechanism for JSON parsing, leading to unhandled exceptions. The fix involves adding a `safeJsonParse` helper function to each affected file, with one module (`HealingBus.ts`) already having it and receiving enhanced usage.
 
 
 ## Model Decisions
@@ -149,12 +162,13 @@ Created routing table with primary and fallback providers:
 
 ### DeepSeek Model Decision Summary
 
-For the dashboard disconnection fixes, the key decision was to use **kimi-k2.5** for the model router service, chosen for its optimal balance of cost, quality, and speed. This model powers the task-based routing logic in `modelRouterService.ts`, which maps task types to provider/model pairs to handle the diverse components (e.g., approvals, file-importer, ml-engine). The high-confidence migration ensures consistent, efficient routing across all listed modules.
+For the Telegram message experience where a user asks for recommendations and then requests an upgrade or improvement, the model router service (using `kimi-k2.5`) was chosen to map task types to optimal provider/model pairs, balancing cost, quality, and speed for both recommendation and coding tasks.
 
 
 
 ### DeepSeek File Summaries
 
-- **cloud\dashboard\src\components\views\parallel-execution.tsx**: This file exports a single React component `ParallelExecutionView` that displays real-time parallel execution statistics from the backend API endpoint `/api/orchestrator/parallel/stats`. It fetches stats on mount and polls every 10 seconds, mapping the backend response shape to a `ParallelStats` interface with fields like `maxConcurrency`, `activeTasks`, and `tokenBudgetRemaining`. The component handles loading, error (with retry button), and data states, using utility functions like `formatToken` and UI primitives (`StatCard`, `Badge`, `cn`) consistent with the dashboard's pattern.
-- **cloud\dashboard\src\components\views\autonomous-loop.tsx**: This file exports the `AutonomousLoopView` component, which provides a real-time dashboard for monitoring and controlling an autonomous CI/CD pipeline. It fetches status from `/api/autonomous/status` every 5 seconds and allows starting/stopping the loop via POST requests to `/api/autonomous/start` and `/api/autonomous/stop`. Key patterns include polling with `setInterval`, optimistic UI updates after actions, and a structured status object with step results, cycle count, and timestamps—critical for debugging disconnections between the frontend and backend APIs.
+- **scripts\deepseek-coder-mcp.mjs**: This file exports a DeepSeek Coder MCP server that exposes coding tools (deepseek_code, deepseek_review, deepseek_refactor, deepseek_explain, deepseek_status) via JSON-RPC 2.0 over stdio. Its main purpose is to delegate coding tasks from Claude to DeepSeek, following the SuperRoo agent routing workflow (Claude plans/reviews, DeepSeek codes, Ollama summarizes). Key patterns include environment-based configuration (DEEPSEEK_API_KEY, DEEPSEEK_MODEL, DEEPSEEK_API_URL), a custom loadEnvFile function for .env loading, and MCP protocol helpers for sending JSON-RPC messages over stdout.
+- **.mcp.json**: This file exports an MCP server configuration defining three services: `superroo-brain` (central memory and workflow enforcement), `deepseek-coder` (delegates coding tasks to DeepSeek V4), and `ollama` (handles embeddings and local chat). Its main purpose is to orchestrate a workflow where Claude plans/reviews, DeepSeek codes and summarizes, and Ollama handles embeddings only. For the Telegram recommendation upgrade task, note the pattern that DeepSeek is mandated for coding and summarization, while Ollama is restricted to embeddings, and the `superroo-brain` enforces lesson obligations and workflow rules.
 
+```

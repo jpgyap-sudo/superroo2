@@ -1,17 +1,17 @@
 {
-  "generatedAt": "2026-05-22T01:15:48.603Z",
-  "deepseekModel": "deepseek-chat",
-  "ollamaUrl": "http://localhost:11434",
-  "sourceFile": "memory/lessons-learned.md",
-  "count": 1,
-  "summaries": [
-    {
-      "title": "9/10 Upgrade — repo cleanup, product README, reuse analytics, security hardening, dashboard polish",
-      "date": "unknown",
-      "model": "unknown",
-      "confidence": "unknown",
-      "summary": "This lesson details a 5-phase upgrade to improve a project from 7/10 to 9/10 quality, focusing on security hardening (e.g., `.gitignore` and `.mcp.json`), a product-focused README rewrite, and adding a reuse analytics endpoint. The key takeaway is that a cloud dashboard should be treated as the main product, achieved through branding elements like a hero section, gradient logo, and PWA/SEO metadata.",
-      "hasEmbeddings": false
-    }
-  ]
+	"generatedAt": "2026-05-22T03:03:06.821Z",
+	"deepseekModel": "deepseek-chat",
+	"ollamaUrl": "http://localhost:11434",
+	"sourceFile": "memory/lessons-learned.md",
+	"count": 1,
+	"summaries": [
+		{
+			"title": "Telegram recommendation follow-up routing",
+			"date": "2026-05-22",
+			"model": "local",
+			"confidence": "medium",
+			"summary": "When Telegram users request project improvement recommendations and follow up with phrases like \"ask coder to proceed,\" route those to code_task using recent recommendation context. However, explicit self-upgrade phrases like \"ask coder to upgrade you\" must be classified as upgrade_self before project follow-up detection. Add tests for both routing paths.",
+			"hasEmbeddings": false
+		}
+	]
 }

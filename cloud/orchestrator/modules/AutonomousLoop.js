@@ -85,6 +85,9 @@ class AutonomousLoop {
 		this.workspaceRoot = opts.workspaceRoot || process.cwd()
 		this.containerFirst = opts.containerFirst !== false
 
+		// Allow dependency injection of execAsync for testing
+		this._execAsync = opts.execAsync || execAsync
+
 		// Internal state
 		this._running = false
 		this._stopped = false
@@ -277,13 +280,15 @@ class AutonomousLoop {
 						console.warn(`[AutonomousLoop] Step ${step} failed: ${result.error}`)
 						// I1: Report failure to self-healing bus
 						if (this.orchestrator?.healingBus) {
-							await this.orchestrator.healingBus.reportIncident({
-								category: 'autonomous-debug',
-								severity: 'warning',
-								source: 'autonomous-loop',
-								description: `Step ${stepName} failed: ${result.error}`,
-								metadata: { stepName, stepIndex: step, error: result.error }
-							}).catch(e => console.warn('[AutonomousLoop] Failed to report incident:', e.message))
+							await this.orchestrator.healingBus
+								.reportIncident({
+									category: "autonomous-debug",
+									severity: "warning",
+									source: "autonomous-loop",
+									description: `Step ${stepName} failed: ${result.error}`,
+									metadata: { stepName, stepIndex: step, error: result.error },
+								})
+								.catch((e) => console.warn("[AutonomousLoop] Failed to report incident:", e.message))
 						}
 					}
 				} catch (err) {
@@ -297,13 +302,15 @@ class AutonomousLoop {
 					})
 					// I1: Report catch-block failure to self-healing bus
 					if (this.orchestrator?.healingBus) {
-						await this.orchestrator.healingBus.reportIncident({
-							category: 'autonomous-debug',
-							severity: 'warning',
-							source: 'autonomous-loop',
-							description: `Step ${stepName} threw: ${err.message}`,
-							metadata: { stepName, stepIndex: step, error: err.message }
-						}).catch(e => console.warn('[AutonomousLoop] Failed to report incident:', e.message))
+						await this.orchestrator.healingBus
+							.reportIncident({
+								category: "autonomous-debug",
+								severity: "warning",
+								source: "autonomous-loop",
+								description: `Step ${stepName} threw: ${err.message}`,
+								metadata: { stepName, stepIndex: step, error: err.message },
+							})
+							.catch((e) => console.warn("[AutonomousLoop] Failed to report incident:", e.message))
 					}
 				}
 
@@ -408,13 +415,16 @@ class AutonomousLoop {
 
 		try {
 			// Check git status
-			const gitStatus = await execAsync("git status --porcelain", { cwd: this.workspaceRoot, timeout: 15000 })
+			const gitStatus = await this._execAsync("git status --porcelain", {
+				cwd: this.workspaceRoot,
+				timeout: 15000,
+			})
 			const hasChanges = gitStatus.stdout.trim().length > 0
 			findings.push({ type: "git", detail: hasChanges ? "Uncommitted changes detected" : "Working tree clean" })
 
 			// Check for TypeScript errors
 			try {
-				const tscResult = await execAsync("npx tsc --noEmit 2>&1 || true", {
+				const tscResult = await this._execAsync("npx tsc --noEmit 2>&1 || true", {
 					cwd: this.workspaceRoot,
 					timeout: 60000,
 				})
@@ -438,10 +448,13 @@ class AutonomousLoop {
 
 			// Check for missing test files
 			try {
-				const testFiles = await execAsync("find . -name '*.test.ts' -o -name '*.test.js' 2>/dev/null | wc -l", {
-					cwd: this.workspaceRoot,
-					timeout: 10000,
-				})
+				const testFiles = await this._execAsync(
+					"find . -name '*.test.ts' -o -name '*.test.js' 2>/dev/null | wc -l",
+					{
+						cwd: this.workspaceRoot,
+						timeout: 10000,
+					},
+				)
 				findings.push({ type: "tests", detail: `${testFiles.stdout.trim()} test files found` })
 			} catch {
 				findings.push({ type: "tests", detail: "Test count unavailable" })
@@ -486,7 +499,7 @@ class AutonomousLoop {
 
 			// Fix 1: Run prettier/lint auto-fix
 			try {
-				await execAsync("npx prettier --write 'src/**/*.{ts,js,json}' 2>/dev/null || true", {
+				await this._execAsync("npx prettier --write 'src/**/*.{ts,js,json}' 2>/dev/null || true", {
 					cwd: this.workspaceRoot,
 					timeout: 30000,
 				})
@@ -498,7 +511,7 @@ class AutonomousLoop {
 
 			// Fix 2: Fix common import issues
 			try {
-				await execAsync("npx eslint --fix 'src/**/*.{ts,js}' 2>/dev/null || true", {
+				await this._execAsync("npx eslint --fix 'src/**/*.{ts,js}' 2>/dev/null || true", {
 					cwd: this.workspaceRoot,
 					timeout: 30000,
 				})
@@ -528,7 +541,10 @@ class AutonomousLoop {
 		try {
 			// Run vitest
 			try {
-				const testResult = await execAsync("npx vitest run 2>&1", { cwd: this.workspaceRoot, timeout: 120000 })
+				const testResult = await this._execAsync("npx vitest run 2>&1", {
+					cwd: this.workspaceRoot,
+					timeout: 120000,
+				})
 				const passed = testResult.stdout.includes("passed") || testResult.stdout.includes("Tests")
 				results.push({ suite: "vitest", passed, output: testResult.stdout.slice(-500) })
 			} catch (err) {
@@ -537,7 +553,7 @@ class AutonomousLoop {
 
 			// Run lint
 			try {
-				const lintResult = await execAsync("npx eslint . 2>&1 || true", {
+				const lintResult = await this._execAsync("npx eslint . 2>&1 || true", {
 					cwd: this.workspaceRoot,
 					timeout: 60000,
 				})
@@ -597,7 +613,7 @@ class AutonomousLoop {
 
 			// Try running Playwright tests if available
 			try {
-				const pwResult = await execAsync("npx playwright test --reporter=list 2>&1 || true", {
+				const pwResult = await this._execAsync("npx playwright test --reporter=list 2>&1 || true", {
 					cwd: this.workspaceRoot,
 					timeout: 120000,
 				})
@@ -682,7 +698,7 @@ class AutonomousLoop {
 
 			// Try running API endpoint smoke tests
 			try {
-				const healthResult = await execAsync(
+				const healthResult = await this._execAsync(
 					"curl -s -o /dev/null -w '%{http_code}' http://localhost:8787/health 2>/dev/null || echo '000'",
 					{
 						timeout: 10000,
@@ -736,7 +752,7 @@ class AutonomousLoop {
 
 			// Improvement 1: Run prettier formatting
 			try {
-				await execAsync("npx prettier --write 'src/**/*.{ts,js,json}' 2>/dev/null || true", {
+				await this._execAsync("npx prettier --write 'src/**/*.{ts,js,json}' 2>/dev/null || true", {
 					cwd: this.workspaceRoot,
 					timeout: 30000,
 				})
@@ -748,7 +764,7 @@ class AutonomousLoop {
 
 			// Improvement 2: Run eslint auto-fix
 			try {
-				await execAsync("npx eslint --fix 'src/**/*.{ts,js}' 2>/dev/null || true", {
+				await this._execAsync("npx eslint --fix 'src/**/*.{ts,js}' 2>/dev/null || true", {
 					cwd: this.workspaceRoot,
 					timeout: 30000,
 				})
@@ -760,7 +776,7 @@ class AutonomousLoop {
 
 			// Improvement 3: Check for outdated dependencies
 			try {
-				const outdatedResult = await execAsync("npx npm-check-updates --target latest 2>&1 || true", {
+				const outdatedResult = await this._execAsync("npx npm-check-updates --target latest 2>&1 || true", {
 					cwd: this.workspaceRoot,
 					timeout: 60000,
 				})
@@ -857,12 +873,12 @@ class AutonomousLoop {
 				for (const learning of learnings) {
 					try {
 						await this.orchestrator.infiniteImprovementLoop.ingestDebugLesson({
-							type: 'debug',
+							type: "debug",
 							content: learning,
-							timestamp: Date.now()
+							timestamp: Date.now(),
 						})
 					} catch (e) {
-						console.warn('[AutonomousLoop] Failed to feed debug lesson:', e.message)
+						console.warn("[AutonomousLoop] Failed to feed debug lesson:", e.message)
 					}
 				}
 			}
@@ -943,13 +959,16 @@ class AutonomousLoop {
 	async _stepCommit() {
 		try {
 			// Check for changes
-			const gitStatus = await execAsync("git status --porcelain", { cwd: this.workspaceRoot, timeout: 15000 })
+			const gitStatus = await this._execAsync("git status --porcelain", {
+				cwd: this.workspaceRoot,
+				timeout: 15000,
+			})
 			if (!gitStatus.stdout.trim()) {
 				return { success: true, details: "No changes to commit" }
 			}
 
 			// Stage all changes
-			await execAsync("git add -A", { cwd: this.workspaceRoot, timeout: 30000 })
+			await this._execAsync("git add -A", { cwd: this.workspaceRoot, timeout: 30000 })
 
 			// Count files changed
 			const filesChanged = gitStatus.stdout.trim().split("\n").length
@@ -992,10 +1011,10 @@ class AutonomousLoop {
 			}
 
 			// Commit
-			await execAsync(`git commit -m "${commitMsg}"`, { cwd: this.workspaceRoot, timeout: 30000 })
+			await this._execAsync(`git commit -m "${commitMsg}"`, { cwd: this.workspaceRoot, timeout: 30000 })
 
 			// Get commit SHA
-			const shaResult = await execAsync("git rev-parse HEAD", { cwd: this.workspaceRoot, timeout: 10000 })
+			const shaResult = await this._execAsync("git rev-parse HEAD", { cwd: this.workspaceRoot, timeout: 10000 })
 			const commitSha = shaResult.stdout.trim()
 
 			// ── End model usage tracking and get compliance data ────────────
@@ -1069,7 +1088,7 @@ class AutonomousLoop {
 			const SAFE_DEPLOY_SCRIPT = `/root/${this.target}/roo-safe-deploy.sh`
 			const SAFE_STATUS_SCRIPT = `/root/${this.target}/roo-safe-status.sh`
 
-			await execAsync(
+			await this._execAsync(
 				`ssh ${SSH_OPTS} ${SSH_TARGET} ${JSON.stringify(
 					remoteVerificationCommand(DEPLOY_PROJECT, {
 						sshTarget: SSH_TARGET,
@@ -1083,15 +1102,18 @@ class AutonomousLoop {
 			const checkCmd = `ssh ${SSH_OPTS} ${SSH_TARGET} "test -f ${SAFE_DEPLOY_SCRIPT} && echo 'exists' || echo 'not_found'"`
 
 			try {
-				const checkResult = await execAsync(checkCmd, { timeout: 15000 })
+				const checkResult = await this._execAsync(checkCmd, { timeout: 15000 })
 				const scriptExists = checkResult.stdout.trim() === "exists"
 
 				if (!scriptExists) {
 					// Try status check instead
 					try {
-						const statusResult = await execAsync(`ssh ${SSH_OPTS} ${SSH_TARGET} "${SAFE_STATUS_SCRIPT}"`, {
-							timeout: 15000,
-						})
+						const statusResult = await this._execAsync(
+							`ssh ${SSH_OPTS} ${SSH_TARGET} "${SAFE_STATUS_SCRIPT}"`,
+							{
+								timeout: 15000,
+							},
+						)
 						return {
 							success: true,
 							details: `Deploy script not found. Status: ${statusResult.stdout.trim().slice(0, 200)}`,
@@ -1105,16 +1127,19 @@ class AutonomousLoop {
 				}
 
 				// Run safe deploy
-				const deployResult = await execAsync(`ssh ${SSH_OPTS} ${SSH_TARGET} "bash ${SAFE_DEPLOY_SCRIPT}"`, {
-					timeout: 120000,
-				})
+				const deployResult = await this._execAsync(
+					`ssh ${SSH_OPTS} ${SSH_TARGET} "bash ${SAFE_DEPLOY_SCRIPT}"`,
+					{
+						timeout: 120000,
+					},
+				)
 
 				// Record deploy in CommitDeployLog
 				if (this.orchestrator && this.orchestrator.commitDeployLog) {
 					await this.orchestrator.commitDeployLog.recordDeploy({
 						version: `auto-${Date.now()}`,
 						commitSha: (
-							await execAsync("git rev-parse HEAD", { cwd: this.workspaceRoot, timeout: 5000 })
+							await this._execAsync("git rev-parse HEAD", { cwd: this.workspaceRoot, timeout: 5000 })
 						).stdout.trim(),
 						agent: "AutonomousLoop",
 						environment: "production",
@@ -1146,7 +1171,7 @@ class AutonomousLoop {
 			// Verify the remote host identity before reading status/logs so a
 			// selected cross-project workspace cannot health-check the wrong VPS.
 			try {
-				await execAsync(
+				await this._execAsync(
 					`ssh ${SSH_OPTS} ${SSH_TARGET} ${JSON.stringify(
 						remoteVerificationCommand(DEPLOY_PROJECT, {
 							sshTarget: SSH_TARGET,
@@ -1162,7 +1187,7 @@ class AutonomousLoop {
 
 			// Check PM2 status
 			try {
-				const pm2Result = await execAsync(
+				const pm2Result = await this._execAsync(
 					`ssh ${SSH_OPTS} ${SSH_TARGET} "pm2 status 2>&1 || echo 'PM2 not available'"`,
 					{
 						timeout: 15000,
@@ -1176,7 +1201,7 @@ class AutonomousLoop {
 
 			// Check health endpoint
 			try {
-				const healthResult = await execAsync(
+				const healthResult = await this._execAsync(
 					"curl -s -o /dev/null -w '%{http_code}' http://localhost:8787/health 2>/dev/null || echo '000'",
 					{
 						timeout: 10000,
@@ -1191,7 +1216,7 @@ class AutonomousLoop {
 
 			// Check application logs for errors
 			try {
-				const logResult = await execAsync(
+				const logResult = await this._execAsync(
 					`ssh ${SSH_OPTS} ${SSH_TARGET} "tail -20 /var/log/superroo-api.log 2>/dev/null || echo 'No log file'"`,
 					{
 						timeout: 10000,
@@ -1268,7 +1293,7 @@ class AutonomousLoop {
 	 */
 	async _ensureContainer() {
 		try {
-			const result = await execAsync("docker info 2>&1", { timeout: 10000 })
+			const result = await this._execAsync("docker info 2>&1", { timeout: 10000 })
 			return result.stdout.includes("Containers:")
 		} catch {
 			return false
@@ -1300,4 +1325,4 @@ class AutonomousLoop {
 	}
 }
 
-module.exports = { AutonomousLoop }
+module.exports = { AutonomousLoop, checkHardSafety }

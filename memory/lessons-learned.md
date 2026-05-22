@@ -12,7 +12,7 @@ Integrated Memory Evolution v3 into Central Brain: versioned memory with brain_m
 
 #### Files Changed
 
-- cloud/orchestrator/stores/brain/MemoryService.js — added evolveMemory, getVersionHistory, diffVersions, addFeedback, getFeedback, getUsefulness, getConfidenceTrend, getMemoryHealth, getMergeSuggestions, _calculateMergePriority, _calculateHealthScore; modified createMemory for auto-trust, searchMemory for recall logging
+- cloud/orchestrator/stores/brain/MemoryService.js — added evolveMemory, getVersionHistory, diffVersions, addFeedback, getFeedback, getUsefulness, getConfidenceTrend, getMemoryHealth, getMergeSuggestions, \_calculateMergePriority, \_calculateHealthScore; modified createMemory for auto-trust, searchMemory for recall logging
 - cloud/orchestrator/stores/brain/schema.sql — added brain_memory_versions, brain_memory_feedback, brain_memory_usefulness tables
 - server/src/memory/McpMemoryServer.ts — added brain_evolve_memory, brain_memory_versions, brain_memory_diff, brain_memory_feedback, brain_memory_usefulness, brain_propose_memory, brain_confidence_trend, brain_memory_health, brain_merge_suggestions tools
 - cloud/api/api.js — added POST /api/brain/memory/evolve, POST /api/brain/memory/feedback, GET /api/brain/memory/versions, POST /api/brain/memory/propose, GET /api/brain/memory/diff routes
@@ -318,7 +318,7 @@ Normalized the commissioning dashboard API response shape to match the frontend'
 
 #### Files Changed
 
-- cloud/api/api.js — added _normalizeCommissioningStatus helper, fixed response shape for commissioning status endpoint
+- cloud/api/api.js — added \_normalizeCommissioningStatus helper, fixed response shape for commissioning status endpoint
 
 #### Bug Cause
 
@@ -326,7 +326,7 @@ The commissioning status endpoint returned raw status object with phaseResults u
 
 #### Fix Applied
 
-Added _normalizeCommissioningStatus helper that maps raw status fields to the expected frontend format. Applied normalization in the commissioning status endpoint.
+Added \_normalizeCommissioningStatus helper that maps raw status fields to the expected frontend format. Applied normalization in the commissioning status endpoint.
 
 #### Test Result
 
@@ -826,7 +826,7 @@ Fixed all 13 identified gaps in the Memory Evolution v3 integration across 4 sev
 
 #### Files Changed
 
-- cloud/orchestrator/stores/brain/MemoryService.js — evolveMemory signature change (options-based), addFeedback confidence sync, getConfidenceTrend base math fix, getMemoryHealth confidence distribution, diffVersions word-level diff, getMergeSuggestions exclude merged, _calculateMergePriority type compatibility
+- cloud/orchestrator/stores/brain/MemoryService.js — evolveMemory signature change (options-based), addFeedback confidence sync, getConfidenceTrend base math fix, getMemoryHealth confidence distribution, diffVersions word-level diff, getMergeSuggestions exclude merged, \_calculateMergePriority type compatibility
 - cloud/orchestrator/stores/brain/schema.sql — composite index idx_memory_versions_memory_version, content_delta column
 - server/src/memory/McpMemoryServer.ts — memoryType validation in brain_propose_memory
 - cloud/api/api.js — rate limiting on feedback POST endpoint
@@ -835,11 +835,11 @@ Fixed all 13 identified gaps in the Memory Evolution v3 integration across 4 sev
 
 #### Bug Cause
 
-The initial Memory Evolution v3 integration had 13 gaps: evolveMemory didn't update title/summary or record brain_events; addFeedback didn't sync agent_memory.confidence; getConfidenceTrend had inconsistent base confidence math; schema lacked composite index and content_delta column; getMergeSuggestions didn't exclude already-merged memories; getMemoryHealth lacked confidence distribution; diffVersions only had line-level diff; MCP had no memoryType validation; no migration script existed; API had no rate limiting on feedback; _calculateMergePriority ignored type compatibility.
+The initial Memory Evolution v3 integration had 13 gaps: evolveMemory didn't update title/summary or record brain_events; addFeedback didn't sync agent_memory.confidence; getConfidenceTrend had inconsistent base confidence math; schema lacked composite index and content_delta column; getMergeSuggestions didn't exclude already-merged memories; getMemoryHealth lacked confidence distribution; diffVersions only had line-level diff; MCP had no memoryType validation; no migration script existed; API had no rate limiting on feedback; \_calculateMergePriority ignored type compatibility.
 
 #### Fix Applied
 
-All 13 gaps fixed across 6 files. Key changes: evolveMemory now accepts options object with title/summary and records brain_events; addFeedback syncs confidence with delta; getConfidenceTrend calculates base confidence by reversing version boosts; schema has composite index + content_delta; getMergeSuggestions filters out duplicate_of; getMemoryHealth returns confidenceDist; diffVersions returns wordChanges; MCP validates memoryType; migration script created; API rate-limited; _calculateMergePriority uses 40/20/20/20 formula with typeScore.
+All 13 gaps fixed across 6 files. Key changes: evolveMemory now accepts options object with title/summary and records brain_events; addFeedback syncs confidence with delta; getConfidenceTrend calculates base confidence by reversing version boosts; schema has composite index + content_delta; getMergeSuggestions filters out duplicate_of; getMemoryHealth returns confidenceDist; diffVersions returns wordChanges; MCP validates memoryType; migration script created; API rate-limited; \_calculateMergePriority uses 40/20/20/20 formula with typeScore.
 
 #### Test Result
 
@@ -970,7 +970,7 @@ Integrated the Phase 3 Predictive Swarm package into SuperRoo: PredictiveFailure
 - cloud/orchestrator/stores/brain/index.js — registered PredictiveFailureEngine, SwarmDebugger, DeployGate services
 - cloud/api/api.js — added 8 risk/swarm API routes and 7 MCP supported actions
 - cloud/orchestrator/modules/DeployOrchestrator.js — wired DeployGate as Step 0 in deploy() method
-- cloud/orchestrator/modules/SelfHealingLoop.js — wired riskEngine.recordFailurePattern() in _processVerifyingIncident
+- cloud/orchestrator/modules/SelfHealingLoop.js — wired riskEngine.recordFailurePattern() in \_processVerifyingIncident
 - cloud/dashboard/src/components/views/predictive-risk.tsx — new file: PredictiveRiskView dashboard component with 4 tabs (assessments, patterns, swarm, assess)
 - cloud/dashboard/src/components/sidebar.tsx — registered Predictive Risk nav item
 - cloud/dashboard/src/app/page.tsx — registered PredictiveRiskView in page routing
@@ -990,7 +990,7 @@ pass — 45/45 tests passing
 
 #### Lesson Learned
 
-When integrating a multi-service feature with dashboard components, always read the actual component APIs (Badge, StatCard) before writing the view layer to avoid TypeScript errors. For test files, read the actual source code APIs rather than assuming parameter names — the PredictiveFailureEngine.recordFailurePattern() uses patternType/signature/description (not fingerprint/severity), SwarmDebugger._runBuiltinAgent() returns { finding, confidence, suggestedFix } (not { agentId, findings }), and DeployGate constructor takes (deps, options) as separate arguments.
+When integrating a multi-service feature with dashboard components, always read the actual component APIs (Badge, StatCard) before writing the view layer to avoid TypeScript errors. For test files, read the actual source code APIs rather than assuming parameter names — the PredictiveFailureEngine.recordFailurePattern() uses patternType/signature/description (not fingerprint/severity), SwarmDebugger.\_runBuiltinAgent() returns { finding, confidence, suggestedFix } (not { agentId, findings }), and DeployGate constructor takes (deps, options) as separate arguments.
 
 #### Reusable Rule
 
@@ -1041,6 +1041,7 @@ Before writing or fixing integration tests, read the full source of every servic
 cross-phase, integration-testing, wiring, test-fix, collaboration, safety-manager, mcp-server-manager, api-mismatch
 
 ---
+
 ### Auto-Extracted Lesson: Escape regex character classes in safeGitUrl/safeBranch patterns for Node v20...
 
 Date: 2026-05-22
@@ -1050,77 +1051,89 @@ Confidence: medium
 Related files: cloud/api/api.js
 
 #### Task Summary
+
 fix: escape regex character classes in safeGitUrl/safeBranch patterns for Node v20 compatibility
 
 #### Files Changed
+
 - `cloud/api/api.js`
 
 #### Bug Cause
+
 <!-- TODO: Document what caused the issue -->
+
 Unknown — extracted from commit 780f0a76.
 
 #### Fix Applied
+
 <!-- TODO: Document the solution -->
+
 See commit 780f0a76 by JPG Yap.
 
 #### Test Result
+
 Unknown — no test files detected.
 
 #### Lesson Learned
+
 <!-- TODO: Extract reusable lesson -->
+
 To be determined — this commit was auto-flagged as potentially containing a lesson.
 
 #### Reusable Rule
+
 <!-- TODO: Define a specific rule for future agents -->
+
 **TODO: Add a specific, actionable rule based on this commit.**
 
 #### Tags
+
 api, bugfix
 
 ---
-  
-### Lesson: SelfHealingLoop  SwarmDebugger wiring for auto-debug on critical incidents  
-  
+
+### Lesson: SelfHealingLoop  SwarmDebugger wiring for auto-debug on critical incidents
+
 Date: 2026-05-22  
 Source: Code agent task completion  
 Model/API used: deepseek-chat  
 Confidence: high  
-Related files: cloud/orchestrator/modules/SelfHealingLoop.js, cloud/api/api.js, cloud/orchestrator/stores/brain/SwarmDebugger.js  
-  
-#### Task Summary  
-  
-Wired SelfHealingLoop to auto-trigger SwarmDebugger parallel debugging on critical/high severity incidents. Added setSwarmDebugger() method to SelfHealingLoop and modified _processNewIncident() and _processInvestigatingIncident() to fire-and-forget swarm debug calls. Wired the swarmDebugger into SelfHealingLoop during brain services initialization in api.js.  
-  
-#### Files Changed  
-  
-- cloud/orchestrator/modules/SelfHealingLoop.js -- Added swarmDebugger field, setSwarmDebugger() method, auto-trigger logic in _processNewIncident() and _processInvestigatingIncident()  
-- cloud/api/api.js -- Wired swarmDebugger into SelfHealingLoop after riskEngine wiring  
-  
-#### Bug Cause  
-  
-N/A -- new feature implementation  
-  
-#### Fix Applied  
-  
-N/A -- new feature  
-  
-#### Test Result  
-  
-All 360 tests pass across 11 test files  
-  
-#### Lesson Learned  
-  
-When wiring two independent subsystems (SelfHealingLoop + SwarmDebugger), use fire-and-forget pattern (.then().catch()) to avoid blocking the incident processing pipeline. The swarm debug is an enhancement, not a dependency -- if it fails, the incident should still be processed normally.  
-  
-#### Reusable Rule  
-  
-When adding cross-module integrations to an existing processing pipeline, always use non-blocking fire-and-forget patterns. Wrap in try/catch and never let the secondary system's failure block the primary system's flow.  
-  
-#### Tags  
-  
-self-healing, swarm-debugger, incident-response, fire-and-forget, integration  
-  
---- 
+Related files: cloud/orchestrator/modules/SelfHealingLoop.js, cloud/api/api.js, cloud/orchestrator/stores/brain/SwarmDebugger.js
+
+#### Task Summary
+
+Wired SelfHealingLoop to auto-trigger SwarmDebugger parallel debugging on critical/high severity incidents. Added setSwarmDebugger() method to SelfHealingLoop and modified \_processNewIncident() and \_processInvestigatingIncident() to fire-and-forget swarm debug calls. Wired the swarmDebugger into SelfHealingLoop during brain services initialization in api.js.
+
+#### Files Changed
+
+- cloud/orchestrator/modules/SelfHealingLoop.js -- Added swarmDebugger field, setSwarmDebugger() method, auto-trigger logic in \_processNewIncident() and \_processInvestigatingIncident()
+- cloud/api/api.js -- Wired swarmDebugger into SelfHealingLoop after riskEngine wiring
+
+#### Bug Cause
+
+N/A -- new feature implementation
+
+#### Fix Applied
+
+N/A -- new feature
+
+#### Test Result
+
+All 360 tests pass across 11 test files
+
+#### Lesson Learned
+
+When wiring two independent subsystems (SelfHealingLoop + SwarmDebugger), use fire-and-forget pattern (.then().catch()) to avoid blocking the incident processing pipeline. The swarm debug is an enhancement, not a dependency -- if it fails, the incident should still be processed normally.
+
+#### Reusable Rule
+
+When adding cross-module integrations to an existing processing pipeline, always use non-blocking fire-and-forget patterns. Wrap in try/catch and never let the secondary system's failure block the primary system's flow.
+
+#### Tags
+
+self-healing, swarm-debugger, incident-response, fire-and-forget, integration
+
+---
 
 ### Auto-Extracted Lesson: Docs: record lesson for SelfHealingLoop-SwarmDebugger wiring
 
@@ -1131,31 +1144,43 @@ Confidence: medium
 Related files: memory/lessons-learned.md
 
 #### Task Summary
+
 docs: record lesson for SelfHealingLoop-SwarmDebugger wiring
 
 #### Files Changed
+
 - `memory/lessons-learned.md`
 
 #### Bug Cause
+
 <!-- TODO: Document what caused the issue -->
+
 Unknown — extracted from commit fe7f4491.
 
 #### Fix Applied
+
 <!-- TODO: Document the solution -->
+
 See commit fe7f4491 by JPG Yap.
 
 #### Test Result
+
 Unknown — no test files detected.
 
 #### Lesson Learned
+
 <!-- TODO: Extract reusable lesson -->
+
 To be determined — this commit was auto-flagged as potentially containing a lesson.
 
 #### Reusable Rule
+
 <!-- TODO: Define a specific rule for future agents -->
+
 **TODO: Add a specific, actionable rule based on this commit.**
 
 #### Tags
+
 general
 
 ---
@@ -1169,9 +1194,11 @@ Confidence: medium
 Related files: .mcp.json, AUTONOMOUS_IMPROVEMENT_REPORT.md, BUG_CRAWL_REPORT_2026-05-02.md, NEEDS_USER_APPROVAL.md, NEXT_IMPROVEMENTS.md
 
 #### Task Summary
+
 fix: add Symbol.iterator to RedisBackedMap so Object.fromEntries works in persistState
 
 #### Files Changed
+
 - `.mcp.json`
 - `AUTONOMOUS_IMPROVEMENT_REPORT.md`
 - `BUG_CRAWL_REPORT_2026-05-02.md`
@@ -1183,25 +1210,35 @@ fix: add Symbol.iterator to RedisBackedMap so Object.fromEntries works in persis
 - `tmp_all_git.txt`
 
 #### Bug Cause
+
 <!-- TODO: Document what caused the issue -->
+
 Unknown — extracted from commit 46e0f43f.
 
 #### Fix Applied
+
 <!-- TODO: Document the solution -->
+
 See commit 46e0f43f by JPG Yap.
 
 #### Test Result
+
 Unknown — no test files detected.
 
 #### Lesson Learned
+
 <!-- TODO: Extract reusable lesson -->
+
 To be determined — this commit was auto-flagged as potentially containing a lesson.
 
 #### Reusable Rule
+
 <!-- TODO: Define a specific rule for future agents -->
+
 **TODO: Add a specific, actionable rule based on this commit.**
 
 #### Tags
+
 api, bugfix
 
 ### Lesson: 9/10 Upgrade — repo cleanup, product README, reuse analytics, security hardening, dashboard polish
@@ -1215,6 +1252,7 @@ Related files: .gitignore, README.md, cloud/api/api.js, cloud/dashboard/src/comp
 #### Task Summary
 
 Completed a comprehensive 5-phase upgrade to bring the SuperRoo project from ~7/10 to 9/10 quality:
+
 - **Phase 1**: Hardened `.gitignore` — added `.roo/mcp.json`, `.mcp.json`, `*.pem`, `*.key`, `id_rsa*`, `id_ed25519*`, `known_hosts`, `tailscale-*.json`, `cloud/data/`, `cloud/*.db`, `cloud/*.sqlite`, and root-level clutter files to prevent sensitive data leaks
 - **Phase 2**: Rewrote `README.md` from VS Code extension docs to a proper product page with architecture diagram, core modules, quick start, security section, and documentation links
 - **Phase 3**: Added `/api/brain/v2/reuse` endpoint with 5 SQL queries (topReused, usageStats, recallTimeline, topFiles, topAgents) and a "Reuse Analytics" tab in the Memory Explorer with stats cards, recall timeline bar chart, top reused memories, most recalled files, and top agents panels
@@ -1311,5 +1349,940 @@ When making a project look like a real product: (1) clean all temp/debug files f
 #### Tags
 
 product-polish, readme, roadmap, architecture, security-model, docker-compose, dashboard, memory-ui, onboarding, demo
+
+---
+
+### Auto-Extracted Lesson: Clean remaining root clutter, rewrite README as SuperRoo2 Cloud IDE with scre...
+
+Date: 2026-05-22
+Source: Git commit cb18e41c
+Model/API used: unknown
+Confidence: medium
+Related files: ', .github/workflows/superroo-pr-review.yml, .github/workflows/website-deploy.yml, .github/workflows/website-preview.yml, AGENTS.md
+
+#### Task Summary
+
+fix: clean remaining root clutter, rewrite README as SuperRoo2 Cloud IDE with screenshots section
+
+#### Files Changed
+
+- `'`
+- `.github/workflows/superroo-pr-review.yml`
+- `.github/workflows/website-deploy.yml`
+- `.github/workflows/website-preview.yml`
+- `AGENTS.md`
+- `PRIVACY.md`
+- `README.md`
+- `SECURITY.md`
+- `apps/web-evals/package.json`
+- `apps/web-superroo/e2e/homepage.spec.ts`
+- `apps/web-superroo/package.json`
+- `apps/web-superroo/playwright.config.ts`
+- `apps/web-superroo/src/components/blog/YouTubeModal.test.ts`
+- `apps/web-superroo/src/components/blog/YouTubeModal.tsx`
+- `apps/web-superroo/src/components/blog/YouTubeModal.utils.ts`
+- `apps/web-superroo/vitest.config.ts`
+- `cloud/api/auth.js`
+- `cloud/api/routes/workflow-compliance.js`
+- `cloud/dashboard/e2e/debug-team.spec.ts`
+- `cloud/dashboard/e2e/screenshots/debug-team-loaded.png`
+- `cloud/dashboard/e2e/screenshots/debug-team-start.png`
+- `cloud/dashboard/e2e/screenshots/debug-team-telegram.png`
+- `cloud/dashboard/e2e/screenshots/ide-terminal-ai-chat.png`
+- `cloud/dashboard/e2e/screenshots/ide-terminal-ai-closed.png`
+- `cloud/dashboard/e2e/screenshots/ide-terminal-command.png`
+- `cloud/dashboard/e2e/screenshots/ide-terminal-loaded.png`
+- `cloud/dashboard/e2e/screenshots/ide-terminal-shortcuts.png`
+- `cloud/dashboard/e2e/screenshots/ide-terminal-suggestions.png`
+- `cloud/dashboard/package.json`
+- `cloud/dashboard/playwright.config.ts`
+- `cloud/dashboard/src/components/ide-terminal/api.ts`
+- `cloud/dashboard/src/components/ide-terminal/hooks/useIdeTerminal.ts`
+- `cloud/dashboard/src/components/views/approvals.tsx`
+- `cloud/dashboard/src/components/views/debug-team.tsx`
+- `cloud/dashboard/src/components/views/predictive-risk.tsx`
+- `cloud/dashboard/src/components/views/skill-generator.tsx`
+- `cloud/dashboard/src/components/views/task-timeline.tsx`
+- `cloud/docker/Dockerfile.auto-deployer`
+- `cloud/e2e/baselines/crawl-1779324667802-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779324667802-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779324667802-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779324667802-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779324667802-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779324693295-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779324693295-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779324693295-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779324693295-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779324693295-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779324711662-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779324711662-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779324711662-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779324711662-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779324711662-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779324730240-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779324730240-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779324730240-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779324730240-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779324730240-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779324747884-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779324747884-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779324747884-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779324747884-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779324747884-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779324766646-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779324766646-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779324766646-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779324766646-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779324766646-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779324785059-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779324785059-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779324785059-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779324785059-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779324785059-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779324803374-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779324803374-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779324803374-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779324803374-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779324803374-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779324821173-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779324821173-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779324821173-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779324821173-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779324821173-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779324838662-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779324838662-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779324838662-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779324838662-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779324838662-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779324856806-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779324856806-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779324856806-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779324856806-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779324856806-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779324874193-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779324874193-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779324874193-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779324874193-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779324874193-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779324891788-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779324891788-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779324891788-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779324891788-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779324891788-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779324909605-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779324909605-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779324909605-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779324909605-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779324909605-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779324926175-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779324926175-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779324926175-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779324926175-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779324926175-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779324944351-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779324944351-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779324944351-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779324944351-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779324944351-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779324961120-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779324961120-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779324961120-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779324961120-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779324961120-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779324977550-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779324977550-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779324977550-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779324977550-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779324977550-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779324994180-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779324994180-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779324994180-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779324994180-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779324994180-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779325011088-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779325011088-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779325011088-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779325011088-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779325011088-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779325028588-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779325028588-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779325028588-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779325028588-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779325028588-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779325045867-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779325045867-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779325045867-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779325045867-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779325045867-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779325063554-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779325063554-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779325063554-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779325063554-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779325063554-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779325083503-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779325083503-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779325083503-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779325083503-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779325083503-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779325101038-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779325101038-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779325101038-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779325101038-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779325101038-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779325118857-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779325118857-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779325118857-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779325118857-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779325118857-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779325136079-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779325136079-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779325136079-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779325136079-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779325136079-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779325164455-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779325164455-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779325164455-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779325164455-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779325164455-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779325182919-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779325182919-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779325182919-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779325182919-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779325182919-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779325202044-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779325202044-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779325202044-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779325202044-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779325202044-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779325218272-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779325218272-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779325218272-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779325218272-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779325218272-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779325235303-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779325235303-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779325235303-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779325235303-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779325235303-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779325252346-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779325252346-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779325252346-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779325252346-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779325252346-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779325269777-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779325269777-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779325269777-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779325269777-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779325269777-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779325286471-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779325286471-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779325286471-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779325286471-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779325286471-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779325306119-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779325306119-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779325306119-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779325306119-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779325306119-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779325322892-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779325322892-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779325322892-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779325322892-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779325322892-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779325339197-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779325339197-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779325339197-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779325339197-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779325339197-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779325356000-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779325356000-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779325356000-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779325356000-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779325356000-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779325372655-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779325372655-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779325372655-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779325372655-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779325372655-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779325389682-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779325389682-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779325389682-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779325389682-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779325389682-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779325405989-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779325405989-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779325405989-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779325405989-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779325405989-iphone-light.png`
+- `cloud/e2e/baselines/crawl-1779325423471-desktop-dark.png`
+- `cloud/e2e/baselines/crawl-1779325423471-desktop-light.png`
+- `cloud/e2e/baselines/crawl-1779325423471-ipad-dark.png`
+- `cloud/e2e/baselines/crawl-1779325423471-iphone-dark.png`
+- `cloud/e2e/baselines/crawl-1779325423471-iphone-light.png`
+- `cloud/e2e/current/crawl-1779324667802-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779324667802-desktop-light.png`
+- `cloud/e2e/current/crawl-1779324667802-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779324667802-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779324667802-iphone-light.png`
+- `cloud/e2e/current/crawl-1779324693295-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779324693295-desktop-light.png`
+- `cloud/e2e/current/crawl-1779324693295-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779324693295-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779324693295-iphone-light.png`
+- `cloud/e2e/current/crawl-1779324711662-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779324711662-desktop-light.png`
+- `cloud/e2e/current/crawl-1779324711662-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779324711662-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779324711662-iphone-light.png`
+- `cloud/e2e/current/crawl-1779324730240-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779324730240-desktop-light.png`
+- `cloud/e2e/current/crawl-1779324730240-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779324730240-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779324730240-iphone-light.png`
+- `cloud/e2e/current/crawl-1779324747884-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779324747884-desktop-light.png`
+- `cloud/e2e/current/crawl-1779324747884-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779324747884-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779324747884-iphone-light.png`
+- `cloud/e2e/current/crawl-1779324766646-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779324766646-desktop-light.png`
+- `cloud/e2e/current/crawl-1779324766646-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779324766646-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779324766646-iphone-light.png`
+- `cloud/e2e/current/crawl-1779324785059-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779324785059-desktop-light.png`
+- `cloud/e2e/current/crawl-1779324785059-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779324785059-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779324785059-iphone-light.png`
+- `cloud/e2e/current/crawl-1779324803374-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779324803374-desktop-light.png`
+- `cloud/e2e/current/crawl-1779324803374-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779324803374-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779324803374-iphone-light.png`
+- `cloud/e2e/current/crawl-1779324821173-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779324821173-desktop-light.png`
+- `cloud/e2e/current/crawl-1779324821173-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779324821173-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779324821173-iphone-light.png`
+- `cloud/e2e/current/crawl-1779324838662-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779324838662-desktop-light.png`
+- `cloud/e2e/current/crawl-1779324838662-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779324838662-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779324838662-iphone-light.png`
+- `cloud/e2e/current/crawl-1779324856806-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779324856806-desktop-light.png`
+- `cloud/e2e/current/crawl-1779324856806-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779324856806-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779324856806-iphone-light.png`
+- `cloud/e2e/current/crawl-1779324874193-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779324874193-desktop-light.png`
+- `cloud/e2e/current/crawl-1779324874193-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779324874193-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779324874193-iphone-light.png`
+- `cloud/e2e/current/crawl-1779324891788-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779324891788-desktop-light.png`
+- `cloud/e2e/current/crawl-1779324891788-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779324891788-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779324891788-iphone-light.png`
+- `cloud/e2e/current/crawl-1779324909605-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779324909605-desktop-light.png`
+- `cloud/e2e/current/crawl-1779324909605-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779324909605-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779324909605-iphone-light.png`
+- `cloud/e2e/current/crawl-1779324926175-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779324926175-desktop-light.png`
+- `cloud/e2e/current/crawl-1779324926175-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779324926175-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779324926175-iphone-light.png`
+- `cloud/e2e/current/crawl-1779324944351-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779324944351-desktop-light.png`
+- `cloud/e2e/current/crawl-1779324944351-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779324944351-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779324944351-iphone-light.png`
+- `cloud/e2e/current/crawl-1779324961120-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779324961120-desktop-light.png`
+- `cloud/e2e/current/crawl-1779324961120-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779324961120-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779324961120-iphone-light.png`
+- `cloud/e2e/current/crawl-1779324977550-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779324977550-desktop-light.png`
+- `cloud/e2e/current/crawl-1779324977550-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779324977550-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779324977550-iphone-light.png`
+- `cloud/e2e/current/crawl-1779324994180-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779324994180-desktop-light.png`
+- `cloud/e2e/current/crawl-1779324994180-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779324994180-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779324994180-iphone-light.png`
+- `cloud/e2e/current/crawl-1779325011088-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779325011088-desktop-light.png`
+- `cloud/e2e/current/crawl-1779325011088-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779325011088-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779325011088-iphone-light.png`
+- `cloud/e2e/current/crawl-1779325028588-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779325028588-desktop-light.png`
+- `cloud/e2e/current/crawl-1779325028588-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779325028588-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779325028588-iphone-light.png`
+- `cloud/e2e/current/crawl-1779325045867-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779325045867-desktop-light.png`
+- `cloud/e2e/current/crawl-1779325045867-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779325045867-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779325045867-iphone-light.png`
+- `cloud/e2e/current/crawl-1779325063554-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779325063554-desktop-light.png`
+- `cloud/e2e/current/crawl-1779325063554-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779325063554-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779325063554-iphone-light.png`
+- `cloud/e2e/current/crawl-1779325083503-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779325083503-desktop-light.png`
+- `cloud/e2e/current/crawl-1779325083503-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779325083503-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779325083503-iphone-light.png`
+- `cloud/e2e/current/crawl-1779325101038-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779325101038-desktop-light.png`
+- `cloud/e2e/current/crawl-1779325101038-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779325101038-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779325101038-iphone-light.png`
+- `cloud/e2e/current/crawl-1779325118857-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779325118857-desktop-light.png`
+- `cloud/e2e/current/crawl-1779325118857-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779325118857-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779325118857-iphone-light.png`
+- `cloud/e2e/current/crawl-1779325136079-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779325136079-desktop-light.png`
+- `cloud/e2e/current/crawl-1779325136079-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779325136079-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779325136079-iphone-light.png`
+- `cloud/e2e/current/crawl-1779325164455-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779325164455-desktop-light.png`
+- `cloud/e2e/current/crawl-1779325164455-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779325164455-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779325164455-iphone-light.png`
+- `cloud/e2e/current/crawl-1779325182919-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779325182919-desktop-light.png`
+- `cloud/e2e/current/crawl-1779325182919-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779325182919-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779325182919-iphone-light.png`
+- `cloud/e2e/current/crawl-1779325202044-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779325202044-desktop-light.png`
+- `cloud/e2e/current/crawl-1779325202044-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779325202044-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779325202044-iphone-light.png`
+- `cloud/e2e/current/crawl-1779325218272-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779325218272-desktop-light.png`
+- `cloud/e2e/current/crawl-1779325218272-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779325218272-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779325218272-iphone-light.png`
+- `cloud/e2e/current/crawl-1779325235303-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779325235303-desktop-light.png`
+- `cloud/e2e/current/crawl-1779325235303-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779325235303-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779325235303-iphone-light.png`
+- `cloud/e2e/current/crawl-1779325252346-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779325252346-desktop-light.png`
+- `cloud/e2e/current/crawl-1779325252346-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779325252346-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779325252346-iphone-light.png`
+- `cloud/e2e/current/crawl-1779325269777-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779325269777-desktop-light.png`
+- `cloud/e2e/current/crawl-1779325269777-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779325269777-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779325269777-iphone-light.png`
+- `cloud/e2e/current/crawl-1779325286471-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779325286471-desktop-light.png`
+- `cloud/e2e/current/crawl-1779325286471-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779325286471-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779325286471-iphone-light.png`
+- `cloud/e2e/current/crawl-1779325306119-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779325306119-desktop-light.png`
+- `cloud/e2e/current/crawl-1779325306119-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779325306119-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779325306119-iphone-light.png`
+- `cloud/e2e/current/crawl-1779325322892-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779325322892-desktop-light.png`
+- `cloud/e2e/current/crawl-1779325322892-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779325322892-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779325322892-iphone-light.png`
+- `cloud/e2e/current/crawl-1779325339197-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779325339197-desktop-light.png`
+- `cloud/e2e/current/crawl-1779325339197-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779325339197-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779325339197-iphone-light.png`
+- `cloud/e2e/current/crawl-1779325356000-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779325356000-desktop-light.png`
+- `cloud/e2e/current/crawl-1779325356000-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779325356000-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779325356000-iphone-light.png`
+- `cloud/e2e/current/crawl-1779325372655-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779325372655-desktop-light.png`
+- `cloud/e2e/current/crawl-1779325372655-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779325372655-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779325372655-iphone-light.png`
+- `cloud/e2e/current/crawl-1779325389682-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779325389682-desktop-light.png`
+- `cloud/e2e/current/crawl-1779325389682-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779325389682-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779325389682-iphone-light.png`
+- `cloud/e2e/current/crawl-1779325405989-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779325405989-desktop-light.png`
+- `cloud/e2e/current/crawl-1779325405989-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779325405989-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779325405989-iphone-light.png`
+- `cloud/e2e/current/crawl-1779325423471-desktop-dark.png`
+- `cloud/e2e/current/crawl-1779325423471-desktop-light.png`
+- `cloud/e2e/current/crawl-1779325423471-ipad-dark.png`
+- `cloud/e2e/current/crawl-1779325423471-iphone-dark.png`
+- `cloud/e2e/current/crawl-1779325423471-iphone-light.png`
+- `cloud/e2e/reports/crawl-1779324667802.json`
+- `cloud/e2e/reports/crawl-1779324693295.json`
+- `cloud/e2e/reports/crawl-1779324711662.json`
+- `cloud/e2e/reports/crawl-1779324730240.json`
+- `cloud/e2e/reports/crawl-1779324747884.json`
+- `cloud/e2e/reports/crawl-1779324766646.json`
+- `cloud/e2e/reports/crawl-1779324785059.json`
+- `cloud/e2e/reports/crawl-1779324803374.json`
+- `cloud/e2e/reports/crawl-1779324821173.json`
+- `cloud/e2e/reports/crawl-1779324838662.json`
+- `cloud/e2e/reports/crawl-1779324856806.json`
+- `cloud/e2e/reports/crawl-1779324874193.json`
+- `cloud/e2e/reports/crawl-1779324891788.json`
+- `cloud/e2e/reports/crawl-1779324909605.json`
+- `cloud/e2e/reports/crawl-1779324926175.json`
+- `cloud/e2e/reports/crawl-1779324944351.json`
+- `cloud/e2e/reports/crawl-1779324961120.json`
+- `cloud/e2e/reports/crawl-1779324977550.json`
+- `cloud/e2e/reports/crawl-1779324994180.json`
+- `cloud/e2e/reports/crawl-1779325011088.json`
+- `cloud/e2e/reports/crawl-1779325028588.json`
+- `cloud/e2e/reports/crawl-1779325045867.json`
+- `cloud/e2e/reports/crawl-1779325063554.json`
+- `cloud/e2e/reports/crawl-1779325083503.json`
+- `cloud/e2e/reports/crawl-1779325101038.json`
+- `cloud/e2e/reports/crawl-1779325118857.json`
+- `cloud/e2e/reports/crawl-1779325136079.json`
+- `cloud/e2e/reports/crawl-1779325164455.json`
+- `cloud/e2e/reports/crawl-1779325182919.json`
+- `cloud/e2e/reports/crawl-1779325202044.json`
+- `cloud/e2e/reports/crawl-1779325218272.json`
+- `cloud/e2e/reports/crawl-1779325235303.json`
+- `cloud/e2e/reports/crawl-1779325252346.json`
+- `cloud/e2e/reports/crawl-1779325269777.json`
+- `cloud/e2e/reports/crawl-1779325286471.json`
+- `cloud/e2e/reports/crawl-1779325306119.json`
+- `cloud/e2e/reports/crawl-1779325322892.json`
+- `cloud/e2e/reports/crawl-1779325339197.json`
+- `cloud/e2e/reports/crawl-1779325356000.json`
+- `cloud/e2e/reports/crawl-1779325372655.json`
+- `cloud/e2e/reports/crawl-1779325389682.json`
+- `cloud/e2e/reports/crawl-1779325405989.json`
+- `cloud/e2e/reports/crawl-1779325423471.json`
+- `cloud/orchestrator/modules/DeployOrchestrator.js`
+- `cloud/orchestrator/stores/brain/AgentRunWrapper.js`
+- `cloud/orchestrator/stores/brain/AgentScoringService.js`
+- `cloud/orchestrator/stores/brain/ConsensusService.js`
+- `cloud/orchestrator/stores/brain/DeployGate.js`
+- `cloud/orchestrator/stores/brain/MemoryService.js`
+- `cloud/orchestrator/stores/brain/ModelRouter.js`
+- `cloud/orchestrator/stores/brain/PredictiveFailureEngine.js`
+- `cloud/orchestrator/stores/brain/SwarmDebugger.js`
+- `cloud/orchestrator/stores/brain/index.js`
+- `cloud/orchestrator/stores/brain/migrate-v3-backfill.mjs`
+- `cloud/orchestrator/stores/brain/migrations/004_predictive_swarm.sql`
+- `cloud/orchestrator/stores/brain/schema.sql`
+- `cloud/providers/anthropic.js`
+- `cloud/providers/bridge.js`
+- `cloud/providers/deepseek.js`
+- `cloud/providers/groq.js`
+- `cloud/providers/index.js`
+- `cloud/providers/kimi.js`
+- `cloud/providers/ollama.js`
+- `cloud/providers/openai.js`
+- `cloud/providers/openrouter.js`
+- `cloud/providers/registry.js`
+- `cloud/providers/types.js`
+- `cloud/test/brain-services.test.js`
+- `cloud/test/cross-phase-wiring.test.js`
+- `cloud/test/memory-service.test.js`
+- `cloud/test/predictive-swarm.test.js`
+- `cloud/test/vectorStoreAdapter.test.js`
+- `cloud/vitest.config.ts`
+- `docs/architecture/cloud-ide-gap-audit.md`
+- `docs/architecture/ide-improvements-from-openvscode.md`
+- `docs/architecture/openvscode-server-adoption-plan.md`
+- `docs/architecture/theia-adoption-plan.md`
+- `memory/.stop-hook-last-run`
+- `memory/.sync-state.json`
+- `memory/competitor-research/aws-remote-swe.json`
+- `memory/competitor-research/comparison.json`
+- `memory/competitor-research/mastra.json`
+- `memory/competitor-research/openhands.json`
+- `memory/competitor-research/power.json`
+- `memory/competitor-research/swe-agent.json`
+- `memory/competitor-research/theia-analysis.md`
+- `memory/competitor-research/voltagent.json`
+- `memory/context/latest-agent-context.md`
+- `memory/lesson-index.jsonl`
+- `memory/lesson-summaries.json`
+- `memory/lessons-learned.md`
+- `memory/lessons-learned.md.bak`
+- `package.json`
+- `packages/build/vitest.config.ts`
+- `packages/cloud/vitest.config.ts`
+- `packages/core/vitest.config.ts`
+- `packages/evals/package.json`
+- `packages/evals/vitest.config.ts`
+- `packages/telemetry/src/PostHogTelemetryClient.ts`
+- `packages/telemetry/src/__tests__/PostHogTelemetryClient.test.ts`
+- `packages/telemetry/src/vscode-access.ts`
+- `packages/telemetry/vitest.config.ts`
+- `packages/telemetry/vitest.setup.ts`
+- `packages/types/vitest.config.ts`
+- `packages/vscode-shim/vitest.config.ts`
+- `pnpm-lock.yaml`
+- `pnpm-workspace.yaml`
+- `scripts/check-openhands-upgrade.mjs`
+- `scripts/competitor-research.mjs`
+- `scripts/diagnose-telegram.mjs`
+- `scripts/global-builder.mjs`
+- `scripts/migrate-lessons-to-pgvector.mjs`
+- `scripts/sync-repair-runs.mjs`
+- `server/src/memory/McpMemoryServer.ts`
+- `server/src/memory/commit-deploy-log.json`
+- `server/src/memory/telegram-coding-memory.json`
+- `src/__tests__/McpMemoryServer.spec.ts`
+- `src/super-roo/agents/CoderAgent.ts`
+- `src/super-roo/agents/DebuggerAgent.ts`
+- `src/super-roo/agents/PmAgent.ts`
+- `src/super-roo/agents/SelfHealingAgent.ts`
+- `src/super-roo/agents/SupabaseAgent.ts`
+- `src/super-roo/agents/TesterAgent.ts`
+- `src/super-roo/chat/SlashCommandHandler.ts`
+- `src/super-roo/chat/__tests__/SlashCommandHandler.test.ts`
+- `src/super-roo/chat/index.ts`
+- `src/super-roo/debug-team/vitest.setup.ts`
+- `src/super-roo/lessons/LessonRetriever.ts`
+- `src/super-roo/product-memory/CommitDeployLog.ts`
+- `src/super-roo/product-memory/agents/BugFeatureMapperAgent.ts`
+- `src/super-roo/product-memory/agents/FeatureTesterAgent.ts`
+- `src/super-roo/product-memory/agents/ProductFeatureAgent.ts`
+- `src/super-roo/product-memory/agents/ProductUpdatesAgent.ts`
+- `src/super-roo/product-memory/agents/WorkingTreeAgent.ts`
+- `src/super-roo/prompts/PromptService.ts`
+- `src/super-roo/prompts/__tests__/PromptService.test.ts`
+- `src/super-roo/prompts/index.ts`
+- `src/super-roo/prompts/types.ts`
+- `src/super-roo/providers/ProviderRegistry.ts`
+- `src/super-roo/providers/__tests__/ProviderRegistry.test.ts`
+- `src/super-roo/providers/__tests__/reasoning-mappers.test.ts`
+- `src/super-roo/providers/index.ts`
+- `src/super-roo/providers/reasoning-mappers.ts`
+- `src/super-roo/providers/types.ts`
+- `src/super-roo/safety/SafetyManager.ts`
+- `src/super-roo/safety/SkillToolPolicy.ts`
+- `src/super-roo/safety/__tests__/SkillToolPolicy.test.ts`
+- `src/super-roo/types/index.ts`
+- `src/vitest.config.ts`
+- `src/vitest.setup.ts`
+- `tmp-check-dlq.js`
+- `tools/superroo-learn.mjs`
+- `turbo.json`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit cb18e41c.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit cb18e41c by JPG Yap.
+
+#### Test Result
+
+Tests were included in this commit.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+testing, api, deployment, bugfix
+
+---
+
+### Auto-Extracted Lesson: Update README title, fix clone URL, replace screenshots, add QUICKSTART.md
+
+Date: 2026-05-22
+Source: Git commit e50fca5a
+Model/API used: unknown
+Confidence: medium
+Related files: QUICKSTART.md, README.md
+
+#### Task Summary
+
+fix: update README title, fix clone URL, replace screenshots, add QUICKSTART.md
+
+#### Files Changed
+
+- `QUICKSTART.md`
+- `README.md`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit e50fca5a.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit e50fca5a by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+bugfix
+
+---
+
+### Lesson: Gap Analysis & Innovative Feature Proposals — Competitor Research Synthesis
+
+Date: 2026-05-22
+Source: Code agent task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: docs/super-roo/GAP_ANALYSIS_AND_INNOVATION_2026-05-22.md, memory/competitor-research/comparison.json, product-features/advanced-features-gap-analysis.md, product-features/feature-gap-scan.md, docs/resources/working-tree.md
+
+#### Task Summary
+
+Performed comprehensive gap analysis of recently completed product polish (Phases 1-9) and cross-referenced SuperRoo2's feature set against 6 competitor repos (OpenHands, SWE-agent, VoltAgent, AWS Remote SWE, Mastra, Power) + Eclipse Theia analysis. Produced a structured document with 7 parts: gap analysis of product polish, feature gaps vs competitors, innovative feature proposals (10 features across P0/P1/P2), remaining technical debt, recommended action plan (4 sprints), updated comparison matrix, and key strategic insights.
+
+#### Files Changed
+
+- `docs/super-roo/GAP_ANALYSIS_AND_INNOVATION_2026-05-22.md` — created with full analysis
+- `memory/lessons-learned.md` — appended this lesson
+
+#### Bug Cause
+
+N/A — research/analysis task, not a bug fix.
+
+#### Fix Applied
+
+N/A
+
+#### Test Result
+
+N/A — no test changes needed for this analysis.
+
+#### Lesson Learned
+
+1. **SuperRoo2's moats are real but under-marketed**: Self-healing, Telegram integration, multi-modal UI, and the learning layer are UNIQUE advantages that no competitor has. These should be the headline features in all documentation and marketing.
+2. **Mastra is the most comprehensive competitor**: 25+ storage backends, 17 voice providers, 14 observability providers, 8 auth providers, 4 deployer adapters. SuperRoo2 should adopt the adapter pattern without building all integrations in-house.
+3. **Theia is complementary, not competitive**: Theia's typed agent interfaces, prompt variant system, MCP lifecycle management, and collaboration features are patterns SuperRoo2 should adopt for its Cloud IDE.
+4. **The biggest innovation opportunity is Agent Collaboration**: A2A protocol support + real-time pair programming would differentiate SuperRoo2 from all competitors and align with the multi-agent architecture.
+5. **Technical debt is concentrated in 3 areas**: Neural network not ported to cloud (G1), SuperDebugLoop not ported to cloud (G7), and 8,220 lines of untested code across 9 modules. These should be fixed before building new features.
+
+#### Reusable Rule
+
+When performing a gap analysis against competitors: (1) cross-reference all 21 Working Tree modules against competitor features, (2) categorize gaps as "SuperRoo2 lacks entirely" vs "SuperRoo2 has but is weaker" vs "SuperRoo2 has closed", (3) prioritize innovative features by impact (P0/P1/P2) and align with existing moats, (4) produce a structured document with actionable sprint plan, and (5) record a lesson with key strategic insights for future agents.
+
+#### Tags
+
+competitor-research, gap-analysis, innovation, product-strategy, mastra, voltagent, openhands, swe-agent, aws-remote-swe, theia, self-healing, telegram, multi-modal-ui, learning-layer, technical-debt
+
+---
+
+### Lesson: Telegram recommendation follow-up routing
+
+Date: 2026-05-22
+Source: superroo-learn CLI (local fallback)
+Model/API used: local
+Confidence: medium
+Related files:
+Tags:
+
+#### Task Summary
+
+When Telegram users ask for project improvement recommendations and then say phrases like 'ask coder to proceed' or 'go ahead with those improvements', classify using recent recommendation context and route to code_task. Keep explicit self-upgrade phrases such as 'ask coder to upgrade you' as upgrade_self before project follow-up detection. Add tests for both paths.
+
+#### Lesson Learned
+
+When Telegram users ask for project improvement recommendations and then say phrases like 'ask coder to proceed' or 'go ahead with those improvements', classify using recent recommendation context and route to code_task. Keep explicit self-upgrade phrases such as 'ask coder to upgrade you' as upgrade_self before project follow-up detection. Add tests for both paths.
+
+#### Tags
+
+cross-project, local-fallback
+
+---
+
+### Auto-Extracted Lesson: Route telegram recommendation follow-ups to coder
+
+Date: 2026-05-22
+Source: Git commit 533977bd
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/api/telegramClassifier.js, cloud/test/telegramClassifier.test.js
+
+#### Task Summary
+
+fix: route telegram recommendation follow-ups to coder
+
+#### Files Changed
+
+- `cloud/api/telegramClassifier.js`
+- `cloud/test/telegramClassifier.test.js`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 533977bd.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 533977bd by JPG Yap.
+
+#### Test Result
+
+Tests were included in this commit.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+testing, api, bugfix
+
+---
+
+### Lesson: Use dependency injection for fs operations instead of vi.spyOn on Windows
+
+Date: 2026-05-22
+Source: DeepSeek task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/orchestrator/modules/CommissioningLoop.js, cloud/test/commissioning-loop.test.js
+
+#### Task Summary
+
+Fixed CommissioningLoop test suite (G23) — achieved 82/82 tests passing. The root cause of 5 failing phase tests was that phase methods called `fs.existsSync()` and `fs.readFileSync()` directly instead of through injected `this._existsFn`/`this._readFileFn` references.
+
+#### Files Changed
+
+- cloud/orchestrator/modules/CommissioningLoop.js
+- cloud/test/commissioning-loop.test.js
+
+#### Bug Cause
+
+1. Phase methods (e.g., `_phaseDatabaseValidation`, `_phaseFileUploadTesting`) called `fs.existsSync()` and `fs.readFileSync()` directly, not through `this._existsFn`/`this._readFileFn`
+2. The dependency injection approach only worked for `_ensureDir` and `_writeReport` which used `this._mkdirFn`/`this._writeFileFn`
+3. When tests switched from `vi.spyOn(fs, "existsSync")` to injected mock functions, the phase methods still used the real `fs` module directly, causing all file existence checks to return `false`
+
+#### Fix Applied
+
+1. Added `this._statFn` to constructor for `fs.statSync` injection
+2. Replaced all 27 occurrences of `fs.existsSync()`, `fs.readFileSync()`, and `fs.statSync()` in phase methods with `this._existsFn()`, `this._readFileFn()`, and `this._statFn()`
+3. Added `statFn` to test's `createMockFs()` and all `CommissioningLoop` instantiations
+4. Fixed phase timeout test to use `expect().rejects.toThrow()` since `_executePhaseWithTimeout` rejects on timeout
+
+#### Test Result
+
+pass — 82/82 tests passing
+
+#### Lesson Learned
+
+When using dependency injection for testing, ALL code paths that use the injected dependency must go through the injected reference, not the original module. In a class, this means every method must use `this._existsFn(p)` instead of `fs.existsSync(p)`. A single direct call to the real module bypasses the injection entirely. Always search for ALL occurrences of the real module function in the class before assuming injection is complete.
+
+#### Reusable Rule
+
+When adding dependency injection for fs operations (or any module) in a class, use `search_files` to find ALL occurrences of the real module function (e.g., `fs.existsSync`, `fs.readFileSync`) in the class file and replace EVERY one with the injected reference. A single missed occurrence will cause tests to use the real filesystem, leading to hard-to-debug failures.
+
+#### Tags
+
+testing, dependency-injection, commissioning-loop, fs-mocking, windows-compatibility
+
+### Lesson: A2A Protocol sendMessage must check localAgentId, not agent registry
+
+Date: 2026-05-22
+Source: Codex task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/collaboration/A2AProtocol.js, cloud/test/collaboration.test.js
+
+#### Task Summary
+
+Fixed 33 failing tests in the collaboration module by resolving three bugs: (1) A2AProtocol.sendMessage() incorrectly checked `this._agents.has(message.target)` instead of `message.target === this._localAgentId`, causing remote agent messages to be routed locally; (2) delegateTask() emitted duplicate `task:completed` events since \_handleTask() already emits it; (3) CollaborationBridge test beforeEach had a missing semicolon causing JavaScript ASI to interpret destructuring assignments as function calls.
+
+#### Files Changed
+
+- cloud/collaboration/A2AProtocol.js
+- cloud/test/collaboration.test.js
+
+#### Bug Cause
+
+1. sendMessage() used `this._agents.has(message.target)` which matched ALL registered agents (local + remote), routing remote messages to the local handler instead of emitting `message:outgoing`.
+2. delegateTask() emitted `task:completed` after sendMessage() returned, but \_handleTask() already emits it when the handler succeeds, causing double emission.
+3. Missing semicolon after `({ FileSync } = require(...))` caused ASI to combine the destructuring with the next assignment as a function call.
+
+#### Fix Applied
+
+1. Changed `this._agents.has(message.target)` to `message.target === this._localAgentId` in sendMessage().
+2. Removed the duplicate `this.emit("task:completed", task)` from delegateTask().
+3. Added missing semicolon after the FileSync require line.
+
+#### Test Result
+
+pass — all 76 tests pass (20 A2AProtocol, 21 PairProgrammingMode, 31 CollaborationBridge, 4 createCollaborationSystem)
+
+#### Lesson Learned
+
+JavaScript's Automatic Semicolon Insertion (ASI) can cause parenthesized destructuring assignments to be interpreted as function calls when the preceding line lacks a semicolon. Always use explicit semicolons after `({ x } = require(...))` patterns in CommonJS modules. For A2A-style protocols, agent routing must distinguish between "any registered agent" and "the local agent" — use `target === this._localAgentId` not `this._agents.has(target)`.
+
+#### Reusable Rule
+
+When writing destructuring assignments without variable declarations (e.g., `({ X } = require(...))`), always terminate with a semicolon to prevent ASI from combining with the next parenthesized expression. When implementing agent routing, compare against the local agent identity, not the agent registry membership.
+
+#### Tags
+
+a2a, collaboration, testing, asi, javascript, agent-routing, event-emission
 
 ---

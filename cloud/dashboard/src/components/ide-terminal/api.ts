@@ -39,9 +39,14 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
 /* ── Workspace ─────────────────────────────────────────── */
 
 export async function fetchWorkspace() {
-	return apiFetch<{ files: any[]; openFiles: any[]; tasks: any[]; recentWorkspaces: any[] }>(
-		"/ide-workspace/workspace",
-	)
+	return apiFetch<{
+		success: boolean
+		files: any[]
+		repoName?: string
+		branch?: string
+		status?: { cpu: string; ram: string }
+		pipeline?: any[]
+	}>("/ide-workspace/workspace")
 }
 
 export async function fetchFileContent(filePath: string) {
@@ -87,18 +92,11 @@ export async function fetchDiff(filePath: string, content: string) {
 
 /* ── Terminal ──────────────────────────────────────────── */
 
-export async function sendTerminalCommand(
-	command: string,
-	sessionId?: string,
-	mode: "shell" | "agent" | "skill" = "shell",
-) {
-	return apiFetch<{ ok: boolean; output: string[]; agent?: string; skill?: string }>(
-		"/ide-workspace/terminal/execute",
-		{
-			method: "POST",
-			body: JSON.stringify({ command, terminalId: sessionId || "term-1", mode }),
-		},
-	)
+export async function sendTerminalCommand(command: string, sessionId?: string) {
+	return apiFetch<{ success: boolean; output: string[]; sessionId?: string }>("/ide-workspace/terminal/execute", {
+		method: "POST",
+		body: JSON.stringify({ command, sessionId: sessionId || "term-1" }),
+	})
 }
 
 /* ── GitHub Import ─────────────────────────────────────── */
@@ -159,7 +157,7 @@ export async function fetchBrainSession(sessionId: string) {
 }
 
 export async function sendIdeChatMessage(message: string, context?: Record<string, unknown>) {
-	return apiFetch<{ reply: string; suggestions?: string[] }>("/ide-workspace/chat", {
+	return apiFetch<{ success: boolean; response: string }>("/ide-workspace/chat", {
 		method: "POST",
 		body: JSON.stringify({ message, context }),
 	})

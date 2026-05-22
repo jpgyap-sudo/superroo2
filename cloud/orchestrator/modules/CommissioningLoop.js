@@ -41,7 +41,7 @@ const HARD_SAFETY_PATTERNS = [
 	{ pattern: /\buserdel\b/, reason: "User deletion" },
 	{ pattern: /\busermod\b/, reason: "User modification" },
 	{ pattern: /chmod\s+-R\s+777\s+\//, reason: "Recursive world-writable on root" },
-	{ pattern: /chown\s+-R\s+\//, reason: "Recursive ownership change on root" },
+	{ pattern: /chown\s+-R\s+.*\/$/, reason: "Recursive ownership change on root" },
 	{ pattern: /cat\s+\.env/, reason: "Exposing .env file" },
 	{ pattern: /(nano|vi|vim)\s+\.env/, reason: "Editing .env file" },
 	{ pattern: />\s+\.env/, reason: "Overwriting .env file" },
@@ -84,6 +84,14 @@ class CommissioningLoop {
 		this.containerFirst = opts.containerFirst !== false
 		this.phaseTimeoutMs = opts.phaseTimeoutMs || 10 * 60 * 1000 // 10 min per phase
 		this.commissioningDir = opts.commissioningDir || path.join(this.workspaceRoot, "commissioning")
+
+		// Allow dependency injection for testing
+		this._execAsync = opts.execAsync || execAsync
+		this._writeFileFn = opts.writeFileFn || fs.writeFileSync
+		this._existsFn = opts.existsFn || ((p) => fs.existsSync(p))
+		this._readFileFn = opts.readFileFn || ((p, enc) => fs.readFileSync(p, enc))
+		this._mkdirFn = opts.mkdirFn || ((p, opts) => fs.mkdirSync(p, opts))
+		this._statFn = opts.statFn || ((p) => fs.statSync(p))
 
 		// Internal state
 		this._running = false
@@ -431,8 +439,8 @@ class CommissioningLoop {
 
 			// Check package.json
 			const pkgPath = path.join(this.workspaceRoot, "package.json")
-			if (fs.existsSync(pkgPath)) {
-				const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"))
+			if (this._existsFn(pkgPath)) {
+				const pkg = JSON.parse(this._readFileFn(pkgPath, "utf8"))
 				findings.push({
 					type: "package",
 					detail: `Name: ${pkg.name || "N/A"}, Version: ${pkg.version || "N/A"}`,
@@ -441,8 +449,8 @@ class CommissioningLoop {
 
 			// Check cloud package.json
 			const cloudPkgPath = path.join(this.workspaceRoot, "cloud", "package.json")
-			if (fs.existsSync(cloudPkgPath)) {
-				const cloudPkg = JSON.parse(fs.readFileSync(cloudPkgPath, "utf8"))
+			if (this._existsFn(cloudPkgPath)) {
+				const cloudPkg = JSON.parse(this._readFileFn(cloudPkgPath, "utf8"))
 				findings.push({
 					type: "cloud-package",
 					detail: `Dependencies: ${Object.keys(cloudPkg.dependencies || {}).length}`,
@@ -451,8 +459,8 @@ class CommissioningLoop {
 
 			// Check dashboard package.json
 			const dashPkgPath = path.join(this.workspaceRoot, "cloud", "dashboard", "package.json")
-			if (fs.existsSync(dashPkgPath)) {
-				const dashPkg = JSON.parse(fs.readFileSync(dashPkgPath, "utf8"))
+			if (this._existsFn(dashPkgPath)) {
+				const dashPkg = JSON.parse(this._readFileFn(dashPkgPath, "utf8"))
 				findings.push({
 					type: "dashboard-package",
 					detail: `Dependencies: ${Object.keys(dashPkg.dependencies || {}).length}`,
@@ -461,13 +469,13 @@ class CommissioningLoop {
 
 			// Check ecosystem config
 			const ecoPath = path.join(this.workspaceRoot, "cloud", "ecosystem.config.js")
-			if (fs.existsSync(ecoPath)) {
+			if (this._existsFn(ecoPath)) {
 				findings.push({ type: "pm2", detail: "PM2 ecosystem config found" })
 			}
 
 			// Check Docker
 			const dockerPath = path.join(this.workspaceRoot, "cloud", "sandbox", "Dockerfile")
-			if (fs.existsSync(dockerPath)) {
+			if (this._existsFn(dockerPath)) {
 				findings.push({ type: "docker", detail: "Sandbox Dockerfile found" })
 			}
 
@@ -499,40 +507,40 @@ class CommissioningLoop {
 			const envPath = path.join(this.workspaceRoot, ".env")
 			results.push({
 				check: ".env",
-				passed: fs.existsSync(envPath),
-				detail: fs.existsSync(envPath) ? "Found" : "Missing",
+				passed: this._existsFn(envPath),
+				detail: this._existsFn(envPath) ? "Found" : "Missing",
 			})
 
 			// Check pnpm-lock exists
 			const lockPath = path.join(this.workspaceRoot, "pnpm-lock.yaml")
 			results.push({
 				check: "pnpm-lock",
-				passed: fs.existsSync(lockPath),
-				detail: fs.existsSync(lockPath) ? "Found" : "Missing",
+				passed: this._existsFn(lockPath),
+				detail: this._existsFn(lockPath) ? "Found" : "Missing",
 			})
 
 			// Check node_modules exist
 			const nmPath = path.join(this.workspaceRoot, "node_modules")
 			results.push({
 				check: "node_modules",
-				passed: fs.existsSync(nmPath),
-				detail: fs.existsSync(nmPath) ? "Found" : "Missing",
+				passed: this._existsFn(nmPath),
+				detail: this._existsFn(nmPath) ? "Found" : "Missing",
 			})
 
 			// Check cloud node_modules
 			const cloudNmPath = path.join(this.workspaceRoot, "cloud", "node_modules")
 			results.push({
 				check: "cloud/node_modules",
-				passed: fs.existsSync(cloudNmPath),
-				detail: fs.existsSync(cloudNmPath) ? "Found" : "Missing",
+				passed: this._existsFn(cloudNmPath),
+				detail: this._existsFn(cloudNmPath) ? "Found" : "Missing",
 			})
 
 			// Check dashboard node_modules
 			const dashNmPath = path.join(this.workspaceRoot, "cloud", "dashboard", "node_modules")
 			results.push({
 				check: "dashboard/node_modules",
-				passed: fs.existsSync(dashNmPath),
-				detail: fs.existsSync(dashNmPath) ? "Found" : "Missing",
+				passed: this._existsFn(dashNmPath),
+				detail: this._existsFn(dashNmPath) ? "Found" : "Missing",
 			})
 
 			// Check key env vars
@@ -815,11 +823,11 @@ class CommissioningLoop {
 			for (const dbFile of dbFiles) {
 				const fullPath = path.join(this.workspaceRoot, dbFile)
 				try {
-					if (fs.existsSync(fullPath)) {
-						const content = fs.readFileSync(fullPath, "utf8")
+					if (this._existsFn(fullPath)) {
+						const content = this._readFileFn(fullPath, "utf8")
 						// Validate JSON
 						JSON.parse(content)
-						const stats = fs.statSync(fullPath)
+						const stats = this._statFn(fullPath)
 						results.push({
 							check: dbFile,
 							passed: true,
@@ -1028,8 +1036,8 @@ class CommissioningLoop {
 				const fullPath = path.join(this.workspaceRoot, dir)
 				results.push({
 					check: `upload-dir:${dir}`,
-					passed: fs.existsSync(fullPath),
-					detail: fs.existsSync(fullPath) ? "Exists" : "Not found",
+					passed: this._existsFn(fullPath),
+					detail: this._existsFn(fullPath) ? "Exists" : "Not found",
 				})
 			}
 
@@ -1053,8 +1061,8 @@ class CommissioningLoop {
 			const fiPath = path.join(this.workspaceRoot, "cloud", "orchestrator", "modules", "FileImporter.js")
 			results.push({
 				check: "FileImporter Module",
-				passed: fs.existsSync(fiPath),
-				detail: fs.existsSync(fiPath) ? "Found" : "Not found",
+				passed: this._existsFn(fiPath),
+				detail: this._existsFn(fiPath) ? "Found" : "Not found",
 			})
 
 			await this._writeReport("file-upload-results.md", this._formatFileUploadResults(results))
@@ -1087,31 +1095,31 @@ class CommissioningLoop {
 			const authMwPath = path.join(this.workspaceRoot, "cloud", "api", "auth.js")
 			results.push({
 				check: "Auth Middleware",
-				passed: fs.existsSync(authMwPath),
-				detail: fs.existsSync(authMwPath) ? "Found" : "Not found",
+				passed: this._existsFn(authMwPath),
+				detail: this._existsFn(authMwPath) ? "Found" : "Not found",
 			})
 
 			// Check auth routes exist
 			const authRoutesPath = path.join(this.workspaceRoot, "cloud", "api", "authRoutes.js")
 			results.push({
 				check: "Auth Routes",
-				passed: fs.existsSync(authRoutesPath),
-				detail: fs.existsSync(authRoutesPath) ? "Found" : "Not found",
+				passed: this._existsFn(authRoutesPath),
+				detail: this._existsFn(authRoutesPath) ? "Found" : "Not found",
 			})
 
 			// Check Telegram bot auth
 			const tgBotPath = path.join(this.workspaceRoot, "cloud", "api", "telegramBot.js")
 			results.push({
 				check: "Telegram Bot Auth",
-				passed: fs.existsSync(tgBotPath),
-				detail: fs.existsSync(tgBotPath) ? "Found" : "Not found",
+				passed: this._existsFn(tgBotPath),
+				detail: this._existsFn(tgBotPath) ? "Found" : "Not found",
 			})
 
 			// Check for .env file permissions
 			const envPath = path.join(this.workspaceRoot, ".env")
-			if (fs.existsSync(envPath)) {
+			if (this._existsFn(envPath)) {
 				try {
-					const stat = fs.statSync(envPath)
+					const stat = this._statFn(envPath)
 					const mode = stat.mode & 0o777
 					results.push({ check: ".env Permissions", passed: true, detail: `Mode: ${mode.toString(8)}` })
 				} catch {
@@ -1250,23 +1258,23 @@ class CommissioningLoop {
 			const shlPath = path.join(this.workspaceRoot, "cloud", "orchestrator", "modules", "SelfHealingLoop.js")
 			results.push({
 				check: "SelfHealingLoop Module",
-				passed: fs.existsSync(shlPath),
-				detail: fs.existsSync(shlPath) ? "Found" : "Not found",
+				passed: this._existsFn(shlPath),
+				detail: this._existsFn(shlPath) ? "Found" : "Not found",
 			})
 
 			// Check HealingBus module exists
 			const hbPath = path.join(this.workspaceRoot, "cloud", "orchestrator", "modules", "HealingBus.js")
 			results.push({
 				check: "HealingBus Module",
-				passed: fs.existsSync(hbPath),
-				detail: fs.existsSync(hbPath) ? "Found" : "Not found",
+				passed: this._existsFn(hbPath),
+				detail: this._existsFn(hbPath) ? "Found" : "Not found",
 			})
 
 			// Check healing incidents file
 			const incidentsPath = path.join(this.workspaceRoot, "memory", "healing-incidents.json")
-			if (fs.existsSync(incidentsPath)) {
+			if (this._existsFn(incidentsPath)) {
 				try {
-					const content = fs.readFileSync(incidentsPath, "utf8")
+					const content = this._readFileFn(incidentsPath, "utf8")
 					const incidents = JSON.parse(content)
 					const incidentCount = Array.isArray(incidents) ? incidents.length : Object.keys(incidents).length
 					results.push({
@@ -1285,16 +1293,16 @@ class CommissioningLoop {
 			const brPath = path.join(this.workspaceRoot, "cloud", "orchestrator", "modules", "BugRegistry.js")
 			results.push({
 				check: "BugRegistry Module",
-				passed: fs.existsSync(brPath),
-				detail: fs.existsSync(brPath) ? "Found" : "Not found",
+				passed: this._existsFn(brPath),
+				detail: this._existsFn(brPath) ? "Found" : "Not found",
 			})
 
 			// Check autonomous loop module exists
 			const alPath = path.join(this.workspaceRoot, "cloud", "orchestrator", "modules", "AutonomousLoop.js")
 			results.push({
 				check: "AutonomousLoop Module",
-				passed: fs.existsSync(alPath),
-				detail: fs.existsSync(alPath) ? "Found" : "Not found",
+				passed: this._existsFn(alPath),
+				detail: this._existsFn(alPath) ? "Found" : "Not found",
 			})
 
 			await this._writeReport("debugging-recovery-results.md", this._formatDebuggingResults(results))
@@ -1320,32 +1328,32 @@ class CommissioningLoop {
 			const ecoPath = path.join(this.workspaceRoot, "cloud", "ecosystem.config.js")
 			results.push({
 				check: "PM2 Ecosystem Config",
-				passed: fs.existsSync(ecoPath),
-				detail: fs.existsSync(ecoPath) ? "Found" : "Not found",
+				passed: this._existsFn(ecoPath),
+				detail: this._existsFn(ecoPath) ? "Found" : "Not found",
 			})
 
 			// Check Dockerfile exists
 			const dockerPath = path.join(this.workspaceRoot, "cloud", "sandbox", "Dockerfile")
 			results.push({
 				check: "Sandbox Dockerfile",
-				passed: fs.existsSync(dockerPath),
-				detail: fs.existsSync(dockerPath) ? "Found" : "Not found",
+				passed: this._existsFn(dockerPath),
+				detail: this._existsFn(dockerPath) ? "Found" : "Not found",
 			})
 
 			// Check .dockerignore exists
 			const diPath = path.join(this.workspaceRoot, ".dockerignore")
 			results.push({
 				check: ".dockerignore",
-				passed: fs.existsSync(diPath),
-				detail: fs.existsSync(diPath) ? "Found" : "Not found",
+				passed: this._existsFn(diPath),
+				detail: this._existsFn(diPath) ? "Found" : "Not found",
 			})
 
 			// Check deploy skill exists
 			const deploySkillPath = path.join(this.workspaceRoot, ".roo", "skills", "superroo-vps-deployer", "SKILL.md")
 			results.push({
 				check: "Deploy Skill",
-				passed: fs.existsSync(deploySkillPath),
-				detail: fs.existsSync(deploySkillPath) ? "Found" : "Not found",
+				passed: this._existsFn(deploySkillPath),
+				detail: this._existsFn(deploySkillPath) ? "Found" : "Not found",
 			})
 
 			// Check Tailscale connectivity
@@ -1414,10 +1422,10 @@ class CommissioningLoop {
 
 		try {
 			// Check if sandbox image exists, build if not
-			const imageCheck = await execAsync(`docker images -q ${imageName} 2>&1 || true`, { timeout: 10000 })
+			const imageCheck = await this._execAsync(`docker images -q ${imageName} 2>&1 || true`, { timeout: 10000 })
 			if (!imageCheck.stdout.trim()) {
 				console.log(`[CommissioningLoop] Building sandbox image ${imageName}...`)
-				await execAsync(
+				await this._execAsync(
 					`docker build -t ${imageName} -f ${path.join(this.workspaceRoot, "cloud", "sandbox", "Dockerfile")} ${path.join(this.workspaceRoot, "cloud", "sandbox")}`,
 					{ timeout: 120000 },
 				)
@@ -1442,14 +1450,14 @@ class CommissioningLoop {
 				`'${cmd.replace(/'/g, "'\\''")}'`,
 			].join(" ")
 
-			const result = await execAsync(dockerCmd, { timeout, maxBuffer: 10 * 1024 * 1024 })
+			const result = await this._execAsync(dockerCmd, { timeout, maxBuffer: 10 * 1024 * 1024 })
 
 			return { exitCode: 0, stdout: result.stdout, stderr: result.stderr }
 		} catch (err) {
 			return { exitCode: err.code || 1, stdout: err.stdout || "", stderr: err.stderr || err.message }
 		} finally {
 			try {
-				await execAsync(`docker rm -f ${containerName} 2>/dev/null || true`, { timeout: 5000 })
+				await this._execAsync(`docker rm -f ${containerName} 2>/dev/null || true`, { timeout: 5000 })
 			} catch {}
 		}
 	}
@@ -1465,7 +1473,7 @@ class CommissioningLoop {
 		if (!safety.allowed) {
 			throw new Error(`Hard safety violation: ${safety.reason}`)
 		}
-		return await execAsync(cmd, { timeout: 30000, maxBuffer: 5 * 1024 * 1024, ...opts })
+		return await this._execAsync(cmd, { timeout: 30000, maxBuffer: 5 * 1024 * 1024, ...opts })
 	}
 
 	/**
@@ -1475,7 +1483,7 @@ class CommissioningLoop {
 	 */
 	async _writeReport(filename, content) {
 		const filePath = path.join(this.commissioningDir, filename)
-		fs.writeFileSync(filePath, content, "utf8")
+		this._writeFileFn(filePath, content, "utf8")
 		console.log(`[CommissioningLoop] Report written: ${filePath}`)
 	}
 
@@ -1484,8 +1492,8 @@ class CommissioningLoop {
 	 * @param {string} dirPath
 	 */
 	_ensureDir(dirPath) {
-		if (!fs.existsSync(dirPath)) {
-			fs.mkdirSync(dirPath, { recursive: true })
+		if (!this._existsFn(dirPath)) {
+			this._mkdirFn(dirPath, { recursive: true })
 		}
 	}
 
@@ -1545,7 +1553,7 @@ class CommissioningLoop {
 	 */
 	async _ensureContainer() {
 		try {
-			const result = await execAsync("docker info 2>&1", { timeout: 10000 })
+			const result = await this._execAsync("docker info 2>&1", { timeout: 10000 })
 			return result.stdout.includes("Containers:")
 		} catch {
 			return false

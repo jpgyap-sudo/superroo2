@@ -29,6 +29,12 @@ const multer = require("multer")
 const http = require("http")
 const { WebSocketServer } = require("ws")
 
+// ── Collaboration module ──────────────────────────────────────────────────────
+const { createCollaborationSystem } = require("../collaboration")
+
+// ── Observability module ─────────────────────────────────────────────────────
+const { ObservabilityManager } = require("../orchestrator/observability")
+
 const execAsync = promisify(exec)
 
 // ── Lib helpers (copied from openvscode-server patterns) ───────────────────────
@@ -626,6 +632,87 @@ if (!terminalBrainRouter) {
 // Health check (no auth)
 app.get(route("/api/health"), (req, res) => {
 	res.json({ status: "online", uptime: process.uptime(), timestamp: new Date().toISOString() })
+})
+
+// ── Observability API endpoints ──────────────────────────────────────────────
+
+// GET /api/observability/health — Health check for all observability providers
+app.get(route("/api/observability/health"), async (req, res) => {
+	if (!observabilityManager) {
+		return res.json({ available: false, reason: "Observability not initialized" })
+	}
+	const health = await observabilityManager.healthCheck()
+	res.json({ available: true, health, providers: observabilityManager.getProviders() })
+})
+
+// GET /api/observability/stats — Observability statistics
+app.get(route("/api/observability/stats"), (req, res) => {
+	if (!observabilityManager) {
+		return res.json({ available: false, reason: "Observability not initialized" })
+	}
+	res.json({ available: true, stats: observabilityManager.getStats() })
+})
+
+// GET /api/observability/spans — Active spans
+app.get(route("/api/observability/spans"), (req, res) => {
+	if (!observabilityManager) {
+		return res.json({ available: false, reason: "Observability not initialized" })
+	}
+	const activeSpans = observabilityManager.getActiveSpans().map((s) => ({
+		spanId: s.spanId,
+		traceId: s.traceId,
+		name: s.name,
+		startTime: s.startTime,
+		parentSpanId: s.parentSpanId,
+	}))
+	res.json({ available: true, activeSpans })
+})
+
+// POST /api/observability/log — Record a log entry
+app.post(route("/api/observability/log"), async (req, res) => {
+	if (!observabilityManager) {
+		return res.json({ available: false, reason: "Observability not initialized" })
+	}
+	const { message, level = "info", attributes = {} } = req.body || {}
+	await observabilityManager.recordLog(message, level, attributes)
+	res.json({ ok: true })
+})
+
+// POST /api/observability/metric — Record a metric
+app.post(route("/api/observability/metric"), async (req, res) => {
+	if (!observabilityManager) {
+		return res.json({ available: false, reason: "Observability not initialized" })
+	}
+	const { name, value, tags = {} } = req.body || {}
+	if (!name || value === undefined) {
+		return res.status(400).json({ error: "name and value are required" })
+	}
+	await observabilityManager.recordMetric(name, value, tags)
+	res.json({ ok: true })
+})
+
+// POST /api/observability/span — Start a span
+app.post(route("/api/observability/span"), (req, res) => {
+	if (!observabilityManager) {
+		return res.json({ available: false, reason: "Observability not initialized" })
+	}
+	const { name, options = {} } = req.body || {}
+	if (!name) {
+		return res.status(400).json({ error: "name is required" })
+	}
+	const span = observabilityManager.startSpan(name, options)
+	res.json({ spanId: span.spanId, traceId: span.traceId })
+})
+
+// DELETE /api/observability/span/:spanId — End a span
+app.delete(route("/api/observability/span/:spanId"), (req, res) => {
+	if (!observabilityManager) {
+		return res.json({ available: false, reason: "Observability not initialized" })
+	}
+	const { spanId } = req.params
+	const { status = "ok", options = {} } = req.body || {}
+	observabilityManager.endSpan(spanId, status, options)
+	res.json({ ok: true })
 })
 
 // Session info
@@ -1631,12 +1718,51 @@ app.post(route("/brain/ask"), async (req, res) => {
 
 // ── WebSocket Server with RPC + Auth ─────────────────────────────────────────────
 
+// ── Observability system ─────────────────────────────────────────────────────
+
+let observabilityManager = null
+
+// ── Collaboration system ──────────────────────────────────────────────────────
+
+let collaborationBridge = null
+
+function initCollaboration(eventLog) {
+	const system = createCollaborationSystem({
+		cursorDebounceMs: 50,
+		eventLog: eventLog || null,
+		broadcastFn: (workspaceId, message) => {
+			if (workspaceId === "*") {
+				// Broadcast to all workspaces
+				for (const [wid, clients] of wsClients) {
+					for (const channel of clients) {
+						try {
+							channel.emitEvent("collaboration", message)
+						} catch {}
+					}
+				}
+			} else {
+				broadcastToWorkspace(workspaceId, message)
+			}
+		},
+	})
+	collaborationBridge = system.collaborationBridge
+	console.log("[Mini IDE] Collaboration system initialized (A2A + Pair Programming)")
+	return system
+}
+
+// ── WebSocket Server with RPC + Auth ─────────────────────────────────────────────
+
 const wss = new WebSocketServer({ server, path: "/ws" })
 const wsClients = new Map() // workspaceId -> Set<RpcChannel>
+
+// Track user sessions per workspace for collaboration cleanup
+const wsUserSessions = new Map() // workspaceId -> Map<userId, { channel, sessionId }>
 
 wss.on("connection", async (ws, req) => {
 	const url = new URL(req.url, `http://${req.headers.host}`)
 	const workspaceId = url.searchParams.get("workspace") || "global"
+	const userId = url.searchParams.get("userId") || `anon-${crypto.randomUUID().slice(0, 8)}`
+	const userName = url.searchParams.get("userName") || userId
 
 	// 1. Validate connection token (skip in dev mode for easy testing)
 	const connectionToken = await connectionTokenPromise
@@ -1657,11 +1783,36 @@ wss.on("connection", async (ws, req) => {
 	}
 	wsClients.get(workspaceId).add(channel)
 	channel.workspaceId = workspaceId
+	channel.userId = userId
+	channel.userName = userName
 
-	console.log(`[Mini IDE WS] Client connected for workspace: ${workspaceId}`)
+	console.log(`[Mini IDE WS] Client connected for workspace: ${workspaceId} (user: ${userId})`)
 
-	// Send welcome
-	channel.emitEvent("connected", { workspaceId, timestamp: new Date().toISOString() })
+	// 3. Initialize collaboration system if not already done
+	if (!collaborationBridge) {
+		// Try to load EventLog from orchestrator if available
+		let eventLog = null
+		try {
+			const { EventLog } = require("../orchestrator/modules/EventLog")
+			eventLog = new EventLog({ dbPath: path.join(__dirname, "..", "data", "collaboration-events.db") })
+		} catch {
+			// EventLog not available, collaboration will work without persistence
+		}
+		initCollaboration(eventLog)
+	}
+
+	// Send welcome with collaboration capabilities
+	channel.emitEvent("connected", {
+		workspaceId,
+		userId,
+		userName,
+		timestamp: new Date().toISOString(),
+		collaboration: {
+			available: true,
+			supportsA2A: true,
+			supportsPairProgramming: true,
+		},
+	})
 
 	// Register RPC methods
 	channel._handleIncomingRequest = async (msg) => {
@@ -1696,6 +1847,53 @@ wss.on("connection", async (ws, req) => {
 				}
 				break
 			}
+			// ── Collaboration message routing ──────────────────────────────────
+			case "collaboration:join":
+			case "collaboration:leave":
+			case "collaboration:create":
+			case "collaboration:getSessions":
+			case "collaboration:getCollaborators":
+			case "cursor:update":
+			case "cursor:flush":
+			case "file:change":
+			case "file:batch":
+			case "file:resolveConflict":
+			case "file:lock":
+			case "file:unlock":
+			case "workspace:register":
+			case "workspace:openFile":
+			case "workspace:closeFile":
+			case "a2a:message":
+			case "a2a:register":
+			case "a2a:discover":
+			case "a2a:delegate":
+			case "pair:create":
+			case "pair:start":
+			case "pair:pause":
+			case "pair:resume":
+			case "pair:end":
+			case "pair:switchDriver":
+			case "pair:addParticipant":
+			case "pair:removeParticipant":
+			case "pair:comment": {
+				if (!collaborationBridge) {
+					channel.sendResponse(msg.reqId, null, "Collaboration system not initialized")
+					break
+				}
+				try {
+					const context = {
+						workspaceId,
+						userId,
+						userName,
+						channel,
+					}
+					const result = await collaborationBridge.handleMessage({ type: msg.method, ...msg.args }, context)
+					channel.sendResponse(msg.reqId, result || { ok: true })
+				} catch (err) {
+					channel.sendResponse(msg.reqId, null, err.message)
+				}
+				break
+			}
 			default:
 				channel.sendResponse(msg.reqId, null, `Unknown method: ${msg.method}`)
 		}
@@ -1707,8 +1905,30 @@ wss.on("connection", async (ws, req) => {
 			clients.delete(channel)
 			if (clients.size === 0) wsClients.delete(workspaceId)
 		}
+
+		// Clean up collaboration session for this user
+		if (collaborationBridge) {
+			try {
+				// Leave any collaboration sessions this user was in
+				const userSessions = wsUserSessions.get(workspaceId)
+				if (userSessions) {
+					const userSession = userSessions.get(userId)
+					if (userSession && userSession.sessionId) {
+						collaborationBridge.handleMessage(
+							{ type: "collaboration:leave", sessionId: userSession.sessionId },
+							{ workspaceId, userId, userName, channel },
+						)
+					}
+					userSessions.delete(userId)
+					if (userSessions.size === 0) wsUserSessions.delete(workspaceId)
+				}
+			} catch (err) {
+				console.error(`[Mini IDE WS] Collaboration cleanup error for ${userId}:`, err.message)
+			}
+		}
+
 		channel.dispose()
-		console.log(`[Mini IDE WS] Client disconnected for workspace: ${workspaceId}`)
+		console.log(`[Mini IDE WS] Client disconnected for workspace: ${workspaceId} (user: ${userId})`)
 	})
 
 	ws.on("error", (err) => {
@@ -1720,9 +1940,25 @@ function broadcastToWorkspace(workspaceId, message) {
 	const clients = wsClients.get(workspaceId)
 	if (!clients) return
 	const data = typeof message === "string" ? message : JSON.stringify(message)
+	const parsed = typeof data === "string" ? JSON.parse(data) : data
+
+	// Detect collaboration events and emit with appropriate event name
+	const isCollaborationEvent =
+		parsed.type &&
+		(parsed.type.startsWith("collaboration:") ||
+			parsed.type.startsWith("cursor:") ||
+			parsed.type.startsWith("file:") ||
+			parsed.type.startsWith("a2a:") ||
+			parsed.type.startsWith("pair:") ||
+			parsed.type.startsWith("workspace:"))
+
 	for (const channel of clients) {
 		try {
-			channel.emitEvent("broadcast", JSON.parse(data))
+			if (isCollaborationEvent) {
+				channel.emitEvent("collaboration", parsed)
+			} else {
+				channel.emitEvent("broadcast", parsed)
+			}
 		} catch {
 			// Channel may be closed
 		}
@@ -1794,6 +2030,16 @@ async function shutdown(signal) {
 	}
 	wsClients.clear()
 
+	// Shutdown observability manager
+	if (observabilityManager) {
+		try {
+			await observabilityManager.shutdown()
+			console.log("[Mini IDE] Observability system shut down")
+		} catch (err) {
+			console.error("[Mini IDE] Observability shutdown error:", err.message)
+		}
+	}
+
 	// Save workspace store
 	if (workspaceStore) {
 		try {
@@ -1842,6 +2088,24 @@ async function startServer() {
 		console.log("[Mini IDE] Connection token loaded:", token.value.slice(0, 8) + "...")
 	}
 
+	// ── Initialize Observability Manager ──────────────────────────────────────
+	try {
+		const { EventLog } = require("../orchestrator/modules/EventLog")
+		const eventLog = new EventLog({ dbPath: path.join(__dirname, "..", "data", "observability-events.db") })
+
+		observabilityManager = new ObservabilityManager({ eventLog })
+		const initResult = await observabilityManager.initialize({
+			// ConsoleProvider is always registered by default
+			// Additional providers can be configured via env vars:
+			//   DD_API_KEY  → DatadogProvider
+			//   SENTRY_DSN  → SentryProvider
+		})
+		console.log(`[Mini IDE] Observability system initialized (${initResult.providers} provider(s))`)
+	} catch (err) {
+		console.warn("[Mini IDE] Observability system not available:", err.message)
+		observabilityManager = null
+	}
+
 	server.listen(PORT, () => {
 		console.log(`[Mini IDE] SuperRoo Unified Mini IDE API listening on port ${PORT}`)
 		console.log(`[Mini IDE] WebSocket available at ws://0.0.0.0:${PORT}/ws`)
@@ -1851,6 +2115,9 @@ async function startServer() {
 		console.log(`[Mini IDE] Dashboard proxy: ${DASHBOARD_API_URL || "(not configured)"}`)
 		console.log(`[Mini IDE] NODE_ENV: ${process.env.NODE_ENV || "development"}`)
 		console.log(`[Mini IDE] Auth methods: Telegram initData, Bearer token, dev fallback`)
+		if (observabilityManager) {
+			console.log(`[Mini IDE] Observability providers: ${observabilityManager.getProviders().join(", ")}`)
+		}
 	})
 }
 

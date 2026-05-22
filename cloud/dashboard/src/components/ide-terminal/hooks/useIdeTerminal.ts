@@ -27,6 +27,7 @@ import {
 	fetchDeployments,
 	getWebSocketUrl,
 	sendIdeChatMessage,
+	fetchWorkspace,
 } from "@/components/ide-terminal/api"
 import { useWebSocket } from "@/components/ide-terminal/hooks/useWebSocket"
 import type { BrainTab, DiffData } from "@/components/ide-terminal/types"
@@ -798,6 +799,123 @@ export function useIdeTerminal() {
 		}
 	}
 
+	// ── File selection ───────────────────────────────────────────────────
+	const handleFileSelect = useCallback(
+		async (filePath: string) => {
+			const alreadyOpen = openFiles.find((f) => f.path === filePath)
+			if (alreadyOpen) {
+				dispatch({ type: "SET_ACTIVE_FILE_PATH", payload: filePath })
+				setCurrentFilePath(filePath)
+				setCurrentFileContent(alreadyOpen.content)
+				setCurrentFileLanguage(alreadyOpen.language)
+				return
+			}
+
+			function findFile(items: WorkspaceFile[], path: string): WorkspaceFile | undefined {
+				for (const item of items) {
+					if (item.path === path) return item
+					if (item.children) {
+						const found = findFile(item.children, path)
+						if (found) return found
+					}
+				}
+				return undefined
+			}
+			const fileMeta = findFile(files, filePath)
+			const name = fileMeta?.name || filePath.split("/").pop() || filePath
+
+			try {
+				const data = await fetchFileContent(filePath)
+				const newOpenFile: OpenFile = {
+					path: filePath,
+					name,
+					content: data.content || "",
+					language: data.language || "text",
+				}
+				dispatch({ type: "SET_OPEN_FILES", payload: [...openFiles, newOpenFile] })
+				dispatch({ type: "SET_ACTIVE_FILE_PATH", payload: filePath })
+				setCurrentFilePath(filePath)
+				setCurrentFileContent(newOpenFile.content)
+				setCurrentFileLanguage(newOpenFile.language)
+			} catch {
+				const newOpenFile: OpenFile = {
+					path: filePath,
+					name,
+					content: "",
+					language: "text",
+				}
+				dispatch({ type: "SET_OPEN_FILES", payload: [...openFiles, newOpenFile] })
+				dispatch({ type: "SET_ACTIVE_FILE_PATH", payload: filePath })
+				setCurrentFilePath(filePath)
+				setCurrentFileContent("")
+				setCurrentFileLanguage("text")
+			}
+		},
+		[dispatch, openFiles, files],
+	)
+
+	// ── File save ────────────────────────────────────────────────────────
+	const handleFileSave = useCallback(
+		async (content?: string) => {
+			const path = activeFilePathRef.current
+			if (!path) return
+			const saveContent = content !== undefined ? content : currentFileContent
+			try {
+				await saveFileContent(path, saveContent)
+				dispatch({
+					type: "SET_OPEN_FILES",
+					payload: openFilesRef.current.map((f) =>
+						f.path === path ? { ...f, content: saveContent, modified: false } : f,
+					),
+				})
+			} catch {
+				dispatch({
+					type: "SET_OPEN_FILES",
+					payload: openFilesRef.current.map((f) =>
+						f.path === path ? { ...f, content: saveContent, modified: false } : f,
+					),
+				})
+			}
+		},
+		[dispatch, currentFileContent],
+	)
+
+	// ── Import GitHub ────────────────────────────────────────────────────
+	const handleImportGithub = useCallback(async () => {
+		if (!importGithubUrl.trim()) return
+		setImportGithubLoading(true)
+		setImportGithubError("")
+		try {
+			await importGithubRepo(importGithubUrl, importGithubBranch)
+			dispatch({ type: "SET_SHOW_IMPORT_GITHUB", payload: false })
+			setImportGithubUrl("")
+			setImportGithubBranch("main")
+		} catch (err: any) {
+			setImportGithubError(err.message || "Failed to import repository")
+		} finally {
+			setImportGithubLoading(false)
+		}
+	}, [importGithubUrl, importGithubBranch, dispatch])
+
+	// ── Open Workspace ───────────────────────────────────────────────────
+	const handleOpenWorkspace = useCallback(async () => {
+		if (!openWorkspacePath.trim()) return
+		setOpenWorkspaceLoading(true)
+		setOpenWorkspaceError("")
+		try {
+			const data = await openWorkspace(openWorkspacePath)
+			if (data.success && data.files) {
+				dispatch({ type: "SET_FILES", payload: data.files })
+			}
+			dispatch({ type: "SET_SHOW_OPEN_WORKSPACE", payload: false })
+			setOpenWorkspacePath("")
+		} catch (err: any) {
+			setOpenWorkspaceError(err.message || "Failed to open workspace")
+		} finally {
+			setOpenWorkspaceLoading(false)
+		}
+	}, [openWorkspacePath, dispatch])
+
 	// ── AI Input change handler ──────────────────────────────────────────
 	const handleAiInputChange = useCallback(
 		(e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -935,28 +1053,24 @@ export function useIdeTerminal() {
 		if (!sent) {
 			// Fallback to REST
 			try {
-				const data = await apiFetch<{ reply: string; suggestions?: string[] }>("/brain/ask", {
-					method: "POST",
-					body: JSON.stringify({
-						message: finalText + contextSummary,
-						sessionId,
-						context: {
-							openFiles: allOpenFiles,
-							workspaceFiles: workspaceFiles.map((f) => ({ name: f.name, path: f.path })),
-							recentHistory,
-						},
-					}),
+				const data = await sendIdeChatMessage(finalText + contextSummary, {
+					sessionId,
+					openFiles: allOpenFiles,
+					workspaceFiles: workspaceFiles.map((f) => ({ name: f.name, path: f.path })),
+					recentHistory,
+					currentFile,
+					repoName: currentRepoName,
+					branch: currentBranch,
 				})
-				const replyMsg: ChatMessage = {
-					id: `msg-${Date.now()}`,
-					role: "assistant",
-					author: "AI",
-					time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-					content: data.reply || "No response",
-				}
-				dispatch({ type: "ADD_AI_MESSAGE", payload: replyMsg })
-				if (data.suggestions?.length) {
-					dispatch({ type: "SET_PROACTIVE_SUGGESTIONS", payload: data.suggestions })
+				if (data.success) {
+					const replyMsg: ChatMessage = {
+						id: `msg-${Date.now()}`,
+						role: "assistant",
+						author: "AI",
+						time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+						content: data.response || "No response",
+					}
+					dispatch({ type: "ADD_AI_MESSAGE", payload: replyMsg })
 				}
 			} catch (err: any) {
 				const errMsg: ChatMessage = {
@@ -1277,7 +1391,7 @@ export function useIdeTerminal() {
 			// Fallback to REST-based command execution
 			dispatch({ type: "APPEND_TERMINAL_OUTPUT", payload: [`$ ${cmd}`] })
 			try {
-				const result = await sendTerminalCommand(cmd, undefined, terminalMode)
+				const result = await sendTerminalCommand(cmd)
 				if (result.output) {
 					dispatch({
 						type: "APPEND_TERMINAL_OUTPUT",
@@ -1580,6 +1694,10 @@ export function useIdeTerminal() {
 		handleInlineAiAction,
 		handleEditorMouseUp,
 		handleFilesSelectedFromList,
+		handleFileSelect,
+		handleFileSave,
+		handleImportGithub,
+		handleOpenWorkspace,
 		getAgentSuggestions,
 		isAgentCommand,
 		isAgentMention,
