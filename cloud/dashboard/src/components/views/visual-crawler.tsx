@@ -60,7 +60,7 @@ export function VisualCrawlerView() {
 	const [running, setRunning] = useState(false)
 	const [selectedReport, setSelectedReport] = useState<CrawlReportDetail | null>(null)
 	const [detailLoading, setDetailLoading] = useState(false)
-	const [url, setUrl] = useState("http://localhost:3001")
+	const [url, setUrl] = useState(typeof window !== "undefined" ? window.location.origin : "http://localhost:3001")
 	const [error, setError] = useState<string | null>(null)
 
 	// Multi-project state
@@ -90,7 +90,13 @@ export function VisualCrawlerView() {
 		try {
 			const query = selectedProject ? `?project=${encodeURIComponent(selectedProject)}` : ""
 			const res = await fetch(`/visual-crawl/reports${query}`)
-			if (!res.ok) throw new Error(`HTTP ${res.status}`)
+			if (!res.ok) {
+				if (res.status === 404) {
+					setReports([])
+					return
+				}
+				throw new Error(`HTTP ${res.status}`)
+			}
 			const data = await res.json()
 			setReports(data.reports || [])
 		} catch (e: any) {
@@ -189,7 +195,7 @@ export function VisualCrawlerView() {
 						setUrl(next.baseUrl)
 					} else {
 						setSelectedProject("")
-						setUrl("http://localhost:3001")
+						setUrl(typeof window !== "undefined" ? window.location.origin : "http://localhost:3001")
 					}
 				}
 			}

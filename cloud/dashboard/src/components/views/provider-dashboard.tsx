@@ -365,7 +365,7 @@ export function ProviderDashboardView() {
 													className={cn("text-xs font-medium", statusColor(provider.status))}>
 													{provider.status}
 												</span>
-												{provider.latencyMs !== null && (
+												{typeof provider.latencyMs === "number" && (
 													<span className="text-xs text-gray-500">
 														{provider.latencyMs.toFixed(0)}ms
 													</span>
@@ -448,7 +448,9 @@ export function ProviderDashboardView() {
 											<div className="rounded bg-[#0f1117] p-2">
 												<div className="text-[10px] text-gray-500">Avg Latency</div>
 												<div className="text-sm font-medium text-[#e2e8f0]">
-													{selectedProviderData.usage.latencyMs.toFixed(0)}ms
+													{typeof selectedProviderData.usage.latencyMs === "number"
+														? `${selectedProviderData.usage.latencyMs.toFixed(0)}ms`
+														: "—"}
 												</div>
 											</div>
 											<div className="rounded bg-[#0f1117] p-2">

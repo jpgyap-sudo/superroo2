@@ -153,15 +153,34 @@ export function AutonomousLoopView() {
 	}
 
 	if (error && !status) {
+		const isAuthError = error.includes("Unauthorized") || error.includes("401")
 		return (
-			<Card className="border-red-800/40 bg-red-950/20 p-6">
+			<Card
+				className={
+					isAuthError ? "border-amber-800/40 bg-amber-950/20 p-6" : "border-red-800/40 bg-red-950/20 p-6"
+				}>
 				<div className="flex items-center gap-3">
-					<AlertTriangle className="h-5 w-5 text-red-400" />
-					<p className="text-red-300">Failed to load autonomous loop status: {error}</p>
+					<AlertTriangle className={isAuthError ? "h-5 w-5 text-amber-400" : "h-5 w-5 text-red-400"} />
+					<div>
+						<p className={isAuthError ? "text-amber-300" : "text-red-300"}>
+							{isAuthError
+								? "Autonomous Loop is not configured for your account yet."
+								: `Failed to load autonomous loop status: ${error}`}
+						</p>
+						{isAuthError && (
+							<p className="text-[11px] text-amber-400/70 mt-1">
+								Contact an admin to enable the autonomous loop for this project.
+							</p>
+						)}
+					</div>
 				</div>
 				<button
 					onClick={fetchStatus}
-					className="mt-4 rounded-lg bg-red-800/30 px-4 py-2 text-sm text-red-300 hover:bg-red-800/50">
+					className={
+						isAuthError
+							? "mt-4 rounded-lg bg-amber-800/30 px-4 py-2 text-sm text-amber-300 hover:bg-amber-800/50"
+							: "mt-4 rounded-lg bg-red-800/30 px-4 py-2 text-sm text-red-300 hover:bg-red-800/50"
+					}>
 					Retry
 				</button>
 			</Card>
