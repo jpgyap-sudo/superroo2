@@ -1,17 +1,17 @@
 {
-	"generatedAt": "2026-05-23T06:15:54.012Z",
-	"deepseekModel": "deepseek-chat",
-	"ollamaUrl": "http://127.0.0.1:11434",
-	"sourceFile": "memory/lessons-learned.md",
-	"count": 1,
-	"summaries": [
-		{
-			"title": "SUPERROO_VAULT_KEY missing from PM2 env - readEnvValue() fallback fix",
-			"date": "2026-05-23",
-			"model": "deepseek-chat",
-			"confidence": "high",
-			"summary": "A PM2 ecosystem config error caused a 500 error because `SUPERROO_VAULT_KEY` was set using `process.env.SUPERROO_VAULT_KEY || \"\"`, which only reads from the shell environment, not the `.env` file. The fix added `readEnvValue(\"SUPERROO_VAULT_KEY\")` as a fallback, matching the pattern already used for `PGPASSWORD`. The key takeaway is to always use `readEnvValue()` as a fallback for any env var in PM2 configs that exists in the `.env` file but may not be in the shell environment.",
-			"hasEmbeddings": false
-		}
-	]
+  "generatedAt": "2026-05-23T06:40:21.896Z",
+  "deepseekModel": "deepseek-chat",
+  "ollamaUrl": "http://127.0.0.1:11434",
+  "sourceFile": "memory/lessons-learned.md",
+  "count": 1,
+  "summaries": [
+    {
+      "title": "SUPERROO_VAULT_KEY missing from PM2 env - readEnvValue() fallback fix",
+      "date": "2026-05-23",
+      "model": "deepseek-chat",
+      "confidence": "high",
+      "summary": "The bug occurred because `SUPERROO_VAULT_KEY` was set in the `.env` file but not read by the PM2 process, as the ecosystem config only used `process.env.SUPERROO_VAULT_KEY || \"\"` (which reads from the shell environment, not `.env`). The fix added `readEnvValue(\"SUPERROO_VAULT_KEY\")` as a fallback and required `pm2 delete` then `pm2 start` (not `pm2 restart`) to force PM2 to re-evaluate the config. Key takeaway: Always use `readEnvValue()` fallback for `.env` variables in PM2 configs, and use `pm2 delete` + `pm2 start` to apply changes.",
+      "hasEmbeddings": false
+    }
+  ]
 }

@@ -3968,3 +3968,47 @@ To be determined — this commit was auto-flagged as potentially containing a le
 general
 
 ---
+
+### Auto-Extracted Lesson: Docs(lessons): update SUPERROO_VAULT_KEY lesson with PM2 cache insight
+
+Date: 2026-05-23
+Source: Git commit 91401a4f
+Model/API used: unknown
+Confidence: medium
+Related files: .gitignore, memory/.stop-hook-last-run, memory/.sync-state.json, memory/lesson-index.jsonl, memory/lesson-summaries.json
+
+#### Task Summary
+docs(lessons): update SUPERROO_VAULT_KEY lesson with PM2 cache insight
+
+#### Files Changed
+- `.gitignore`
+- `memory/.stop-hook-last-run`
+- `memory/.sync-state.json`
+- `memory/lesson-index.jsonl`
+- `memory/lesson-summaries.json`
+- `memory/lessons-learned.md`
+- `server/src/memory/commit-deploy-log.json`
+
+#### Bug Cause
+<!-- TODO: Document what caused the issue -->
+Unknown — extracted from commit 91401a4f.
+
+#### Fix Applied
+<!-- TODO: Document the solution -->
+See commit 91401a4f by JPG Yap.
+
+#### Test Result
+Unknown — no test files detected.
+
+#### Lesson Learned
+<!-- TODO: Extract reusable lesson -->
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+<!-- TODO: Define a specific rule for future agents -->
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+deployment
+
+---
