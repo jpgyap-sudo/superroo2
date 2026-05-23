@@ -3556,10 +3556,7 @@ async function handleCode(botToken, chatId, args, queue, orchestratorBridge, opt
 			})
 			console.log("[telegram] /code task routed through orchestrator (direct fallback): " + taskId)
 		} catch (err2) {
-			console.error(
-				"[telegram] Failed to route /code task through orchestrator (direct fallback):",
-				err2.message,
-			)
+			console.error("[telegram] Failed to route /code task through orchestrator (direct fallback):", err2.message)
 		}
 	}
 
@@ -8488,7 +8485,9 @@ async function handleNaturalLanguageInstruction(
 							branchName: branchName,
 							source: "nlp",
 						})
-						console.log("[telegram] NLP task intent routed through orchestrator (direct fallback): " + taskId)
+						console.log(
+							"[telegram] NLP task intent routed through orchestrator (direct fallback): " + taskId,
+						)
 					} catch (err2) {
 						console.error(
 							"[telegram] Failed to route NLP task intent through orchestrator (direct fallback):",
@@ -9470,10 +9469,7 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 										source: "callback:retry",
 									})
 								} catch (err) {
-									console.error(
-										"[telegram] Failed to route retry through orchestrator:",
-										err.message,
-									)
+									console.error("[telegram] Failed to route retry through orchestrator:", err.message)
 								}
 							}
 
@@ -10918,23 +10914,24 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 							err.message,
 						)
 					}
-				// Fallback: Route Through Orchestrator (Direct)
-				if (!orchestratorTask && orchestratorBridge) {
-					try {
-						orchestratorTask = orchestratorBridge.submitDirect({
-							tgTaskId: taskId,
-							chatId: chatId,
-							instruction: taskInstruction,
-							agentId: "superroo-orchestrator-agent",
-							branchName: branchName,
-							source: "command",
-						})
-						console.log("[telegram] /task routed through orchestrator (direct fallback): " + taskId)
-					} catch (err2) {
-						console.error(
-							"[telegram] Failed to route /task through orchestrator (direct fallback):",
-							err2.message,
-						)
+					// Fallback: Route Through Orchestrator (Direct)
+					if (!orchestratorTask && orchestratorBridge) {
+						try {
+							orchestratorTask = orchestratorBridge.submitDirect({
+								tgTaskId: taskId,
+								chatId: chatId,
+								instruction: taskInstruction,
+								agentId: "superroo-orchestrator-agent",
+								branchName: branchName,
+								source: "command",
+							})
+							console.log("[telegram] /task routed through orchestrator (direct fallback): " + taskId)
+						} catch (err2) {
+							console.error(
+								"[telegram] Failed to route /task through orchestrator (direct fallback):",
+								err2.message,
+							)
+						}
 					}
 				}
 
@@ -11104,24 +11101,24 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 				}
 			}
 		} else if (command === "/aceteam") {
-			logTelegramUsage("/aceteam", chatId, telegramUserId)
+			logTelegramUsage("/aceteam", chatId, telegramUserId, { args: cmdArgs.join(" ") })
 			await sendChatAction(botToken, chatId, "typing")
 			try {
-				var aceTeamResult = await tgEndpoints.startAceTeam(chatId.toString())
-				var aceTeamReply =
-					"*Ace Team Activated* 🚀🤖\n\n" +
-					"The Super Debug Team is now running in *fully autonomous mode*.\n" +
-					"Comprehensive logs, ML insights, and accomplishment reports will be sent here.\n\n" +
-					"*What's happening:*\n" +
-					"• 🔍 Analyzing repository structure\n" +
-					"• 🧪 Running phase-by-phase debugging\n" +
-					"• 🤖 ML-driven pattern detection\n" +
-					"• 📊 Generating accomplishment reports\n\n" +
-					"Use `/aceteam status` to check current status.\n" +
-					"Use `/aceteam stop` to stop Ace Team mode and get a final report."
-				if (aceTeamResult && aceTeamResult.message) {
-					aceTeamReply = aceTeamResult.message
+				var subCommand = (cmdArgs[0] || "").toLowerCase()
+				var aceTeamResult
+
+				if (subCommand === "status") {
+					aceTeamResult = await tgEndpoints.getAceTeamStatus()
+				} else if (subCommand === "stop") {
+					aceTeamResult = await tgEndpoints.stopAceTeam()
+				} else {
+					aceTeamResult = await tgEndpoints.startAceTeam(chatId.toString())
 				}
+
+				var aceTeamReply =
+					aceTeamResult && aceTeamResult.message
+						? aceTeamResult.message
+						: "*Ace Team* 🤖\n\nUse `/aceteam` to start, `/aceteam status` to check, `/aceteam stop` to stop."
 				await sendMessage(botToken, chatId, aceTeamReply)
 			} catch (err) {
 				logTelegramError("/aceteam", chatId, telegramUserId, err)
