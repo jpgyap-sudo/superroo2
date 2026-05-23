@@ -3816,3 +3816,45 @@ When adding API routes that call lazy services, keep the lazy singleton and help
 cross-project, local-fallback
 
 ---
+
+### Lesson: SUPERROO_VAULT_KEY missing from PM2 env - readEnvValue() fallback fix
+
+Date: 2026-05-23  
+Source: Code agent task completion  
+Model/API used: deepseek-chat  
+Confidence: high  
+Related files: cloud/ecosystem.config.js
+
+#### Task Summary
+
+Fixed IDE terminal 500 error caused by missing SUPERROO_VAULT_KEY environment variable. The PM2 ecosystem config for superroo-api and superroo-worker used process.env.SUPERROO_VAULT_KEY || "" which only reads from the shell environment where PM2 was started. The .env file already contained the key but it was never read by the API process.
+
+#### Files Changed
+
+- cloud/ecosystem.config.js
+
+#### Bug Cause
+
+The ecosystem config had SUPERROO_VAULT_KEY: process.env.SUPERROO_VAULT_KEY || "" for both superroo-api and superroo-worker. This reads from the shell environment where PM2 was started, NOT from the .env file. The .env file already had the vault key set, but the readEnvValue() helper function (which reads from .env) was only used for PGPASSWORD, not for SUPERROO_VAULT_KEY.
+
+#### Fix Applied
+
+Changed both occurrences from SUPERROO_VAULT_KEY: process.env.SUPERROO_VAULT_KEY || "" to SUPERROO_VAULT_KEY: process.env.SUPERROO_VAULT_KEY || readEnvValue("SUPERROO_VAULT_KEY"). This matches the pattern already used for PGPASSWORD.
+
+#### Test Result
+
+pass - API health endpoint returns {"status":"online","redis":true,"worker":true} after restart.
+
+#### Lesson Learned
+
+When using PM2 ecosystem config, env vars set as process.env.VAR || "" only read from the shell environment where PM2 was started. If the .env file contains the value, use the project readEnvValue() helper as fallback. Always check whether env vars are actually reaching the process by examining the PM2 env block, not just the .env file.
+
+#### Reusable Rule
+
+For PM2 ecosystem configs, always add readEnvValue("VAR_NAME") as fallback for any env var that exists in the .env file but may not be set in the shell environment. The pattern is: VAR: process.env.VAR || readEnvValue("VAR").
+
+#### Tags
+
+pm2, env-vars, ecosystem-config, vault-key, deployment, configuration
+
+---
