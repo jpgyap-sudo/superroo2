@@ -1,29 +1,29 @@
 # Latest Agent Context
 
-Generated: 2026-05-23T00:08:37.634Z
-Task: add website flowcharts tab with diagrams for telegram debug team cloud ide and key app features
+Generated: 2026-05-23T05:36:06.504Z
+Task: continue kimi tasks
 
 ## Relevant Lessons
 
-1. **Advanced Features Gap Fix — 28 Gaps Across 9 Modules**
-    - Rule: Before claiming a module has 'no tests', run `find src/MODULE -name '*.test.ts'` and check all subdirectories. The test coverage may be partial, not zero.
-    - Why: Fixed all identified gaps in SuperRoo's advanced features across 9 modules: 4 dashboard views created, 4 API endpoints added, 186 tests added across 4 test files, 5 cross-module integrations wired, 5 documentation files written, 1 source bug fixed (MLSyncClient double re-queue on HTTP error).
-2. **Telegram Bot Frictionless Coding & Context Awareness Improvements**
-    - Rule: Hide manual approval UI in auto-mode; use persistent reply keyboards; pass conversation context to classifiers; bound typing indicators with timeouts; handle new callbacks in both notifier and bot routing.
-    - Why: Fixed auto-mode UX confusion by hiding approval buttons when auto-chaining, added phase-transition progress messages, persistent reply keyboard, typing indicators, similar/audit buttons, and enhanced classifier with conversation context.
-3. **Swap Ollama to DeepSeek API for context summarization**
-    - Rule: For context summarization in agent workflows, prefer a cloud API (DeepSeek, OpenAI) over local models smaller than 3B parameters. Add a lightweight .env loader (no npm dependency) for API keys. Always include graceful degradation (skip if API key missing).
-    - Why: Ollama 0.5B produced poor-quality summaries (hallucinated bugs, truncated text). Swapping to DeepSeek API via standard HTTPS fetch() produced accurate, detailed summaries for all 6 phases. Added loadEnvFile() to read .env without dotenv dependency. DeepSeek API costs (~$0.14/M tokens) are negligible compared to Claude tokens saved by pre-compressed context.
-4. **PM2 env_block overrides env_file - hardcode vault keys directly in ecosystem.config.js**
-    - Rule: When configuring PM2 ecosystem.config.js, NEVER use `process.env.X || ""` in the `env` block for critical secrets that are defined in `env_file`. The `env` block takes precedence over `env_file`. Either hardcode the value directly, or ensure the variable is set in the shell environment before `pm2 start`. Always verify with `cat /proc/<pid>/environ | tr '\0' '\n' | grep KEY_NAME` after restart.
-    - Why: PM2 env_file directive is unreliable. The env block process.env.X patterns override .env values with empty strings. Fixed by hardcoding SUPERROO_VAULT_KEY directly. Also fixed: shutdown handler, classifier prompt, markdown stripping, button URL validation, missing pg module.
-5. **Production deploys must keep source and dependency manifests in sync**
-    - Rule: When production source files change together with dependencies, deploy the matching `package.json` and verify generated runtime artifacts exist before declaring recovery complete.
-    - Why: Hotfixes can restore one failing layer while leaving another stale layer broken. For production recovery, validate the runtime artifact set as well as the source change, especially when a deploy spans both app code and dependency manifests.
+1. **ML Loop NaN Loss Detection**
+    - Rule: InfiniteImprovementLoop MUST detect all-NaN loss arrays and stop training with a clear warning. Do not continue training on corrupted models.
+    - Why: ML training must detect corruption early and stop rather than continuing with invalid data. NaN propagation invalidates all downstream results.
+2. **Claude Task Tracking System — MCP Memory Server Integration**
+    - Rule: When adding a new agent type to the MCP Memory Server, always add all 8 integration points in order: constant → interfaces → tool definitions → handlers → resource → search → helpers → agent config file. Missing any one breaks the full workflow.
+    - Why: When adding a new agent task tracking system to the MCP Memory Server, follow the exact pattern of existing agent implementations (Codex → Kimi → Claude). Each agent needs: (1) a JSON log file, (2) a path constant, (3) TypeScript interfaces, (4) 4 MCP tool definitions in \_registerTools(), (5) handler cases in \_handleToolCall(), (6) a resource endpoint in \_registerResources(), (7) the JSON file added to \_searchLocalMemory(), and (8) 6 helper methods (read, write, upsert, list, get, getActive). The CLAUDE.md file follows the same pattern as .codex/config.toml for Codex.
+3. **Cross-Project Learning Layer — Sync Script, Retry Queue, and Systemd Timer**
+    - Rule: When deploying systemd timers for cron-like tasks: use `OnCalendar=hourly`, `Persistent=true` to catch missed runs, `RandomizedDelaySec=5min` to spread load, and always run an initial sync after enabling to verify the service works end-to-end.
+    - Why: When building infrastructure for cross-project learning, always verify the fallback paths work on all target OSes (Windows paths differ from Unix paths). The 3-layer fallback architecture (local JSONL → Central Brain MCP → markdown) provides graceful degradation — no single point of failure. Systemd timers with RandomizedDelaySec prevent thundering herd on Central Brain.
+4. **DeepSeek V4 Coder MCP — enforce agent routing workflow for Claude Code**
+    - Rule: When designing agent routing workflows for Claude Code, do NOT rely on CLAUDE.md instructions alone. Create MCP servers that expose delegated capabilities as tools — Claude auto-discovers them from .mcp.json and uses them when appropriate, making the workflow programmatically enforceable.
+    - Why: CLAUDE.md is advisory text and cannot enforce agent routing. To make Claude follow a multi-model workflow (Claude plans/reviews → DeepSeek codes → Ollama summarizes), provide MCP tools that Claude can programmatically call. The MCP protocol (JSON-RPC over stdio) is the correct mechanism for Claude to delegate tasks to other models/APIs.
+5. **Multi-pass Ollama summarization - chain 2-3 passes per section to make 0.5B model smarter without upgrading**
+    - Rule: When constrained to a small local model (0.5B parameters), use multi-pass chaining instead of upgrading hardware. Each pass should be a simpler sub-task within the model's capability. Always provide graceful fallback (pass3→pass2→pass1→single-pass→null) so the system degrades gracefully if any intermediate step fails.
+    - Why: A small 0.5B model can produce useful structured summaries through multi-pass chaining. Each pass stays within the model's limited context window (short input, short output), but the chaining produces better results than a single pass. The key insight: break the task into sub-tasks the model CAN do (extract → condense → format) rather than asking it to do everything at once.
 
 ## Active Codex Tasks
 
-- Release learning layer workflow (codex_task_learning_layer_release_20260517)
+No active Codex tasks.
 
 ## Architecture Reminder
 
@@ -58,7 +58,7 @@ The SuperRoo system is organized into **21 core modules** spanning orchestration
 
 ### DeepSeek Architecture Summary
 
-The **Orchestrator** and **Agent System** (specifically the Debugger agent) are the primary modules affected, as the flowcharts tab will visualize task dispatch and agent lifecycle workflows. The **Memory System** (SQLite) and **Event Log** must provide persistence and observability data for diagram generation, while the **Cloud Sandbox** and **Task Queue** (BullMQ) constrain real-time diagram updates through their priority and execution boundaries.
+The **Orchestrator** module is the primary entry point for "continue kimi tasks," routing tasks to the **Agent System** (Coder, Debugger, PM, Tester) and managing workflow lifecycle. The **Task Queue** (BullMQ integration) handles priority-based task dispatch, while the **Safety System** enforces mode-based ACL and capability gates on agent actions. Key constraints: all task execution must flow through the Orchestrator, and the **Memory System** (SQLite) provides persistence for all entities, meaning any task continuation must maintain state consistency across these connected modules.
 
 
 ## Task Signals
@@ -115,7 +115,7 @@ Implemented `safeJsonParse<T>(json, fallback)` helper function that:
 
 ### DeepSeek Bug Memory Summary
 
-The bug entries reveal a recurring pattern of unsafe `JSON.parse()` usage across multiple registry modules (`BugRegistry`, `TaskQueue`, `FeatureRegistry`, `MemoryStore`), causing crashes on corrupted database rows. Root cause is the lack of a safe fallback for JSON parsing. Fix involves adding a `safeJsonParse` helper to each affected file, with `HealingBus.ts` already having it and receiving enhanced usage.
+Multiple registry modules (BugRegistry, TaskQueue, FeatureRegistry, MemoryStore) crashed on corrupted database rows due to unsafe `JSON.parse()` calls without fallback handling. The fix introduced a `safeJsonParse` helper across these files, with HealingBus already having it and enhancing its usage. This pattern is critical for "continue kimi tasks" as database corruption during task persistence or retrieval could break task continuation.
 
 
 ## Model Decisions
@@ -162,13 +162,12 @@ Created routing table with primary and fallback providers:
 
 ### DeepSeek Model Decision Summary
 
-For the "add website flowcharts tab" task, the **kimi-k2.5** model was chosen for implementing the model routing service (`modelRouterService.ts`) due to its high confidence in handling cost, quality, and speed tradeoffs across task types. This decision ensures optimal provider/model pair mapping for features like Telegram debug, cloud IDE, and key app flows.
+For "continue kimi tasks", the **kimi-k2.5** model was chosen and implemented in a model routing service (`modelRouterService.ts`) that maps task types to optimal provider/model pairs based on cost, quality, and speed tradeoffs. This decision was made with high confidence from a legacy session, ensuring that kimi tasks are routed to the most suitable model for efficient continuation.
 
 
 
 ### DeepSeek File Summaries
 
-- **cloud\dashboard\src\components\views\parallel-execution.tsx**: This file exports a `ParallelExecutionView` component that displays real-time parallel execution statistics for the orchestrator. It fetches data from `/api/orchestrator/parallel/stats` every 10 seconds, mapping backend fields to a frontend interface with concurrency limits, token budgets, and agent costs. The component follows a pattern of loading/error states with retry functionality, using Shadcn UI components and Lucide icons consistent with the dashboard's design system.
-- **cloud\dashboard\src\components\views\autonomous-loop.tsx**: This file exports the `AutonomousLoopView` component, which displays and controls the autonomous loop system (a cyclic process of audit, fix, test, simulate, improve, learn, dashboard, commit, deploy, health-check). It fetches status from `/api/autonomous/status` every 5 seconds and provides start/stop controls via POST to `/api/autonomous/start` and `/api/autonomous/stop`. Key patterns include: using `useCallback` for fetch functions, `useEffect` with polling interval, loading/error states, and a typed `AutonomousStatus` interface with `StepResult` array for step-by-step progress tracking.
+- **src\super-roo\ml\loop\InfiniteImprovementLoop.ts**: This file exports the `InfiniteImprovementLoop` class and supporting interfaces (`LoopConfig`, `LoopStats`, `ValidationResult`). Its main purpose is to implement a self-improving ML loop that cycles through observe, learn, predict, act, evaluate, persist, sync, and loop phases, using `CodeLearner`, `DebugLearner`, `TestLearner`, `MLSyncClient`, and `ModelPersistence`. Key patterns for "continue kimi tasks" include configurable loop parameters (e.g., `maxActionsPerIteration`, `confidenceThreshold`), bidirectional cloud sync via `MLSyncClient`, and a `CancellableSleep` for idle management.
 
 ```

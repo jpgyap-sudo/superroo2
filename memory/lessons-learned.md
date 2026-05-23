@@ -3592,7 +3592,7 @@ Date: 2026-05-23
 Source: Code agent task completion
 Model/API used: deepseek-chat
 Confidence: high
-Related files: cloud/dashboard/src/components/views/*.tsx, cloud/api/api.js, cloud/orchestrator/CloudOrchestrator.js, cloud/deploy-dashboard-windows.ps1
+Related files: cloud/dashboard/src/components/views/\*.tsx, cloud/api/api.js, cloud/orchestrator/CloudOrchestrator.js, cloud/deploy-dashboard-windows.ps1
 
 #### Task Summary
 
@@ -3600,11 +3600,11 @@ Deployed all uncommitted dashboard gap closure changes (40 files, 5586 insertion
 
 #### Files Changed
 
-- cloud/dashboard/src/components/views/*.tsx (20 files)
+- cloud/dashboard/src/components/views/\*.tsx (20 files)
 - cloud/api/api.js
 - cloud/orchestrator/CloudOrchestrator.js
-- cloud/orchestrator/modules/*.js
-- cloud/orchestrator/stores/brain/*.js
+- cloud/orchestrator/modules/\*.js
+- cloud/orchestrator/stores/brain/\*.js
 - package.json, pnpm-workspace.yaml
 - cloud/deploy-dashboard-windows.ps1
 
@@ -3631,3 +3631,112 @@ When deploying from a machine where Tailscale shows "offline", fall back to the 
 #### Tags
 
 [deployment, tailscale, ssh, public-ip, fallback, dashboard, vps, pm2]
+
+### Auto-Extracted Lesson: EventLog guard, route normalization, error messages, migration dir, lesson su...
+
+Date: 2026-05-23
+Source: Git commit 135973c1
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/api/api.js, cloud/dashboard/src/components/views/events.tsx, cloud/dashboard/src/components/views/file-importer.tsx, cloud/orchestrator/stores/MemoryStore.js, cloud/orchestrator/stores/migrations/001_add_worker_id.sql
+
+#### Task Summary
+
+fix: EventLog guard, route normalization, error messages, migration dir, lesson summaries
+
+#### Files Changed
+
+- `cloud/api/api.js`
+- `cloud/dashboard/src/components/views/events.tsx`
+- `cloud/dashboard/src/components/views/file-importer.tsx`
+- `cloud/orchestrator/stores/MemoryStore.js`
+- `cloud/orchestrator/stores/migrations/001_add_worker_id.sql`
+- `memory/lesson-summaries.json`
+- `memory/lessons-learned.md`
+- `package.json`
+- `pnpm-workspace.yaml`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 135973c1.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 135973c1 by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+api, bugfix
+
+---
+
+### Auto-Extracted Lesson: Add error property to EventsResponse, StatsResponse, ImportResponse types
+
+Date: 2026-05-23
+Source: Git commit f8fbdf8f
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/dashboard/src/components/views/events.tsx, cloud/dashboard/src/components/views/file-importer.tsx
+
+#### Task Summary
+
+fix: add error property to EventsResponse, StatsResponse, ImportResponse types
+
+#### Files Changed
+
+- `cloud/dashboard/src/components/views/events.tsx`
+- `cloud/dashboard/src/components/views/file-importer.tsx`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit f8fbdf8f.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit f8fbdf8f by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+bugfix
+
+---
