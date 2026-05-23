@@ -22,6 +22,10 @@ import {
 	ChevronDown,
 	ChevronRight,
 	Search,
+	Plus,
+	Save,
+	Ban,
+	Trash2,
 } from "lucide-react"
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -114,7 +118,7 @@ function TransportIcon({ transport }: { transport: string }) {
 	}
 }
 
-function ServerCard({ server }: { server: MCPServerEntry }) {
+function ServerCard({ server, onDelete }: { server: MCPServerEntry; onDelete?: (name: string) => void }) {
 	const [expanded, setExpanded] = useState(false)
 
 	const uptimeStr = server.uptime
@@ -126,15 +130,13 @@ function ServerCard({ server }: { server: MCPServerEntry }) {
 		: "N/A"
 
 	return (
-		<div className="rounded-lg border border-[var(--vscode-panel-border)] bg-[var(--vscode-editor-background)]">
+		<div className="rounded-lg border border-[#1e2535] bg-[#0f1117]">
 			<div className="flex items-center justify-between px-4 py-3">
 				<div className="flex items-center gap-3 min-w-0 flex-1">
 					<StatusIcon status={server.status} />
 					<div className="min-w-0">
 						<div className="flex items-center gap-2">
-							<span className="text-sm font-medium text-[var(--vscode-foreground)] truncate">
-								{server.name}
-							</span>
+							<span className="text-sm font-medium text-gray-200 truncate">{server.name}</span>
 							<Badge
 								status={
 									server.status === "running"
@@ -148,15 +150,13 @@ function ServerCard({ server }: { server: MCPServerEntry }) {
 							/>
 						</div>
 						{server.description && (
-							<div className="mt-0.5 text-xs text-[var(--vscode-descriptionForeground)] truncate max-w-md">
-								{server.description}
-							</div>
+							<div className="mt-0.5 text-xs text-gray-500 truncate max-w-md">{server.description}</div>
 						)}
 					</div>
 				</div>
 
-				<div className="flex items-center gap-4 shrink-0">
-					<div className="hidden sm:flex items-center gap-3 text-xs text-[var(--vscode-descriptionForeground)]">
+				<div className="flex items-center gap-2 shrink-0">
+					<div className="hidden sm:flex items-center gap-3 text-xs text-gray-500">
 						<div className="flex items-center gap-1">
 							<Wrench className="h-3 w-3" />
 							<span>{server.tools} tools</span>
@@ -172,9 +172,20 @@ function ServerCard({ server }: { server: MCPServerEntry }) {
 							</div>
 						)}
 					</div>
+					{onDelete && (
+						<button
+							onClick={(e) => {
+								e.stopPropagation()
+								onDelete(server.name)
+							}}
+							className="flex items-center justify-center h-7 w-7 rounded-md text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+							title="Remove server">
+							<Trash2 className="h-3.5 w-3.5" />
+						</button>
+					)}
 					<button
 						onClick={() => setExpanded(!expanded)}
-						className="rounded p-1 text-[var(--vscode-descriptionForeground)] hover:bg-[var(--vscode-list-hoverBackground)]">
+						className="rounded p-1 text-gray-500 hover:bg-[#1a1f2e]">
 						{expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
 					</button>
 				</div>
@@ -182,37 +193,33 @@ function ServerCard({ server }: { server: MCPServerEntry }) {
 
 			{/* Expanded details */}
 			{expanded && (
-				<div className="border-t border-[var(--vscode-panel-border)] px-4 py-3 space-y-2">
+				<div className="border-t border-[#1e2535] px-4 py-3 space-y-2">
 					<div className="grid grid-cols-2 gap-3 text-xs">
 						<div>
-							<span className="text-[var(--vscode-descriptionForeground)]">Transport</span>
-							<div className="mt-0.5 font-mono text-[var(--vscode-foreground)]">{server.transport}</div>
+							<span className="text-gray-500">Transport</span>
+							<div className="mt-0.5 font-mono text-gray-200">{server.transport}</div>
 						</div>
 						{server.command && (
 							<div>
-								<span className="text-[var(--vscode-descriptionForeground)]">Command</span>
-								<div className="mt-0.5 font-mono text-[var(--vscode-foreground)] truncate">
-									{server.command}
-								</div>
+								<span className="text-gray-500">Command</span>
+								<div className="mt-0.5 font-mono text-gray-200 truncate">{server.command}</div>
 							</div>
 						)}
 						{server.url && (
 							<div>
-								<span className="text-[var(--vscode-descriptionForeground)]">URL</span>
-								<div className="mt-0.5 font-mono text-[var(--vscode-foreground)] truncate">
-									{server.url}
-								</div>
+								<span className="text-gray-500">URL</span>
+								<div className="mt-0.5 font-mono text-gray-200 truncate">{server.url}</div>
 							</div>
 						)}
 						{server.uptime != null && (
 							<div>
-								<span className="text-[var(--vscode-descriptionForeground)]">Uptime</span>
-								<div className="mt-0.5 text-[var(--vscode-foreground)]">{uptimeStr}</div>
+								<span className="text-gray-500">Uptime</span>
+								<div className="mt-0.5 text-gray-200">{uptimeStr}</div>
 							</div>
 						)}
 						<div>
-							<span className="text-[var(--vscode-descriptionForeground)]">Tools Count</span>
-							<div className="mt-0.5 text-[var(--vscode-foreground)]">{server.tools}</div>
+							<span className="text-gray-500">Tools Count</span>
+							<div className="mt-0.5 text-gray-200">{server.tools}</div>
 						</div>
 					</div>
 
@@ -238,6 +245,11 @@ export function MCPServersView() {
 	const [available, setAvailable] = useState(false)
 	const [searchQuery, setSearchQuery] = useState("")
 	const [statusFilter, setStatusFilter] = useState<string>("all")
+	const [showAdd, setShowAdd] = useState(false)
+	const [addName, setAddName] = useState("")
+	const [addCommand, setAddCommand] = useState("")
+	const [addTransport, setAddTransport] = useState<"stdio" | "sse">("stdio")
+	const [adding, setAdding] = useState(false)
 
 	const fetchData = useCallback(async () => {
 		try {
@@ -261,6 +273,45 @@ export function MCPServersView() {
 			setLoading(false)
 		}
 	}, [])
+
+	const handleAddServer = async () => {
+		if (!addName.trim() || !addCommand.trim()) return
+		setAdding(true)
+		try {
+			const res = await fetch("/api/mcp/servers", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					name: addName.trim(),
+					command: addCommand.trim(),
+					transport: addTransport,
+				}),
+			})
+			if (res.ok) {
+				setShowAdd(false)
+				setAddName("")
+				setAddCommand("")
+				setAddTransport("stdio")
+				fetchData()
+			}
+		} catch {
+			// silently fail
+		} finally {
+			setAdding(false)
+		}
+	}
+
+	const handleDeleteServer = async (name: string) => {
+		if (!confirm(`Remove MCP server "${name}"?`)) return
+		try {
+			const res = await fetch(`/api/mcp/servers/${encodeURIComponent(name)}`, { method: "DELETE" })
+			if (res.ok) {
+				fetchData()
+			}
+		} catch {
+			// silently fail
+		}
+	}
 
 	useEffect(() => {
 		fetchData()
@@ -286,51 +337,57 @@ export function MCPServersView() {
 			{/* Header */}
 			<div className="flex items-center justify-between">
 				<div className="flex items-center gap-3">
-					<Server className="h-5 w-5 text-[var(--vscode-foreground)]" />
-					<h1 className="text-lg font-semibold text-[var(--vscode-foreground)]">MCP Servers</h1>
+					<Server className="h-5 w-5 text-gray-200" />
+					<h1 className="text-lg font-semibold text-gray-200">MCP Servers</h1>
 					<Badge
 						status={available ? "active" : "idle"}
 						label={available ? "Connected" : "Offline"}
 						className="text-xs"
 					/>
 				</div>
-				<button
-					onClick={fetchData}
-					disabled={loading}
-					className="flex items-center gap-1.5 rounded-md bg-[var(--vscode-list-hoverBackground)] px-3 py-1.5 text-xs font-medium text-[var(--vscode-foreground)] hover:bg-[var(--vscode-list-hoverBackground)] disabled:opacity-50">
-					<RefreshCw className={cn("h-3 w-3", loading && "animate-spin")} />
-					Refresh
-				</button>
+				<div className="flex items-center gap-2">
+					<button
+						onClick={() => setShowAdd(!showAdd)}
+						className="flex items-center gap-1.5 rounded-md bg-violet-600/20 px-3 py-1.5 text-xs font-medium text-violet-400 hover:bg-violet-600/30 transition-colors">
+						<Plus className="h-3 w-3" />
+						Add Server
+					</button>
+					<button
+						onClick={fetchData}
+						disabled={loading}
+						className="flex items-center gap-1.5 rounded-md bg-[#1a1f2e] px-3 py-1.5 text-xs font-medium text-gray-200 hover:bg-[#1a1f2e] disabled:opacity-50">
+						<RefreshCw className={cn("h-3 w-3", loading && "animate-spin")} />
+						Refresh
+					</button>
+				</div>
 			</div>
 
 			{/* Summary cards */}
 			{summary && (
 				<div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-					<div className="rounded-lg border border-[var(--vscode-panel-border)] bg-[var(--vscode-editor-background)] px-4 py-3">
-						<div className="flex items-center gap-2 text-xs text-[var(--vscode-descriptionForeground)]">
+					<div className="rounded-lg border border-[#1e2535] bg-[#0f1117] px-4 py-3">
+						<div className="flex items-center gap-2 text-xs text-gray-500">
 							<Server className="h-3.5 w-3.5" />
 							<span>Total</span>
 						</div>
-						<div className="mt-1 text-xl font-semibold text-[var(--vscode-foreground)]">
-							{summary.total}
-						</div>
+						<div className="mt-1 text-xl font-semibold text-gray-200">{summary.total}</div>
 					</div>
-					<div className="rounded-lg border border-[var(--vscode-panel-border)] bg-[var(--vscode-editor-background)] px-4 py-3">
-						<div className="flex items-center gap-2 text-xs text-[var(--vscode-descriptionForeground)]">
+					<div className="rounded-lg border border-[#1e2535] bg-[#0f1117] px-4 py-3">
+						<div className="flex items-center gap-2 text-xs text-gray-500">
 							<CheckCircle2 className="h-3.5 w-3.5 text-green-400" />
 							<span>Running</span>
 						</div>
 						<div className="mt-1 text-xl font-semibold text-green-400">{summary.running}</div>
 					</div>
-					<div className="rounded-lg border border-[var(--vscode-panel-border)] bg-[var(--vscode-editor-background)] px-4 py-3">
-						<div className="flex items-center gap-2 text-xs text-[var(--vscode-descriptionForeground)]">
+					<div className="rounded-lg border border-[#1e2535] bg-[#0f1117] px-4 py-3">
+						<div className="flex items-center gap-2 text-xs text-gray-500">
 							<Square className="h-3.5 w-3.5 text-yellow-400" />
 							<span>Stopped</span>
 						</div>
 						<div className="mt-1 text-xl font-semibold text-yellow-400">{summary.stopped}</div>
 					</div>
-					<div className="rounded-lg border border-[var(--vscode-panel-border)] bg-[var(--vscode-editor-background)] px-4 py-3">
-						<div className="flex items-center gap-2 text-xs text-[var(--vscode-descriptionForeground)]">
+					<div className="rounded-lg border border-[#1e2535] bg-[#0f1117] px-4 py-3">
+						<div className="flex items-center gap-2 text-xs text-gray-500">
 							<XCircle className="h-3.5 w-3.5 text-red-400" />
 							<span>Error</span>
 						</div>
@@ -357,19 +414,83 @@ export function MCPServersView() {
 				</div>
 			)}
 
+			{/* Add Server Form */}
+			{showAdd && (
+				<div className="border border-[#1e2535] rounded-lg bg-[#0f1117]/80 p-4">
+					<h3 className="text-sm font-semibold text-gray-200 mb-3 flex items-center gap-2">
+						<Plus size={14} className="text-green-400" />
+						Add MCP Server
+					</h3>
+					<div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+						<div>
+							<label className="text-xs text-gray-500 mb-1 block">Name *</label>
+							<input
+								value={addName}
+								onChange={(e) => setAddName(e.target.value)}
+								className="w-full bg-[#0a0e1a] border border-[#1e2535] rounded px-2.5 py-1.5 text-sm text-gray-200 outline-none focus:border-violet-500/50"
+								placeholder="e.g. my-server"
+							/>
+						</div>
+						<div>
+							<label className="text-xs text-gray-500 mb-1 block">Command / URL *</label>
+							<input
+								value={addCommand}
+								onChange={(e) => setAddCommand(e.target.value)}
+								className="w-full bg-[#0a0e1a] border border-[#1e2535] rounded px-2.5 py-1.5 text-sm text-gray-200 outline-none focus:border-violet-500/50"
+								placeholder={
+									addTransport === "stdio"
+										? "npx -y @modelcontextprotocol/server-filesystem"
+										: "http://localhost:3001/mcp"
+								}
+							/>
+						</div>
+						<div>
+							<label className="text-xs text-gray-500 mb-1 block">Transport</label>
+							<select
+								value={addTransport}
+								onChange={(e) => setAddTransport(e.target.value as "stdio" | "sse")}
+								className="w-full bg-[#0a0e1a] border border-[#1e2535] rounded px-2.5 py-1.5 text-sm text-gray-200 outline-none focus:border-violet-500/50">
+								<option value="stdio">stdio</option>
+								<option value="sse">SSE</option>
+							</select>
+						</div>
+					</div>
+					<div className="flex gap-2 mt-3">
+						<button
+							onClick={handleAddServer}
+							disabled={adding || !addName.trim() || !addCommand.trim()}
+							className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-violet-600 text-white hover:bg-violet-500 disabled:opacity-50 transition-colors">
+							<Save size={12} />
+							{adding ? "Adding..." : "Add Server"}
+						</button>
+						<button
+							onClick={() => {
+								setShowAdd(false)
+								setAddName("")
+								setAddCommand("")
+								setAddTransport("stdio")
+							}}
+							className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-[#1e2535] text-gray-400 hover:text-white transition-colors">
+							<Ban size={12} />
+							Cancel
+						</button>
+					</div>
+				</div>
+			)}
+
 			{/* Search and filters */}
 			<div className="flex flex-col sm:flex-row gap-3">
 				<div className="relative flex-1">
-					<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--vscode-descriptionForeground)]" />
+					<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
 					<input
 						type="text"
 						placeholder="Search servers by name or description..."
 						value={searchQuery}
 						onChange={(e) => setSearchQuery(e.target.value)}
-						className="w-full rounded-md border border-[var(--vscode-panel-border)] bg-[var(--vscode-input-background)] py-2 pl-10 pr-4 text-sm text-[var(--vscode-input-foreground)] placeholder:text-[var(--vscode-input-placeholderForeground)] focus:border-blue-500 focus:outline-none"
+						className="w-full rounded-md border border-[#1e2535] bg-[#0a0e1a] py-2 pl-10 pr-4 text-sm text-gray-200 placeholder-gray-600 focus:border-blue-500 focus:outline-none"
 					/>
 				</div>
-				<div className="flex gap-1 rounded-lg border border-[var(--vscode-panel-border)] bg-[var(--vscode-editor-background)] p-0.5">
+				<div className="flex gap-1 rounded-lg border border-[#1e2535] bg-[#0f1117] p-0.5">
 					{(["all", "running", "stopped", "error"] as const).map((status) => (
 						<button
 							key={status}
@@ -377,8 +498,8 @@ export function MCPServersView() {
 							className={cn(
 								"rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
 								statusFilter === status
-									? "bg-[var(--vscode-list-hoverBackground)] text-[var(--vscode-foreground)]"
-									: "text-[var(--vscode-descriptionForeground)] hover:text-[var(--vscode-foreground)]",
+									? "bg-[#1a1f2e] text-gray-200"
+									: "text-gray-500 hover:text-gray-200",
 							)}>
 							{status.charAt(0).toUpperCase() + status.slice(1)}
 							<span className="ml-1 opacity-60">({statusCounts[status]})</span>
@@ -390,12 +511,12 @@ export function MCPServersView() {
 			{/* Server list */}
 			<div className="flex-1 space-y-2 overflow-y-auto">
 				{loading ? (
-					<div className="flex flex-col items-center justify-center py-12 text-[var(--vscode-descriptionForeground)]">
+					<div className="flex flex-col items-center justify-center py-12 text-gray-500">
 						<RefreshCw className="mb-3 h-8 w-8 animate-spin opacity-30" />
 						<p className="text-sm">Loading MCP servers...</p>
 					</div>
 				) : filteredServers.length === 0 ? (
-					<div className="flex flex-col items-center justify-center py-12 text-[var(--vscode-descriptionForeground)]">
+					<div className="flex flex-col items-center justify-center py-12 text-gray-500">
 						<Server className="mb-3 h-12 w-12 opacity-20" />
 						<p className="text-sm">No MCP servers found</p>
 						<p className="mt-1 text-xs">
@@ -405,13 +526,15 @@ export function MCPServersView() {
 						</p>
 					</div>
 				) : (
-					filteredServers.map((server) => <ServerCard key={server.name} server={server} />)
+					filteredServers.map((server) => (
+						<ServerCard key={server.name} server={server} onDelete={handleDeleteServer} />
+					))
 				)}
 			</div>
 
 			{/* Status bar */}
 			{!loading && servers.length > 0 && (
-				<div className="flex items-center justify-between border-t border-[var(--vscode-panel-border)] pt-2 text-xs text-[var(--vscode-descriptionForeground)]">
+				<div className="flex items-center justify-between border-t border-[#1e2535] pt-2 text-xs text-gray-500">
 					<div className="flex items-center gap-4">
 						<span>
 							<Server className="mr-1 inline-block h-3 w-3" />

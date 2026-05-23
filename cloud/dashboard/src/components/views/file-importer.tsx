@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { StatCard } from "@/components/ui/card"
 import {
 	Upload,
@@ -12,6 +12,10 @@ import {
 	XCircle,
 	Clock,
 	BarChart3,
+	Radio,
+	Archive,
+	Image,
+	Code,
 } from "lucide-react"
 
 interface FileImporterStats {
@@ -45,6 +49,11 @@ interface ImportResponse {
 	result: ImportResult
 }
 
+function getWsUrl() {
+	const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
+	return `${protocol}//${window.location.host}/api/brain/ws`
+}
+
 async function fetchStats(): Promise<StatsResponse> {
 	const res = await fetch("/api/orchestrator/file-importer/stats")
 	return res.json()
@@ -62,11 +71,15 @@ async function importPaths(paths: string[]): Promise<ImportResponse> {
 export function FileImporterView() {
 	const [stats, setStats] = useState<FileImporterStats | null>(null)
 	const [loading, setLoading] = useState(true)
+	const [refreshing, setRefreshing] = useState(false)
 	const [error, setError] = useState<string | null>(null)
 	const [pathsInput, setPathsInput] = useState("")
 	const [importing, setImporting] = useState(false)
 	const [importResult, setImportResult] = useState<ImportResult | null>(null)
 	const [importError, setImportError] = useState<string | null>(null)
+	const [wsConnected, setWsConnected] = useState(false)
+
+	const wsRef = useRef<WebSocket | null>(null)
 
 	const fetchData = useCallback(async () => {
 		try {
@@ -81,10 +94,75 @@ export function FileImporterView() {
 			setError("API server unreachable")
 		} finally {
 			setLoading(false)
+			setRefreshing(false)
 		}
 	}, [])
 
 	useEffect(() => {
+		fetchData()
+		const iv = setInterval(fetchData, 5000)
+		return () => clearInterval(iv)
+	}, [fetchData])
+
+	// WebSocket for real-time updates
+	useEffect(() => {
+		let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+		let heartbeatTimer: ReturnType<typeof setInterval> | null = null
+
+		function connect() {
+			try {
+				const ws = new WebSocket(getWsUrl())
+				wsRef.current = ws
+
+				ws.onopen = () => {
+					setWsConnected(true)
+					ws.send(JSON.stringify({ action: "subscribe", params: { event: "fileImporter.*" } }))
+					heartbeatTimer = setInterval(() => {
+						if (ws.readyState === WebSocket.OPEN) {
+							ws.send(JSON.stringify({ type: "ping" }))
+						}
+					}, 30000)
+				}
+
+				ws.onmessage = (event) => {
+					try {
+						const msg = JSON.parse(event.data)
+						if (msg.type === "event" && msg.event?.startsWith("fileImporter.")) {
+							fetchData()
+						}
+					} catch {
+						// Ignore malformed messages
+					}
+				}
+
+				ws.onclose = () => {
+					setWsConnected(false)
+					if (heartbeatTimer) clearInterval(heartbeatTimer)
+					reconnectTimer = setTimeout(connect, 5000)
+				}
+
+				ws.onerror = () => {
+					setWsConnected(false)
+				}
+			} catch {
+				setWsConnected(false)
+				reconnectTimer = setTimeout(connect, 5000)
+			}
+		}
+
+		connect()
+		return () => {
+			if (reconnectTimer) clearTimeout(reconnectTimer)
+			if (heartbeatTimer) clearInterval(heartbeatTimer)
+			if (wsRef.current) {
+				wsRef.current.close()
+				wsRef.current = null
+			}
+		}
+	}, [fetchData])
+
+	const handleRefresh = useCallback(() => {
+		setRefreshing(true)
 		fetchData()
 	}, [fetchData])
 
@@ -106,7 +184,7 @@ export function FileImporterView() {
 				setPathsInput("")
 				fetchData()
 			} else {
-				setImportError("Import failed")
+				setImportError(res.result?.errors?.[0] || "Import failed")
 			}
 		} catch {
 			setImportError("Import request failed")
@@ -115,17 +193,42 @@ export function FileImporterView() {
 		}
 	}
 
+	const pathCount = pathsInput
+		.split("\n")
+		.map((p) => p.trim())
+		.filter(Boolean).length
+
 	return (
 		<div className="p-4 space-y-4">
 			{/* Header */}
-			<div>
-				<h1 className="text-lg font-semibold text-white flex items-center gap-2">
-					<Upload size={18} className="text-blue-400" />
-					File Importer
-				</h1>
-				<p className="text-xs text-gray-500 mt-0.5">
-					Import file paths into the orchestrator for analysis and indexing
-				</p>
+			<div className="flex items-start justify-between">
+				<div>
+					<h1 className="text-lg font-semibold text-white flex items-center gap-2">
+						<Upload size={18} className="text-blue-400" />
+						File Importer
+					</h1>
+					<p className="text-xs text-gray-500 mt-0.5">
+						Import file paths into the orchestrator for analysis and indexing
+					</p>
+				</div>
+				<div className="flex items-center gap-2">
+					{wsConnected ? (
+						<span className="flex items-center gap-1 text-[10px] text-green-400 bg-green-500/10 rounded px-2 py-1">
+							<Radio className="w-3 h-3" /> Live
+						</span>
+					) : (
+						<span className="flex items-center gap-1 text-[10px] text-gray-500 bg-gray-700/50 rounded px-2 py-1">
+							<Radio className="w-3 h-3" /> Offline
+						</span>
+					)}
+					<button
+						onClick={handleRefresh}
+						disabled={refreshing}
+						className="flex items-center gap-1.5 rounded-lg border border-[#1e2535] bg-[#0f1117]/60 px-2.5 py-1.5 text-[11px] text-gray-400 hover:text-[#e2e8f0] disabled:opacity-50 transition-colors">
+						<RefreshCw className={`h-3 w-3 ${refreshing ? "animate-spin" : ""}`} />
+						Refresh
+					</button>
+				</div>
 			</div>
 
 			{/* Stats Cards */}
@@ -143,15 +246,30 @@ export function FileImporterView() {
 				<div className="grid grid-cols-2 md:grid-cols-4 gap-3">
 					<StatCard
 						label="Total Imports"
-						value={<><Upload className="inline h-4 w-4 mr-1 text-blue-400" />{stats?.totalImports ?? 0}</>}
+						value={
+							<>
+								<Upload className="inline h-4 w-4 mr-1 text-blue-400" />
+								{stats?.totalImports ?? 0}
+							</>
+						}
 					/>
 					<StatCard
 						label="Files Imported"
-						value={<><FileText className="inline h-4 w-4 mr-1 text-green-400" />{stats?.totalFiles ?? 0}</>}
+						value={
+							<>
+								<FileText className="inline h-4 w-4 mr-1 text-green-400" />
+								{stats?.totalFiles ?? 0}
+							</>
+						}
 					/>
 					<StatCard
 						label="Errors"
-						value={<><XCircle className="inline h-4 w-4 mr-1 text-red-400" />{stats?.totalErrors ?? 0}</>}
+						value={
+							<>
+								<XCircle className="inline h-4 w-4 mr-1 text-red-400" />
+								{stats?.totalErrors ?? 0}
+							</>
+						}
 					/>
 					<StatCard
 						label="Last Import"
@@ -180,21 +298,20 @@ export function FileImporterView() {
 				/>
 				<div className="flex items-center justify-between mt-2">
 					<span className="text-xs text-gray-600">
-						{pathsInput
-							.split("\n")
-							.map((p) => p.trim())
-							.filter(Boolean).length}{" "}
-						paths entered
+						{pathCount} path{pathCount !== 1 ? "s" : ""} entered
 					</span>
 					<button
 						onClick={handleImport}
 						disabled={importing || !pathsInput.trim()}
-						className="flex items-center gap-1.5 px-4 py-1.5 rounded text-xs font-medium bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
-					>
+						className="flex items-center gap-1.5 px-4 py-1.5 rounded text-xs font-medium bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50 transition-colors">
 						{importing ? (
-							<><RefreshCw size={12} className="animate-spin" /> Importing...</>
+							<>
+								<RefreshCw size={12} className="animate-spin" /> Importing...
+							</>
 						) : (
-							<><Upload size={12} /> Import</>
+							<>
+								<Upload size={12} /> Import
+							</>
 						)}
 					</button>
 				</div>
@@ -221,10 +338,10 @@ export function FileImporterView() {
 						<div className="mt-2">
 							<span className="text-xs text-gray-500">Imported files:</span>
 							<div className="mt-1 space-y-0.5">
-								{importResult.imported.slice(0, 10).map((path) => (
-									<div key={path} className="text-xs text-gray-400 font-mono flex items-center gap-1">
+								{importResult.imported.slice(0, 10).map((p) => (
+									<div key={p} className="text-xs text-gray-400 font-mono flex items-center gap-1">
 										<FileText size={10} className="text-green-400" />
-										{path}
+										{p}
 									</div>
 								))}
 								{importResult.imported.length > 10 && (
@@ -264,13 +381,13 @@ export function FileImporterView() {
 					<h2 className="text-sm font-semibold text-white mb-2 flex items-center gap-2">
 						<BarChart3 size={14} className="text-gray-400" />
 						Recent Imports
+						{wsConnected && <span className="ml-1 text-green-400 text-[10px]">● Live</span>}
 					</h2>
 					<div className="space-y-1.5">
 						{stats.recentImports.slice(0, 10).map((imp, i) => (
 							<div
 								key={i}
-								className="flex items-center gap-3 px-3 py-2 rounded border border-[#1e2535] bg-[#0f1117]/40"
-							>
+								className="flex items-center gap-3 px-3 py-2 rounded border border-[#1e2535] bg-[#0f1117]/40">
 								<Upload size={12} className="text-blue-400 shrink-0" />
 								<div className="flex-1 min-w-0">
 									<div className="text-xs text-white">
@@ -281,7 +398,7 @@ export function FileImporterView() {
 									</div>
 								</div>
 								<div className="text-[10px] text-gray-500 shrink-0">
-									{new Date(imp.timestamp).toLocaleString()}
+									{imp.timestamp ? new Date(imp.timestamp).toLocaleString() : "—"}
 								</div>
 							</div>
 						))}

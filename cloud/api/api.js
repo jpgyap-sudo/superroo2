@@ -691,6 +691,69 @@ let autonomousLoop = null
 /** @type {CommissioningLoop|null} */
 let commissioningLoop = null
 
+// In-memory savepoints store (persisted to JSON file)
+const SAVEPOINTS_PATH = path.join(__dirname, "..", "data", "savepoints.json")
+let savepointsData = { savepoints: [] }
+try {
+	if (fsSync.existsSync(SAVEPOINTS_PATH)) {
+		savepointsData = JSON.parse(fsSync.readFileSync(SAVEPOINTS_PATH, "utf-8"))
+	}
+} catch {
+	savepointsData = { savepoints: [] }
+}
+function persistSavepoints() {
+	try {
+		const dir = path.dirname(SAVEPOINTS_PATH)
+		if (!fsSync.existsSync(dir)) fsSync.mkdirSync(dir, { recursive: true })
+		fsSync.writeFileSync(SAVEPOINTS_PATH, JSON.stringify(savepointsData, null, 2), "utf-8")
+	} catch (err) {
+		console.warn("[savepoints] Failed to persist:", err.message)
+	}
+}
+
+function formatAgo(ms) {
+	const s = Math.floor(ms / 1000)
+	if (s < 60) return `${s}s`
+	const m = Math.floor(s / 60)
+	if (m < 60) return `${m}m`
+	const h = Math.floor(m / 60)
+	if (h < 24) return `${h}h`
+	const d = Math.floor(h / 24)
+	return `${d}d`
+}
+
+function mapDeployStatus(status) {
+	const map = {
+		success: "healthy",
+		running: "warnings",
+		queued: "warnings",
+		failed: "failed",
+		cancelled: "failed",
+		rolled_back: "rolled_back",
+	}
+	return map[status] || status || "unknown"
+}
+
+function transformDeployment(d) {
+	const ts = d.createdAt || d.timestamp || Date.now()
+	return {
+		id: d.id,
+		name: `${d.projectName || "unknown"} (${d.version || "unknown"})`,
+		project: d.projectName || "unknown",
+		environment: (d.metadata && d.metadata.environment) || "production",
+		version: d.version || "unknown",
+		ago: formatAgo(Date.now() - ts),
+		status: mapDeployStatus(d.status),
+		success: d.status === "success",
+		timestamp: new Date(ts).toISOString(),
+		commitSha: d.commitSha || null,
+		agent: d.agent || null,
+		error: d.error || null,
+		rollbackVersion: d.rollbackVersion || null,
+		rollbackStatus: d.rollbackStatus || null,
+	}
+}
+
 async function initOrchestrator() {
 	try {
 		orchestrator = new CloudOrchestrator({
@@ -705,6 +768,34 @@ async function initOrchestrator() {
 		// Module registrations below depend on orchestrator.memory and orchestrator.eventLog
 		// being non-null, which requires start() to have been called.
 		await orchestrator.start()
+
+		// Wire orchestrator events → Brain WebSocket for real-time dashboard updates
+		orchestrator.on("eventRecorded", (event) => {
+			broadcastBrainEvent("orchestrator.event", event)
+		})
+
+		// Wire deployment events → Brain WebSocket for real-time dashboard updates
+		if (orchestrator.deployOrchestrator) {
+			const originalDeploy = orchestrator.deployOrchestrator.deploy.bind(orchestrator.deployOrchestrator)
+			orchestrator.deployOrchestrator.deploy = async function (...args) {
+				const result = await originalDeploy(...args)
+				broadcastBrainEvent("deploy.completed", {
+					version: result.version,
+					status: result.status,
+					agent: result.agent,
+				})
+				return result
+			}
+			const originalRollback = orchestrator.deployOrchestrator.rollback.bind(orchestrator.deployOrchestrator)
+			orchestrator.deployOrchestrator.rollback = async function (...args) {
+				const result = await originalRollback(...args)
+				broadcastBrainEvent("deploy.rollback", {
+					rollbackVersion: result.rollbackVersion,
+					success: result.success,
+				})
+				return result
+			}
+		}
 
 		// ── Wire Phase 4+7: Provider Registry Bridge ────────────────────
 		// Connects the new modular provider system (cloud/providers/) with the
@@ -3140,10 +3231,10 @@ function buildQueueActivity({ jobs, events }) {
 		type: job.status,
 	}))
 	const eventItems = events.slice(0, 6).map((event) => ({
-		id: `event-${event.id || event.timestamp || event.type}`,
-		time: event.timestamp || 0,
+		id: `event-${event.id || event.createdAt || event.type}`,
+		time: event.createdAt || 0,
 		agent: event.source || "orchestrator",
-		message: event.type || "orchestrator event",
+		message: event.message || event.type || "orchestrator event",
 		type: event.severity === "error" ? "failed" : "event",
 	}))
 
@@ -6357,6 +6448,40 @@ const server = http.createServer(async (req, res) => {
 					logs: body.logs,
 					environment: body.environment,
 				})
+
+				// Broadcast assessment event for real-time dashboard updates
+				broadcastBrainEvent("risk.assessmentCreated", result)
+
+				// Auto-trigger swarm debug for high/critical risk
+				if (result.riskLevel === "high" || result.riskLevel === "critical") {
+					try {
+						const swarmResult = await svc.swarmDebugger.debug({
+							projectId: body.projectId || "default",
+							riskAssessmentId: result.id,
+							problem: `High-risk ${body.actionType}: ${result.reasons.slice(0, 3).join("; ")}`,
+							context: {
+								filesChanged: body.filesChanged,
+								logs: body.logs,
+								riskScore: result.riskScore,
+								riskLevel: result.riskLevel,
+							},
+						})
+						result.swarmRunId = swarmResult.runId
+						broadcastBrainEvent("swarm.autoTriggered", {
+							runId: swarmResult.runId,
+							assessmentId: result.id,
+							riskLevel: result.riskLevel,
+						})
+					} catch (swarmErr) {
+						writeApiLog(
+							"warn",
+							"brain-v2",
+							`Auto-swarm debug failed for high-risk assessment: ${swarmErr.message}`,
+							{},
+						)
+					}
+				}
+
 				sendJson(res, 200, { success: true, data: result })
 			} catch (err) {
 				sendJson(res, 400, { success: false, error: err.message })
@@ -6398,7 +6523,15 @@ const server = http.createServer(async (req, res) => {
 					limit: parseInt(req.query?.limit) || 50,
 					offset: parseInt(req.query?.offset) || 0,
 				})
-				sendJson(res, 200, { success: true, data: assessments })
+				sendJson(res, 200, {
+					success: true,
+					data: assessments.rows,
+					pagination: {
+						total: assessments.total,
+						limit: req.query?.limit || 50,
+						offset: req.query?.offset || 0,
+					},
+				})
 			} catch (err) {
 				sendJson(res, 400, { success: false, error: err.message })
 			}
@@ -6417,7 +6550,15 @@ const server = http.createServer(async (req, res) => {
 					limit: parseInt(req.query?.limit) || 50,
 					offset: parseInt(req.query?.offset) || 0,
 				})
-				sendJson(res, 200, { success: true, data: patterns })
+				sendJson(res, 200, {
+					success: true,
+					data: patterns.rows,
+					pagination: {
+						total: patterns.total,
+						limit: req.query?.limit || 50,
+						offset: req.query?.offset || 0,
+					},
+				})
 			} catch (err) {
 				sendJson(res, 400, { success: false, error: err.message })
 			}
@@ -6469,7 +6610,11 @@ const server = http.createServer(async (req, res) => {
 					limit: parseInt(req.query?.limit) || 50,
 					offset: parseInt(req.query?.offset) || 0,
 				})
-				sendJson(res, 200, { success: true, data: runs })
+				sendJson(res, 200, {
+					success: true,
+					data: runs.rows,
+					pagination: { total: runs.total, limit: req.query?.limit || 50, offset: req.query?.offset || 0 },
+				})
 			} catch (err) {
 				sendJson(res, 400, { success: false, error: err.message })
 			}
@@ -9303,7 +9448,10 @@ const server = http.createServer(async (req, res) => {
 			const urlObj = new URL(url, `http://localhost:${PORT}`)
 			const type = urlObj.searchParams.get("type") || undefined
 			const source = urlObj.searchParams.get("source") || undefined
-			const severity = urlObj.searchParams.get("severity") || undefined
+			let severity = urlObj.searchParams.get("severity") || undefined
+			// Map frontend severity values to DB values
+			if (severity === "warn") severity = "warning"
+			if (severity === "debug") severity = "info"
 			const limit = parseInt(urlObj.searchParams.get("limit") || "50", 10)
 			const events = orchestrator.eventLog.list({ type, source, severity, limit })
 			sendJson(res, 200, { success: true, events, count: events.length })
@@ -9906,8 +10054,8 @@ const server = http.createServer(async (req, res) => {
 				sendJson(res, 503, { success: false, error: "DeployOrchestrator not initialized" })
 				return
 			}
-			const current = orchestrator.deployOrchestrator.getCurrent()
-			sendJson(res, 200, { success: true, current })
+			const stats = await orchestrator.deployOrchestrator.getStats()
+			sendJson(res, 200, { success: true, current: stats.latestDeployment })
 			return
 		}
 
@@ -9956,7 +10104,7 @@ const server = http.createServer(async (req, res) => {
 				sendJson(res, 503, { success: false, error: "DeployOrchestrator not initialized" })
 				return
 			}
-			const history = orchestrator.deployOrchestrator.getHistory()
+			const history = await orchestrator.deployOrchestrator.getHistory()
 			sendJson(res, 200, { success: true, history })
 			return
 		}
@@ -9971,7 +10119,7 @@ const server = http.createServer(async (req, res) => {
 				sendJson(res, 503, { success: false, error: "DeployOrchestrator not initialized" })
 				return
 			}
-			const stats = orchestrator.deployOrchestrator.getStats()
+			const stats = await orchestrator.deployOrchestrator.getStats()
 			sendJson(res, 200, { success: true, stats })
 			return
 		}
@@ -10208,16 +10356,24 @@ const server = http.createServer(async (req, res) => {
 			method === "POST" &&
 			(url === "/orchestrator/file-importer/import" || normalizedUrl === "/orchestrator/file-importer/import")
 		) {
-			if (!orchestrator || !orchestrator.fileImporter) {
-				sendJson(res, 503, { success: false, error: "FileImporter not initialized" })
+			if (!orchestrator) {
+				sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
 				return
 			}
+			const fileImporter = orchestrator.ensureFileImporter()
 			const data = await parseBody(req)
 			if (!data.paths || !Array.isArray(data.paths)) {
 				sendJson(res, 400, { success: false, error: "Missing required field: paths (array)" })
 				return
 			}
-			const result = await orchestrator.fileImporter.importPaths(data.paths)
+			const raw = await fileImporter.importPaths(data.paths)
+			const result = {
+				successCount: raw.files.length,
+				errorCount: raw.errors.length,
+				errors: raw.errors,
+				imported: raw.files.map((f) => f.originalPath),
+			}
+			broadcastBrainEvent("fileImporter.importComplete", { paths: data.paths, result })
 			sendJson(res, 200, { success: true, result })
 			return
 		}
@@ -10227,11 +10383,12 @@ const server = http.createServer(async (req, res) => {
 			method === "GET" &&
 			(url === "/orchestrator/file-importer/stats" || normalizedUrl === "/orchestrator/file-importer/stats")
 		) {
-			if (!orchestrator || !orchestrator.fileImporter) {
-				sendJson(res, 503, { success: false, error: "FileImporter not initialized" })
+			if (!orchestrator) {
+				sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
 				return
 			}
-			const stats = orchestrator.fileImporter.getStats()
+			const fileImporter = orchestrator.ensureFileImporter()
+			const stats = fileImporter.getStats()
 			sendJson(res, 200, { success: true, stats })
 			return
 		}
@@ -11969,6 +12126,26 @@ const server = http.createServer(async (req, res) => {
 						"SwarmDebugger wired into SelfHealingLoop for auto-debug on critical incidents",
 						{},
 					)
+				}
+
+				// Wire SwarmDebugger events → Brain WebSocket for real-time dashboard updates
+				if (brainServices.swarmDebugger) {
+					brainServices.swarmDebugger.on("runStarted", (data) =>
+						broadcastBrainEvent("swarm.runStarted", data),
+					)
+					brainServices.swarmDebugger.on("runCompleted", (data) =>
+						broadcastBrainEvent("swarm.runCompleted", data),
+					)
+					brainServices.swarmDebugger.on("agentStarted", (data) =>
+						broadcastBrainEvent("swarm.agentStarted", data),
+					)
+					brainServices.swarmDebugger.on("agentCompleted", (data) =>
+						broadcastBrainEvent("swarm.agentCompleted", data),
+					)
+					brainServices.swarmDebugger.on("agentFailed", (data) =>
+						broadcastBrainEvent("swarm.agentFailed", data),
+					)
+					writeApiLog("info", "brain-v2", "SwarmDebugger events wired to Brain WebSocket", {})
 				}
 
 				writeApiLog("info", "brain-v2", "Central Brain v2 services initialized", {})

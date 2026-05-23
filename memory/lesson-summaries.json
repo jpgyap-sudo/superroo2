@@ -1,17 +1,17 @@
 {
-  "generatedAt": "2026-05-23T00:45:59.244Z",
-  "deepseekModel": "deepseek-chat",
-  "ollamaUrl": "http://127.0.0.1:11434",
-  "sourceFile": "memory/lessons-learned.md",
-  "count": 1,
-  "summaries": [
-    {
-      "title": "Guard optional orchestrator methods before calling them",
-      "date": "2026-05-23",
-      "model": "local",
-      "confidence": "high",
-      "summary": "When calling methods on optional orchestrator sub-modules, always guard with `typeof orchestrator.subModule.method === \"function\"` before invoking the method, even if the parent object exists. This prevents a single missing or non-function method from crashing an entire aggregation endpoint, as seen when `orchestrator.learningGateway.health()` threw a TypeError inside a Promise.all, causing the dashboard to render as an empty shell.",
-      "hasEmbeddings": false
-    }
-  ]
+	"generatedAt": "2026-05-23T02:32:24.982Z",
+	"deepseekModel": "deepseek-chat",
+	"ollamaUrl": "http://127.0.0.1:11434",
+	"sourceFile": "memory/lessons-learned.md",
+	"count": 1,
+	"summaries": [
+		{
+			"title": "Dashboard Gap Implementation - API Keys and IDE Terminal tabs",
+			"date": "unknown",
+			"model": "unknown",
+			"confidence": "unknown",
+			"summary": "Implemented 31 UI gap improvements across the API Keys and IDE Terminal dashboard tabs, including search, sort, bulk operations, modals, session management, and toolbars. Key lessons: always read the state store first for dispatch actions and payload types, verify lucide-react icon availability, use targeted diffs instead of full-file writes, and batch all changes into a single atomic commit with TypeScript compilation verification.",
+			"hasEmbeddings": false
+		}
+	]
 }

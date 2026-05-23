@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import {
 	BrainCircuit,
 	TrendingUp,
@@ -10,6 +10,8 @@ import {
 	Sparkles,
 	Clock,
 	BarChart3,
+	RefreshCw,
+	Download,
 } from "lucide-react"
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis, Bar, BarChart } from "recharts"
 
@@ -185,23 +187,30 @@ export default function OllamaGrowthView() {
 	const [data, setData] = useState<OllamaGrowthData | null>(null)
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState("")
+	const [refreshing, setRefreshing] = useState(false)
+
+	const fetchData = useCallback(async () => {
+		try {
+			setError("")
+			const r = await fetch("/api/ollama-growth")
+			const json = await r.json()
+			if (json.success) {
+				setData(json)
+			} else {
+				setError(json.error || "Failed to load data")
+			}
+		} catch (e: any) {
+			setError(e.message)
+		} finally {
+			setLoading(false)
+		}
+	}, [])
 
 	useEffect(() => {
-		fetch("/api/ollama-growth")
-			.then((r) => r.json())
-			.then((json) => {
-				if (json.success) {
-					setData(json)
-				} else {
-					setError(json.error || "Failed to load data")
-				}
-				setLoading(false)
-			})
-			.catch((e) => {
-				setError(e.message)
-				setLoading(false)
-			})
-	}, [])
+		fetchData()
+		const iv = setInterval(fetchData, 30000)
+		return () => clearInterval(iv)
+	}, [fetchData])
 
 	if (loading) {
 		return (
@@ -241,8 +250,64 @@ export default function OllamaGrowthView() {
 		shortDate: new Date(t.date).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
 	}))
 
+	const handleExport = useCallback(() => {
+		if (!data) return
+		const rows: string[] = ["section,metric,value"]
+		rows.push(`readiness,total_score,${data.readiness.total_score}`)
+		rows.push(`readiness,level,${data.readiness.level}`)
+		rows.push(`readiness,avg_score,${data.readiness.avg_score}`)
+		rows.push(`readiness,check_count,${data.readiness.check_count}`)
+		rows.push(`growth,event_count,${data.growth.event_count}`)
+		Object.entries(data.growth.event_types).forEach(([type, count]) => {
+			rows.push(`growth_events,${type},${count}`)
+		})
+		data.timeline.forEach((t) => {
+			rows.push(`timeline,${t.date},${t.score}`)
+		})
+		const blob = new Blob([rows.join("\n")], { type: "text/csv" })
+		const url = URL.createObjectURL(blob)
+		const a = document.createElement("a")
+		a.href = url
+		a.download = `ollama-growth-${new Date().toISOString().slice(0, 10)}.csv`
+		a.click()
+		URL.revokeObjectURL(url)
+	}, [data])
+
 	return (
 		<div className="space-y-4">
+			{/* Header */}
+			<div className="flex items-center justify-between">
+				<div>
+					<h1 className="text-lg font-semibold text-white flex items-center gap-2">
+						<BrainCircuit size={18} className="text-violet-400" />
+						Ollama Growth
+					</h1>
+					<p className="text-xs text-gray-500 mt-0.5">
+						Ollama readiness scoring, growth events, and score timeline
+					</p>
+				</div>
+				<div className="flex items-center gap-2">
+					<button
+						onClick={handleExport}
+						disabled={!data}
+						className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-[#1e2535] text-gray-400 hover:text-white disabled:opacity-50 transition-colors">
+						<Download size={12} />
+						Export CSV
+					</button>
+					<button
+						onClick={async () => {
+							setRefreshing(true)
+							await fetchData()
+							setRefreshing(false)
+						}}
+						disabled={loading || refreshing}
+						className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-[#1e2535] text-gray-400 hover:text-white disabled:opacity-50 transition-colors">
+						<RefreshCw size={12} className={refreshing ? "animate-spin" : ""} />
+						Refresh
+					</button>
+				</div>
+			</div>
+
 			{/* Top row: Score + Recommendation + Stats */}
 			<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 				<Panel title="Readiness Score" icon={BrainCircuit} className="sm:col-span-1">

@@ -27,6 +27,10 @@ import {
 	Globe,
 	Terminal,
 	BookOpen,
+	Plus,
+	Trash2,
+	Save,
+	Ban,
 } from "lucide-react"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -160,7 +164,7 @@ function getLanguageColor(lang: string | null): string {
 
 // ── Project Card ───────────────────────────────────────────────────────────────
 
-function ProjectCard({ project }: { project: ProjectInfo }) {
+function ProjectCard({ project, onDelete }: { project: ProjectInfo; onDelete: (id: string) => void }) {
 	const deployHealthy = project.lastDeploy?.status === "healthy"
 	const deployFailed = project.lastDeploy?.status === "failed"
 	const successRate = project.deploySuccessRate
@@ -204,7 +208,21 @@ function ProjectCard({ project }: { project: ProjectInfo }) {
 						</div>
 					</div>
 				</div>
-				<Badge status={project.isActive ? "active" : "idle"} label={project.isActive ? "Active" : "Inactive"} />
+				<div className="flex items-center gap-1.5">
+					<Badge
+						status={project.isActive ? "active" : "idle"}
+						label={project.isActive ? "Active" : "Inactive"}
+					/>
+					<button
+						onClick={(e) => {
+							e.stopPropagation()
+							onDelete(project.id)
+						}}
+						className="flex items-center justify-center h-6 w-6 rounded-md text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+						title="Delete project">
+						<Trash2 className="h-3.5 w-3.5" />
+					</button>
+				</div>
 			</div>
 
 			{/* Stats row */}
@@ -348,6 +366,11 @@ export function ProjectsView() {
 	const [error, setError] = useState<string | null>(null)
 	const [searchQuery, setSearchQuery] = useState("")
 	const [filterActive, setFilterActive] = useState(false)
+	const [showCreate, setShowCreate] = useState(false)
+	const [createName, setCreateName] = useState("")
+	const [createRepo, setCreateRepo] = useState("")
+	const [createLang, setCreateLang] = useState("")
+	const [creating, setCreating] = useState(false)
 
 	const fetchData = useCallback(async () => {
 		try {
@@ -366,6 +389,45 @@ export function ProjectsView() {
 			setLoading(false)
 		}
 	}, [])
+
+	const handleCreateProject = async () => {
+		if (!createName.trim()) return
+		setCreating(true)
+		try {
+			const res = await fetch("/api/projects", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					name: createName.trim(),
+					repoName: createRepo.trim() || createName.trim(),
+					language: createLang.trim() || undefined,
+				}),
+			})
+			if (res.ok) {
+				setShowCreate(false)
+				setCreateName("")
+				setCreateRepo("")
+				setCreateLang("")
+				fetchData()
+			}
+		} catch {
+			// silently fail
+		} finally {
+			setCreating(false)
+		}
+	}
+
+	const handleDeleteProject = async (id: string) => {
+		if (!confirm("Delete this project?")) return
+		try {
+			const res = await fetch(`/api/projects/${id}`, { method: "DELETE" })
+			if (res.ok) {
+				fetchData()
+			}
+		} catch {
+			// silently fail
+		}
+	}
 
 	useEffect(() => {
 		fetchData()
@@ -436,6 +498,12 @@ export function ProjectsView() {
 					</p>
 				</div>
 				<div className="flex items-center gap-2">
+					<button
+						onClick={() => setShowCreate(!showCreate)}
+						className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-violet-500/40 text-violet-400 bg-violet-500/10 hover:bg-violet-500/20 transition-colors">
+						<Plus className="h-3 w-3" />
+						New Project
+					</button>
 					{/* Search */}
 					<div className="relative">
 						<Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-500" />
@@ -467,6 +535,65 @@ export function ProjectsView() {
 				</div>
 			</div>
 
+			{/* Create Project Form */}
+			{showCreate && (
+				<div className="border border-[#1e2535] rounded-lg bg-[#0f1117]/80 p-4">
+					<h3 className="text-sm font-semibold text-[#e2e8f0] mb-3 flex items-center gap-2">
+						<Plus size={14} className="text-green-400" />
+						New Project
+					</h3>
+					<div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+						<div>
+							<label className="text-xs text-gray-500 mb-1 block">Name *</label>
+							<input
+								value={createName}
+								onChange={(e) => setCreateName(e.target.value)}
+								className="w-full bg-[#0a0e1a] border border-[#1e2535] rounded px-2.5 py-1.5 text-sm text-[#e2e8f0] outline-none focus:border-violet-500/50"
+								placeholder="Project name"
+							/>
+						</div>
+						<div>
+							<label className="text-xs text-gray-500 mb-1 block">Repo Name</label>
+							<input
+								value={createRepo}
+								onChange={(e) => setCreateRepo(e.target.value)}
+								className="w-full bg-[#0a0e1a] border border-[#1e2535] rounded px-2.5 py-1.5 text-sm text-[#e2e8f0] outline-none focus:border-violet-500/50"
+								placeholder="Optional"
+							/>
+						</div>
+						<div>
+							<label className="text-xs text-gray-500 mb-1 block">Language</label>
+							<input
+								value={createLang}
+								onChange={(e) => setCreateLang(e.target.value)}
+								className="w-full bg-[#0a0e1a] border border-[#1e2535] rounded px-2.5 py-1.5 text-sm text-[#e2e8f0] outline-none focus:border-violet-500/50"
+								placeholder="e.g. TypeScript"
+							/>
+						</div>
+					</div>
+					<div className="flex gap-2 mt-3">
+						<button
+							onClick={handleCreateProject}
+							disabled={creating || !createName.trim()}
+							className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-violet-600 text-white hover:bg-violet-500 disabled:opacity-50 transition-colors">
+							<Save size={12} />
+							{creating ? "Creating..." : "Create"}
+						</button>
+						<button
+							onClick={() => {
+								setShowCreate(false)
+								setCreateName("")
+								setCreateRepo("")
+								setCreateLang("")
+							}}
+							className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-[#1e2535] text-gray-400 hover:text-white transition-colors">
+							<Ban size={12} />
+							Cancel
+						</button>
+					</div>
+				</div>
+			)}
+
 			{/* Project Cards Grid */}
 			{filteredProjects.length === 0 ? (
 				<div className="flex flex-col items-center justify-center py-16 text-center">
@@ -483,7 +610,7 @@ export function ProjectsView() {
 			) : (
 				<div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
 					{filteredProjects.map((project) => (
-						<ProjectCard key={project.id} project={project} />
+						<ProjectCard key={project.id} project={project} onDelete={handleDeleteProject} />
 					))}
 				</div>
 			)}

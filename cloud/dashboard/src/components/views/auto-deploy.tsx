@@ -11,6 +11,7 @@ import {
 	AlertTriangle,
 	Loader2,
 	ExternalLink,
+	Download,
 } from "lucide-react"
 
 interface DeployAttempt {
@@ -114,6 +115,21 @@ export function AutoDeployView() {
 		}
 	}
 
+	const handleExport = () => {
+		if (!status || status.attempts.length === 0) return
+		const csv = ["attempt,status,duration,time,error"]
+		status.attempts.forEach((a) => {
+			csv.push(`${a.attempt},${a.status},${a.duration},${a.time},"${(a.error || "").replace(/"/g, '""')}"`)
+		})
+		const blob = new Blob([csv.join("\n")], { type: "text/csv" })
+		const url = URL.createObjectURL(blob)
+		const a = document.createElement("a")
+		a.href = url
+		a.download = "auto-deploy-attempts.csv"
+		a.click()
+		URL.revokeObjectURL(url)
+	}
+
 	return (
 		<div className="space-y-4">
 			{/* Header */}
@@ -131,6 +147,15 @@ export function AutoDeployView() {
 						<RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
 						Refresh
 					</button>
+					{status && status.attempts.length > 0 && (
+						<button
+							onClick={handleExport}
+							title="Export CSV"
+							className="flex items-center gap-1.5 rounded-lg border border-[#1e2535] bg-[#0f1117] px-2.5 py-1.5 text-[11px] text-gray-400 hover:text-[#e2e8f0] active:scale-95">
+							<Download className="h-3 w-3" />
+							Export
+						</button>
+					)}
 					<button
 						onClick={handleTrigger}
 						disabled={triggering || status?.isRunning}

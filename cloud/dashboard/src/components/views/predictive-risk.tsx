@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { cn } from "@/lib/utils"
 import { StatCard, Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -12,7 +12,6 @@ import {
 	RefreshCw,
 	Search,
 	Loader2,
-	ArrowUpDown,
 	BarChart3,
 	Network,
 	FileWarning,
@@ -21,6 +20,8 @@ import {
 	AlertCircle,
 	FlaskConical,
 	ScrollText,
+	Radio,
+	Database,
 } from "lucide-react"
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -70,6 +71,9 @@ interface RiskStats {
 	totalPatterns: number
 	patternsBySeverity: Record<string, number>
 	patternsByType: Record<string, number>
+	avgRiskScore: number
+	maxRiskScore: number
+	totalOccurrences: number
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -115,6 +119,11 @@ function getRiskIcon(level: string) {
 		default:
 			return <CheckCircle2 className="w-4 h-4" />
 	}
+}
+
+function getWsUrl() {
+	const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
+	return `${protocol}//${window.location.host}/api/brain/ws`
 }
 
 // ─── Sub-Components ──────────────────────────────────────────────────────────
@@ -165,11 +174,11 @@ function PatternCard({ pattern }: { pattern: FailurePattern }) {
 				<div className="flex items-center gap-2">
 					<Badge status={pattern.severity} className="text-xs" />
 					<span className="text-xs text-gray-400 font-mono">{pattern.pattern_type}</span>
-					<span className="text-[10px] text-gray-500 bg-gray-700/50 rounded px-1.5 py-0.5">{pattern.source}</span>
+					<span className="text-[10px] text-gray-500 bg-gray-700/50 rounded px-1.5 py-0.5">
+						{pattern.source}
+					</span>
 				</div>
-				<span className="text-xs text-gray-500">
-					x{pattern.occurrences}
-				</span>
+				<span className="text-xs text-gray-500">x{pattern.occurrences}</span>
 			</div>
 			<p className="text-xs text-gray-300 line-clamp-2">{pattern.description}</p>
 			<div className="flex items-center justify-between text-[10px] text-gray-500">
@@ -241,6 +250,8 @@ export function PredictiveRiskView() {
 	const [stats, setStats] = useState<RiskStats | null>(null)
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState<string | null>(null)
+	const [brainUnavailable, setBrainUnavailable] = useState(false)
+	const [wsConnected, setWsConnected] = useState(false)
 
 	// Assess form state
 	const [actionType, setActionType] = useState("deploy")
@@ -253,6 +264,8 @@ export function PredictiveRiskView() {
 	const [swarmResult, setSwarmResult] = useState<any>(null)
 	const [swarming, setSwarming] = useState(false)
 
+	const wsRef = useRef<WebSocket | null>(null)
+
 	const fetchData = useCallback(async () => {
 		setLoading(true)
 		setError(null)
@@ -264,31 +277,128 @@ export function PredictiveRiskView() {
 				fetch("/api/brain/swarm/runs"),
 			])
 
+			const errors: string[] = []
+			let all503 = true
+
 			if (assessRes.ok) {
+				all503 = false
 				const data = await assessRes.json()
-				setAssessments(data.data || [])
+				setAssessments(Array.isArray(data.data) ? data.data : [])
+			} else {
+				if (assessRes.status !== 503) all503 = false
+				errors.push(`Assessments: ${assessRes.status}`)
 			}
+
 			if (patternsRes.ok) {
+				all503 = false
 				const data = await patternsRes.json()
-				setPatterns(data.data || [])
+				setPatterns(Array.isArray(data.data) ? data.data : [])
+			} else {
+				if (patternsRes.status !== 503) all503 = false
+				errors.push(`Patterns: ${patternsRes.status}`)
 			}
+
 			if (statsRes.ok) {
+				all503 = false
 				const data = await statsRes.json()
 				setStats(data.data || null)
+			} else {
+				if (statsRes.status !== 503) all503 = false
+				errors.push(`Stats: ${statsRes.status}`)
 			}
+
 			if (swarmRes.ok) {
+				all503 = false
 				const data = await swarmRes.json()
-				setSwarmRuns(data.data || [])
+				setSwarmRuns(Array.isArray(data.data) ? data.data : [])
+			} else {
+				if (swarmRes.status !== 503) all503 = false
+				errors.push(`Swarm: ${swarmRes.status}`)
+			}
+
+			setBrainUnavailable(all503)
+			if (errors.length > 0 && !all503) {
+				setError(errors.join("; "))
 			}
 		} catch (err: any) {
 			setError(err.message || "Failed to load risk data")
+			setBrainUnavailable(false)
 		} finally {
 			setLoading(false)
 		}
 	}, [])
 
+	// ── Polling ───────────────────────────────────────────────────────────────
+
 	useEffect(() => {
 		fetchData()
+		const iv = setInterval(fetchData, 5000)
+		return () => clearInterval(iv)
+	}, [fetchData])
+
+	// ── WebSocket (Brain Events) ──────────────────────────────────────────────
+
+	useEffect(() => {
+		let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+		let heartbeatTimer: ReturnType<typeof setInterval> | null = null
+
+		function connect() {
+			try {
+				const ws = new WebSocket(getWsUrl())
+				wsRef.current = ws
+
+				ws.onopen = () => {
+					setWsConnected(true)
+					// Subscribe to risk and swarm events
+					ws.send(JSON.stringify({ action: "subscribe", params: { event: "risk.*" } }))
+					ws.send(JSON.stringify({ action: "subscribe", params: { event: "swarm.*" } }))
+					// Heartbeat
+					heartbeatTimer = setInterval(() => {
+						if (ws.readyState === WebSocket.OPEN) {
+							ws.send(JSON.stringify({ type: "ping" }))
+						}
+					}, 30000)
+				}
+
+				ws.onmessage = (event) => {
+					try {
+						const msg = JSON.parse(event.data)
+						if (
+							msg.type === "event" &&
+							(msg.event?.startsWith("risk.") || msg.event?.startsWith("swarm."))
+						) {
+							// Trigger immediate data refresh on any risk or swarm event
+							fetchData()
+						}
+					} catch {
+						// Ignore malformed messages
+					}
+				}
+
+				ws.onclose = () => {
+					setWsConnected(false)
+					if (heartbeatTimer) clearInterval(heartbeatTimer)
+					reconnectTimer = setTimeout(connect, 5000)
+				}
+
+				ws.onerror = () => {
+					setWsConnected(false)
+				}
+			} catch {
+				setWsConnected(false)
+				reconnectTimer = setTimeout(connect, 5000)
+			}
+		}
+
+		connect()
+		return () => {
+			if (reconnectTimer) clearTimeout(reconnectTimer)
+			if (heartbeatTimer) clearInterval(heartbeatTimer)
+			if (wsRef.current) {
+				wsRef.current.close()
+				wsRef.current = null
+			}
+		}
 	}, [fetchData])
 
 	const handleAssess = async () => {
@@ -308,7 +418,13 @@ export function PredictiveRiskView() {
 				}),
 			})
 			const data = await res.json()
-			setAssessResult(data.data || data)
+			if (data.success) {
+				setAssessResult(data.data)
+				// Refresh data to show new assessment
+				fetchData()
+			} else {
+				setAssessResult({ error: data.error || "Assessment failed" })
+			}
 		} catch (err: any) {
 			setAssessResult({ error: err.message })
 		} finally {
@@ -329,7 +445,13 @@ export function PredictiveRiskView() {
 				}),
 			})
 			const data = await res.json()
-			setSwarmResult(data.data || data)
+			if (data.success) {
+				setSwarmResult(data.data)
+				// Refresh data to show new swarm run
+				fetchData()
+			} else {
+				setSwarmResult({ error: data.error || "Swarm debug failed" })
+			}
 		} catch (err: any) {
 			setSwarmResult({ error: err.message })
 		} finally {
@@ -352,22 +474,37 @@ export function PredictiveRiskView() {
 						Predict failures before they happen and run swarm debugging when risk is high
 					</p>
 				</div>
-				<button
-					onClick={fetchData}
-					disabled={loading}
-					className="flex items-center gap-1 px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 rounded transition-colors disabled:opacity-50"
-				>
-					<RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} />
-					Refresh
-				</button>
+				<div className="flex items-center gap-2">
+					{wsConnected ? (
+						<span className="flex items-center gap-1 text-[10px] text-green-400 bg-green-500/10 rounded px-2 py-1">
+							<Radio className="w-3 h-3" /> Live
+						</span>
+					) : (
+						<span className="flex items-center gap-1 text-[10px] text-gray-500 bg-gray-700/50 rounded px-2 py-1">
+							<Radio className="w-3 h-3" /> Offline
+						</span>
+					)}
+					<button
+						onClick={fetchData}
+						disabled={loading}
+						className="flex items-center gap-1 px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 rounded transition-colors disabled:opacity-50">
+						<RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} />
+						Refresh
+					</button>
+				</div>
 			</div>
 
 			{/* Stats Cards */}
-			{stats && (
+			{stats && !brainUnavailable && (
 				<div className="grid grid-cols-2 md:grid-cols-4 gap-4">
 					<StatCard
 						label="Total Assessments"
-						value={<><BarChart3 className="inline h-4 w-4 mr-1" />{stats.totalAssessments}</>}
+						value={
+							<>
+								<BarChart3 className="inline h-4 w-4 mr-1" />
+								{stats.totalAssessments}
+							</>
+						}
 					/>
 					<StatCard
 						label="High/Critical"
@@ -376,11 +513,21 @@ export function PredictiveRiskView() {
 					/>
 					<StatCard
 						label="Failure Patterns"
-						value={<><FileWarning className="inline h-4 w-4 mr-1" />{stats.totalPatterns}</>}
+						value={
+							<>
+								<FileWarning className="inline h-4 w-4 mr-1" />
+								{stats.totalPatterns}
+							</>
+						}
 					/>
 					<StatCard
 						label="Swarm Runs"
-						value={<><Bug className="inline h-4 w-4 mr-1" />{swarmRuns.length}</>}
+						value={
+							<>
+								<Bug className="inline h-4 w-4 mr-1" />
+								{swarmRuns.length}
+							</>
+						}
 					/>
 				</div>
 			)}
@@ -401,30 +548,47 @@ export function PredictiveRiskView() {
 							activeTab === tab.id
 								? "text-orange-400 border-b-2 border-orange-400"
 								: "text-gray-400 hover:text-gray-200",
-						)}
-					>
+						)}>
 						<tab.icon className="w-3.5 h-3.5" />
 						{tab.label}
 					</button>
 				))}
 			</div>
 
+			{/* Brain Offline State */}
+			{brainUnavailable && !loading && (
+				<div className="text-center py-16 space-y-4">
+					<Database className="w-12 h-12 text-gray-600 mx-auto" />
+					<h3 className="text-lg font-medium text-gray-300">Central Brain Offline</h3>
+					<p className="text-sm text-gray-500 max-w-md mx-auto">
+						Predictive Risk requires PostgreSQL to store assessments, failure patterns, and swarm runs.
+						Start the brain or check your database configuration.
+					</p>
+					<button
+						onClick={fetchData}
+						className="flex items-center gap-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded transition-colors mx-auto">
+						<RefreshCw className="w-4 h-4" />
+						Retry Connection
+					</button>
+				</div>
+			)}
+
 			{/* Error */}
-			{error && (
+			{error && !brainUnavailable && (
 				<div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-sm text-red-400">
 					{error}
 				</div>
 			)}
 
 			{/* Loading */}
-			{loading && (
+			{loading && !brainUnavailable && (
 				<div className="flex items-center justify-center py-12">
 					<Loader2 className="w-6 h-6 animate-spin text-gray-400" />
 				</div>
 			)}
 
 			{/* Tab Content */}
-			{!loading && (
+			{!loading && !brainUnavailable && (
 				<>
 					{/* Risk Assessments */}
 					{activeTab === "assessments" && (
@@ -487,9 +651,12 @@ export function PredictiveRiskView() {
 									<button
 										onClick={handleSwarmDebug}
 										disabled={swarming || !problem.trim()}
-										className="flex items-center gap-1 px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm rounded transition-colors"
-									>
-										{swarming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+										className="flex items-center gap-1 px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm rounded transition-colors">
+										{swarming ? (
+											<Loader2 className="w-4 h-4 animate-spin" />
+										) : (
+											<Search className="w-4 h-4" />
+										)}
 										Debug
 									</button>
 								</div>
@@ -507,18 +674,21 @@ export function PredictiveRiskView() {
 									) : (
 										<>
 											<div className="flex items-center gap-2">
-												<Badge
-													status={swarmResult.status || "running"}
-													className="text-xs"
-												/>
-												<span className="text-xs text-gray-500">ID: {swarmResult.id}</span>
+												<Badge status={swarmResult.status || "running"} className="text-xs" />
+												<span className="text-xs text-gray-500">
+													ID: {swarmResult.id || swarmResult.runId}
+												</span>
 											</div>
 											{swarmResult.findings && (
 												<div className="space-y-2">
 													{swarmResult.findings.map((f: any, i: number) => (
-														<div key={i} className="border border-gray-700/50 rounded p-2 bg-gray-800/20">
+														<div
+															key={i}
+															className="border border-gray-700/50 rounded p-2 bg-gray-800/20">
 															<div className="flex items-center justify-between mb-1">
-																<span className="text-xs font-medium text-purple-400">{f.agent}</span>
+																<span className="text-xs font-medium text-purple-400">
+																	{f.agent}
+																</span>
 																<span className="text-[10px] text-gray-500">
 																	Confidence: {(f.confidence * 100).toFixed(0)}%
 																</span>
@@ -533,9 +703,9 @@ export function PredictiveRiskView() {
 													))}
 												</div>
 											)}
-											{swarmResult.final_summary && (
+											{swarmResult.finalSummary && (
 												<div className="text-xs text-gray-400 italic border-t border-gray-700/50 pt-2">
-													{swarmResult.final_summary}
+													{swarmResult.finalSummary}
 												</div>
 											)}
 										</>
@@ -571,8 +741,7 @@ export function PredictiveRiskView() {
 									<select
 										value={actionType}
 										onChange={(e) => setActionType(e.target.value)}
-										className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500"
-									>
+										className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500">
 										<option value="deploy">Deploy</option>
 										<option value="docker_build">Docker Build</option>
 										<option value="db_migration">Database Migration</option>
@@ -600,9 +769,12 @@ export function PredictiveRiskView() {
 								<button
 									onClick={handleAssess}
 									disabled={assessing}
-									className="flex items-center gap-1 px-4 py-2 bg-orange-600 hover:bg-orange-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm rounded transition-colors"
-								>
-									{assessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <FlaskConical className="w-4 h-4" />}
+									className="flex items-center gap-1 px-4 py-2 bg-orange-600 hover:bg-orange-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm rounded transition-colors">
+									{assessing ? (
+										<Loader2 className="w-4 h-4 animate-spin" />
+									) : (
+										<FlaskConical className="w-4 h-4" />
+									)}
 									Assess Risk
 								</button>
 							</Card>
@@ -622,7 +794,10 @@ export function PredictiveRiskView() {
 													Score: {(assessResult.riskScore * 100).toFixed(1)}%
 												</span>
 											</div>
-											<RiskHeatmapBar score={assessResult.riskScore} level={assessResult.riskLevel} />
+											<RiskHeatmapBar
+												score={assessResult.riskScore}
+												level={assessResult.riskLevel}
+											/>
 											{assessResult.reasons && assessResult.reasons.length > 0 && (
 												<div className="space-y-1">
 													<span className="text-xs text-gray-400 font-medium">Reasons:</span>
@@ -633,14 +808,24 @@ export function PredictiveRiskView() {
 													</ul>
 												</div>
 											)}
-											{assessResult.matchedPatterns && assessResult.matchedPatterns.length > 0 && (
-												<div className="space-y-1">
-													<span className="text-xs text-gray-400 font-medium">Matched Historical Patterns:</span>
-													{assessResult.matchedPatterns.map((mp: any, i: number) => (
-														<div key={i} className="text-[10px] text-gray-500 bg-gray-800/30 rounded px-2 py-1">
-															{mp.description || mp.signature}
-														</div>
-													))}
+											{assessResult.matchedPatterns &&
+												assessResult.matchedPatterns.length > 0 && (
+													<div className="space-y-1">
+														<span className="text-xs text-gray-400 font-medium">
+															Matched Historical Patterns:
+														</span>
+														{assessResult.matchedPatterns.map((mp: any, i: number) => (
+															<div
+																key={i}
+																className="text-[10px] text-gray-500 bg-gray-800/30 rounded px-2 py-1">
+																{mp.description || mp.signature}
+															</div>
+														))}
+													</div>
+												)}
+											{assessResult.swarmRunId && (
+												<div className="text-[10px] text-purple-400 bg-purple-500/10 rounded px-2 py-1">
+													Auto-triggered swarm debug: {assessResult.swarmRunId}
 												</div>
 											)}
 										</>

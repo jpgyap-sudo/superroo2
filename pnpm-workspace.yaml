@@ -1,7 +1,10 @@
 packages:
-    - "src" # Should be apps/vscode
-    - "webview-ui" # Should be apps/vscode-webview
-    - "apps/*"
-    - "cloud/dashboard"
-    - "cloud/mini-ide"
-    - "packages/*"
+  - src
+  - webview-ui
+  - apps/*
+  - cloud/dashboard
+  - cloud/mini-ide
+  - packages/*
+
+onlyBuiltDependencies:
+  - next

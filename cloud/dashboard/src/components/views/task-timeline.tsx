@@ -1,7 +1,18 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
-import { Activity, CheckCircle2, XCircle, AlertTriangle, Loader2, RefreshCw, Radio, Clock } from "lucide-react"
+import { useState, useEffect, useRef, useMemo, useCallback } from "react"
+import {
+	Activity,
+	CheckCircle2,
+	XCircle,
+	AlertTriangle,
+	Loader2,
+	RefreshCw,
+	Radio,
+	Clock,
+	Download,
+	Filter,
+} from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 
@@ -170,6 +181,7 @@ export function TaskTimelineView() {
 	const [streaming, setStreaming] = useState(false)
 	const [loading, setLoading] = useState(false)
 	const [taskIdInput, setTaskIdInput] = useState("")
+	const [statusFilter, setStatusFilter] = useState<string>("all")
 	const eventsEndRef = useRef<HTMLDivElement>(null)
 	const sseRef = useRef<EventSource | null>(null)
 
@@ -177,6 +189,32 @@ export function TaskTimelineView() {
 	useEffect(() => {
 		fetchTasks()
 	}, [])
+
+	const filteredTasks = useMemo(() => {
+		if (statusFilter === "all") return tasks
+		return tasks.filter((t) => t.status === statusFilter)
+	}, [tasks, statusFilter])
+
+	const uniqueStatuses = useMemo(() => {
+		return Array.from(new Set(tasks.map((t) => t.status))).sort()
+	}, [tasks])
+
+	const handleExport = useCallback(() => {
+		const csv = ["id,type,status,instruction,createdAt"]
+		csv.push(
+			...filteredTasks.map((t) => {
+				const instruction = t.input?.instruction ?? t.input?.goal ?? ""
+				return `${t.id},${t.type},${t.status},"${instruction.replace(/"/g, '""')}",${t.createdAt}`
+			}),
+		)
+		const blob = new Blob([csv.join("\n")], { type: "text/csv" })
+		const url = URL.createObjectURL(blob)
+		const a = document.createElement("a")
+		a.href = url
+		a.download = `tasks-${new Date().toISOString().slice(0, 10)}.csv`
+		a.click()
+		URL.revokeObjectURL(url)
+	}, [filteredTasks])
 
 	// Auto-scroll events to bottom
 	useEffect(() => {
@@ -244,12 +282,37 @@ export function TaskTimelineView() {
 			<div className="w-64 shrink-0 flex flex-col gap-2 overflow-y-auto">
 				<div className="flex items-center justify-between mb-1">
 					<span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Recent Tasks</span>
-					<button
-						onClick={fetchTasks}
-						className="text-gray-500 hover:text-gray-300 transition-colors"
-						title="Refresh tasks">
-						<RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
-					</button>
+					<div className="flex items-center gap-1">
+						<button
+							onClick={handleExport}
+							disabled={tasks.length === 0}
+							className="text-gray-500 hover:text-gray-300 transition-colors"
+							title="Export tasks as CSV">
+							<Download className="h-3.5 w-3.5" />
+						</button>
+						<button
+							onClick={fetchTasks}
+							className="text-gray-500 hover:text-gray-300 transition-colors"
+							title="Refresh tasks">
+							<RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
+						</button>
+					</div>
+				</div>
+
+				{/* Status filter */}
+				<div className="flex items-center gap-1">
+					<Filter className="h-3 w-3 text-gray-500 shrink-0" />
+					<select
+						value={statusFilter}
+						onChange={(e) => setStatusFilter(e.target.value)}
+						className="flex-1 min-w-0 rounded bg-[#0f1420] border border-[#1e2535] px-2 py-1 text-[11px] text-gray-300 outline-none focus:border-violet-500">
+						<option value="all">All statuses</option>
+						{uniqueStatuses.map((s) => (
+							<option key={s} value={s}>
+								{s}
+							</option>
+						))}
+					</select>
 				</div>
 
 				{/* Manual task ID subscribe */}
@@ -274,7 +337,7 @@ export function TaskTimelineView() {
 					</p>
 				)}
 
-				{tasks.map((t) => {
+				{filteredTasks.map((t) => {
 					const tgId = t.metadata?.taskId ?? t.id
 					const isSelected = tgId === selectedId
 					return (

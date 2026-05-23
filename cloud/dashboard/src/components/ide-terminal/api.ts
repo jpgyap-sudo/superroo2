@@ -40,12 +40,17 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
 
 export async function fetchWorkspace() {
 	return apiFetch<{
-		success: boolean
+		workspaceId: string
 		files: any[]
 		repoName?: string
 		branch?: string
-		status?: { cpu: string; ram: string }
+		status?: { connected: boolean; docker: boolean; redis: boolean; cpu: string; ram: string }
 		pipeline?: any[]
+		openFiles?: any[]
+		activeFile?: string | null
+		terminalSessions?: any[]
+		activeTerminal?: string
+		chatMessages?: any[]
 	}>("/ide-workspace/workspace")
 }
 

@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { Badge } from "@/components/ui/badge"
+import { RefreshCw } from "lucide-react"
 
 type SystemStats = {
 	cpu: number
@@ -18,7 +19,7 @@ type ApprovalRowConfig = {
 
 type SettingsData = {
 	autoApprove: boolean
-	mcp: { enabled: boolean; servers: unknown[] }
+	mcp: { enabled: boolean; servers: McpServerEntry[] }
 	approval: {
 		enabled: boolean
 		rules: unknown[]
@@ -35,6 +36,20 @@ type SettingsData = {
 		onHighRam: string
 		cpuAction: string
 	}
+}
+
+type McpServerEntry = {
+	name: string
+	agent: string
+	status: string
+	risk: string
+}
+
+type DecisionEntry = {
+	action: string
+	result: "allowed" | "needs_approval" | "blocked" | "fallback"
+	detail: string
+	timestamp: string
 }
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void }) {
@@ -225,6 +240,21 @@ export function SettingsView() {
 	const [saveMessage, setSaveMessage] = useState("")
 	const [saveError, setSaveError] = useState("")
 	const [loading, setLoading] = useState(true)
+	const [mcpServers, setMcpServers] = useState<McpServerEntry[]>([])
+	const [decisions, setDecisions] = useState<DecisionEntry[]>([])
+	const [refreshing, setRefreshing] = useState(false)
+
+	const fetchDecisions = useCallback(async () => {
+		try {
+			const res = await fetch("/api/orchestrator/decisions?limit=5")
+			if (res.ok) {
+				const data = await res.json()
+				setDecisions((data.decisions || data || []).slice(0, 5))
+			}
+		} catch {
+			// silent
+		}
+	}, [])
 
 	// Load settings from API on mount
 	useEffect(() => {
@@ -238,6 +268,9 @@ export function SettingsView() {
 					setMcpEnabled(s.mcp?.enabled ?? true)
 					setCpuAction(s.guardrails?.cpuAction ?? "pause_crawler")
 					setApprovalRows(s.approval?.rows ?? [])
+					if (s.mcp?.servers && Array.isArray(s.mcp.servers)) {
+						setMcpServers(s.mcp.servers)
+					}
 				}
 				if (statsRes.ok) {
 					const statsData = await statsRes.json()
@@ -250,6 +283,7 @@ export function SettingsView() {
 			}
 		}
 		load()
+		fetchDecisions()
 
 		const iv = setInterval(() => {
 			fetch("/api/system")
@@ -258,7 +292,30 @@ export function SettingsView() {
 				.catch(() => {})
 		}, 15000)
 		return () => clearInterval(iv)
-	}, [])
+	}, [fetchDecisions])
+
+	const handleRefresh = useCallback(async () => {
+		setRefreshing(true)
+		try {
+			const res = await fetch("/api/settings")
+			if (res.ok) {
+				const data = await res.json()
+				const s: SettingsData = data.settings
+				setAutoApprove(s.autoApprove ?? true)
+				setMcpEnabled(s.mcp?.enabled ?? true)
+				setCpuAction(s.guardrails?.cpuAction ?? "pause_crawler")
+				setApprovalRows(s.approval?.rows ?? [])
+				if (s.mcp?.servers && Array.isArray(s.mcp.servers)) {
+					setMcpServers(s.mcp.servers)
+				}
+			}
+			await fetchDecisions()
+		} catch {
+			// silent
+		} finally {
+			setRefreshing(false)
+		}
+	}, [fetchDecisions])
 
 	const cpuHigh = stats && stats.cpu > 90
 
@@ -330,6 +387,13 @@ export function SettingsView() {
 					<Pill tone="green">API Online</Pill>
 					{stats && <Pill tone={cpuHigh ? "red" : "amber"}>CPU {stats.cpu}%</Pill>}
 					<button
+						onClick={handleRefresh}
+						disabled={refreshing}
+						className="rounded-xl border border-[#1e2535] px-3 py-2 text-sm text-[#e2e8f0] hover:bg-[#1e2535] disabled:opacity-50 transition-colors">
+						<RefreshCw className={`inline-block w-4 h-4 mr-1 ${refreshing ? "animate-spin" : ""}`} />
+						Refresh
+					</button>
+					<button
 						onClick={handleSave}
 						className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-bold text-white hover:bg-sky-400">
 						Save
@@ -387,28 +451,43 @@ export function SettingsView() {
 						</div>
 
 						<div className="space-y-3">
-							{[
-								["Playwright Browser MCP", "Crawler Agent", "Online", "Medium"],
-								["GitHub MCP", "Deploy Agent", "Online", "High"],
-								["VPS Shell MCP", "Ops Agent", "Warning", "Critical"],
-								["Docs Fetcher MCP", "Coder Agent", "Online", "Low"],
-							].map(([name, agent, status, risk]) => (
-								<div
-									key={name}
-									className="flex flex-col gap-2 rounded-xl border border-[#1e2535] bg-[#0a0e1a] p-4 md:grid md:grid-cols-[1fr_130px_100px_100px] md:items-center">
-									<div>
-										<p className="font-semibold text-[#e2e8f0]">{name}</p>
-										<p className="text-xs text-gray-500">Assigned to {agent}</p>
-									</div>
-									<div className="flex items-center gap-3 md:block">
-										<p className="text-sm text-gray-400 md:hidden">{agent}</p>
-										<Pill tone={status === "Online" ? "green" : "amber"}>{status}</Pill>
-										<button className="rounded-xl border border-[#1e2535] px-3 py-2 text-sm text-[#e2e8f0]">
-											Manage
-										</button>
-									</div>
-								</div>
-							))}
+							{mcpServers.length === 0 ? (
+								<p className="text-sm text-gray-500 py-4 text-center">No MCP servers configured.</p>
+							) : (
+								mcpServers.map((server) => {
+									const statusTone =
+										server.status === "Online"
+											? "green"
+											: server.status === "Warning"
+												? "amber"
+												: "red"
+									const riskTone =
+										server.risk === "Low"
+											? "green"
+											: server.risk === "Medium"
+												? "blue"
+												: server.risk === "High"
+													? "amber"
+													: "red"
+									return (
+										<div
+											key={server.name}
+											className="flex flex-col gap-2 rounded-xl border border-[#1e2535] bg-[#0a0e1a] p-4 md:grid md:grid-cols-[1fr_130px_100px_100px] md:items-center">
+											<div>
+												<p className="font-semibold text-[#e2e8f0]">{server.name}</p>
+												<p className="text-xs text-gray-500">Assigned to {server.agent}</p>
+											</div>
+											<div className="flex items-center gap-3 md:block">
+												<p className="text-sm text-gray-400 md:hidden">{server.agent}</p>
+												<Pill tone={statusTone}>{server.status}</Pill>
+												<button className="rounded-xl border border-[#1e2535] px-3 py-2 text-sm text-[#e2e8f0]">
+													Manage
+												</button>
+											</div>
+										</div>
+									)
+								})
+							)}
 						</div>
 					</Card>
 				</div>
@@ -451,18 +530,33 @@ export function SettingsView() {
 					<Card>
 						<h2 className="text-lg font-bold">Live Decision Monitor</h2>
 						<div className="mt-4 space-y-3 text-sm">
-							<div className="rounded-xl bg-[#0a0e1a] p-3">
-								<span className="text-emerald-300">Allowed</span> Read files in workspace
-							</div>
-							<div className="rounded-xl bg-[#0a0e1a] p-3">
-								<span className="text-amber-300">Needs approval</span> Execute docker restart
-							</div>
-							<div className="rounded-xl bg-[#0a0e1a] p-3">
-								<span className="text-red-300">Blocked</span> Dangerous command pattern
-							</div>
-							<div className="rounded-xl bg-[#0a0e1a] p-3">
-								<span className="text-sky-300">Fallback</span> API failed, crawler selected
-							</div>
+							{decisions.length === 0 ? (
+								<p className="text-sm text-gray-500 py-4 text-center">No recent decisions recorded.</p>
+							) : (
+								decisions.map((d, i) => {
+									const resultColor =
+										d.result === "allowed"
+											? "text-emerald-300"
+											: d.result === "needs_approval"
+												? "text-amber-300"
+												: d.result === "blocked"
+													? "text-red-300"
+													: "text-sky-300"
+									const resultLabel =
+										d.result === "allowed"
+											? "Allowed"
+											: d.result === "needs_approval"
+												? "Needs approval"
+												: d.result === "blocked"
+													? "Blocked"
+													: "Fallback"
+									return (
+										<div key={i} className="rounded-xl bg-[#0a0e1a] p-3">
+											<span className={resultColor}>{resultLabel}</span> {d.detail || d.action}
+										</div>
+									)
+								})
+							)}
 						</div>
 					</Card>
 

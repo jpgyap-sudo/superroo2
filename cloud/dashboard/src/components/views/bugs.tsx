@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useCallback } from "react"
 import { StatCard } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 import {
@@ -16,6 +16,9 @@ import {
 	Server,
 	Code,
 	FileWarning,
+	Download,
+	RefreshCw,
+	Info,
 } from "lucide-react"
 import {
 	AreaChart,
@@ -45,110 +48,6 @@ interface BugEntry {
 	resolution?: string
 	assignedTo?: string
 }
-
-// ── Mock Data ──────────────────────────────────────────────────────────────────
-
-const MOCK_BUGS: BugEntry[] = [
-	{
-		id: "BUG-001",
-		title: "Memory leak in agent loop after 10k iterations",
-		severity: "critical",
-		status: "resolved",
-		service: "agent-engine",
-		timestamp: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
-		description:
-			"The agent loop accumulates heap memory after ~10k iterations due to unbounded ActionOutcomeTracker records and orphaned CancellableSleep promises.",
-		stackTrace:
-			"at ActionOutcomeTracker.record (src/super-roo/ml/engine/Metrics.ts:118)\nat InfiniteImprovementLoop.predictAndAct (src/super-roo/ml/loop/InfiniteImprovementLoop.ts:355)",
-		resolution:
-			"Added maxRecords cap (10k) with automatic pruning in ActionOutcomeTracker. Added wake-before-overwrite guard in CancellableSleep to prevent orphaned promise references.",
-		assignedTo: "alice",
-	},
-	{
-		id: "BUG-002",
-		title: "WebSocket reconnection causes duplicate event handlers",
-		severity: "high",
-		status: "open",
-		service: "api-gateway",
-		timestamp: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-		description:
-			"When the WebSocket reconnects after a network blip, the event bus registers duplicate handlers, causing events to fire twice.",
-		resolution: "Needs WebSocket implementation with dedup key in handler registry",
-		assignedTo: "bob",
-	},
-	{
-		id: "BUG-003",
-		title: "Dashboard CPU chart shows incorrect time axis",
-		severity: "medium",
-		status: "resolved",
-		service: "dashboard",
-		timestamp: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
-		description:
-			"The CPU usage chart on the overview page shows timestamps in UTC but the axis labels are misaligned by one hour during DST transitions.",
-		resolution:
-			"Overview page no longer uses a time-series CPU chart — replaced with real-time percentage bars that use local time consistently.",
-		assignedTo: "carol",
-	},
-	{
-		id: "BUG-004",
-		title: "Sandbox container fails to start on ARM hosts",
-		severity: "high",
-		status: "open",
-		service: "sandbox",
-		timestamp: new Date(Date.now() - 1000 * 60 * 180).toISOString(),
-		description:
-			"The sandbox Docker image is built for amd64 only. ARM-based hosts (e.g., Apple Silicon, Graviton) fail with 'exec format error'.",
-		assignedTo: "dave",
-	},
-	{
-		id: "BUG-005",
-		title: "Settings page throws error on empty API key field",
-		severity: "low",
-		status: "resolved",
-		service: "dashboard",
-		timestamp: new Date(Date.now() - 1000 * 60 * 300).toISOString(),
-		description:
-			"When the API key field is left empty and the user clicks Save, the settings page crashes with a TypeError on undefined.trim().",
-		resolution: "Added null check before trim() call in settings handler",
-		assignedTo: "carol",
-	},
-	{
-		id: "BUG-006",
-		title: "Job queue stalls when Redis connection drops",
-		severity: "critical",
-		status: "resolved",
-		service: "queue",
-		timestamp: new Date(Date.now() - 1000 * 60 * 600).toISOString(),
-		description:
-			"If Redis connection is interrupted, the BullMQ queue enters a stalled state and does not auto-recover. Jobs remain in 'waiting' indefinitely.",
-		resolution:
-			"Added Redis reconnection event handlers (error/close/reconnecting/connect) with exponential backoff retry strategy and lazyConnect in cpu-guard/queue.ts.",
-		assignedTo: "bob",
-	},
-	{
-		id: "BUG-007",
-		title: "Agent skill loading order is non-deterministic",
-		severity: "medium",
-		status: "open",
-		service: "agent-engine",
-		timestamp: new Date(Date.now() - 1000 * 60 * 900).toISOString(),
-		description:
-			"Skills are loaded from the filesystem in readdir order, which varies across platforms. This causes inconsistent agent behavior when skills have inter-dependencies.",
-		assignedTo: "alice",
-	},
-	{
-		id: "BUG-008",
-		title: "Deploy health check timeout too aggressive",
-		severity: "low",
-		status: "resolved",
-		service: "deploy",
-		timestamp: new Date(Date.now() - 1000 * 60 * 1200).toISOString(),
-		description: "The deploy health check times out after 5 seconds, which is too short for cold-start services.",
-		resolution:
-			"Increased default health check timeout from 5s to 30s in DeployOrchestrator.fetch() to accommodate cold-start services.",
-		assignedTo: "dave",
-	},
-]
 
 const SEVERITY_CONFIG = {
 	critical: {
@@ -191,26 +90,6 @@ const SERVICES = ["agent-engine", "api-gateway", "dashboard", "sandbox", "queue"
 
 const SEVERITY_OPTIONS = ["all", "critical", "high", "medium", "low"] as const
 const STATUS_OPTIONS = ["all", "open", "in_progress", "resolved", "wont_fix"] as const
-
-function Info(props: React.SVGProps<SVGSVGElement>) {
-	return (
-		<svg
-			{...props}
-			xmlns="http://www.w3.org/2000/svg"
-			width="24"
-			height="24"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			strokeWidth="2"
-			strokeLinecap="round"
-			strokeLinejoin="round">
-			<circle cx="12" cy="12" r="10" />
-			<path d="M12 16v-4" />
-			<path d="M12 8h.01" />
-		</svg>
-	)
-}
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -490,6 +369,28 @@ function ChartsSection({ timeline, errorTypes, services }: ReturnType<typeof bui
 	)
 }
 
+// ── API Helpers ────────────────────────────────────────────────────────────────
+
+async function fetchBugsFromApi(): Promise<BugEntry[]> {
+	const token = localStorage.getItem("superroo_auth_token")
+	const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
+	const res = await fetch("/api/orchestrator/bugs", { headers })
+	if (!res.ok) throw new Error("API error")
+	const data = await res.json()
+	return (data.bugs || []).map((b: any) => ({
+		id: b.id || `BUG-${b.rowid || Math.random().toString(36).slice(2, 8)}`,
+		title: b.title || b.summary || "Untitled Bug",
+		severity: (b.severity || "medium").toLowerCase() as BugEntry["severity"],
+		status: (b.status || "open").toLowerCase().replace("_", "_") as BugEntry["status"],
+		service: b.service || b.source || "unknown",
+		timestamp: b.createdAt || b.timestamp || new Date().toISOString(),
+		description: b.description || b.details || "",
+		stackTrace: b.stackTrace || "",
+		resolution: b.resolution || b.fixDescription || "",
+		assignedTo: b.assignedTo || "",
+	}))
+}
+
 // ── Main View ──────────────────────────────────────────────────────────────────
 
 export function BugsView() {
@@ -499,39 +400,25 @@ export function BugsView() {
 	const [severityFilter, setSeverityFilter] = useState<string>("all")
 	const [statusFilter, setStatusFilter] = useState<string>("all")
 	const [loading, setLoading] = useState(true)
+	const [error, setError] = useState<string | null>(null)
+
+	const fetchData = useCallback(async () => {
+		setLoading(true)
+		setError(null)
+		try {
+			const data = await fetchBugsFromApi()
+			setBugs(data)
+		} catch (err) {
+			setError("Failed to load bugs from API. Please ensure the backend is running.")
+			setBugs([])
+		} finally {
+			setLoading(false)
+		}
+	}, [])
 
 	useEffect(() => {
-		const fetchBugs = async () => {
-			try {
-				const token = localStorage.getItem("superroo_auth_token")
-				const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
-				const res = await fetch("/api/orchestrator/bugs", { headers })
-				if (res.ok) {
-					const data = await res.json()
-					const realBugs = (data.bugs || []).map((b: any) => ({
-						id: b.id || `BUG-${b.rowid || Math.random().toString(36).slice(2, 8)}`,
-						title: b.title || b.summary || "Untitled Bug",
-						severity: (b.severity || "medium").toLowerCase(),
-						status: (b.status || "open").toLowerCase().replace("_", "_") as any,
-						service: b.service || b.source || "unknown",
-						timestamp: b.createdAt || b.timestamp || new Date().toISOString(),
-						description: b.description || b.details || "",
-						stackTrace: b.stackTrace || "",
-						resolution: b.resolution || b.fixDescription || "",
-						assignedTo: b.assignedTo || "",
-					}))
-					setBugs(realBugs.length > 0 ? realBugs : MOCK_BUGS)
-				} else {
-					setBugs(MOCK_BUGS)
-				}
-			} catch {
-				setBugs(MOCK_BUGS)
-			} finally {
-				setLoading(false)
-			}
-		}
-		fetchBugs()
-	}, [])
+		fetchData()
+	}, [fetchData])
 
 	const filtered = useMemo(() => {
 		return bugs.filter((b) => {
@@ -564,7 +451,24 @@ export function BugsView() {
 
 	const chartData = useMemo(() => buildChartData(filtered), [filtered])
 
-	if (loading) {
+	const handleExport = () => {
+		const csv = [
+			"ID,Title,Severity,Status,Service,Timestamp,Description,AssignedTo",
+			...filtered.map(
+				(b) =>
+					`${b.id},"${b.title.replace(/"/g, '""')}",${b.severity},${b.status},${b.service},${b.timestamp},"${b.description.replace(/"/g, '""')}",${b.assignedTo || ""}`,
+			),
+		].join("\n")
+		const blob = new Blob([csv], { type: "text/csv" })
+		const url = URL.createObjectURL(blob)
+		const a = document.createElement("a")
+		a.href = url
+		a.download = `bugs-${new Date().toISOString().slice(0, 10)}.csv`
+		a.click()
+		URL.revokeObjectURL(url)
+	}
+
+	if (loading && bugs.length === 0) {
 		return (
 			<div className="flex items-center justify-center py-20">
 				<Bug className="h-6 w-6 animate-pulse text-violet-500" />
@@ -575,6 +479,35 @@ export function BugsView() {
 
 	return (
 		<div className="space-y-4">
+			{/* Header */}
+			<div className="flex flex-wrap items-center justify-between gap-3">
+				<div>
+					<h1 className="text-lg font-semibold text-slate-100">Bug Tracker</h1>
+					<p className="text-xs text-slate-400">Track, filter, and analyze bugs across all services.</p>
+				</div>
+				<div className="flex gap-2">
+					<button
+						onClick={fetchData}
+						className="flex items-center gap-1.5 rounded-md border border-slate-600/50 bg-slate-800/50 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-700/50">
+						<RefreshCw size={12} />
+						Refresh
+					</button>
+					<button
+						onClick={handleExport}
+						className="flex items-center gap-1.5 rounded-md border border-slate-600/50 bg-slate-800/50 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-700/50">
+						<Download size={12} />
+						Export CSV
+					</button>
+				</div>
+			</div>
+
+			{/* Error Banner */}
+			{error && (
+				<div className="rounded-lg border border-red-800/40 bg-red-950/20 px-4 py-3 text-xs text-red-400">
+					{error}
+				</div>
+			)}
+
 			{/* Stats Cards */}
 			<div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
 				<StatCard label="Critical" value={stats.critical} color="text-red-400" />
@@ -587,7 +520,7 @@ export function BugsView() {
 			</div>
 
 			{/* Charts */}
-			<ChartsSection {...chartData} />
+			{bugs.length > 0 && <ChartsSection {...chartData} />}
 
 			{/* Filters */}
 			<div className="flex flex-wrap items-center gap-2">

@@ -17,6 +17,7 @@ import {
 	AlertTriangle,
 	RotateCcw,
 	Timer,
+	Download,
 } from "lucide-react"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -81,11 +82,26 @@ function formatTime(ts: string | null) {
 
 // ── Main View ─────────────────────────────────────────────────────────────────
 
+function handleExportAutonomous(status: AutonomousStatus) {
+	const csv = ["step,status,duration_ms,details"]
+	;(status.stepResults || []).forEach((r) => {
+		csv.push(`${r.step},${r.status},${r.duration},"${r.details.replace(/"/g, '""')}"`)
+	})
+	const blob = new Blob([csv.join("\n")], { type: "text/csv" })
+	const url = URL.createObjectURL(blob)
+	const a = document.createElement("a")
+	a.href = url
+	a.download = `autonomous-loop-${new Date().toISOString().slice(0, 10)}.csv`
+	a.click()
+	URL.revokeObjectURL(url)
+}
+
 export function AutonomousLoopView() {
 	const [status, setStatus] = useState<AutonomousStatus | null>(null)
 	const [loading, setLoading] = useState(true)
 	const [actionLoading, setActionLoading] = useState(false)
 	const [error, setError] = useState<string | null>(null)
+	const [refreshing, setRefreshing] = useState(false)
 
 	const fetchStatus = useCallback(async () => {
 		try {
@@ -209,6 +225,24 @@ export function AutonomousLoopView() {
 						</div>
 					</div>
 					<div className="flex items-center gap-2">
+						<button
+							onClick={() => handleExportAutonomous(s)}
+							disabled={!s.stepResults || s.stepResults.length === 0}
+							className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-[#1e2535] text-gray-400 hover:text-white disabled:opacity-50 transition-colors">
+							<Download size={12} />
+							Export CSV
+						</button>
+						<button
+							onClick={async () => {
+								setRefreshing(true)
+								await fetchStatus()
+								setRefreshing(false)
+							}}
+							disabled={loading || refreshing}
+							className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-[#1e2535] text-gray-400 hover:text-white disabled:opacity-50 transition-colors">
+							<RefreshCw size={12} className={refreshing ? "animate-spin" : ""} />
+							Refresh
+						</button>
 						{isRunning ? (
 							<button
 								onClick={handleStop}

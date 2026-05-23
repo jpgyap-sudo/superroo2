@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { StatCard, Card } from "@/components/ui/card"
 
 import {
@@ -13,6 +13,8 @@ import {
 	Loader2,
 	AlertTriangle,
 	Play,
+	Download,
+	Search,
 } from "lucide-react"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -44,8 +46,10 @@ export function MLEngineView() {
 	const [learners, setLearners] = useState<LearnerStatus | null>(null)
 	const [improvement, setImprovement] = useState<ImprovementStats | null>(null)
 	const [loading, setLoading] = useState(true)
+	const [refreshing, setRefreshing] = useState(false)
 	const [training, setTraining] = useState(false)
 	const [error, setError] = useState<string | null>(null)
+	const [learnerSearch, setLearnerSearch] = useState("")
 
 	const fetchAll = useCallback(async () => {
 		try {
@@ -86,6 +90,7 @@ export function MLEngineView() {
 			setError(err instanceof Error ? err.message : "Failed to fetch ML stats")
 		} finally {
 			setLoading(false)
+			setRefreshing(false)
 		}
 	}, [])
 
@@ -108,6 +113,49 @@ export function MLEngineView() {
 		return () => clearInterval(iv)
 	}, [fetchAll])
 
+	const handleRefresh = useCallback(() => {
+		setRefreshing(true)
+		fetchAll()
+	}, [fetchAll])
+
+	const learnerEntries = useMemo(() => {
+		const entries = [
+			{ name: "CodeLearner", data: learners?.code || { samples: 0, lastTrained: "" } },
+			{ name: "DebugLearner", data: learners?.debug || { samples: 0, lastTrained: "" } },
+			{ name: "TestLearner", data: learners?.test || { samples: 0, lastTrained: "" } },
+		]
+		if (!learnerSearch) return entries
+		const q = learnerSearch.toLowerCase()
+		return entries.filter((e) => e.name.toLowerCase().includes(q))
+	}, [learners, learnerSearch])
+
+	const handleExport = () => {
+		const m = model || {
+			modelType: "—",
+			loopsRun: 0,
+			observationsCollected: 0,
+			predictionsMade: 0,
+			actionsTaken: 0,
+		}
+		const i = improvement || { cyclesRun: 0, lessonsExtracted: 0, skillsCreated: 0 }
+		const csv = ["metric,value"]
+		csv.push(`Model Type,${m.modelType}`)
+		csv.push(`Loops Run,${m.loopsRun}`)
+		csv.push(`Observations,${m.observationsCollected}`)
+		csv.push(`Predictions,${m.predictionsMade}`)
+		csv.push(`Actions Taken,${m.actionsTaken}`)
+		csv.push(`Cycles Run,${i.cyclesRun}`)
+		csv.push(`Lessons Extracted,${i.lessonsExtracted}`)
+		csv.push(`Skills Created,${i.skillsCreated}`)
+		const blob = new Blob([csv.join("\n")], { type: "text/csv" })
+		const url = URL.createObjectURL(blob)
+		const a = document.createElement("a")
+		a.href = url
+		a.download = "ml-engine-stats.csv"
+		a.click()
+		URL.revokeObjectURL(url)
+	}
+
 	if (loading && !model) {
 		return (
 			<div className="flex items-center justify-center py-20">
@@ -124,7 +172,7 @@ export function MLEngineView() {
 					<p className="text-red-300">Failed to load ML Engine stats: {error}</p>
 				</div>
 				<button
-					onClick={fetchAll}
+					onClick={handleRefresh}
 					className="mt-4 rounded-lg bg-red-800/30 px-4 py-2 text-sm text-red-300 hover:bg-red-800/50">
 					Retry
 				</button>
@@ -145,13 +193,29 @@ export function MLEngineView() {
 						Neural network training, learners, and infinite improvement loop
 					</p>
 				</div>
-				<button
-					onClick={triggerTraining}
-					disabled={training}
-					className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-500 disabled:opacity-50 disabled:cursor-not-allowed">
-					{training ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-					{training ? "Training..." : "Train Cycle"}
-				</button>
+				<div className="flex items-center gap-2">
+					<button
+						onClick={handleRefresh}
+						disabled={refreshing}
+						className="inline-flex items-center gap-1.5 rounded-lg border border-slate-800/40 bg-slate-900/40 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800/40 disabled:opacity-50 transition-colors">
+						<RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+						Refresh
+					</button>
+					<button
+						onClick={handleExport}
+						title="Export CSV"
+						className="inline-flex items-center gap-1.5 rounded-lg border border-slate-800/40 bg-slate-900/40 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800/40 transition-colors">
+						<Download className="h-3.5 w-3.5" />
+						Export
+					</button>
+					<button
+						onClick={triggerTraining}
+						disabled={training}
+						className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-500 disabled:opacity-50 disabled:cursor-not-allowed">
+						{training ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+						{training ? "Training..." : "Train Cycle"}
+					</button>
+				</div>
 			</div>
 
 			<div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -163,15 +227,24 @@ export function MLEngineView() {
 
 			<div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
 				<Card className="border-slate-800/40 bg-slate-900/40 p-5">
-					<h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-300">
-						Learner Status
-					</h3>
+					<div className="mb-4 flex items-center justify-between">
+						<h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Learner Status</h3>
+						<div className="relative">
+							<Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-500" />
+							<input
+								type="text"
+								value={learnerSearch}
+								onChange={(e) => setLearnerSearch(e.target.value)}
+								placeholder="Search learners..."
+								className="w-36 rounded border border-slate-800/50 bg-slate-950/50 pl-6 pr-2 py-1 text-xs text-slate-200 outline-none focus:border-violet-500/50"
+							/>
+						</div>
+					</div>
 					<div className="space-y-3">
-						{[
-							{ name: "CodeLearner", data: l.code },
-							{ name: "DebugLearner", data: l.debug },
-							{ name: "TestLearner", data: l.test },
-						].map((learner) => (
+						{learnerEntries.length === 0 && (
+							<p className="text-sm text-slate-500">No learners match your search.</p>
+						)}
+						{learnerEntries.map((learner) => (
 							<div
 								key={learner.name}
 								className="flex items-center justify-between rounded-lg border border-slate-800/50 bg-slate-950/50 px-4 py-3">
@@ -180,7 +253,7 @@ export function MLEngineView() {
 									<span className="text-sm text-slate-200">{learner.name}</span>
 								</div>
 								<span className="inline-flex items-center rounded px-2 py-0.5 text-[11px] font-semibold tracking-wide border border-slate-700 text-slate-300">
-									{(learner.data as any).samples || 0} samples
+									{learner.data.samples || 0} samples
 								</span>
 							</div>
 						))}

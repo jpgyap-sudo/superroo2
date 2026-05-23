@@ -82,10 +82,7 @@ async function createServices(pool, redisClient = null, options = {}) {
 	})
 
 	// 12. Deploy gate (3-stage: risk → swarm → consensus) — v5
-	const deployGate = new DeployGate(
-		{ riskEngine, swarmDebugger, consensus },
-		options.deployGate || {},
-	)
+	const deployGate = new DeployGate({ riskEngine, swarmDebugger, consensus }, options.deployGate || {})
 
 	// 13. Wire v4 services into the wrapper
 	wrapper.setModelRouter(modelRouter)
@@ -116,9 +113,24 @@ async function createServices(pool, redisClient = null, options = {}) {
 async function applySchema(pool) {
 	const fs = require("fs")
 	const path = require("path")
+
+	// 1. Base schema (v3/v4)
 	const schemaPath = path.join(__dirname, "schema.sql")
 	const schema = fs.readFileSync(schemaPath, "utf-8")
 	await pool.query(schema)
+
+	// 2. Run idempotent migrations in order (v5 predictive swarm, etc.)
+	const migrationsDir = path.join(__dirname, "migrations")
+	if (fs.existsSync(migrationsDir)) {
+		const files = fs
+			.readdirSync(migrationsDir)
+			.filter((f) => f.endsWith(".sql"))
+			.sort()
+		for (const file of files) {
+			const migration = fs.readFileSync(path.join(migrationsDir, file), "utf-8")
+			await pool.query(migration)
+		}
+	}
 }
 
 module.exports = {

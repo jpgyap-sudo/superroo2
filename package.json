@@ -76,7 +76,8 @@
 			"@types/react": "^18.3.23",
 			"@types/react-dom": "^18.3.5",
 			"zod": "3.25.76"
-		}
+		},
+		"ignoredBuiltDependencies": []
 	},
 	"dependencies": {
 		"pixelmatch": "^7.2.0",

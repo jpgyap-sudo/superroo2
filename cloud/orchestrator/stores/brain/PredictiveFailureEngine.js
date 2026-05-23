@@ -53,10 +53,18 @@ const FAILURE_LOG_KEYWORDS = [
 	{ pattern: /out\s*of\s*memory|oom|memory\s*exhausted/i, risk: 0.25, reason: "Logs contain OOM keywords" },
 	{ pattern: /failed|failure|error\s*occurred/i, risk: 0.15, reason: "Logs contain failure keywords" },
 	{ pattern: /exception|uncaught|unhandled/i, risk: 0.2, reason: "Logs contain exception keywords" },
-	{ pattern: /permission\s*denied|access\s*denied|forbidden|unauthorized/i, risk: 0.2, reason: "Logs contain permission denied keywords" },
+	{
+		pattern: /permission\s*denied|access\s*denied|forbidden|unauthorized/i,
+		risk: 0.2,
+		reason: "Logs contain permission denied keywords",
+	},
 	{ pattern: /crash|segfault|abort|panic/i, risk: 0.3, reason: "Logs contain crash keywords" },
 	{ pattern: /disk\s*full|no\s*space|quota\s*exceeded/i, risk: 0.2, reason: "Logs contain disk space keywords" },
-	{ pattern: /connection\s*refused|econnrefused|cannot\s*connect/i, risk: 0.15, reason: "Logs contain connection refused keywords" },
+	{
+		pattern: /connection\s*refused|econnrefused|cannot\s*connect/i,
+		risk: 0.15,
+		reason: "Logs contain connection refused keywords",
+	},
 	{ pattern: /rate\s*limit|too\s*many\s*requests|429/i, risk: 0.1, reason: "Logs contain rate limit keywords" },
 ]
 
@@ -90,7 +98,14 @@ class PredictiveFailureEngine {
 	 * @returns {Promise<{id: string, projectId: string, taskId: string|null, actionType: string, riskScore: number, riskLevel: string, reasons: string[], matchedPatterns: object[], swarmRunId: string|null, createdAt: string}>}
 	 */
 	async assess(input) {
-		const { projectId = "default", taskId = null, actionType, filesChanged = [], logs = "", environment = {} } = input
+		const {
+			projectId = "default",
+			taskId = null,
+			actionType,
+			filesChanged = [],
+			logs = "",
+			environment = {},
+		} = input
 
 		if (!VALID_ACTION_TYPES.has(actionType)) {
 			throw new Error(
@@ -137,12 +152,17 @@ class PredictiveFailureEngine {
 				const signature = String(p.signature).toLowerCase()
 				if (haystack.includes(signature)) {
 					const patternRisk =
-						p.severity === "critical" ? 0.35 :
-						p.severity === "high" ? 0.25 :
-						p.severity === "medium" ? 0.15 :
-						0.05
+						p.severity === "critical"
+							? 0.35
+							: p.severity === "high"
+								? 0.25
+								: p.severity === "medium"
+									? 0.15
+									: 0.05
 					score += patternRisk
-					reasons.push(`Matched historical failure pattern: ${p.description} (severity: ${p.severity}, occurrences: ${p.occurrences})`)
+					reasons.push(
+						`Matched historical failure pattern: ${p.description} (severity: ${p.severity}, occurrences: ${p.occurrences})`,
+					)
 					matchedPatterns.push({
 						id: p.id,
 						pattern_type: p.pattern_type,
@@ -178,7 +198,16 @@ class PredictiveFailureEngine {
 		await this.pool.query(
 			`INSERT INTO brain_risk_assessments (id, project_id, task_id, action_type, risk_score, risk_level, reasons, matched_patterns)
 			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-			[id, projectId, taskId, actionType, score, riskLevel, JSON.stringify(reasons), JSON.stringify(matchedPatterns)],
+			[
+				id,
+				projectId,
+				taskId,
+				actionType,
+				score,
+				riskLevel,
+				JSON.stringify(reasons),
+				JSON.stringify(matchedPatterns),
+			],
 		)
 
 		return {
@@ -209,7 +238,15 @@ class PredictiveFailureEngine {
 	 * @param {string} [input.source='self-healing'] - Source of the pattern
 	 */
 	async recordFailurePattern(input) {
-		const { projectId = "default", patternType, signature, description, severity = "medium", suggestedFix = null, source = "self-healing" } = input
+		const {
+			projectId = "default",
+			patternType,
+			signature,
+			description,
+			severity = "medium",
+			suggestedFix = null,
+			source = "self-healing",
+		} = input
 
 		if (!patternType || !signature || !description) {
 			throw new Error("recordFailurePattern requires patternType, signature, and description")
@@ -367,9 +404,62 @@ class PredictiveFailureEngine {
 			params,
 		)
 
+		const byActionTypeResult = await this.pool.query(
+			`SELECT action_type, COUNT(*)::int as count
+			 FROM brain_risk_assessments ${projectFilter}
+			 GROUP BY action_type`,
+			params,
+		)
+
+		const patternsBySeverityResult = await this.pool.query(
+			`SELECT severity, COUNT(*)::int as count
+			 FROM brain_failure_patterns ${projectFilter}
+			 GROUP BY severity`,
+			params,
+		)
+
+		const patternsByTypeResult = await this.pool.query(
+			`SELECT pattern_type, COUNT(*)::int as count
+			 FROM brain_failure_patterns ${projectFilter}
+			 GROUP BY pattern_type`,
+			params,
+		)
+
+		const ra = result.rows[0] || {
+			total_assessments: 0,
+			critical_count: 0,
+			high_count: 0,
+			medium_count: 0,
+			low_count: 0,
+			avg_risk_score: 0,
+			max_risk_score: 0,
+		}
+		const pr = patternResult.rows[0] || { total_patterns: 0, total_occurrences: 0 }
+
+		const byActionType = {}
+		for (const row of byActionTypeResult.rows) byActionType[row.action_type] = row.count
+
+		const patternsBySeverity = {}
+		for (const row of patternsBySeverityResult.rows) patternsBySeverity[row.severity] = row.count
+
+		const patternsByType = {}
+		for (const row of patternsByTypeResult.rows) patternsByType[row.pattern_type] = row.count
+
 		return {
-			assessments: result.rows[0] || { total_assessments: 0, critical_count: 0, high_count: 0, medium_count: 0, low_count: 0, avg_risk_score: 0, max_risk_score: 0 },
-			patterns: patternResult.rows[0] || { total_patterns: 0, total_occurrences: 0 },
+			totalAssessments: ra.total_assessments,
+			byLevel: {
+				critical: ra.critical_count,
+				high: ra.high_count,
+				medium: ra.medium_count,
+				low: ra.low_count,
+			},
+			byActionType,
+			totalPatterns: pr.total_patterns,
+			patternsBySeverity,
+			patternsByType,
+			avgRiskScore: ra.avg_risk_score,
+			maxRiskScore: ra.max_risk_score,
+			totalOccurrences: pr.total_occurrences,
 		}
 	}
 }

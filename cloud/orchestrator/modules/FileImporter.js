@@ -76,6 +76,14 @@ class FileImporter {
 		this.extractors.set(".tar", this._extractTar.bind(this))
 		this.extractors.set(".gz", this._extractTarGz.bind(this))
 		this.extractors.set(".tgz", this._extractTarGz.bind(this))
+
+		// Stats tracking
+		this._totalImports = 0
+		this._totalFiles = 0
+		this._totalErrors = 0
+		this._lastImport = null
+		this._importedPaths = []
+		this._recentImports = []
 	}
 
 	/**
@@ -104,6 +112,30 @@ class FileImporter {
 			}
 		}
 
+		// Update stats
+		this._totalImports++
+		this._totalFiles += files.length
+		this._totalErrors += errors.length
+		this._lastImport = new Date().toISOString()
+		const importedPaths = files.map((f) => f.originalPath)
+		this._importedPaths.push(...importedPaths)
+		// Keep only last 1000 paths
+		if (this._importedPaths.length > 1000) {
+			this._importedPaths = this._importedPaths.slice(-1000)
+		}
+
+		const importRecord = {
+			timestamp: this._lastImport,
+			paths: importedPaths,
+			successCount: files.length,
+			errorCount: errors.length,
+		}
+		this._recentImports.unshift(importRecord)
+		// Keep only last 50 records
+		if (this._recentImports.length > 50) {
+			this._recentImports = this._recentImports.slice(0, 50)
+		}
+
 		return { ok: errors.length === 0, files, errors }
 	}
 
@@ -128,10 +160,25 @@ class FileImporter {
 
 	/**
 	 * Get stats about the importer.
-	 * @returns {{ workspaceRoot: string, extractorCount: number }}
+	 * @returns {{
+	 *   totalImports: number,
+	 *   totalFiles: number,
+	 *   totalErrors: number,
+	 *   lastImport: string | null,
+	 *   importedPaths: string[],
+	 *   recentImports: Array<{timestamp: string, paths: string[], successCount: number, errorCount: number}>,
+	 *   workspaceRoot: string,
+	 *   extractorCount: number,
+	 * }}
 	 */
 	getStats() {
 		return {
+			totalImports: this._totalImports,
+			totalFiles: this._totalFiles,
+			totalErrors: this._totalErrors,
+			lastImport: this._lastImport,
+			importedPaths: this._importedPaths.slice(-50),
+			recentImports: this._recentImports.slice(0, 20),
 			workspaceRoot: this.workspaceRoot,
 			extractorCount: this.extractors.size,
 		}

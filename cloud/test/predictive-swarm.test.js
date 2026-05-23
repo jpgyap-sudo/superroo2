@@ -132,17 +132,13 @@ describe("PredictiveFailureEngine", () => {
 
 		it("should throw for invalid actionType", async () => {
 			engine = new PredictiveFailureEngine(mockPool)
-			await expect(
-				engine.assess({ actionType: "invalid_action" })
-			).rejects.toThrow(/Invalid actionType/i)
+			await expect(engine.assess({ actionType: "invalid_action" })).rejects.toThrow(/Invalid actionType/i)
 		})
 
 		it("should handle database query failure gracefully", async () => {
 			engine = new PredictiveFailureEngine(mockPool)
 			// First call (pattern query) fails, second call (INSERT) succeeds
-			mockPool.query
-				.mockRejectedValueOnce(new Error("DB down"))
-				.mockResolvedValueOnce({ rows: [] })
+			mockPool.query.mockRejectedValueOnce(new Error("DB down")).mockResolvedValueOnce({ rows: [] })
 
 			const result = await engine.assess({
 				actionType: "deploy",
@@ -175,23 +171,23 @@ describe("PredictiveFailureEngine", () => {
 
 		it("should throw for missing patternType", async () => {
 			engine = new PredictiveFailureEngine(mockPool)
-			await expect(
-				engine.recordFailurePattern({ signature: "sig", description: "desc" })
-			).rejects.toThrow(/patternType/)
+			await expect(engine.recordFailurePattern({ signature: "sig", description: "desc" })).rejects.toThrow(
+				/patternType/,
+			)
 		})
 
 		it("should throw for missing signature", async () => {
 			engine = new PredictiveFailureEngine(mockPool)
-			await expect(
-				engine.recordFailurePattern({ patternType: "type", description: "desc" })
-			).rejects.toThrow(/signature/)
+			await expect(engine.recordFailurePattern({ patternType: "type", description: "desc" })).rejects.toThrow(
+				/signature/,
+			)
 		})
 
 		it("should throw for missing description", async () => {
 			engine = new PredictiveFailureEngine(mockPool)
-			await expect(
-				engine.recordFailurePattern({ patternType: "type", signature: "sig" })
-			).rejects.toThrow(/description/)
+			await expect(engine.recordFailurePattern({ patternType: "type", signature: "sig" })).rejects.toThrow(
+				/description/,
+			)
 		})
 
 		it("should throw for invalid severity", async () => {
@@ -202,7 +198,7 @@ describe("PredictiveFailureEngine", () => {
 					signature: "sig",
 					description: "desc",
 					severity: "invalid",
-				})
+				}),
 			).rejects.toThrow(/Invalid severity/)
 		})
 	})
@@ -218,19 +214,17 @@ describe("PredictiveFailureEngine", () => {
 	describe("getAssessments()", () => {
 		it("should return assessments with filters", async () => {
 			engine = new PredictiveFailureEngine(mockPool)
-			mockPool.query
-				.mockResolvedValueOnce({ rows: [{ total: "1" }] })
-				.mockResolvedValueOnce({
-					rows: [
-						{
-							id: "assess-1",
-							action_type: "deploy",
-							risk_score: 0.45,
-							risk_level: "medium",
-							created_at: "2026-01-01T00:00:00Z",
-						},
-					],
-				})
+			mockPool.query.mockResolvedValueOnce({ rows: [{ total: "1" }] }).mockResolvedValueOnce({
+				rows: [
+					{
+						id: "assess-1",
+						action_type: "deploy",
+						risk_score: 0.45,
+						risk_level: "medium",
+						created_at: "2026-01-01T00:00:00Z",
+					},
+				],
+			})
 
 			const result = await engine.getAssessments({ projectId: "proj-1" })
 			expect(result.rows).toHaveLength(1)
@@ -242,19 +236,17 @@ describe("PredictiveFailureEngine", () => {
 	describe("getFailurePatterns()", () => {
 		it("should return failure patterns with filters", async () => {
 			engine = new PredictiveFailureEngine(mockPool)
-			mockPool.query
-				.mockResolvedValueOnce({ rows: [{ total: "1" }] })
-				.mockResolvedValueOnce({
-					rows: [
-						{
-							id: "pat-1",
-							pattern_type: "deploy-failure",
-							severity: "high",
-							occurrences: 3,
-							created_at: "2026-01-01T00:00:00Z",
-						},
-					],
-				})
+			mockPool.query.mockResolvedValueOnce({ rows: [{ total: "1" }] }).mockResolvedValueOnce({
+				rows: [
+					{
+						id: "pat-1",
+						pattern_type: "deploy-failure",
+						severity: "high",
+						occurrences: 3,
+						created_at: "2026-01-01T00:00:00Z",
+					},
+				],
+			})
 
 			const result = await engine.getFailurePatterns({ severity: "high" })
 			expect(result.rows).toHaveLength(1)
@@ -263,7 +255,7 @@ describe("PredictiveFailureEngine", () => {
 	})
 
 	describe("getStats()", () => {
-		it("should return risk statistics", async () => {
+		it("should return risk statistics in dashboard shape", async () => {
 			engine = new PredictiveFailureEngine(mockPool)
 			mockPool.query
 				.mockResolvedValueOnce({
@@ -282,13 +274,21 @@ describe("PredictiveFailureEngine", () => {
 				.mockResolvedValueOnce({
 					rows: [{ total_patterns: 5, total_occurrences: 12 }],
 				})
+				.mockResolvedValueOnce({ rows: [] })
+				.mockResolvedValueOnce({ rows: [] })
+				.mockResolvedValueOnce({ rows: [] })
 
 			const result = await engine.getStats("proj-1")
-			expect(result).toHaveProperty("assessments")
-			expect(result).toHaveProperty("patterns")
-			expect(result.assessments.total_assessments).toBe(18)
-			expect(result.assessments.critical_count).toBe(1)
-			expect(result.patterns.total_patterns).toBe(5)
+			expect(result).toHaveProperty("totalAssessments", 18)
+			expect(result).toHaveProperty("byLevel")
+			expect(result.byLevel.critical).toBe(1)
+			expect(result.byLevel.high).toBe(2)
+			expect(result.byLevel.medium).toBe(5)
+			expect(result.byLevel.low).toBe(10)
+			expect(result).toHaveProperty("totalPatterns", 5)
+			expect(result).toHaveProperty("totalOccurrences", 12)
+			expect(result).toHaveProperty("avgRiskScore", 0.35)
+			expect(result).toHaveProperty("maxRiskScore", 0.95)
 		})
 	})
 })
@@ -427,9 +427,11 @@ describe("SwarmDebugger", () => {
 
 		it("should run memory agent and search memory service", async () => {
 			const mockMemoryService = {
-				searchMemory: vi.fn().mockResolvedValue([
-					{ id: "mem-1", title: "Previous similar issue", content: "Fix was X", similarity: 0.85 },
-				]),
+				searchMemory: vi
+					.fn()
+					.mockResolvedValue([
+						{ id: "mem-1", title: "Previous similar issue", content: "Fix was X", similarity: 0.85 },
+					]),
 			}
 			debugger_instance = new SwarmDebugger(mockPool, {
 				memoryService: mockMemoryService,
@@ -459,18 +461,16 @@ describe("SwarmDebugger", () => {
 	describe("listRuns()", () => {
 		it("should return runs with filters", async () => {
 			debugger_instance = new SwarmDebugger(mockPool)
-			mockPool.query
-				.mockResolvedValueOnce({ rows: [{ total: "1" }] })
-				.mockResolvedValueOnce({
-					rows: [
-						{
-							id: "run-1",
-							problem: "Test problem",
-							status: "completed",
-							created_at: "2026-01-01T00:00:00Z",
-						},
-					],
-				})
+			mockPool.query.mockResolvedValueOnce({ rows: [{ total: "1" }] }).mockResolvedValueOnce({
+				rows: [
+					{
+						id: "run-1",
+						problem: "Test problem",
+						status: "completed",
+						created_at: "2026-01-01T00:00:00Z",
+					},
+				],
+			})
 
 			const result = await debugger_instance.listRuns({ status: "completed" })
 			expect(result.rows).toHaveLength(1)
@@ -720,14 +720,17 @@ describe("DeployGate", () => {
 				reasons: ["Consensus approved"],
 			})
 
-			gate = new DeployGate({
-				riskEngine: mockRiskEngine,
-				swarmDebugger: mockSwarmDebugger,
-				consensus: mockConsensus,
-			}, {
-				requireHumanApproval: false,
-				autoRecordPatterns: false,
-			})
+			gate = new DeployGate(
+				{
+					riskEngine: mockRiskEngine,
+					swarmDebugger: mockSwarmDebugger,
+					consensus: mockConsensus,
+				},
+				{
+					requireHumanApproval: false,
+					autoRecordPatterns: false,
+				},
+			)
 
 			const result = await gate.check({
 				projectId: "proj-1",
@@ -812,21 +815,22 @@ describe("DeployGate", () => {
 			})
 			mockSwarmDebugger.debug.mockResolvedValue({
 				runId: "swarm-3",
-				findings: [
-					{ agent: "logs-agent", finding: "Error found", confidence: 0.8, suggestedFix: null },
-				],
+				findings: [{ agent: "logs-agent", finding: "Error found", confidence: 0.8, suggestedFix: null }],
 				finalSummary: "Issues",
 				status: "completed",
 			})
 
-			gate = new DeployGate({
-				riskEngine: mockRiskEngine,
-				swarmDebugger: mockSwarmDebugger,
-				consensus: mockConsensus,
-			}, {
-				autoRecordPatterns: false,
-				requireHumanApproval: false,
-			})
+			gate = new DeployGate(
+				{
+					riskEngine: mockRiskEngine,
+					swarmDebugger: mockSwarmDebugger,
+					consensus: mockConsensus,
+				},
+				{
+					autoRecordPatterns: false,
+					requireHumanApproval: false,
+				},
+			)
 			mockConsensus.decide.mockResolvedValue({
 				finalDecision: "approve",
 				reasons: ["OK"],

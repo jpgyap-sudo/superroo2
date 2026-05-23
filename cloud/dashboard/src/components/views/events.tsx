@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo, useCallback } from "react"
+import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { StatCard } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 import {
@@ -17,6 +17,8 @@ import {
 	CheckCircle2,
 	Clock,
 	Filter,
+	Download,
+	Radio,
 } from "lucide-react"
 
 interface EventEntry {
@@ -52,6 +54,11 @@ const SEVERITY_ICONS: Record<string, React.ComponentType<{ className?: string }>
 	error: AlertOctagon,
 }
 
+function getWsUrl() {
+	const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
+	return `${protocol}//${window.location.host}/api/brain/ws`
+}
+
 async function fetchEvents(params: {
 	type?: string
 	source?: string
@@ -76,8 +83,7 @@ function EventRow({ event }: { event: EventEntry }) {
 		<div className="border border-[#1e2535] rounded-lg bg-[#0f1117]/40 overflow-hidden">
 			<div
 				className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-[#1a1f2e]/30 transition-colors"
-				onClick={() => setExpanded(!expanded)}
-			>
+				onClick={() => setExpanded(!expanded)}>
 				<SeverityIcon
 					className={cn(
 						"w-3.5 h-3.5 shrink-0",
@@ -96,8 +102,7 @@ function EventRow({ event }: { event: EventEntry }) {
 							className={cn(
 								"text-[10px] px-1.5 py-0.5 rounded font-medium border",
 								SEVERITY_COLORS[event.severity],
-							)}
-						>
+							)}>
 							{event.severity}
 						</span>
 						<span className="text-xs text-white truncate">{event.message}</span>
@@ -110,7 +115,7 @@ function EventRow({ event }: { event: EventEntry }) {
 				</div>
 				<div className="flex items-center gap-2 shrink-0">
 					<span className="text-[10px] text-gray-600">
-						{new Date(event.timestamp).toLocaleTimeString()}
+						{event.timestamp ? new Date(event.timestamp).toLocaleTimeString() : "—"}
 					</span>
 					<div className="text-gray-500">
 						{expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -128,6 +133,23 @@ function EventRow({ event }: { event: EventEntry }) {
 	)
 }
 
+function handleExport(events: EventEntry[]) {
+	const csv = ["severity,type,source,message,timestamp,id"]
+	csv.push(
+		...events.map(
+			(e) =>
+				`${e.severity},${e.type},${e.source},"${(e.message || "").replace(/"/g, '""')}",${e.timestamp},${e.id}`,
+		),
+	)
+	const blob = new Blob([csv.join("\n")], { type: "text/csv" })
+	const url = URL.createObjectURL(blob)
+	const a = document.createElement("a")
+	a.href = url
+	a.download = `events-${new Date().toISOString().slice(0, 10)}.csv`
+	a.click()
+	URL.revokeObjectURL(url)
+}
+
 export function EventsView() {
 	const [events, setEvents] = useState<EventEntry[]>([])
 	const [loading, setLoading] = useState(true)
@@ -136,7 +158,10 @@ export function EventsView() {
 	const [severityFilter, setSeverityFilter] = useState<string>("all")
 	const [typeFilter, setTypeFilter] = useState("")
 	const [limit, setLimit] = useState(50)
-	const [autoRefresh, setAutoRefresh] = useState(false)
+	const [autoRefresh, setAutoRefresh] = useState(true)
+	const [wsConnected, setWsConnected] = useState(false)
+
+	const wsRef = useRef<WebSocket | null>(null)
 
 	const fetchData = useCallback(async () => {
 		try {
@@ -162,12 +187,69 @@ export function EventsView() {
 		fetchData()
 	}, [fetchData])
 
-	// Auto-refresh every 10 seconds
+	// Auto-refresh every 5 seconds (was 10s)
 	useEffect(() => {
 		if (!autoRefresh) return
-		const iv = setInterval(fetchData, 10000)
+		const iv = setInterval(fetchData, 5000)
 		return () => clearInterval(iv)
 	}, [autoRefresh, fetchData])
+
+	// WebSocket for real-time events
+	useEffect(() => {
+		let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+		let heartbeatTimer: ReturnType<typeof setInterval> | null = null
+
+		function connect() {
+			try {
+				const ws = new WebSocket(getWsUrl())
+				wsRef.current = ws
+
+				ws.onopen = () => {
+					setWsConnected(true)
+					ws.send(JSON.stringify({ action: "subscribe", params: { event: "orchestrator.*" } }))
+					heartbeatTimer = setInterval(() => {
+						if (ws.readyState === WebSocket.OPEN) {
+							ws.send(JSON.stringify({ type: "ping" }))
+						}
+					}, 30000)
+				}
+
+				ws.onmessage = (event) => {
+					try {
+						const msg = JSON.parse(event.data)
+						if (msg.type === "event" && msg.event?.startsWith("orchestrator.")) {
+							fetchData()
+						}
+					} catch {
+						// Ignore malformed messages
+					}
+				}
+
+				ws.onclose = () => {
+					setWsConnected(false)
+					if (heartbeatTimer) clearInterval(heartbeatTimer)
+					reconnectTimer = setTimeout(connect, 5000)
+				}
+
+				ws.onerror = () => {
+					setWsConnected(false)
+				}
+			} catch {
+				setWsConnected(false)
+				reconnectTimer = setTimeout(connect, 5000)
+			}
+		}
+
+		connect()
+		return () => {
+			if (reconnectTimer) clearTimeout(reconnectTimer)
+			if (heartbeatTimer) clearInterval(heartbeatTimer)
+			if (wsRef.current) {
+				wsRef.current.close()
+				wsRef.current = null
+			}
+		}
+	}, [fetchData])
 
 	const filtered = useMemo(() => {
 		if (!search) return events
@@ -186,8 +268,9 @@ export function EventsView() {
 		const errors = events.filter((e) => e.severity === "error").length
 		const warnings = events.filter((e) => e.severity === "warn").length
 		const info = events.filter((e) => e.severity === "info").length
+		const debug = events.filter((e) => e.severity === "debug").length
 		const uniqueTypes = new Set(events.map((e) => e.type)).size
-		return { total, errors, warnings, info, uniqueTypes }
+		return { total, errors, warnings, info, debug, uniqueTypes }
 	}, [events])
 
 	const uniqueEventTypes = useMemo(() => {
@@ -208,6 +291,15 @@ export function EventsView() {
 					</p>
 				</div>
 				<div className="flex items-center gap-2">
+					{wsConnected ? (
+						<span className="flex items-center gap-1 text-[10px] text-green-400 bg-green-500/10 rounded px-2 py-1">
+							<Radio className="w-3 h-3" /> Live
+						</span>
+					) : (
+						<span className="flex items-center gap-1 text-[10px] text-gray-500 bg-gray-700/50 rounded px-2 py-1">
+							<Radio className="w-3 h-3" /> Offline
+						</span>
+					)}
 					<label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
 						<input
 							type="checkbox"
@@ -215,13 +307,19 @@ export function EventsView() {
 							onChange={(e) => setAutoRefresh(e.target.checked)}
 							className="accent-blue-500"
 						/>
-						Auto-refresh (10s)
+						Auto-refresh (5s)
 					</label>
+					<button
+						onClick={() => handleExport(filtered)}
+						disabled={events.length === 0}
+						className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-[#1e2535] text-gray-400 hover:text-white disabled:opacity-50 transition-colors">
+						<Download size={12} />
+						Export CSV
+					</button>
 					<button
 						onClick={fetchData}
 						disabled={loading}
-						className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-[#1e2535] text-gray-400 hover:text-white disabled:opacity-50 transition-colors"
-					>
+						className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-[#1e2535] text-gray-400 hover:text-white disabled:opacity-50 transition-colors">
 						<RefreshCw size={12} className={loading ? "animate-spin" : ""} />
 						Refresh
 					</button>
@@ -229,22 +327,51 @@ export function EventsView() {
 			</div>
 
 			{/* Stats Cards */}
-			<div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+			<div className="grid grid-cols-2 md:grid-cols-5 gap-3">
 				<StatCard
 					label="Total Events"
-					value={<><Activity className="inline h-4 w-4 mr-1 text-blue-400" />{stats.total}</>}
+					value={
+						<>
+							<Activity className="inline h-4 w-4 mr-1 text-blue-400" />
+							{stats.total}
+						</>
+					}
 				/>
 				<StatCard
 					label="Errors"
-					value={<><AlertOctagon className="inline h-4 w-4 mr-1 text-red-400" />{stats.errors}</>}
+					value={
+						<>
+							<AlertOctagon className="inline h-4 w-4 mr-1 text-red-400" />
+							{stats.errors}
+						</>
+					}
 				/>
 				<StatCard
 					label="Warnings"
-					value={<><AlertTriangle className="inline h-4 w-4 mr-1 text-yellow-400" />{stats.warnings}</>}
+					value={
+						<>
+							<AlertTriangle className="inline h-4 w-4 mr-1 text-yellow-400" />
+							{stats.warnings}
+						</>
+					}
+				/>
+				<StatCard
+					label="Info"
+					value={
+						<>
+							<Info className="inline h-4 w-4 mr-1 text-blue-400" />
+							{stats.info}
+						</>
+					}
 				/>
 				<StatCard
 					label="Event Types"
-					value={<><Filter className="inline h-4 w-4 mr-1 text-purple-400" />{stats.uniqueTypes}</>}
+					value={
+						<>
+							<Filter className="inline h-4 w-4 mr-1 text-purple-400" />
+							{stats.uniqueTypes}
+						</>
+					}
 				/>
 			</div>
 
@@ -259,7 +386,9 @@ export function EventsView() {
 						placeholder="Search events..."
 					/>
 					{search && (
-						<button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white">
+						<button
+							onClick={() => setSearch("")}
+							className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white">
 							<X size={14} />
 						</button>
 					)}
@@ -275,8 +404,7 @@ export function EventsView() {
 								severityFilter === s
 									? "bg-blue-600/20 text-blue-400 border border-blue-500/30"
 									: "text-gray-500 hover:text-gray-300 border border-transparent",
-							)}
-						>
+							)}>
 							{s}
 						</button>
 					))}
@@ -286,11 +414,12 @@ export function EventsView() {
 					<select
 						value={typeFilter}
 						onChange={(e) => setTypeFilter(e.target.value)}
-						className="bg-[#0a0e1a] border border-[#1e2535] rounded px-2 py-1 text-[11px] text-white outline-none focus:border-blue-500/50"
-					>
+						className="bg-[#0a0e1a] border border-[#1e2535] rounded px-2 py-1 text-[11px] text-white outline-none focus:border-blue-500/50">
 						<option value="">All</option>
 						{uniqueEventTypes.map((t) => (
-							<option key={t} value={t}>{t}</option>
+							<option key={t} value={t}>
+								{t}
+							</option>
 						))}
 					</select>
 				</div>
@@ -299,10 +428,11 @@ export function EventsView() {
 					<select
 						value={limit}
 						onChange={(e) => setLimit(Number(e.target.value))}
-						className="bg-[#0a0e1a] border border-[#1e2535] rounded px-2 py-1 text-[11px] text-white outline-none focus:border-blue-500/50"
-					>
+						className="bg-[#0a0e1a] border border-[#1e2535] rounded px-2 py-1 text-[11px] text-white outline-none focus:border-blue-500/50">
 						{LIMIT_OPTIONS.map((l) => (
-							<option key={l} value={l}>{l}</option>
+							<option key={l} value={l}>
+								{l}
+							</option>
 						))}
 					</select>
 				</div>
@@ -323,12 +453,15 @@ export function EventsView() {
 				<div className="flex flex-col items-center justify-center py-12 text-gray-500">
 					<Activity size={32} className="mb-2 opacity-50" />
 					<p className="text-sm">No events found</p>
-					<p className="text-xs mt-1">{search ? "Try a different search or clear filters" : "No events have been recorded yet"}</p>
+					<p className="text-xs mt-1">
+						{search ? "Try a different search or clear filters" : "No events have been recorded yet"}
+					</p>
 				</div>
 			) : (
 				<div className="space-y-1.5">
 					<div className="text-xs text-gray-500 mb-1">
 						Showing {filtered.length} of {events.length} events
+						{wsConnected && <span className="ml-2 text-green-400">● Live</span>}
 					</div>
 					{filtered.map((event) => (
 						<EventRow key={event.id} event={event} />

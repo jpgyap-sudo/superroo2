@@ -191,15 +191,23 @@ class EventLog {
 	 * @returns {object}
 	 */
 	_rowToEvent(row) {
+		const payload = safeJsonParse(row.payload, {})
+		// Map DB severity values to frontend-standard values
+		let severity = row.severity
+		if (severity === "warning") severity = "warn"
+		if (severity === "critical") severity = "error"
+
 		return {
 			id: row.id,
 			type: row.type,
 			source: row.source,
-			payload: safeJsonParse(row.payload, {}),
-			severity: row.severity,
+			payload,
+			severity,
+			message: payload.message || row.type || row.source || "Event",
 			taskId: row.task_id,
 			sessionId: row.session_id,
 			createdAt: row.created_at,
+			timestamp: new Date(row.created_at).toISOString(),
 		}
 	}
 }

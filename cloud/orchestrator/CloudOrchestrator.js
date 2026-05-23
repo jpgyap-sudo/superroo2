@@ -136,6 +136,13 @@ class CloudOrchestrator extends EventEmitter {
 
 		// Initialize core modules
 		this.eventLog = new EventLog(this.memory)
+		// Wrap eventLog.record to emit real-time events for WebSocket consumers
+		const originalRecord = this.eventLog.record.bind(this.eventLog)
+		this.eventLog.record = (input) => {
+			const result = originalRecord(input)
+			this.emit("eventRecorded", result)
+			return result
+		}
 		this.taskQueue = new TaskQueueBullMQ(this.memory, {
 			bullQueue: this.config.bullQueue || null,
 		})
@@ -885,6 +892,18 @@ class CloudOrchestrator extends EventEmitter {
 	 */
 	registerFileImporter(fileImporter) {
 		this.fileImporter = fileImporter
+	}
+
+	/**
+	 * Ensure FileImporter is initialized.
+	 * @returns {object} The fileImporter instance
+	 */
+	ensureFileImporter() {
+		if (this.fileImporter) return this.fileImporter
+		const { FileImporter } = require("./modules/FileImporter")
+		this.fileImporter = new FileImporter("/opt/superroo2")
+		console.log("[CloudOrchestrator] FileImporter lazy-initialized")
+		return this.fileImporter
 	}
 
 	/**

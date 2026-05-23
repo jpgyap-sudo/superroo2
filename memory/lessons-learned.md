@@ -3197,3 +3197,391 @@ Before implementing dashboard tab improvements: (1) read the sidebar and page.ts
 dashboard, api-keys, ide-terminal, gap-analysis, ui-improvements, react, typescript, nextjs, lucide-react
 
 ---
+
+### Auto-Extracted Lesson: Docs: add lesson for API Keys and IDE Terminal gap implementation
+
+Date: 2026-05-23
+Source: Git commit 1c4aef14
+Model/API used: unknown
+Confidence: medium
+Related files: memory/lesson-index.jsonl, memory/lessons-learned.md
+
+#### Task Summary
+
+docs: add lesson for API Keys and IDE Terminal gap implementation
+
+#### Files Changed
+
+- `memory/lesson-index.jsonl`
+- `memory/lessons-learned.md`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 1c4aef14.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 1c4aef14 by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+general
+
+---
+
+### Auto-Extracted Lesson: (cloud): parallel execution tab gaps + Ghost Mode Execution Mesh
+
+Date: 2026-05-23
+Source: Git commit 5572ca17
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/api/api.js, cloud/dashboard/src/components/views/parallel-execution.tsx, cloud/orchestrator/CloudOrchestrator.js, cloud/orchestrator/index.js, cloud/orchestrator/modules/AgentBus.js
+
+#### Task Summary
+
+fix(cloud): parallel execution tab gaps + Ghost Mode Execution Mesh
+
+#### Files Changed
+
+- `cloud/api/api.js`
+- `cloud/dashboard/src/components/views/parallel-execution.tsx`
+- `cloud/orchestrator/CloudOrchestrator.js`
+- `cloud/orchestrator/index.js`
+- `cloud/orchestrator/modules/AgentBus.js`
+- `cloud/orchestrator/modules/ParallelExecutor.js`
+- `cloud/orchestrator/modules/ParallelHealingPipeline.js`
+- `cloud/orchestrator/modules/ParallelMLTrainer.js`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 5572ca17.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 5572ca17 by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+api, bugfix
+
+---
+
+### Lesson: Predictive Risk Dashboard Tab — Full Repair (Schema, API, Frontend)
+
+Date: 2026-05-23
+Source: Kimi Code CLI task completion
+Model/API used: Kimi Code CLI
+Confidence: high
+Related files: cloud/dashboard/src/components/views/predictive-risk.tsx, cloud/api/api.js, cloud/orchestrator/stores/brain/PredictiveFailureEngine.js, cloud/orchestrator/stores/brain/SwarmDebugger.js, cloud/orchestrator/stores/brain/index.js, cloud/orchestrator/stores/brain/schema.sql, cloud/test/predictive-swarm.test.js
+
+#### Task Summary
+
+Comprehensive repair of the Predictive Risk dashboard tab which had 13 gaps including runtime crashes, schema migration not applied, data shape mismatches, no real-time updates, and complete unavailability when PostgreSQL was offline.
+
+#### Files Changed
+
+- cloud/orchestrator/stores/brain/index.js — applySchema now runs migrations in order
+- cloud/orchestrator/stores/brain/PredictiveFailureEngine.js — getStats() returns frontend-matching shape with new aggregations (byActionType, patternsBySeverity, patternsByType)
+- cloud/orchestrator/stores/brain/SwarmDebugger.js — extends EventEmitter, emits run/agent events, returns `id` alias alongside `runId`
+- cloud/api/api.js — broadcasts risk/swarm events, auto-triggers swarm debug on high/critical risk, fixes list endpoints to return arrays with pagination metadata
+- cloud/dashboard/src/components/views/predictive-risk.tsx — full rewrite with WebSocket, 5s polling, brain-offline detection, proper error handling
+- cloud/test/predictive-swarm.test.js — updated getStats() test to match new shape
+
+#### Bug Cause
+
+1. Schema migration `004_predictive_swarm.sql` was never executed by `applySchema()` — only `schema.sql` (v3/v4) ran.
+2. API list endpoints returned `{rows, total}` paginated objects but frontend expected arrays → `TypeError: assessments.map is not a function`.
+3. `getStats()` returned nested `{assessments: {...}, patterns: {...}}` but frontend expected flat `{totalAssessments, byLevel, ...}` → stats always showed 0.
+4. No WebSocket or polling → stale data.
+5. Frontend silently swallowed 503 errors → empty lists with no explanation.
+
+#### Fix Applied
+
+- Backend: applySchema() now scans and runs all `.sql` migration files in `migrations/` after the base schema.
+- Backend: GET list endpoints return `data: rowsArray, pagination: {total, limit, offset}`.
+- Backend: POST /brain/risk/assess broadcasts `risk.assessmentCreated` and auto-triggers `SwarmDebugger.debug()` for high/critical risk.
+- Backend: SwarmDebugger events wired to Brain WebSocket via `broadcastBrainEvent()`.
+- Frontend: WebSocket subscribes to `risk.*` and `swarm.*`, 5s polling fallback, brain-offline UI with retry button.
+
+#### Test Result
+
+- TypeScript build: 0 errors
+- Production build: success
+- predictive-swarm.test.js: 45/45 passed
+- Full cloud test suite: 840 passed (12 pre-existing unrelated failures)
+
+#### Lesson Learned
+
+When a dashboard tab has a hard dependency on an external service (PostgreSQL/brain), always provide:
+
+1. A clear "service offline" UI state with a retry action
+2. Graceful frontend handling of 503s (don't silently ignore)
+3. Real-time updates via WebSocket + polling fallback
+4. API response shapes that exactly match frontend expectations — paginated endpoints should return arrays as the primary data field
+
+#### Reusable Rule
+
+Before declaring a dashboard feature "done", run this checklist:
+
+- [ ] Does the schema/migration actually get applied on fresh DB startup?
+- [ ] Do list endpoints return arrays that the frontend can `.map()` directly?
+- [ ] Does the stats endpoint return the exact shape the frontend StatCards expect?
+- [ ] Is there a WebSocket or polling mechanism for real-time updates?
+- [ ] Does the frontend show a meaningful state when the backend returns 503?
+
+#### Tags
+
+[predictive-risk, swarm-debug, dashboard, schema-migration, websocket, data-shape, brain-v2]
+
+### Lesson: Events Dashboard Tab — Silent Data-Shape Failures
+
+Date: 2026-05-23
+Source: Kimi Code CLI task completion
+Model/API used: Kimi Code CLI
+Confidence: high
+Related files: cloud/dashboard/src/components/views/events.tsx, cloud/api/api.js, cloud/orchestrator/modules/EventLog.js, cloud/orchestrator/CloudOrchestrator.js
+
+#### Task Summary
+
+Fixed 6 gaps in the Events dashboard tab where data-shape mismatches caused silent failures: empty messages, invalid dates, broken severity filters, no real-time updates, and incorrect activity feed timestamps.
+
+#### Files Changed
+
+- cloud/orchestrator/modules/EventLog.js — \_rowToEvent() now adds message, timestamp, and maps severity values
+- cloud/api/api.js — Severity mapping in /orchestrator/events route, fixed buildQueueActivity to use createdAt, broadcasts orchestrator events to WebSocket
+- cloud/orchestrator/CloudOrchestrator.js — Wraps eventLog.record() to emit eventRecorded for real-time consumers
+- cloud/dashboard/src/components/views/events.tsx — WebSocket integration, auto-refresh on by default (5s), live/offline badge
+
+#### Bug Cause
+
+The Events tab failed silently because:
+
+1. The DB schema has no "message" column — frontend expected message but got undefined.
+2. Backend returned createdAt (number) but frontend expected timestamp (string) — Invalid Date.
+3. DB stores "warning"/"critical" but frontend sent "warn"/"debug" to API — SQL filters never matched.
+4. No WebSocket broadcasting for orchestrator events — stale data.
+5. buildQueueActivity used event.timestamp which didn't exist in \_rowToEvent output.
+
+#### Fix Applied
+
+- Backend: \_rowToEvent() derives message from payload.message || type || source, adds timestamp ISO string, keeps createdAt for backward compat, maps DB severity to frontend values.
+- Backend: API route maps frontend severity values back to DB values before querying.
+- Backend: CloudOrchestrator wraps eventLog.record to emit eventRecorded; api.js broadcasts via broadcastBrainEvent("orchestrator.event", event).
+- Frontend: Subscribes to orchestrator.\* WebSocket events, auto-refreshes every 5s by default.
+
+#### Test Result
+
+- Backend syntax check: all files pass
+- EventLog inline verification: severity mapping, message derivation, timestamp generation confirmed working
+- predictive-swarm.test.js: 45/45 passed (no regressions)
+- Production build: blocked by unrelated projects.tsx syntax error (pre-existing)
+
+#### Lesson Learned
+
+Silent data-shape mismatches are worse than crashes because they go unnoticed. When a field is missing or has the wrong type, the UI often renders empty/invalid data without throwing errors. Always:
+
+1. Audit the full data path from DB → API → frontend interface
+2. Check that every field rendered in the UI actually exists in the API response
+3. Verify filter values match on both sides (frontend dropdown ↔ DB enum ↔ SQL query)
+4. Test with real data, not just empty states
+
+#### Reusable Rule
+
+For any "log" or "event list" dashboard feature, run this checklist:
+
+- [ ] Does every rendered field (message, timestamp, severity) exist in the API response?
+- [ ] Are date/timestamp fields the same type (string vs number) on both sides?
+- [ ] Do filter dropdown values exactly match DB enum values (or is there bidirectional mapping)?
+- [ ] Is there real-time delivery (WebSocket/SSE) or at least frequent polling?
+- [ ] Does the activity feed / overview that consumes the same data use the correct field names?
+
+#### Tags
+
+[events, event-log, data-shape, severity-mapping, websocket, dashboard, silent-failure]
+
+### Lesson: Comprehensive Dashboard Gap Closure — CRUD, Export, Polling, Search/Filter, Theming
+
+Date: 2026-05-23
+Source: Code agent task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/dashboard/src/components/views/logs.tsx, cloud/dashboard/src/components/views/bugs.tsx, cloud/dashboard/src/components/views/settings.tsx, cloud/dashboard/src/components/views/product-memory.tsx, cloud/dashboard/src/components/views/ml-engine.tsx, cloud/dashboard/src/components/views/file-importer.tsx, cloud/dashboard/src/components/views/auto-deploy.tsx, cloud/dashboard/src/components/views/events.tsx, cloud/dashboard/src/components/views/savepoints.tsx, cloud/dashboard/src/components/views/autonomous-loop.tsx, cloud/dashboard/src/components/views/agents.tsx, cloud/dashboard/src/components/views/ollama-growth.tsx, cloud/dashboard/src/components/views/task-timeline.tsx, cloud/dashboard/src/components/views/mcp-servers.tsx, cloud/dashboard/src/components/views/collaboration.tsx, cloud/dashboard/src/components/views/projects.tsx, cloud/dashboard/src/components/views/memory-explorer.tsx, cloud/dashboard/src/components/views/brain.tsx, docs/super-roo/DASHBOARD_GAP_ANALYSIS_2026-05-23.md
+
+#### Task Summary
+
+Systematically closed all gaps identified in the 51-tab dashboard gap analysis across 6 phases:
+
+- **Phase 1 (Critical)**: Replaced mock data with real API calls in logs.tsx, bugs.tsx, settings.tsx
+- **Phase 2 (High)**: Expanded minimal implementations in product-memory.tsx, ml-engine.tsx, file-importer.tsx, auto-deploy.tsx with search/filter, export CSV, refresh buttons
+- **Phase 3 (Cross-cutting)**: Added export CSV, polling, search/filter, and refresh to events.tsx, savepoints.tsx, autonomous-loop.tsx, agents.tsx, ollama-growth.tsx, task-timeline.tsx
+- **Phase 4 (Theming)**: Fixed VSCode CSS variable references to Tailwind classes in mcp-servers.tsx, collaboration.tsx
+- **Phase 5 (CRUD)**: Added create/delete to projects.tsx, add/delete to mcp-servers.tsx, create savepoint to savepoints.tsx, agent config editing to agents.tsx, lesson edit/delete and brain memory delete to memory-explorer.tsx; assessed brain.tsx as read-only monitoring view (no CRUD needed)
+- **Phase 6**: Recorded lesson
+
+#### Files Changed
+
+- cloud/dashboard/src/components/views/logs.tsx — real API calls, level filtering, export CSV, refresh
+- cloud/dashboard/src/components/views/bugs.tsx — real API calls, export CSV, refresh, error banner
+- cloud/dashboard/src/components/views/settings.tsx — API-driven MCP server list, Live Decision Monitor
+- cloud/dashboard/src/components/views/product-memory.tsx — search/filter, export CSV, refresh
+- cloud/dashboard/src/components/views/ml-engine.tsx — search/filter, export CSV, refresh
+- cloud/dashboard/src/components/views/file-importer.tsx — refresh button, polling
+- cloud/dashboard/src/components/views/auto-deploy.tsx — export CSV
+- cloud/dashboard/src/components/views/events.tsx — export CSV
+- cloud/dashboard/src/components/views/savepoints.tsx — export CSV, polling, refresh, create savepoint form
+- cloud/dashboard/src/components/views/autonomous-loop.tsx — export CSV, refresh
+- cloud/dashboard/src/components/views/agents.tsx — export CSV, search/filter, polling, refresh, agent config editing (PUT/DELETE)
+- cloud/dashboard/src/components/views/ollama-growth.tsx — export CSV, polling, refresh, header
+- cloud/dashboard/src/components/views/task-timeline.tsx — export CSV, status filtering
+- cloud/dashboard/src/components/views/collaboration.tsx — theming fix (VSCode CSS → Tailwind)
+- cloud/dashboard/src/components/views/mcp-servers.tsx — theming fix, add/delete server CRUD
+- cloud/dashboard/src/components/views/projects.tsx — create project form, delete button CRUD
+- cloud/dashboard/src/components/views/memory-explorer.tsx — lesson edit/delete, brain memory delete
+- cloud/dashboard/src/components/views/brain.tsx — assessed as read-only monitoring view (no changes needed)
+- docs/super-roo/DASHBOARD_GAP_ANALYSIS_2026-05-23.md — comprehensive gap analysis document
+
+#### Bug Cause
+
+N/A — this was a feature gap closure task, not a bug fix. The root cause of the gaps was that many dashboard tabs were initially built as minimal implementations without real API wiring, export capabilities, CRUD operations, or consistent theming.
+
+#### Fix Applied
+
+Systematic gap closure across 6 phases, prioritizing by severity (critical mock data → high minimal implementations → medium cross-cutting features → low theming → CRUD operations).
+
+#### Test Result
+
+unknown
+
+#### Lesson Learned
+
+When building a large dashboard with 50+ tabs, use a phased approach to gap closure:
+
+1. **Audit first**: Catalog every tab's current state vs. desired state in a structured document
+2. **Prioritize by severity**: Fix critical issues (mock data) before quality-of-life features (export, theming)
+3. **Use consistent patterns**: Export CSV, search/filter, polling, and refresh should use the same code pattern across all tabs for maintainability
+4. **Assess before building**: Not every tab needs CRUD — read-only monitoring views (like brain.tsx) are valid by design
+5. **CRUD patterns are reusable**: The same DELETE-with-confirm, PUT-with-form, POST-with-form patterns apply across all entity types
+
+#### Reusable Rule
+
+When adding a new dashboard tab, always include these from the start:
+
+- [ ] Real API calls (no mock data)
+- [ ] Loading state
+- [ ] Error state with retry
+- [ ] Empty state with helpful message
+- [ ] Refresh button
+- [ ] Export CSV (for list views)
+- [ ] Search/filter (for lists with 10+ items)
+- [ ] Polling (for real-time data)
+- [ ] CRUD operations (for entity management views)
+- [ ] Consistent theming (Tailwind, no VSCode CSS variables)
+
+#### Tags
+
+[dashboard, gap-closure, CRUD, export-csv, polling, search-filter, theming, code-quality, best-practices]
+
+### Lesson: Save Points Tab — From Mock Facade to Real Data
+
+Date: 2026-05-23
+Source: Kimi Code CLI task completion
+Model/API used: Kimi Code CLI
+Confidence: high
+Related files: cloud/dashboard/src/components/views/savepoints.tsx, cloud/api/api.js, cloud/orchestrator/CloudOrchestrator.js, cloud/orchestrator/modules/DeployOrchestrator.js
+
+#### Task Summary
+
+Repaired the Save Points & Deployments dashboard tab which was entirely mock data with a broken create button, crashing backend routes, and no real-time updates.
+
+#### Files Changed
+
+- cloud/api/api.js — Fixed getCurrent() crash (method didn't exist), added await to async getHistory()/getStats(), wired /telegram/deployments to real DeployOrchestrator.getHistory(), added POST /api/savepoints with JSON persistence, added transformDeployment() and formatAgo() helpers, added WebSocket broadcasting for deploy/rollback events
+- cloud/orchestrator/CloudOrchestrator.js — Wrapped eventLog.record to emit eventRecorded
+- cloud/dashboard/src/components/views/savepoints.tsx — Full rewrite with WebSocket, 5s polling, rollback action buttons, live/offline badge, real data handling
+
+#### Bug Cause
+
+1. POST /api/savepoints endpoint did not exist — create button 404'd silently.
+2. deployOrchestrator.getCurrent() was called but the method doesn't exist — runtime TypeError.
+3. async getHistory() and getStats() were called without await — returned Promises instead of data.
+4. /telegram/deployments and /telegram/savepoints returned hardcoded mock arrays.
+5. No WebSocket integration — 30s polling only.
+6. No deployment actions — read-only view.
+
+#### Fix Applied
+
+- Backend: Added savepoints JSON file persistence, real deployment history queries with data transformation, fixed await bugs, replaced nonexistent getCurrent() with getStats().latestDeployment.
+- Backend: Wrapped deployOrchestrator.deploy() and rollback() to broadcast brain events for real-time updates.
+- Frontend: WebSocket subscription to deploy._ and savepoint._, 5s polling, rollback buttons, live badge.
+
+#### Test Result
+
+- Backend syntax check: all files pass
+- predictive-swarm.test.js: 45/45 passed (no regressions)
+- TypeScript: savepoints.tsx compiles with 0 errors
+- Production build: blocked by pre-existing projects.tsx syntax error
+
+#### Lesson Learned
+
+Mock data facades are dangerous because they make a feature look complete while every write operation fails silently. When auditing a dashboard tab:
+
+1. Try the create/update/delete actions — do they actually hit real endpoints?
+2. Check if backend methods exist before calling them (getCurrent crash).
+3. Always await async backend methods in API routes.
+4. Wire read endpoints to real data sources instead of static arrays.
+5. Every tab should have WebSocket + polling for real-time consistency.
+
+#### Reusable Rule
+
+Before shipping any dashboard tab with CRUD operations, verify:
+
+- [ ] Create action hits a real endpoint that persists data
+- [ ] Read action returns data from a real store (not static mock)
+- [ ] All backend method calls are checked for existence
+- [ ] All async backend calls have await
+- [ ] Real-time updates work (WebSocket or frequent polling)
+- [ ] Action buttons (rollback, retry, cancel) are wired to real endpoints
+
+#### Tags
+
+[savepoints, deployments, mock-data, dashboard, websocket, deploy-orchestrator, crud, await-bugs]

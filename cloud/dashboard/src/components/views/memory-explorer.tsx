@@ -20,6 +20,9 @@ import {
 	Star,
 	TrendingUp,
 	Users,
+	Trash2,
+	Save,
+	Edit3,
 } from "lucide-react"
 
 interface Lesson {
@@ -217,6 +220,110 @@ export function MemoryExplorerView() {
 	// Reuse analytics
 	const [reuseData, setReuseData] = useState<ReuseData | null>(null)
 	const [reuseLoading, setReuseLoading] = useState(false)
+
+	// Lesson CRUD
+	const [editingLesson, setEditingLesson] = useState<string | null>(null)
+	const [savingLesson, setSavingLesson] = useState(false)
+	const [editForm, setEditForm] = useState({
+		reusable_rule: "",
+		fix: "",
+		tags: "",
+	})
+
+	const handleDeleteLesson = async (id: string) => {
+		if (!confirm(`Delete lesson "${id}"? This cannot be undone.`)) return
+		try {
+			const token = localStorage.getItem("superroo_auth_token")
+			const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
+			const res = await fetch(`/api/lessons/${id}`, { method: "DELETE", headers })
+			if (res.ok) {
+				setData((prev) =>
+					prev ? { ...prev, lessons: prev.lessons.filter((l) => l.id !== id), total: prev.total - 1 } : prev,
+				)
+			} else {
+				const d = await res.json()
+				alert(`Delete failed: ${d.error || `HTTP ${res.status}`}`)
+			}
+		} catch (e: any) {
+			alert(`Delete failed: ${e.message}`)
+		}
+	}
+
+	const handleEditLesson = (lesson: Lesson) => {
+		setEditingLesson(lesson.id)
+		setEditForm({
+			reusable_rule: lesson.reusable_rule || "",
+			fix: lesson.fix || "",
+			tags: (lesson.tags || []).join(", "),
+		})
+	}
+
+	const handleSaveLesson = async (id: string) => {
+		setSavingLesson(true)
+		try {
+			const token = localStorage.getItem("superroo_auth_token")
+			const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
+			headers["Content-Type"] = "application/json"
+			const body = {
+				reusable_rule: editForm.reusable_rule,
+				fix: editForm.fix,
+				tags: editForm.tags
+					.split(",")
+					.map((s) => s.trim())
+					.filter(Boolean),
+			}
+			const res = await fetch(`/api/lessons/${id}`, {
+				method: "PUT",
+				headers,
+				body: JSON.stringify(body),
+			})
+			if (res.ok) {
+				const result = await res.json()
+				setData((prev) => {
+					if (!prev) return prev
+					return {
+						...prev,
+						lessons: prev.lessons.map((l) =>
+							l.id === id
+								? {
+										...l,
+										...result.lesson,
+										reusable_rule: body.reusable_rule,
+										fix: body.fix,
+										tags: body.tags,
+									}
+								: l,
+						),
+					}
+				})
+				setEditingLesson(null)
+			} else {
+				const d = await res.json()
+				alert(`Save failed: ${d.error || `HTTP ${res.status}`}`)
+			}
+		} catch (e: any) {
+			alert(`Save failed: ${e.message}`)
+		} finally {
+			setSavingLesson(false)
+		}
+	}
+
+	const handleDeleteBrainMemory = async (id: string) => {
+		if (!confirm(`Delete memory "${id}"? This cannot be undone.`)) return
+		try {
+			const token = localStorage.getItem("superroo_auth_token")
+			const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
+			const res = await fetch(`/api/brain/v2/memory/${id}`, { method: "DELETE", headers })
+			if (res.ok) {
+				setBrainMemories((prev) => prev.filter((m) => m.id !== id))
+			} else {
+				const d = await res.json()
+				alert(`Delete failed: ${d.error || `HTTP ${res.status}`}`)
+			}
+		} catch (e: any) {
+			alert(`Delete failed: ${e.message}`)
+		}
+	}
 
 	const buildQueryString = (q: string, tag: string | null, project: string) => {
 		const params = new URLSearchParams()
@@ -649,66 +756,158 @@ export function MemoryExplorerView() {
 								{/* Expanded details */}
 								{expanded === lesson.id && (
 									<div className="border-t border-[#1e2535] px-4 pb-4 pt-3 space-y-3">
-										<div className="rounded-lg border border-[#1e2535] bg-[#0a0d14] p-3">
-											<div className="flex items-center gap-1.5 mb-1.5">
-												<BookOpen className="h-3.5 w-3.5 text-[#60a5fa]" />
-												<span className="text-xs font-semibold text-[#60a5fa]">
-													Reusable Rule
-												</span>
-											</div>
-											<p className="text-sm text-[#e2e8f0]">{lesson.reusable_rule}</p>
-										</div>
-
-										<div>
-											<p className="mb-1 text-xs text-gray-500 font-medium">Fix Applied</p>
-											<p className="text-sm text-gray-300">{lesson.fix}</p>
-										</div>
-
-										{lesson.files && lesson.files.length > 0 && (
-											<div>
-												<p className="mb-1.5 text-xs text-gray-500 font-medium">
-													Files Changed
-												</p>
-												<div className="flex flex-wrap gap-1.5">
-													{lesson.files.map((f) => (
-														<span
-															key={f}
-															className="rounded bg-[#1e2535] px-2 py-0.5 font-mono text-xs text-gray-400">
-															{f}
-														</span>
-													))}
-												</div>
-											</div>
-										)}
-
-										{lesson.models && lesson.models.length > 0 && (
-											<div className="flex flex-wrap gap-1.5">
-												{lesson.models.map((m) => (
-													<span
-														key={m}
-														className="rounded border border-[#1e2535] px-2 py-0.5 text-xs text-gray-500">
-														🤖 {m}
-													</span>
-												))}
-											</div>
-										)}
-
-										{lesson.tags && lesson.tags.length > 0 && (
-											<div className="flex flex-wrap gap-1.5">
-												{lesson.tags.map((t) => (
+										{/* Action buttons */}
+										<div className="flex items-center justify-end gap-2">
+											{editingLesson === lesson.id ? (
+												<>
 													<button
-														key={t}
-														onClick={() => handleTag(t)}
-														className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-xs transition-colors ${
-															activeTag === t
-																? "bg-[#60a5fa]/20 text-[#60a5fa]"
-																: "bg-[#1e2535] text-gray-500 hover:text-gray-300"
-														}`}>
-														<Tag className="h-2.5 w-2.5" />
-														{t}
+														onClick={() => handleSaveLesson(lesson.id)}
+														disabled={savingLesson}
+														className="flex items-center gap-1 rounded-lg border border-green-700/40 bg-green-900/30 px-3 py-1.5 text-xs text-green-300 hover:bg-green-900/50 transition-colors">
+														<Save className="h-3.5 w-3.5" />
+														{savingLesson ? "Saving..." : "Save"}
 													</button>
-												))}
-											</div>
+													<button
+														onClick={() => setEditingLesson(null)}
+														className="flex items-center gap-1 rounded-lg border border-[#1e2535] px-3 py-1.5 text-xs text-gray-400 hover:text-gray-200 transition-colors">
+														<X className="h-3.5 w-3.5" />
+														Cancel
+													</button>
+												</>
+											) : (
+												<>
+													<button
+														onClick={() => handleEditLesson(lesson)}
+														className="flex items-center gap-1 rounded-lg border border-[#1e2535] px-3 py-1.5 text-xs text-gray-400 hover:text-blue-400 transition-colors">
+														<Edit3 className="h-3.5 w-3.5" />
+														Edit
+													</button>
+													<button
+														onClick={() => handleDeleteLesson(lesson.id)}
+														className="flex items-center gap-1 rounded-lg border border-red-700/40 bg-red-900/30 px-3 py-1.5 text-xs text-red-300 hover:bg-red-900/50 transition-colors">
+														<Trash2 className="h-3.5 w-3.5" />
+														Delete
+													</button>
+												</>
+											)}
+										</div>
+
+										{editingLesson === lesson.id ? (
+											<>
+												<div className="rounded-lg border border-[#1e2535] bg-[#0a0d14] p-3">
+													<div className="flex items-center gap-1.5 mb-1.5">
+														<BookOpen className="h-3.5 w-3.5 text-[#60a5fa]" />
+														<span className="text-xs font-semibold text-[#60a5fa]">
+															Reusable Rule
+														</span>
+													</div>
+													<textarea
+														value={editForm.reusable_rule}
+														onChange={(e) =>
+															setEditForm((prev) => ({
+																...prev,
+																reusable_rule: e.target.value,
+															}))
+														}
+														className="w-full rounded-lg border border-[#1e2535] bg-[#0f1117] p-2 text-sm text-[#e2e8f0] placeholder-gray-500 focus:border-[#60a5fa] focus:outline-none"
+														rows={3}
+													/>
+												</div>
+
+												<div>
+													<p className="mb-1 text-xs text-gray-500 font-medium">
+														Fix Applied
+													</p>
+													<textarea
+														value={editForm.fix}
+														onChange={(e) =>
+															setEditForm((prev) => ({ ...prev, fix: e.target.value }))
+														}
+														className="w-full rounded-lg border border-[#1e2535] bg-[#0f1117] p-2 text-sm text-[#e2e8f0] placeholder-gray-500 focus:border-[#60a5fa] focus:outline-none"
+														rows={2}
+													/>
+												</div>
+
+												<div>
+													<p className="mb-1 text-xs text-gray-500 font-medium">
+														Tags (comma-separated)
+													</p>
+													<input
+														value={editForm.tags}
+														onChange={(e) =>
+															setEditForm((prev) => ({ ...prev, tags: e.target.value }))
+														}
+														className="w-full rounded-lg border border-[#1e2535] bg-[#0f1117] p-2 text-sm text-[#e2e8f0] placeholder-gray-500 focus:border-[#60a5fa] focus:outline-none"
+														placeholder="tag1, tag2, tag3"
+													/>
+												</div>
+											</>
+										) : (
+											<>
+												<div className="rounded-lg border border-[#1e2535] bg-[#0a0d14] p-3">
+													<div className="flex items-center gap-1.5 mb-1.5">
+														<BookOpen className="h-3.5 w-3.5 text-[#60a5fa]" />
+														<span className="text-xs font-semibold text-[#60a5fa]">
+															Reusable Rule
+														</span>
+													</div>
+													<p className="text-sm text-[#e2e8f0]">{lesson.reusable_rule}</p>
+												</div>
+
+												<div>
+													<p className="mb-1 text-xs text-gray-500 font-medium">
+														Fix Applied
+													</p>
+													<p className="text-sm text-gray-300">{lesson.fix}</p>
+												</div>
+
+												{lesson.files && lesson.files.length > 0 && (
+													<div>
+														<p className="mb-1.5 text-xs text-gray-500 font-medium">
+															Files Changed
+														</p>
+														<div className="flex flex-wrap gap-1.5">
+															{lesson.files.map((f) => (
+																<span
+																	key={f}
+																	className="rounded bg-[#1e2535] px-2 py-0.5 font-mono text-xs text-gray-400">
+																	{f}
+																</span>
+															))}
+														</div>
+													</div>
+												)}
+
+												{lesson.models && lesson.models.length > 0 && (
+													<div className="flex flex-wrap gap-1.5">
+														{lesson.models.map((m) => (
+															<span
+																key={m}
+																className="rounded border border-[#1e2535] px-2 py-0.5 text-xs text-gray-500">
+																🤖 {m}
+															</span>
+														))}
+													</div>
+												)}
+
+												{lesson.tags && lesson.tags.length > 0 && (
+													<div className="flex flex-wrap gap-1.5">
+														{lesson.tags.map((t) => (
+															<button
+																key={t}
+																onClick={() => handleTag(t)}
+																className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-xs transition-colors ${
+																	activeTag === t
+																		? "bg-[#60a5fa]/20 text-[#60a5fa]"
+																		: "bg-[#1e2535] text-gray-500 hover:text-gray-300"
+																}`}>
+																<Tag className="h-2.5 w-2.5" />
+																{t}
+															</button>
+														))}
+													</div>
+												)}
+											</>
 										)}
 									</div>
 								)}
@@ -832,9 +1031,15 @@ export function MemoryExplorerView() {
 											{new Date(mem.created_at).toLocaleDateString()}
 										</span>
 									</div>
-									<div className="flex items-center gap-1 text-xs text-gray-500">
+									<div className="flex items-center gap-2 text-xs text-gray-500">
 										<Brain className="h-3 w-3" />
 										{mem.agent}
+										<button
+											onClick={() => handleDeleteBrainMemory(mem.id)}
+											className="rounded-md border border-red-800/30 bg-red-950/30 p-1 text-red-400 transition-colors hover:bg-red-900/50 hover:text-red-300"
+											title="Delete memory">
+											<Trash2 className="h-3 w-3" />
+										</button>
 									</div>
 								</div>
 

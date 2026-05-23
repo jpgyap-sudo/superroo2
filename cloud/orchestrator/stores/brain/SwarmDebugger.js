@@ -20,6 +20,7 @@
  */
 
 const crypto = require("crypto")
+const { EventEmitter } = require("events")
 
 const DEFAULT_AGENTS = Object.freeze([
 	{
@@ -48,7 +49,7 @@ const DEFAULT_AGENTS = Object.freeze([
 	},
 ])
 
-class SwarmDebugger {
+class SwarmDebugger extends EventEmitter {
 	/**
 	 * @param {import('pg').Pool} pool - Postgres connection pool
 	 * @param {object} [options]
@@ -57,6 +58,7 @@ class SwarmDebugger {
 	 * @param {object} [options.memoryService] - Optional MemoryService for memory-agent recall
 	 */
 	constructor(pool, options = {}) {
+		super()
 		this.pool = pool
 		this.agents = options.agents || DEFAULT_AGENTS
 		this.ollamaClient = options.ollamaClient || null
@@ -97,31 +99,39 @@ class SwarmDebugger {
 			],
 		)
 
+		this.emit("runStarted", { runId, projectId, riskAssessmentId, problem, agentCount: this.agents.length })
+
 		// Run all agents in parallel
 		const agentPromises = this.agents.map(async (agent) => {
+			this.emit("agentStarted", { runId, agent: agent.name })
 			try {
+				let result
 				if (typeof agent.run === "function") {
 					// Custom agent with its own run function
-					const result = await agent.run({ problem, context })
-					return {
+					const runResult = await agent.run({ problem, context })
+					result = {
 						agent: agent.name,
 						focus: agent.focus,
-						finding: result.finding || "No finding",
-						confidence: typeof result.confidence === "number" ? result.confidence : 0.5,
-						suggestedFix: result.suggestedFix || null,
+						finding: runResult.finding || "No finding",
+						confidence: typeof runResult.confidence === "number" ? runResult.confidence : 0.5,
+						suggestedFix: runResult.suggestedFix || null,
 					}
+				} else {
+					// Built-in agent logic
+					result = await this._runBuiltinAgent(agent, { problem, context })
 				}
-
-				// Built-in agent logic
-				return await this._runBuiltinAgent(agent, { problem, context })
+				this.emit("agentCompleted", { runId, agent: agent.name, confidence: result.confidence })
+				return result
 			} catch (err) {
-				return {
+				const failResult = {
 					agent: agent.name,
 					focus: agent.focus,
 					finding: `Agent failed: ${err.message}`,
 					confidence: 0,
 					suggestedFix: null,
 				}
+				this.emit("agentFailed", { runId, agent: agent.name, error: err.message })
+				return failResult
 			}
 		})
 
@@ -132,7 +142,10 @@ class SwarmDebugger {
 
 		// Build final summary
 		const finalSummary = findings
-			.map((f) => `- ${f.agent}: ${f.finding}${f.suggestedFix ? ` (suggested fix: ${f.suggestedFix})` : ""} (confidence: ${Math.round(f.confidence * 100)}%)`)
+			.map(
+				(f) =>
+					`- ${f.agent}: ${f.finding}${f.suggestedFix ? ` (suggested fix: ${f.suggestedFix})` : ""} (confidence: ${Math.round(f.confidence * 100)}%)`,
+			)
 			.join("\n")
 
 		// Update swarm run record
@@ -144,16 +157,18 @@ class SwarmDebugger {
 		// If linked to a risk assessment, update it with the swarm run ID
 		if (riskAssessmentId) {
 			try {
-				await this.pool.query(
-					`UPDATE brain_risk_assessments SET swarm_run_id = $1 WHERE id = $2`,
-					[runId, riskAssessmentId],
-				)
+				await this.pool.query(`UPDATE brain_risk_assessments SET swarm_run_id = $1 WHERE id = $2`, [
+					runId,
+					riskAssessmentId,
+				])
 			} catch {
 				// Non-critical — assessment already recorded
 			}
 		}
 
-		return { runId, findings, finalSummary, status: "completed" }
+		this.emit("runCompleted", { runId, findings, status: "completed" })
+
+		return { runId, id: runId, findings, finalSummary, status: "completed" }
 	}
 
 	/**
@@ -229,9 +244,7 @@ class SwarmDebugger {
 	 * @private
 	 */
 	_runDockerAgent(filesChanged, problem) {
-		const dockerFiles = (filesChanged || []).filter(
-			(f) => /docker|compose|Dockerfile|container/i.test(f),
-		)
+		const dockerFiles = (filesChanged || []).filter((f) => /docker|compose|Dockerfile|container/i.test(f))
 
 		if (dockerFiles.length === 0) {
 			return { finding: "No Docker-related files changed in this operation", confidence: 0.5, suggestedFix: null }
@@ -240,7 +253,8 @@ class SwarmDebugger {
 		return {
 			finding: `${dockerFiles.length} Docker-related file(s) changed: ${dockerFiles.join(", ")}. Review for configuration issues.`,
 			confidence: 0.7,
-			suggestedFix: "Verify Dockerfile syntax, check compose file for port conflicts, and ensure image tags are correct",
+			suggestedFix:
+				"Verify Dockerfile syntax, check compose file for port conflicts, and ensure image tags are correct",
 		}
 	}
 
@@ -252,12 +266,18 @@ class SwarmDebugger {
 		const dbKeywords = /migration|schema|sql|query|database|pool|connection|pg|postgres/i
 		if (dbKeywords.test(problem)) {
 			return {
-				finding: "Problem description references database operations. Check migration order, connection pool size, and query performance.",
+				finding:
+					"Problem description references database operations. Check migration order, connection pool size, and query performance.",
 				confidence: 0.7,
-				suggestedFix: "Run migrations in a transaction, verify connection pool settings, and review slow queries",
+				suggestedFix:
+					"Run migrations in a transaction, verify connection pool settings, and review slow queries",
 			}
 		}
-		return { finding: "No database-specific issues detected in problem description", confidence: 0.4, suggestedFix: null }
+		return {
+			finding: "No database-specific issues detected in problem description",
+			confidence: 0.4,
+			suggestedFix: null,
+		}
 	}
 
 	/**
@@ -265,8 +285,8 @@ class SwarmDebugger {
 	 * @private
 	 */
 	_runSecurityAgent(filesChanged, logs) {
-		const sensitiveFiles = (filesChanged || []).filter(
-			(f) => /auth|secret|token|password|credential|key|\.env/i.test(f),
+		const sensitiveFiles = (filesChanged || []).filter((f) =>
+			/auth|secret|token|password|credential|key|\.env/i.test(f),
 		)
 
 		const securityLogs = /auth|login|token|permission|forbidden|unauthorized/i.test(logs || "")
@@ -282,7 +302,8 @@ class SwarmDebugger {
 		return {
 			finding: `Security audit found: ${issues.join("; ")}`,
 			confidence: 0.75,
-			suggestedFix: "Review sensitive files for exposed credentials, verify access controls, and check for hardcoded secrets",
+			suggestedFix:
+				"Review sensitive files for exposed credentials, verify access controls, and check for hardcoded secrets",
 		}
 	}
 
@@ -291,8 +312,8 @@ class SwarmDebugger {
 	 * @private
 	 */
 	_runRegressionAgent(filesChanged, problem) {
-		const criticalPaths = (filesChanged || []).filter(
-			(f) => /api|route|controller|service|core|util|helper|middleware/i.test(f),
+		const criticalPaths = (filesChanged || []).filter((f) =>
+			/api|route|controller|service|core|util|helper|middleware/i.test(f),
 		)
 
 		if (criticalPaths.length > 0) {
@@ -303,7 +324,11 @@ class SwarmDebugger {
 			}
 		}
 
-		return { finding: "No critical paths modified, regression risk appears low", confidence: 0.5, suggestedFix: null }
+		return {
+			finding: "No critical paths modified, regression risk appears low",
+			confidence: 0.5,
+			suggestedFix: null,
+		}
 	}
 
 	/**
@@ -323,7 +348,11 @@ class SwarmDebugger {
 			})
 
 			if (!memories || memories.length === 0) {
-				return { finding: "No similar past issues found in Central Brain memory", confidence: 0.4, suggestedFix: null }
+				return {
+					finding: "No similar past issues found in Central Brain memory",
+					confidence: 0.4,
+					suggestedFix: null,
+				}
 			}
 
 			const topMemory = memories[0]

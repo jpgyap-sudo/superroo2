@@ -252,7 +252,8 @@ export default function IdeTerminalView() {
 			try {
 				const data = await fetchWorkspace()
 				if (cancelled) return
-				if (data.success) {
+				// API returns data directly (no success wrapper); workspaceId confirms a valid response
+				if (data.workspaceId) {
 					if (data.files) dispatch({ type: "SET_FILES", payload: data.files })
 					if (data.repoName) dispatch({ type: "SET_REPO_NAME", payload: data.repoName })
 					if (data.branch) dispatch({ type: "SET_BRANCH", payload: data.branch })
