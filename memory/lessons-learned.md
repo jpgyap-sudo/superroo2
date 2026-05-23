@@ -2864,3 +2864,43 @@ To be determined — this commit was auto-flagged as potentially containing a le
 bugfix
 
 ---
+
+### Auto-Extracted Lesson: Docs(lessons): auto-extracted lesson from previous commit
+
+Date: 2026-05-23
+Source: Git commit 07daa68f
+Model/API used: unknown
+Confidence: medium
+Related files: memory/lesson-index.jsonl, memory/lesson-summaries.json, memory/lessons-learned.md
+
+#### Task Summary
+docs(lessons): auto-extracted lesson from previous commit
+
+#### Files Changed
+- `memory/lesson-index.jsonl`
+- `memory/lesson-summaries.json`
+- `memory/lessons-learned.md`
+
+#### Bug Cause
+<!-- TODO: Document what caused the issue -->
+Unknown — extracted from commit 07daa68f.
+
+#### Fix Applied
+<!-- TODO: Document the solution -->
+See commit 07daa68f by JPG Yap.
+
+#### Test Result
+Unknown — no test files detected.
+
+#### Lesson Learned
+<!-- TODO: Extract reusable lesson -->
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+<!-- TODO: Define a specific rule for future agents -->
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+general
+
+---

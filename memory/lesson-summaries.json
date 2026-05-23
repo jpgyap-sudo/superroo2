@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-23T00:44:28.866Z",
+  "generatedAt": "2026-05-23T00:45:05.830Z",
   "deepseekModel": "deepseek-chat",
   "ollamaUrl": "http://127.0.0.1:11434",
   "sourceFile": "memory/lessons-learned.md",
@@ -10,7 +10,7 @@
       "date": "2026-05-23",
       "model": "local",
       "confidence": "high",
-      "summary": "When calling methods on optional orchestrator sub-modules, always guard with `typeof orchestrator.subModule.method === \"function\"` before invocation, even if the parent object exists. This prevents a single missing or non-function method from crashing an entire aggregation endpoint, as seen when `orchestrator.learningGateway.health()` threw a TypeError and broke the dashboard overview. Use fallback values like `null` or defaults when the method is unavailable.",
+      "summary": "The lesson is to always guard optional orchestrator methods with `typeof ... === \"function\"` before calling them, as a missing method on an existing parent object can crash an entire endpoint. In this case, `orchestrator.learningGateway.health()` was called unconditionally but wasn't a function, causing a 500 error on the dashboard overview. The fix adds function existence checks and fallback values to prevent such crashes.",
       "hasEmbeddings": false
     }
   ]
