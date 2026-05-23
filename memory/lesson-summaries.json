@@ -1,17 +1,17 @@
 {
-	"generatedAt": "2026-05-23T00:39:49.338Z",
-	"deepseekModel": "deepseek-chat",
-	"ollamaUrl": "http://127.0.0.1:11434",
-	"sourceFile": "memory/lessons-learned.md",
-	"count": 1,
-	"summaries": [
-		{
-			"title": "Dashboard feature flowcharts tab",
-			"date": "2026-05-23",
-			"model": "local",
-			"confidence": "medium",
-			"summary": "Added a static React/Tailwind Flowcharts tab to the SuperRoo dashboard, avoiding Mermaid/runtime dependencies. Register new pages by adding a view import, PAGES entry, pageLabel, and Sidebar NAV item. Validate UI changes with lint and build commands, ensuring lucide icon names match the installed lucide-react version to prevent Next type-checking failures.",
-			"hasEmbeddings": false
-		}
-	]
+  "generatedAt": "2026-05-23T00:44:21.026Z",
+  "deepseekModel": "deepseek-chat",
+  "ollamaUrl": "http://127.0.0.1:11434",
+  "sourceFile": "memory/lessons-learned.md",
+  "count": 1,
+  "summaries": [
+    {
+      "title": "Guard optional orchestrator methods before calling them",
+      "date": "2026-05-23",
+      "model": "local",
+      "confidence": "high",
+      "summary": "The lesson warns against assuming that a method exists on an optional orchestrator sub-module just because the parent object exists. Always guard calls with `typeof orchestrator.subModule.method === \"function\"` before invoking dynamically-injected or lazily-initialized methods to prevent a single missing method from crashing an entire endpoint. This defensive programming pattern ensures robust fallback behavior when methods are unavailable.",
+      "hasEmbeddings": false
+    }
+  ]
 }
