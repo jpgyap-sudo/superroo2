@@ -9,6 +9,13 @@
  * event logging, safety management, self-healing, and ML-driven improvement.
  */
 
+// Load .env file for local development (never commit .env to git)
+try {
+ require("dotenv").config({ path: require("path").join(__dirname, "..", ".env") })
+} catch {
+ // dotenv not installed — env vars must be set via PM2 or system environment
+}
+
 const http = require("http")
 const crypto = require("crypto")
 const { Queue } = require("bullmq")
@@ -8651,7 +8658,7 @@ const server = http.createServer(async (req, res) => {
 					loadOverviewCommitDeploy(8),
 					loadOverviewUsage(200),
 					getLogs(12),
-					orchestrator?.learningGateway
+					orchestrator?.learningGateway && typeof orchestrator.learningGateway.health === "function"
 						? orchestrator.learningGateway
 								.health()
 								.then((h) => h)
@@ -8673,7 +8680,7 @@ const server = http.createServer(async (req, res) => {
 				// Gather memory/learning stats for the overview
 				let memoryStats = { lessons: 0, memories: 0, brainOnline: false, hermesOnline: false }
 				try {
-					if (orchestrator?.learningGateway) {
+					if (orchestrator?.learningGateway && typeof orchestrator.learningGateway.health === "function") {
 						const health = await orchestrator.learningGateway
 							.health()
 							.catch(() => ({ brainOnline: false, hermesOnline: false }))
