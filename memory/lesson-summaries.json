@@ -1,5 +1,5 @@
 {
-	"generatedAt": "2026-05-23T00:20:32.642Z",
+	"generatedAt": "2026-05-23T00:39:49.338Z",
 	"deepseekModel": "deepseek-chat",
 	"ollamaUrl": "http://127.0.0.1:11434",
 	"sourceFile": "memory/lessons-learned.md",
@@ -10,7 +10,7 @@
 			"date": "2026-05-23",
 			"model": "local",
 			"confidence": "medium",
-			"summary": "The lesson explains how to add a static React/Tailwind documentation view (Flowcharts tab) to the SuperRoo dashboard by registering it via view imports, PAGES entries, pageLabel entries, and Sidebar NAV items, avoiding runtime dependencies like Mermaid. It emphasizes validating UI changes with `pnpm --dir cloud/dashboard lint` and `pnpm --dir cloud/dashboard build`, and warns that lucide icon names must match the installed `lucide-react` version to prevent Next.js type-checking failures.",
+			"summary": "Added a static React/Tailwind Flowcharts tab to the SuperRoo dashboard, avoiding Mermaid/runtime dependencies. Register new pages by adding a view import, PAGES entry, pageLabel, and Sidebar NAV item. Validate UI changes with lint and build commands, ensuring lucide icon names match the installed lucide-react version to prevent Next type-checking failures.",
 			"hasEmbeddings": false
 		}
 	]

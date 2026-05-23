@@ -2687,6 +2687,60 @@ cross-project, local-fallback
 
 ---
 
+### Lesson: Guard optional orchestrator methods before calling them
+
+Date: 2026-05-23
+Source: Kimi Code CLI task completion
+Model/API used: local
+Confidence: high
+Related files: cloud/api/api.js
+
+#### Task Summary
+
+Fixed `/api/overview/summary` endpoint returning HTTP 500 with `orchestrator.learningGateway.health is not a function`, causing the dashboard Overview page to render as an empty "shell" with all zeros.
+
+#### Files Changed
+
+- `cloud/api/api.js`
+
+#### Bug Cause
+
+The overview summary endpoint called `orchestrator.learningGateway.health()` unconditionally. While `learningGateway` existed as an object property on the orchestrator, `.health` was not a function (likely a mock or incomplete initialization). This threw a TypeError inside a Promise.all, crashing the entire endpoint.
+
+#### Fix Applied
+
+Added `typeof orchestrator.learningGateway.health === "function"` guards before calling `.health()` in two locations:
+
+1. Inside the Promise.all health-check gatherer
+2. Inside the memory stats gatherer
+
+When the method is unavailable, the code falls back to `Promise.resolve(null)` or default values (`brainOnline: false`, `hermesOnline: false`).
+
+#### Test Result
+
+Verified via API test: `fetch("/api/overview/summary")` with valid auth token.
+
+#### Lesson Learned
+
+Never assume an optional dependency's method exists just because the parent object exists. Always guard with `typeof ... === "function"` before calling dynamically-injected or lazily-initialized methods on orchestrator sub-modules. This prevents a single missing method from crashing an entire aggregation endpoint.
+
+#### Reusable Rule
+
+Before calling any method on an optional orchestrator sub-module, verify both the parent object and the method exist:
+
+```js
+const result =
+	orchestrator?.subModule && typeof orchestrator.subModule.method === "function"
+		? await orchestrator.subModule.method().catch(() => fallback)
+		: fallback
+```
+
+#### Tags
+
+api, bugfix, defensive-programming, orchestrator, dashboard
+
+---
+
 ### Auto-Extracted Lesson: (api): guard learningGateway.health call to prevent overview 500 crash
 
 Date: 2026-05-23
@@ -2705,13 +2759,9 @@ fix(api): guard learningGateway.health call to prevent overview 500 crash
 
 #### Bug Cause
 
-<!-- TODO: Document what caused the issue -->
-
 Unknown — extracted from commit 279008ef.
 
 #### Fix Applied
-
-<!-- TODO: Document the solution -->
 
 See commit 279008ef by JPG Yap.
 
@@ -2721,13 +2771,9 @@ Unknown — no test files detected.
 
 #### Lesson Learned
 
-<!-- TODO: Extract reusable lesson -->
-
 To be determined — this commit was auto-flagged as potentially containing a lesson.
 
 #### Reusable Rule
-
-<!-- TODO: Define a specific rule for future agents -->
 
 **TODO: Add a specific, actionable rule based on this commit.**
 
