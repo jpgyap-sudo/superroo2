@@ -2792,9 +2792,11 @@ Confidence: medium
 Related files: memory/.stop-hook-last-run, memory/.sync-state.json, memory/lesson-index.jsonl, memory/lesson-summaries.json, memory/lessons-learned.md
 
 #### Task Summary
+
 docs(lessons): complete overview 500-fix lesson + sync learning layer
 
 #### Files Changed
+
 - `memory/.stop-hook-last-run`
 - `memory/.sync-state.json`
 - `memory/lesson-index.jsonl`
@@ -2802,25 +2804,35 @@ docs(lessons): complete overview 500-fix lesson + sync learning layer
 - `memory/lessons-learned.md`
 
 #### Bug Cause
+
 <!-- TODO: Document what caused the issue -->
+
 Unknown — extracted from commit 823827ad.
 
 #### Fix Applied
+
 <!-- TODO: Document the solution -->
+
 See commit 823827ad by JPG Yap.
 
 #### Test Result
+
 Unknown — no test files detected.
 
 #### Lesson Learned
+
 <!-- TODO: Extract reusable lesson -->
+
 To be determined — this commit was auto-flagged as potentially containing a lesson.
 
 #### Reusable Rule
+
 <!-- TODO: Define a specific rule for future agents -->
+
 **TODO: Add a specific, actionable rule based on this commit.**
 
 #### Tags
+
 bugfix
 
 ---
@@ -2834,33 +2846,45 @@ Confidence: medium
 Related files: memory/lesson-index.jsonl, memory/lesson-summaries.json, memory/lessons-learned.md
 
 #### Task Summary
+
 docs(lessons): complete overview 500-fix lesson + sync learning layer
 
 #### Files Changed
+
 - `memory/lesson-index.jsonl`
 - `memory/lesson-summaries.json`
 - `memory/lessons-learned.md`
 
 #### Bug Cause
+
 <!-- TODO: Document what caused the issue -->
+
 Unknown — extracted from commit 6096d82a.
 
 #### Fix Applied
+
 <!-- TODO: Document the solution -->
+
 See commit 6096d82a by JPG Yap.
 
 #### Test Result
+
 Unknown — no test files detected.
 
 #### Lesson Learned
+
 <!-- TODO: Extract reusable lesson -->
+
 To be determined — this commit was auto-flagged as potentially containing a lesson.
 
 #### Reusable Rule
+
 <!-- TODO: Define a specific rule for future agents -->
+
 **TODO: Add a specific, actionable rule based on this commit.**
 
 #### Tags
+
 bugfix
 
 ---
@@ -2874,33 +2898,45 @@ Confidence: medium
 Related files: memory/lesson-index.jsonl, memory/lesson-summaries.json, memory/lessons-learned.md
 
 #### Task Summary
+
 docs(lessons): auto-extracted lesson from previous commit
 
 #### Files Changed
+
 - `memory/lesson-index.jsonl`
 - `memory/lesson-summaries.json`
 - `memory/lessons-learned.md`
 
 #### Bug Cause
+
 <!-- TODO: Document what caused the issue -->
+
 Unknown — extracted from commit 07daa68f.
 
 #### Fix Applied
+
 <!-- TODO: Document the solution -->
+
 See commit 07daa68f by JPG Yap.
 
 #### Test Result
+
 Unknown — no test files detected.
 
 #### Lesson Learned
+
 <!-- TODO: Extract reusable lesson -->
+
 To be determined — this commit was auto-flagged as potentially containing a lesson.
 
 #### Reusable Rule
+
 <!-- TODO: Define a specific rule for future agents -->
+
 **TODO: Add a specific, actionable rule based on this commit.**
 
 #### Tags
+
 general
 
 ---
@@ -2914,31 +2950,43 @@ Confidence: medium
 Related files: memory/lesson-summaries.json
 
 #### Task Summary
+
 chore: update lesson summaries from ollama
 
 #### Files Changed
+
 - `memory/lesson-summaries.json`
 
 #### Bug Cause
+
 <!-- TODO: Document what caused the issue -->
+
 Unknown — extracted from commit 2f37253e.
 
 #### Fix Applied
+
 <!-- TODO: Document the solution -->
+
 See commit 2f37253e by JPG Yap.
 
 #### Test Result
+
 Unknown — no test files detected.
 
 #### Lesson Learned
+
 <!-- TODO: Extract reusable lesson -->
+
 To be determined — this commit was auto-flagged as potentially containing a lesson.
 
 #### Reusable Rule
+
 <!-- TODO: Define a specific rule for future agents -->
+
 **TODO: Add a specific, actionable rule based on this commit.**
 
 #### Tags
+
 general
 
 ---
@@ -2985,5 +3033,167 @@ Before deploying from main, run `git diff main...HEAD --name-only` to identify f
 #### Tags
 
 deployment, vps, missing-files, scp, main-branch, terminal-brain
+
+---
+
+### Auto-Extracted Lesson: Docs: record lesson for VPS deploy — missing files on main branch
+
+Date: 2026-05-23
+Source: Git commit ecf4ae86
+Model/API used: unknown
+Confidence: medium
+Related files: memory/lessons-learned.md
+
+#### Task Summary
+
+docs: record lesson for VPS deploy — missing files on main branch
+
+#### Files Changed
+
+- `memory/lessons-learned.md`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit ecf4ae86.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit ecf4ae86 by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+general
+
+---
+
+### Lesson: Flowcharts + Visual Crawler tab gap analysis — all improvements implemented
+
+Date: 2026-05-23
+Source: deepseek-coder task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/dashboard/src/components/views/flowcharts.tsx, cloud/dashboard/src/components/views/visual-crawler.tsx
+
+#### Task Summary
+
+Implemented ALL identified gaps and innovative ideas for both the Flowcharts tab and Visual Crawler tab in the SuperRoo cloud dashboard. The Flowcharts tab received live status indicators, interactive drill-down navigation, step metrics, search/filter, zoom/pan controls, export/share, flow health score, and auto-refresh toggle. The Visual Crawler tab received screenshot preview with diff overlay viewer, baseline management, scheduled auto-crawl, pagination, trend analysis, progress indicator, viewport configuration, issue history chart, AI auto-fix button, deploy gate integration, and search/filter.
+
+#### Files Changed
+
+- `cloud/dashboard/src/components/views/flowcharts.tsx`
+- `cloud/dashboard/src/components/views/visual-crawler.tsx`
+
+#### Bug Cause
+
+N/A — this was a feature gap analysis and implementation task, not a bug fix. The tabs had static content without interactivity, live data, or user-friendly features like search, pagination, and export.
+
+#### Fix Applied
+
+Flowcharts tab (9 improvements):
+
+1. Live status indicators — `useFlowStatuses()` hook polls `/api/health` every 30s
+2. Interactive drill-down — `navigateTo()` dispatches CustomEvent for cross-tab navigation
+3. Step metrics — `useStepMetrics()` hook shows active/total/failed jobs + pending approvals
+4. Search/filter — text input filters flows by title, subtitle, steps, outcomes
+5. Zoom/pan — zoom buttons (in/out/reset) on OverviewMap using CSS transform
+6. Animation/transitions — hover effects, scale transforms, color transitions
+7. Export/share — JSON and Markdown export via dropdown menu
+8. Flow health score — SVG ring chart showing percentage of online flows
+9. Auto-refresh toggle — Play/Pause button for 30s polling
+
+Visual Crawler tab (13 improvements):
+
+1. Screenshot preview — `ScreenshotViewer` renders baseline/current/diff images
+2. Diff overlay viewer — side-by-side mode with draggable slider
+3. Baseline management — Accept/Reject buttons calling API endpoints
+4. Scheduled/auto-crawl — 5-minute interval toggle
+5. Pagination — page controls with 5/10/20/50 page size selector
+6. Trend analysis — improving/stable/degrading comparison of recent vs previous crawls
+7. Progress indicator — "Starting crawl..." / "Crawl complete..." messages
+8. Viewport configuration — width/height popup sent in crawl request
+9. Issue history chart — bar chart of last 20 crawls
+10. AI auto-fix button — calls `/visual-crawl/auto-fix` endpoint
+11. Deploy gate toggle — visual indicator (no backend wiring)
+12. Search/filter reports — by URL, project name, or crawl ID
+13. Empty state — message when no reports match search
+
+#### Test Result
+
+pass — both files compile with zero TypeScript errors (`tsc --noEmit` exits with code 0). Lint warnings are all pre-existing (0 errors, 552 warnings across entire dashboard).
+
+#### Lesson Learned
+
+When implementing gap analysis improvements for dashboard tabs, batch all related changes into a single commit to maintain atomicity. Use `useMemo` and `useCallback` for performance-sensitive filtering/search operations. For cross-tab navigation, use CustomEvent dispatching rather than prop drilling. For image comparison UIs, a draggable slider with mouse event handlers provides intuitive side-by-side diff viewing. SVG ring charts are lightweight and effective for health score visualization without adding chart library dependencies.
+
+#### Reusable Rule
+
+Before implementing dashboard tab improvements, always: (1) read the sidebar and page.tsx to understand navigation wiring, (2) check the Card component's prop interface (it may not accept `style` prop), (3) verify TypeScript compilation with `tsc --noEmit` before committing, (4) use `useMemo` for filtered/search results to avoid re-computation on every render, and (5) batch all related changes into a single atomic commit.
+
+#### Tags
+
+dashboard, flowcharts, visual-crawler, gap-analysis, ui-improvements, react, typescript, nextjs
+
+---
+
+### Lesson: Dashboard Gap Implementation - API Keys and IDE Terminal tabs
+
+Date: 2026-05-23  
+Source: Code agent task completion  
+Model/API used: deepseek-chat  
+Confidence: high  
+Related files: cloud/dashboard/src/components/views/api-keys.tsx, cloud/dashboard/src/components/views/ide-terminal.tsx, cloud/dashboard/src/lib/ide-store.tsx
+
+#### Task Summary
+
+Implemented all 31 identified gaps across two dashboard tabs: 12 for API Keys tab and 19 for IDE Terminal tab. API Keys enhancements include search/filter, sort controls, bulk operations, model comparison modal, usage stats modal, copy-to-clipboard, delete confirmation, and auto-refresh. IDE Terminal enhancements include session management, command history search, breadcrumbs bar, debug toolbar, test runner panel, recording playback, workspace templates, file watcher indicator, git blame toggle, document symbols panel, format-on-save/organize-imports indicators, quick fix lightbulb, multi-cursor hint, drag-drop hint, and settings persistence.
+
+#### Files Changed
+
+- cloud/dashboard/src/components/views/api-keys.tsx
+- cloud/dashboard/src/components/views/ide-terminal.tsx
+
+#### Bug Cause
+
+N/A - feature implementation, not a bug fix.
+
+#### Fix Applied
+
+N/A.
+
+#### Test Result
+
+Both files compile cleanly with tsc --noEmit (0 errors). Pre-existing errors in parallel-execution.tsx are unrelated.
+
+#### Lesson Learned
+
+When implementing large-scale UI gap analysis across multiple tabs: (1) always read the state store first to understand available dispatch actions and their exact payload types before writing modal/feature code, (2) verify lucide-react icon availability before importing - the installed version may not have all icons, (3) use apply_diff for targeted edits rather than full-file writes to avoid truncation issues, (4) batch all related changes into a single atomic commit, and (5) verify TypeScript compilation before pushing.
+
+#### Reusable Rule
+
+Before implementing dashboard tab improvements: (1) read the sidebar and page.tsx for navigation wiring, (2) check the state store's dispatch action types and payload interfaces, (3) verify lucide-react icon exports match the installed version, (4) use useMemo for filtered/search results, (5) verify TypeScript compilation with tsc --noEmit before committing, and (6) batch all related changes into a single atomic commit.
+
+#### Tags
+
+dashboard, api-keys, ide-terminal, gap-analysis, ui-improvements, react, typescript, nextjs, lucide-react
 
 ---
