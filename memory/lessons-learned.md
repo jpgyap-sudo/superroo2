@@ -3740,3 +3740,79 @@ To be determined — this commit was auto-flagged as potentially containing a le
 bugfix
 
 ---
+
+### Auto-Extracted Lesson: Chore(learning): update lesson summaries, context, and indexes
+
+Date: 2026-05-23
+Source: Git commit a40432bb
+Model/API used: unknown
+Confidence: medium
+Related files: memory/context/latest-agent-context.md, memory/lesson-index.jsonl, memory/lesson-summaries.json, memory/lessons-learned.md
+
+#### Task Summary
+
+chore(learning): update lesson summaries, context, and indexes
+
+#### Files Changed
+
+- `memory/context/latest-agent-context.md`
+- `memory/lesson-index.jsonl`
+- `memory/lesson-summaries.json`
+- `memory/lessons-learned.md`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit a40432bb.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit a40432bb by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+testing
+
+---
+
+### Lesson: Brain service TDZ route initialization
+
+Date: 2026-05-23
+Source: superroo-learn CLI (local fallback)
+Model/API used: local
+Confidence: medium
+Related files:
+Tags:
+
+#### Task Summary
+
+When adding API routes that call lazy services, keep the lazy singleton and helper functions at module scope or before all route branches. Declaring let singletons inside a long request handler after earlier route branches can create temporal-dead-zone 500s because those branches call the hoisted function before execution reaches the let declaration. Use a shared initialization promise and one-time listener guard for concurrent route requests.
+
+#### Lesson Learned
+
+When adding API routes that call lazy services, keep the lazy singleton and helper functions at module scope or before all route branches. Declaring let singletons inside a long request handler after earlier route branches can create temporal-dead-zone 500s because those branches call the hoisted function before execution reaches the let declaration. Use a shared initialization promise and one-time listener guard for concurrent route requests.
+
+#### Tags
+
+cross-project, local-fallback
+
+---

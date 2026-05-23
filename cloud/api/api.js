@@ -3789,6 +3789,101 @@ function broadcastBrainEvent(event, data) {
 	}
 }
 
+// Lazy-init Central Brain services once per API process.
+//
+// Keep this at module scope: some /brain/* routes are declared before the
+// Central Brain v2 route block, so declaring this with `let` inside the request
+// handler creates a temporal-dead-zone failure when those earlier routes call
+// requireBrain() before execution reaches the declaration.
+let brainServices = null
+let brainServicesPromise = null
+let brainSwarmEventsWired = false
+
+async function getBrainServices() {
+	if (brainServices) return brainServices
+	if (brainServicesPromise) return brainServicesPromise
+
+	brainServicesPromise = (async () => {
+		try {
+			const { Pool } = require("pg")
+			const brain = require("../orchestrator/stores/brain")
+			const pool = new Pool({
+				connectionString:
+					process.env.BRAIN_DATABASE_URL ||
+					process.env.DATABASE_URL ||
+					"postgresql://superroo:superroo@127.0.0.1:5432/superroo_brain",
+				max: 5,
+				idleTimeoutMillis: 30000,
+				connectionTimeoutMillis: 5000,
+			})
+
+			await pool.query("SELECT 1")
+			await brain.applySchema(pool)
+
+			const services = await brain.createServices(pool, null, {
+				embedding: {
+					provider: process.env.EMBEDDING_PROVIDER || "ollama",
+				},
+			})
+
+			if (services.consensus && orchestrator && orchestrator.deployOrchestrator) {
+				orchestrator.deployOrchestrator.setConsensus(services.consensus)
+				writeApiLog("info", "brain-v2", "Consensus service wired into DeployOrchestrator", {})
+			}
+
+			if (services.deployGate && orchestrator && orchestrator.deployOrchestrator) {
+				orchestrator.deployOrchestrator.setDeployGate(services.deployGate)
+				writeApiLog("info", "brain-v2", "DeployGate (risk+swarm) wired into DeployOrchestrator", {})
+			}
+
+			if (services.riskEngine && orchestrator && orchestrator.selfHealingLoop) {
+				orchestrator.selfHealingLoop.setRiskEngine(services.riskEngine)
+				writeApiLog("info", "brain-v2", "RiskEngine wired into SelfHealingLoop for auto-pattern recording", {})
+			}
+
+			if (services.swarmDebugger && orchestrator && orchestrator.selfHealingLoop) {
+				orchestrator.selfHealingLoop.setSwarmDebugger(services.swarmDebugger)
+				writeApiLog(
+					"info",
+					"brain-v2",
+					"SwarmDebugger wired into SelfHealingLoop for auto-debug on critical incidents",
+					{},
+				)
+			}
+
+			if (services.swarmDebugger && !brainSwarmEventsWired) {
+				services.swarmDebugger.on("runStarted", (data) => broadcastBrainEvent("swarm.runStarted", data))
+				services.swarmDebugger.on("runCompleted", (data) => broadcastBrainEvent("swarm.runCompleted", data))
+				services.swarmDebugger.on("agentStarted", (data) => broadcastBrainEvent("swarm.agentStarted", data))
+				services.swarmDebugger.on("agentCompleted", (data) => broadcastBrainEvent("swarm.agentCompleted", data))
+				services.swarmDebugger.on("agentFailed", (data) => broadcastBrainEvent("swarm.agentFailed", data))
+				brainSwarmEventsWired = true
+				writeApiLog("info", "brain-v2", "SwarmDebugger events wired to Brain WebSocket", {})
+			}
+
+			brainServices = services
+			writeApiLog("info", "brain-v2", "Central Brain v2 services initialized", {})
+			return brainServices
+		} catch (err) {
+			writeApiLog("warn", "brain-v2", `Central Brain v2 unavailable: ${err.message}`, {})
+			return null
+		} finally {
+			brainServicesPromise = null
+		}
+	})()
+
+	return brainServicesPromise
+}
+
+async function requireBrain(res) {
+	const svc = await getBrainServices()
+	if (!svc) {
+		sendJson(res, 503, { success: false, error: "Central Brain v2 not available (pgvector not connected)" })
+		return null
+	}
+	return svc
+}
+
 // ── Brain SSE Endpoint ───────────────────────────────────────────────────────
 // Server-Sent Events endpoint for real-time event streaming.
 // Clients connect via GET /api/brain/events and receive events as they happen.
@@ -9441,7 +9536,12 @@ const server = http.createServer(async (req, res) => {
 		}
 
 		// GET /orchestrator/events — list events
-		if (method === "GET" && (url.split("?")[0] === "/orchestrator/events" || normalizedUrl.split("?")[0] === "/orchestrator/events" || routePath === "/orchestrator/events")) {
+		if (
+			method === "GET" &&
+			(url.split("?")[0] === "/orchestrator/events" ||
+				normalizedUrl.split("?")[0] === "/orchestrator/events" ||
+				routePath === "/orchestrator/events")
+		) {
 			if (!orchestrator) {
 				sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
 				return
@@ -10359,7 +10459,9 @@ const server = http.createServer(async (req, res) => {
 		// POST /orchestrator/file-importer/import — import files by path
 		if (
 			method === "POST" &&
-			(url.split("?")[0] === "/orchestrator/file-importer/import" || normalizedUrl.split("?")[0] === "/orchestrator/file-importer/import" || routePath === "/orchestrator/file-importer/import")
+			(url.split("?")[0] === "/orchestrator/file-importer/import" ||
+				normalizedUrl.split("?")[0] === "/orchestrator/file-importer/import" ||
+				routePath === "/orchestrator/file-importer/import")
 		) {
 			if (!orchestrator) {
 				sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
@@ -10386,7 +10488,9 @@ const server = http.createServer(async (req, res) => {
 		// GET /orchestrator/file-importer/stats — get file importer stats
 		if (
 			method === "GET" &&
-			(url.split("?")[0] === "/orchestrator/file-importer/stats" || normalizedUrl.split("?")[0] === "/orchestrator/file-importer/stats" || routePath === "/orchestrator/file-importer/stats")
+			(url.split("?")[0] === "/orchestrator/file-importer/stats" ||
+				normalizedUrl.split("?")[0] === "/orchestrator/file-importer/stats" ||
+				routePath === "/orchestrator/file-importer/stats")
 		) {
 			if (!orchestrator) {
 				sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
@@ -12072,104 +12176,7 @@ const server = http.createServer(async (req, res) => {
 		//   GET    /api/brain/v2/stats            — Brain statistics
 		// ═══════════════════════════════════════════════════════════════════════════
 
-		// Lazy-init brain services (once per server start)
-		let brainServices = null
-		async function getBrainServices() {
-			if (brainServices) return brainServices
-			try {
-				const { Pool } = require("pg")
-				const brain = require("../orchestrator/stores/brain")
-				const pool = new Pool({
-					connectionString:
-						process.env.BRAIN_DATABASE_URL ||
-						process.env.DATABASE_URL ||
-						"postgresql://superroo:superroo@127.0.0.1:5432/superroo_brain",
-					max: 5,
-					idleTimeoutMillis: 30000,
-					connectionTimeoutMillis: 5000,
-				})
-				// Test connection
-				await pool.query("SELECT 1")
-				// Apply schema
-				await brain.applySchema(pool)
-				// Create services
-				brainServices = await brain.createServices(pool, null, {
-					embedding: {
-						provider: process.env.EMBEDDING_PROVIDER || "ollama",
-					},
-				})
-
-				// Wire consensus service into DeployOrchestrator for pre-deploy gating
-				if (brainServices.consensus && orchestrator && orchestrator.deployOrchestrator) {
-					orchestrator.deployOrchestrator.setConsensus(brainServices.consensus)
-					writeApiLog("info", "brain-v2", "Consensus service wired into DeployOrchestrator", {})
-				}
-
-				// Wire DeployGate (risk → swarm → consensus) into DeployOrchestrator for pre-deploy gating
-				if (brainServices.deployGate && orchestrator && orchestrator.deployOrchestrator) {
-					orchestrator.deployOrchestrator.setDeployGate(brainServices.deployGate)
-					writeApiLog("info", "brain-v2", "DeployGate (risk+swarm) wired into DeployOrchestrator", {})
-				}
-
-				// Wire riskEngine into SelfHealingLoop for auto-pattern recording after incidents
-				if (brainServices.riskEngine && orchestrator && orchestrator.selfHealingLoop) {
-					orchestrator.selfHealingLoop.setRiskEngine(brainServices.riskEngine)
-					writeApiLog(
-						"info",
-						"brain-v2",
-						"RiskEngine wired into SelfHealingLoop for auto-pattern recording",
-						{},
-					)
-				}
-
-				// Wire swarmDebugger into SelfHealingLoop for auto-triggering parallel debugging on critical incidents
-				if (brainServices.swarmDebugger && orchestrator && orchestrator.selfHealingLoop) {
-					orchestrator.selfHealingLoop.setSwarmDebugger(brainServices.swarmDebugger)
-					writeApiLog(
-						"info",
-						"brain-v2",
-						"SwarmDebugger wired into SelfHealingLoop for auto-debug on critical incidents",
-						{},
-					)
-				}
-
-				// Wire SwarmDebugger events → Brain WebSocket for real-time dashboard updates
-				if (brainServices.swarmDebugger) {
-					brainServices.swarmDebugger.on("runStarted", (data) =>
-						broadcastBrainEvent("swarm.runStarted", data),
-					)
-					brainServices.swarmDebugger.on("runCompleted", (data) =>
-						broadcastBrainEvent("swarm.runCompleted", data),
-					)
-					brainServices.swarmDebugger.on("agentStarted", (data) =>
-						broadcastBrainEvent("swarm.agentStarted", data),
-					)
-					brainServices.swarmDebugger.on("agentCompleted", (data) =>
-						broadcastBrainEvent("swarm.agentCompleted", data),
-					)
-					brainServices.swarmDebugger.on("agentFailed", (data) =>
-						broadcastBrainEvent("swarm.agentFailed", data),
-					)
-					writeApiLog("info", "brain-v2", "SwarmDebugger events wired to Brain WebSocket", {})
-				}
-
-				writeApiLog("info", "brain-v2", "Central Brain v2 services initialized", {})
-				return brainServices
-			} catch (err) {
-				writeApiLog("warn", "brain-v2", `Central Brain v2 unavailable: ${err.message}`, {})
-				return null
-			}
-		}
-
-		// Helper: require brain services or return 503
-		async function requireBrain(res) {
-			const svc = await getBrainServices()
-			if (!svc) {
-				sendJson(res, 503, { success: false, error: "Central Brain v2 not available (pgvector not connected)" })
-				return null
-			}
-			return svc
-		}
+		// Central Brain services are initialized at module scope so earlier /brain/* routes can use them.
 
 		// GET /api/brain/v2/memory — List memories with optional filters
 		if (

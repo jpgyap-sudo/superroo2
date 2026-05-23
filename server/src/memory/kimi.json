@@ -76,12 +76,7 @@
 				"cloud/dashboard/.next/standalone/",
 				"server/src/memory/commit-deploy-log.json"
 			],
-			"featuresAffected": [
-				"cloud-dashboard",
-				"ollama-growth",
-				"telegram-policy",
-				"deployment"
-			],
+			"featuresAffected": ["cloud-dashboard", "ollama-growth", "telegram-policy", "deployment"],
 			"notes": [
 				"Commit SHA: fa0a4909d",
 				"VPS was overloaded by Ollama inference (100% CPU), so dashboard was built locally on Windows and rsync'd via tar+scp.",
@@ -105,11 +100,7 @@
 				"cloud/api/__tests__/test-ollama-growth.test.js",
 				"server/src/memory/commit-deploy-log.json"
 			],
-			"featuresAffected": [
-				"cloud-dashboard",
-				"ollama-growth",
-				"testing"
-			],
+			"featuresAffected": ["cloud-dashboard", "ollama-growth", "testing"],
 			"notes": [
 				"Gap 1: HermesClaw writes simple health checks without category breakdowns; my code assumed all checks had breakdowns.",
 				"Gap 2: No e2e test existed for the /ollama-growth endpoint.",
@@ -119,6 +110,28 @@
 			"startedAt": "2026-05-17T14:15:00.000Z",
 			"updatedAt": "2026-05-17T14:35:00.000Z",
 			"completedAt": "2026-05-17T14:35:00.000Z"
+		},
+		{
+			"id": "kimi_task_predictive_risk_tdz_20260523",
+			"title": "Fix Predictive Risk brain service TDZ",
+			"summary": "Continued Kimi dashboard tab verification, found Predictive Risk live API 500s caused by getBrainServices/requireBrain being declared late inside the request handler, moved Central Brain lazy initialization to module scope, and verified syntax plus predictive-swarm tests.",
+			"status": "completed",
+			"project": "superroo2",
+			"agent": "Codex",
+			"filesChanged": [
+				"cloud/api/api.js",
+				"server/src/memory/kimi.json",
+				"memory/lessons-learned.md",
+				"memory/lesson-index.jsonl"
+			],
+			"featuresAffected": ["cloud-dashboard", "predictive-risk", "central-brain", "api"],
+			"notes": [
+				"Root cause: earlier /brain/risk and /brain/swarm routes returned before the in-handler let brainServices declaration was initialized, causing temporal-dead-zone errors.",
+				"Verification: node --check cloud/api/api.js; npx vitest run test/predictive-swarm.test.js passed (45 tests)."
+			],
+			"startedAt": "2026-05-23T05:36:00.000Z",
+			"updatedAt": "2026-05-23T05:47:00.000Z",
+			"completedAt": "2026-05-23T05:47:00.000Z"
 		}
 	]
 }

@@ -90,7 +90,7 @@ module.exports = {
 				// Telegram Bot — loaded from env; never commit secrets to this file
 				TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN || "",
 				BOSS_TELEGRAM_CHAT_ID: process.env.BOSS_TELEGRAM_CHAT_ID || "8485794779",
-				SUPERROO_VAULT_KEY: process.env.SUPERROO_VAULT_KEY || "",
+				SUPERROO_VAULT_KEY: process.env.SUPERROO_VAULT_KEY || readEnvValue("SUPERROO_VAULT_KEY"),
 				SMTP_HOST: process.env.SMTP_HOST || "smtp.gmail.com",
 				SMTP_PORT: process.env.SMTP_PORT || "587",
 				SMTP_USER: process.env.SMTP_USER || "",
@@ -154,7 +154,7 @@ module.exports = {
 				// Worker resilience config
 				WORKER_MAX_REDIS_FAILURES: "5",
 				WORKER_HEALTH_CHECK_INTERVAL_MS: "30000",
-				SUPERROO_VAULT_KEY: process.env.SUPERROO_VAULT_KEY || "",
+				SUPERROO_VAULT_KEY: process.env.SUPERROO_VAULT_KEY || readEnvValue("SUPERROO_VAULT_KEY"),
 				OLLAMA_BASE_URL: "http://127.0.0.1:11434",
 				OLLAMA_CHAT_MODEL: "qwen2.5:0.5b",
 				// Central Brain (BrainClient lesson recall in agentRunners)
