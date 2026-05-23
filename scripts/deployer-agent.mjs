@@ -517,7 +517,13 @@ async function main() {
 
     log("🚀", `Starting deploy: ${version} (${currentSha.slice(0, 8)})`)
 
-    const deployResult = spawnSync("bash", ["cloud/remote-deploy-dashboard.sh"], {
+    // On Windows, system bash.exe is WSL — use Git Bash instead
+    const isWindows = process.platform === "win32"
+    const bashExe = isWindows
+      ? "C:\\Program Files\\Git\\bin\\bash.exe"
+      : "bash"
+
+    const deployResult = spawnSync(bashExe, ["cloud/remote-deploy-dashboard.sh"], {
       cwd: ROOT,
       encoding: "utf-8",
       stdio: "inherit",
