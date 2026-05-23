@@ -1,17 +1,17 @@
 {
-	"generatedAt": "2026-05-23T05:44:07.392Z",
+	"generatedAt": "2026-05-23T06:14:50.883Z",
 	"deepseekModel": "deepseek-chat",
-	"ollamaUrl": "http://100.64.175.88:11434",
+	"ollamaUrl": "http://127.0.0.1:11434",
 	"sourceFile": "memory/lessons-learned.md",
 	"count": 1,
 	"summaries": [
 		{
-			"title": "Dashboard gap closure deployment — SSH via public IP when Tailscale is offline",
+			"title": "SUPERROO_VAULT_KEY missing from PM2 env - readEnvValue() fallback fix",
 			"date": "2026-05-23",
 			"model": "deepseek-chat",
 			"confidence": "high",
-			"summary": "When Tailscale is offline on the local machine, SSH via the VPS public IP is a viable fallback since the SSH key works for both Tailscale and public IP access. The deployment script hardcodes the Tailscale IP, so when deploying from an offline Tailscale machine, either use the public IP directly or update the script to try both IPs. Always verify PM2 services are online and the health endpoint returns HTTP 200 after deployment.",
-			"hasEmbeddings": true
+			"summary": "The PM2 ecosystem config for superroo-api and superroo-worker used `process.env.SUPERROO_VAULT_KEY || \"\"`, which only reads from the shell environment where PM2 was started, not from the `.env` file. The fix added `readEnvValue(\"SUPERROO_VAULT_KEY\")` as a fallback, matching the pattern already used for `PGPASSWORD`. The key takeaway is to always use `readEnvValue()` as a fallback for any env var in PM2 ecosystem configs that exists in the `.env` file but may not be set in the shell environment.",
+			"hasEmbeddings": false
 		}
 	]
 }

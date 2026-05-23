@@ -3858,3 +3858,53 @@ For PM2 ecosystem configs, always add readEnvValue("VAR_NAME") as fallback for a
 pm2, env-vars, ecosystem-config, vault-key, deployment, configuration
 
 ---
+
+### Auto-Extracted Lesson: Docs(lessons): record lesson for SUPERROO_VAULT_KEY readEnvValue() fallback fix
+
+Date: 2026-05-23
+Source: Git commit 776969b9
+Model/API used: unknown
+Confidence: medium
+Related files: memory/lessons-learned.md
+
+#### Task Summary
+
+docs(lessons): record lesson for SUPERROO_VAULT_KEY readEnvValue() fallback fix
+
+#### Files Changed
+
+- `memory/lessons-learned.md`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 776969b9.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 776969b9 by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+bugfix
+
+---
