@@ -1,17 +1,17 @@
 {
-	"generatedAt": "2026-05-23T02:32:24.982Z",
-	"deepseekModel": "deepseek-chat",
-	"ollamaUrl": "http://127.0.0.1:11434",
-	"sourceFile": "memory/lessons-learned.md",
-	"count": 1,
-	"summaries": [
-		{
-			"title": "Dashboard Gap Implementation - API Keys and IDE Terminal tabs",
-			"date": "unknown",
-			"model": "unknown",
-			"confidence": "unknown",
-			"summary": "Implemented 31 UI gap improvements across the API Keys and IDE Terminal dashboard tabs, including search, sort, bulk operations, modals, session management, and toolbars. Key lessons: always read the state store first for dispatch actions and payload types, verify lucide-react icon availability, use targeted diffs instead of full-file writes, and batch all changes into a single atomic commit with TypeScript compilation verification.",
-			"hasEmbeddings": false
-		}
-	]
+  "generatedAt": "2026-05-23T05:06:51.766Z",
+  "deepseekModel": "deepseek-chat",
+  "ollamaUrl": "http://127.0.0.1:11434",
+  "sourceFile": "memory/lessons-learned.md",
+  "count": 1,
+  "summaries": [
+    {
+      "title": "Save Points Tab — From Mock Facade to Real Data",
+      "date": "2026-05-23",
+      "model": "Kimi Code CLI",
+      "confidence": "high",
+      "summary": "Mock data facades are dangerous because they make features appear complete while write operations fail silently. The fix required creating missing backend endpoints, fixing async/await bugs, replacing nonexistent methods, and adding WebSocket integration for real-time updates. Key lesson: always test create/update/delete actions against real endpoints, verify backend methods exist, and wire both WebSocket and polling for data consistency.",
+      "hasEmbeddings": false
+    }
+  ]
 }

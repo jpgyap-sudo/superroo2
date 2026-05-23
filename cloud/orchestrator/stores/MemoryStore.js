@@ -12,6 +12,7 @@ const fs = require("fs")
 const crypto = require("crypto")
 
 const SCHEMA_PATH = path.join(__dirname, "schema.sql")
+const MIGRATIONS_DIR = path.join(__dirname, "migrations")
 
 class MemoryStore {
 	/**

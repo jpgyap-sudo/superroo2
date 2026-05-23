@@ -6,5 +6,4 @@ packages:
   - cloud/mini-ide
   - packages/*
 
-onlyBuiltDependencies:
-  - next
+onlyBuiltDependencies: next

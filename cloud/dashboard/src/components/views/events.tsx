@@ -174,7 +174,7 @@ export function EventsView() {
 			if (data.success) {
 				setEvents(data.events || [])
 			} else {
-				setError("Failed to fetch events")
+				setError(data.error || "Failed to fetch events")
 			}
 		} catch {
 			setError("API server unreachable")

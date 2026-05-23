@@ -4089,11 +4089,12 @@ const server = http.createServer(async (req, res) => {
 	// - Via Next.js rewrite: /api/health stays as /api/health
 	// Normalize by stripping /api prefix if present
 	const normalizedUrl = url.startsWith("/api") ? url.slice(4) || "/" : url
+	const routePath = normalizedUrl.split("?")[0]
 
 	// Record API telemetry on response finish
 	res.on("finish", () => {
 		const latency = Date.now() - reqStartTime
-		const route = normalizedUrl.split("?")[0]
+		const route = routePath
 		const error = res.statusCode >= 400
 		monitoring.recordApiTelemetry(route, latency, error)
 	})
@@ -9440,9 +9441,13 @@ const server = http.createServer(async (req, res) => {
 		}
 
 		// GET /orchestrator/events — list events
-		if (method === "GET" && (url === "/orchestrator/events" || normalizedUrl === "/orchestrator/events")) {
+		if (method === "GET" && (url.split("?")[0] === "/orchestrator/events" || normalizedUrl.split("?")[0] === "/orchestrator/events" || routePath === "/orchestrator/events")) {
 			if (!orchestrator) {
 				sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
+				return
+			}
+			if (!orchestrator.eventLog) {
+				sendJson(res, 503, { success: false, error: "EventLog not initialized" })
 				return
 			}
 			const urlObj = new URL(url, `http://localhost:${PORT}`)
@@ -10354,7 +10359,7 @@ const server = http.createServer(async (req, res) => {
 		// POST /orchestrator/file-importer/import — import files by path
 		if (
 			method === "POST" &&
-			(url === "/orchestrator/file-importer/import" || normalizedUrl === "/orchestrator/file-importer/import")
+			(url.split("?")[0] === "/orchestrator/file-importer/import" || normalizedUrl.split("?")[0] === "/orchestrator/file-importer/import" || routePath === "/orchestrator/file-importer/import")
 		) {
 			if (!orchestrator) {
 				sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
@@ -10381,7 +10386,7 @@ const server = http.createServer(async (req, res) => {
 		// GET /orchestrator/file-importer/stats — get file importer stats
 		if (
 			method === "GET" &&
-			(url === "/orchestrator/file-importer/stats" || normalizedUrl === "/orchestrator/file-importer/stats")
+			(url.split("?")[0] === "/orchestrator/file-importer/stats" || normalizedUrl.split("?")[0] === "/orchestrator/file-importer/stats" || routePath === "/orchestrator/file-importer/stats")
 		) {
 			if (!orchestrator) {
 				sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })

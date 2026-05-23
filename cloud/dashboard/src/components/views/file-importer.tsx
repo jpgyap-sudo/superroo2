@@ -88,7 +88,7 @@ export function FileImporterView() {
 			if (res.success) {
 				setStats(res.stats)
 			} else {
-				setError("Failed to fetch stats")
+				setError(res.error || "Failed to fetch stats")
 			}
 		} catch {
 			setError("API server unreachable")
@@ -184,7 +184,7 @@ export function FileImporterView() {
 				setPathsInput("")
 				fetchData()
 			} else {
-				setImportError(res.result?.errors?.[0] || "Import failed")
+				setImportError(res.error || res.result?.errors?.[0] || "Import failed")
 			}
 		} catch {
 			setImportError("Import request failed")
