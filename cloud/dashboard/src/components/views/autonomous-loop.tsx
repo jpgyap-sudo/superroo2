@@ -35,6 +35,9 @@ interface AutonomousStatus {
 	stepResults: StepResult[]
 	cycleCount: number
 	lastRunAt: string | null
+	elapsedMs: number
+	remainingMs: number
+	progress: number
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -82,6 +85,17 @@ function formatTime(ts: string | null) {
 
 // ── Main View ─────────────────────────────────────────────────────────────────
 
+async function readJsonResponse<T>(res: Response, fallbackMessage: string): Promise<T> {
+	const contentType = res.headers.get("content-type") || ""
+	if (!contentType.toLowerCase().includes("application/json")) {
+		const body = await res.text().catch(() => "")
+		const preview = body.replace(/\s+/g, " ").trim().slice(0, 160)
+		const detail = preview ? ` Body preview: ${preview}` : ""
+		throw new Error(`${fallbackMessage} (HTTP ${res.status}, ${contentType || "unknown content type"}).${detail}`)
+	}
+	return (await res.json()) as T
+}
+
 function handleExportAutonomous(status: AutonomousStatus) {
 	const csv = ["step,status,duration_ms,details"]
 	;(status.stepResults || []).forEach((r) => {
@@ -103,22 +117,43 @@ export function AutonomousLoopView() {
 	const [error, setError] = useState<string | null>(null)
 	const [refreshing, setRefreshing] = useState(false)
 
+	const getAuthHeaders = useCallback((): Record<string, string> => {
+		const token = typeof window !== "undefined" ? localStorage.getItem("superroo_auth_token") : null
+		return token ? { Authorization: `Bearer ${token}` } : {}
+	}, [])
+
+	const handleAuthError = useCallback((res: Response) => {
+		if (res.status === 401) {
+			localStorage.removeItem("superroo_auth_token")
+			window.location.reload()
+		}
+	}, [])
+
 	const fetchStatus = useCallback(async () => {
 		try {
-			const res = await fetch("/api/autonomous/status")
-			const data = await res.json()
+			const res = await fetch("/api/autonomous/status", { headers: getAuthHeaders() })
+			handleAuthError(res)
+			const data = await readJsonResponse<AutonomousStatus & { success?: boolean; error?: string }>(
+				res,
+				"Autonomous loop status returned a non-JSON response",
+			)
 			if (data.success) {
 				setStatus(data)
 				setError(null)
 			} else {
-				setError(data.error || "Unknown error")
+				setError(data.error || `Autonomous loop status failed with HTTP ${res.status}`)
 			}
 		} catch (err: unknown) {
-			setError(err instanceof Error ? err.message : "Failed to fetch autonomous loop status")
+			// Swallow polling errors when we already have data; only show on first load.
+			const message = err instanceof Error ? err.message : "Failed to connect to the autonomous loop API."
+			setStatus((prev) => {
+				if (!prev) setError(message)
+				return prev
+			})
 		} finally {
 			setLoading(false)
 		}
-	}, [])
+	}, [getAuthHeaders, handleAuthError])
 
 	useEffect(() => {
 		fetchStatus()
@@ -130,11 +165,13 @@ export function AutonomousLoopView() {
 		setActionLoading(true)
 		setError(null)
 		try {
-			const res = await fetch("/api/autonomous/start", { method: "POST" })
-			const data = await res.json()
-			if (!data.success) {
-				setError(data.error || "Failed to start autonomous loop")
-			}
+			const res = await fetch("/api/autonomous/start", { method: "POST", headers: getAuthHeaders() })
+			handleAuthError(res)
+			const data = await readJsonResponse<{ success?: boolean; error?: string }>(
+				res,
+				"Autonomous loop start returned a non-JSON response",
+			)
+			if (!data.success) setError(data.error || "Failed to start autonomous loop")
 			await fetchStatus()
 		} catch (err: unknown) {
 			setError(err instanceof Error ? err.message : "Network error")
@@ -147,11 +184,13 @@ export function AutonomousLoopView() {
 		setActionLoading(true)
 		setError(null)
 		try {
-			const res = await fetch("/api/autonomous/stop", { method: "POST" })
-			const data = await res.json()
-			if (!data.success) {
-				setError(data.error || "Failed to stop autonomous loop")
-			}
+			const res = await fetch("/api/autonomous/stop", { method: "POST", headers: getAuthHeaders() })
+			handleAuthError(res)
+			const data = await readJsonResponse<{ success?: boolean; error?: string }>(
+				res,
+				"Autonomous loop stop returned a non-JSON response",
+			)
+			if (!data.success) setError(data.error || "Failed to stop autonomous loop")
 			await fetchStatus()
 		} catch (err: unknown) {
 			setError(err instanceof Error ? err.message : "Network error")
@@ -169,34 +208,28 @@ export function AutonomousLoopView() {
 	}
 
 	if (error && !status) {
-		const isAuthError = error.includes("Unauthorized") || error.includes("401")
+		const isApiDown =
+			error.includes("not responding") || error.includes("connect") || error.includes("unexpected response")
 		return (
-			<Card
-				className={
-					isAuthError ? "border-amber-800/40 bg-amber-950/20 p-6" : "border-red-800/40 bg-red-950/20 p-6"
-				}>
+			<Card className="border-red-800/40 bg-red-950/20 p-6">
 				<div className="flex items-center gap-3">
-					<AlertTriangle className={isAuthError ? "h-5 w-5 text-amber-400" : "h-5 w-5 text-red-400"} />
+					<AlertTriangle className="h-5 w-5 text-red-400" />
 					<div>
-						<p className={isAuthError ? "text-amber-300" : "text-red-300"}>
-							{isAuthError
-								? "Autonomous Loop is not configured for your account yet."
+						<p className="text-red-300">
+							{isApiDown
+								? "Cannot reach the API server. Check that superroo-api is running on the VPS."
 								: `Failed to load autonomous loop status: ${error}`}
 						</p>
-						{isAuthError && (
-							<p className="text-[11px] text-amber-400/70 mt-1">
-								Contact an admin to enable the autonomous loop for this project.
-							</p>
-						)}
+						<p className="text-[11px] text-red-400/70 mt-1">
+							{isApiDown
+								? "ssh root@100.64.175.88 then: pm2 status"
+								: "Try refreshing — if this persists, the session may have expired."}
+						</p>
 					</div>
 				</div>
 				<button
 					onClick={fetchStatus}
-					className={
-						isAuthError
-							? "mt-4 rounded-lg bg-amber-800/30 px-4 py-2 text-sm text-amber-300 hover:bg-amber-800/50"
-							: "mt-4 rounded-lg bg-red-800/30 px-4 py-2 text-sm text-red-300 hover:bg-red-800/50"
-					}>
+					className="mt-4 rounded-lg bg-red-800/30 px-4 py-2 text-sm text-red-300 hover:bg-red-800/50">
 					Retry
 				</button>
 			</Card>
@@ -314,6 +347,36 @@ export function AutonomousLoopView() {
 					color="text-gray-400"
 				/>
 			</div>
+
+			{/* Progress bar — only visible while running */}
+			{isRunning && (
+				<div className="rounded-lg border border-violet-800/30 bg-violet-950/20 px-4 py-3 space-y-2">
+					<div className="flex items-center justify-between text-xs">
+						<span className="flex items-center gap-1.5 text-violet-300">
+							<Zap className="h-3.5 w-3.5" />
+							Step {s.progress}% complete
+						</span>
+						<span className="text-gray-500">
+							{s.elapsedMs > 0 && (
+								<>
+									<span className="text-gray-400">{formatDuration(s.elapsedMs)}</span>
+									{s.remainingMs > 0 && (
+										<span className="ml-2 text-gray-600">
+											· {formatDuration(s.remainingMs)} left
+										</span>
+									)}
+								</>
+							)}
+						</span>
+					</div>
+					<div className="h-1.5 w-full rounded-full bg-violet-900/40 overflow-hidden">
+						<div
+							className="h-full rounded-full bg-violet-500 transition-all duration-500"
+							style={{ width: `${s.progress}%` }}
+						/>
+					</div>
+				</div>
+			)}
 
 			{/* Step Timeline */}
 			<Card>
