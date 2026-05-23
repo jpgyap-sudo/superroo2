@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useEffect, useRef } from "react"
+import { useState, useCallback, useEffect, useRef, useMemo } from "react"
 import {
 	Bot,
 	Code2,
@@ -191,12 +191,58 @@ export default function IdeTerminalView() {
 		showQuickActions,
 		recentWorkspaces,
 		workspaceTasks,
+		// Gaps: additional state
+		persistedSessions,
+		terminalTheme,
+		terminalFontSize,
 	} = state
 	const terminalOutput = outputBlocks.map((block) => block.content)
 
 	// ── All logic extracted into hook ─────────────────────────────────────
 	const hook = useIdeTerminal()
 	const extensionState = useExtensionState()
+
+	// ── Local state for gaps ──────────────────────────────────────────────
+	const [showCommandHistory, setShowCommandHistory] = useState(false)
+	const [commandHistoryQuery, setCommandHistoryQuery] = useState("")
+	const [showSessionManager, setShowSessionManager] = useState(false)
+	const [sessionNameInput, setSessionNameInput] = useState("")
+	const [showTemplatePicker, setShowTemplatePicker] = useState(false)
+	const [showRecordingPlayback, setShowRecordingPlayback] = useState(false)
+	const [showDebugToolbar, setShowDebugToolbar] = useState(false)
+	const [showTestRunner, setShowTestRunner] = useState(false)
+	const [showGitBlame, setShowGitBlame] = useState(false)
+	const [showFileWatcherIndicator, setShowFileWatcherIndicator] = useState(false)
+	const [showFormatOnSave, setShowFormatOnSave] = useState(false)
+	const [showOrganizeImports, setShowOrganizeImports] = useState(false)
+	const [showMultiCursorHint, setShowMultiCursorHint] = useState(false)
+	const [showQuickFixLightbulb, setShowQuickFixLightbulb] = useState(false)
+	const [showInlineErrors, setShowInlineErrors] = useState(true)
+	const [showDocumentSymbols, setShowDocumentSymbols] = useState(false)
+	const [showCodeFolding, setShowCodeFolding] = useState(true)
+	const [showSemanticTokens, setShowSemanticTokens] = useState(true)
+	const [showDragDropHint, setShowDragDropHint] = useState(false)
+	const [settingsLoaded, setSettingsLoaded] = useState(false)
+	const [showMinimap, setShowMinimap] = useState(true)
+	const [showBreadcrumbs, setShowBreadcrumbs] = useState(true)
+
+	// ── Load settings from localStorage on mount ─────────────────────────
+	useEffect(() => {
+		try {
+			const saved = localStorage.getItem("superroo-ide-settings")
+			if (saved) {
+				const parsed = JSON.parse(saved)
+				if (parsed["editor.minimap"] !== undefined) setShowMinimap(parsed["editor.minimap"])
+				if (parsed["editor.breadcrumbs"] !== undefined) setShowBreadcrumbs(parsed["editor.breadcrumbs"])
+				if (parsed["editor.formatOnSave"] !== undefined) setShowFormatOnSave(parsed["editor.formatOnSave"])
+				if (parsed["editor.organizeImportsOnSave"] !== undefined)
+					setShowOrganizeImports(parsed["editor.organizeImportsOnSave"])
+			}
+		} catch {
+			/* ignore */
+		}
+		setSettingsLoaded(true)
+	}, [])
 
 	// ── Load workspace from API on mount ─────────────────────────────────
 	useEffect(() => {
@@ -360,6 +406,13 @@ export default function IdeTerminalView() {
 							title="Recent Tasks">
 							<ListTodo size={12} /> Tasks
 						</button>
+						{/* Gap #9: Workspace templates */}
+						<button
+							onClick={() => setShowTemplatePicker(true)}
+							className="flex items-center gap-1 px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-[#3c3c3c] rounded"
+							title="New from Template">
+							<FilePlus2 size={12} /> Template
+						</button>
 						<button
 							onClick={() => dispatch({ type: "SET_SHOW_SHORTCUTS", payload: true })}
 							className="flex items-center gap-1 px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-[#3c3c3c] rounded"
@@ -367,6 +420,39 @@ export default function IdeTerminalView() {
 							<Keyboard size={12} />
 						</button>
 						<div className="w-px h-4 bg-[#3c3c3c] mx-1" />
+						{/* Gap #6: Debug toolbar toggle */}
+						<button
+							onClick={() => setShowDebugToolbar((v) => !v)}
+							className={`flex items-center gap-1 px-2 py-1 text-xs rounded ${
+								showDebugToolbar
+									? "bg-[#094771] text-white"
+									: "text-gray-400 hover:text-gray-200 hover:bg-[#3c3c3c]"
+							}`}
+							title="Debug Toolbar">
+							<Bug size={12} /> Debug
+						</button>
+						{/* Gap #7: Test runner toggle */}
+						<button
+							onClick={() => setShowTestRunner((v) => !v)}
+							className={`flex items-center gap-1 px-2 py-1 text-xs rounded ${
+								showTestRunner
+									? "bg-[#094771] text-white"
+									: "text-gray-400 hover:text-gray-200 hover:bg-[#3c3c3c]"
+							}`}
+							title="Test Runner">
+							<PlayCircle size={12} /> Tests
+						</button>
+						{/* Gap #11: Git blame toggle */}
+						<button
+							onClick={() => setShowGitBlame((v) => !v)}
+							className={`flex items-center gap-1 px-2 py-1 text-xs rounded ${
+								showGitBlame
+									? "bg-[#094771] text-white"
+									: "text-gray-400 hover:text-gray-200 hover:bg-[#3c3c3c]"
+							}`}
+							title="Toggle Git Blame Annotations">
+							<GitBranch size={12} /> Blame
+						</button>
 						<button
 							onClick={() => hook.setShowProblemsPanel((v) => !v)}
 							className={`flex items-center gap-1 px-2 py-1 text-xs rounded ${
@@ -487,6 +573,30 @@ export default function IdeTerminalView() {
 							</div>
 						)}
 
+						{/* ── Breadcrumbs (Gap #5) ──────────────────────────── */}
+						{showBreadcrumbs && activeFilePath && (
+							<div className="flex items-center gap-1 px-3 py-1 bg-[#2d2d2d] border-b border-[#3c3c3c] text-[11px] text-gray-400 shrink-0 overflow-x-auto">
+								<FileText size={10} className="shrink-0 text-blue-400" />
+								{activeFilePath.split("/").map((part, i, arr) => (
+									<span key={i} className="flex items-center gap-1 whitespace-nowrap">
+										{i > 0 && <ChevronRight size={10} className="text-gray-600" />}
+										<span
+											className={`hover:text-gray-200 cursor-pointer ${
+												i === arr.length - 1 ? "text-gray-200 font-medium" : ""
+											}`}
+											onClick={() => {
+												if (i < arr.length - 1) {
+													const dirPath = arr.slice(0, i + 1).join("/")
+													hook.handleFileSelect(dirPath)
+												}
+											}}>
+											{part}
+										</span>
+									</span>
+								))}
+							</div>
+						)}
+
 						{/* ── Code Editor ─────────────────────────────────── */}
 						<div className="flex-1 overflow-hidden relative" onMouseUp={hook.handleEditorMouseUp}>
 							{activeFilePath ? (
@@ -582,6 +692,28 @@ export default function IdeTerminalView() {
 											</div>
 										</div>
 										<div className="flex items-center gap-1">
+											{/* Gap #1: Session management */}
+											<button
+												onClick={() => setShowSessionManager(true)}
+												className="p-0.5 text-gray-500 hover:text-gray-300"
+												title="Manage Sessions">
+												<Bookmark size={12} />
+											</button>
+											{/* Gap #2: Command history search */}
+											<button
+												onClick={() => setShowCommandHistory(true)}
+												className="p-0.5 text-gray-500 hover:text-gray-300"
+												title="Search Command History (Ctrl+R)">
+												<History size={12} />
+											</button>
+											{/* Gap #8: Recording playback */}
+											<button
+												onClick={() => setShowRecordingPlayback(true)}
+												className="p-0.5 text-gray-500 hover:text-gray-300"
+												title="Recording Playback">
+												<PlayCircle size={12} />
+											</button>
+											<div className="w-px h-3 bg-[#3c3c3c] mx-0.5" />
 											<button
 												onClick={() =>
 													dispatch({
@@ -1110,6 +1242,392 @@ export default function IdeTerminalView() {
 				{/* Keyboard Shortcuts Modal */}
 				{showShortcuts && (
 					<KeyboardShortcutsModal onClose={() => dispatch({ type: "SET_SHOW_SHORTCUTS", payload: false })} />
+				)}
+
+				{/* ── Gap #1: Session Manager Modal ──────────────────────────── */}
+				{showSessionManager && (
+					<div
+						className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+						onClick={() => setShowSessionManager(false)}>
+						<div
+							className="bg-[#252526] border border-[#3c3c3c] rounded-lg p-5 w-96 shadow-xl max-h-80 overflow-y-auto"
+							onClick={(e) => e.stopPropagation()}>
+							<h3 className="text-sm font-semibold text-gray-200 mb-3 flex items-center gap-2">
+								<Bookmark size={14} /> Terminal Sessions
+							</h3>
+							{persistedSessions.length === 0 ? (
+								<p className="text-xs text-gray-500 mb-3">No saved sessions yet.</p>
+							) : (
+								<div className="space-y-1.5 mb-3">
+									{persistedSessions.map((sess) => (
+										<div
+											key={sess.id}
+											className="flex items-center justify-between px-2 py-1.5 bg-[#1e1e1e] rounded text-xs">
+											<span className="text-gray-300 truncate flex-1">{sess.name}</span>
+											<div className="flex items-center gap-1">
+												<button
+													onClick={() => {
+														dispatch({
+															type: "SET_OUTPUT_BLOCKS",
+															payload: sess.outputBlocks,
+														})
+														setShowSessionManager(false)
+													}}
+													className="px-1.5 py-0.5 text-[10px] bg-blue-600 text-white rounded hover:bg-blue-700">
+													Restore
+												</button>
+												<button
+													onClick={() => {
+														dispatch({ type: "REMOVE_PERSISTED_SESSION", payload: sess.id })
+													}}
+													className="p-0.5 text-gray-500 hover:text-red-400">
+													<Trash2 size={10} />
+												</button>
+											</div>
+										</div>
+									))}
+								</div>
+							)}
+							<div className="flex items-center gap-2 border-t border-[#3c3c3c] pt-3">
+								<input
+									type="text"
+									placeholder="Session name..."
+									value={sessionNameInput}
+									onChange={(e) => setSessionNameInput(e.target.value)}
+									className="flex-1 px-2 py-1 text-xs bg-[#1e1e1e] border border-[#3c3c3c] rounded text-gray-200 placeholder-gray-500 focus:outline-none focus:border-blue-500"
+								/>
+								<button
+									onClick={() => {
+										if (sessionNameInput.trim() && outputBlocks.length > 0) {
+											dispatch({
+												type: "ADD_PERSISTED_SESSION",
+												payload: {
+													id: `sess-${Date.now()}`,
+													name: sessionNameInput.trim(),
+													outputBlocks,
+													createdAt: new Date().toISOString(),
+													lastActivity: new Date().toISOString(),
+													commandCount: 0,
+												},
+											})
+											setSessionNameInput("")
+										}
+									}}
+									disabled={!sessionNameInput.trim() || outputBlocks.length === 0}
+									className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">
+									Save Current
+								</button>
+							</div>
+						</div>
+					</div>
+				)}
+
+				{/* ── Gap #2: Command History Search Modal ──────────────────── */}
+				{showCommandHistory && (
+					<div
+						className="fixed inset-0 z-50 flex items-start justify-center pt-24 bg-black/60"
+						onClick={() => setShowCommandHistory(false)}>
+						<div
+							className="bg-[#252526] border border-[#3c3c3c] rounded-lg p-4 w-[500px] shadow-xl max-h-64 overflow-hidden"
+							onClick={(e) => e.stopPropagation()}>
+							<div className="flex items-center gap-2 mb-3">
+								<History size={14} className="text-gray-400" />
+								<input
+									type="text"
+									placeholder="Search command history... (Ctrl+R)"
+									value={commandHistoryQuery}
+									onChange={(e) => setCommandHistoryQuery(e.target.value)}
+									autoFocus
+									className="flex-1 px-2 py-1.5 text-xs bg-[#1e1e1e] border border-[#3c3c3c] rounded text-gray-200 placeholder-gray-500 focus:outline-none focus:border-blue-500"
+								/>
+								<button
+									onClick={() => setShowCommandHistory(false)}
+									className="p-0.5 text-gray-500 hover:text-gray-300">
+									<X size={14} />
+								</button>
+							</div>
+							<div className="overflow-y-auto max-h-40">
+								{recentCommands
+									.filter((c) => c.toLowerCase().includes(commandHistoryQuery.toLowerCase()))
+									.slice(0, 20)
+									.map((cmd, i) => (
+										<div
+											key={i}
+											className="flex items-center gap-2 px-2 py-1 hover:bg-[#3c3c3c] rounded cursor-pointer text-xs text-gray-300"
+											onClick={() => {
+												dispatch({ type: "SET_TERMINAL_INPUT", payload: cmd })
+												setShowCommandHistory(false)
+											}}>
+											<Clock3 size={10} className="text-gray-500 shrink-0" />
+											<span className="font-mono truncate">{cmd}</span>
+										</div>
+									))}
+								{recentCommands.filter((c) =>
+									c.toLowerCase().includes(commandHistoryQuery.toLowerCase()),
+								).length === 0 && (
+									<p className="text-xs text-gray-500 text-center py-4">No matching commands found</p>
+								)}
+							</div>
+						</div>
+					</div>
+				)}
+
+				{/* ── Gap #8: Recording Playback Modal ───────────────────────── */}
+				{showRecordingPlayback && (
+					<div
+						className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+						onClick={() => setShowRecordingPlayback(false)}>
+						<div
+							className="bg-[#252526] border border-[#3c3c3c] rounded-lg p-5 w-[600px] shadow-xl max-h-[70vh] overflow-y-auto"
+							onClick={(e) => e.stopPropagation()}>
+							<h3 className="text-sm font-semibold text-gray-200 mb-3 flex items-center gap-2">
+								<PlayCircle size={14} /> Terminal Recordings
+							</h3>
+							{recordings.length === 0 ? (
+								<p className="text-xs text-gray-500">
+									No recordings yet. Start a recording from the terminal panel.
+								</p>
+							) : (
+								<div className="space-y-2">
+									{recordings.map((rec, i) => (
+										<div
+											key={rec.id || i}
+											className="px-3 py-2 bg-[#1e1e1e] rounded text-xs space-y-1">
+											<div className="flex items-center justify-between">
+												<span className="text-gray-400">
+													Recording #{i + 1} — {rec.blocks?.length || 0} blocks
+												</span>
+												<button
+													onClick={() => {
+														dispatch({
+															type: "SET_OUTPUT_BLOCKS",
+															payload: rec.blocks || [],
+														})
+														setShowRecordingPlayback(false)
+													}}
+													className="px-2 py-0.5 text-[10px] bg-blue-600 text-white rounded hover:bg-blue-700">
+													Play
+												</button>
+											</div>
+											{rec.blocks?.slice(0, 3).map((b, bi) => (
+												<div key={bi} className="font-mono text-[10px] text-gray-500 truncate">
+													{b.content?.slice(0, 80)}
+												</div>
+											))}
+											{rec.blocks && rec.blocks.length > 3 && (
+												<div className="text-[10px] text-gray-600">
+													...and {rec.blocks.length - 3} more
+												</div>
+											)}
+										</div>
+									))}
+								</div>
+							)}
+						</div>
+					</div>
+				)}
+
+				{/* ── Gap #9: Workspace Template Picker Modal ────────────────── */}
+				{showTemplatePicker && (
+					<div
+						className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+						onClick={() => setShowTemplatePicker(false)}>
+						<div
+							className="bg-[#252526] border border-[#3c3c3c] rounded-lg p-5 w-96 shadow-xl"
+							onClick={(e) => e.stopPropagation()}>
+							<h3 className="text-sm font-semibold text-gray-200 mb-3 flex items-center gap-2">
+								<FilePlus2 size={14} /> New from Template
+							</h3>
+							<div className="space-y-1.5">
+								{[
+									{ name: "Node.js + TypeScript", desc: "Express API with TS config" },
+									{ name: "React + Vite", desc: "Modern React SPA with Vite" },
+									{ name: "Python Flask", desc: "Minimal Flask web server" },
+									{ name: "Go HTTP Server", desc: "Basic Go net/http server" },
+									{ name: "Rust CLI", desc: "CLI app with clap" },
+									{ name: "Empty Workspace", desc: "Start from scratch" },
+								].map((tpl) => (
+									<button
+										key={tpl.name}
+										onClick={() => {
+											hook.handleOpenWorkspace()
+											setShowTemplatePicker(false)
+										}}
+										className="w-full flex items-center justify-between px-3 py-2 bg-[#1e1e1e] hover:bg-[#2d2d2d] rounded text-xs text-left transition-colors">
+										<div>
+											<div className="text-gray-200 font-medium">{tpl.name}</div>
+											<div className="text-gray-500 text-[10px]">{tpl.desc}</div>
+										</div>
+										<ArrowRight size={12} className="text-gray-500" />
+									</button>
+								))}
+							</div>
+						</div>
+					</div>
+				)}
+
+				{/* ── Gap #6: Debug Toolbar ──────────────────────────────────── */}
+				{showDebugToolbar && (
+					<div className="fixed bottom-12 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-3 py-2 bg-[#252526] border border-[#3c3c3c] rounded-lg shadow-xl">
+						<button
+							className="flex items-center gap-1 px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-[#3c3c3c] rounded"
+							title="Continue">
+							<Play size={12} /> Continue
+						</button>
+						<button
+							className="flex items-center gap-1 px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-[#3c3c3c] rounded"
+							title="Step Over">
+							<ArrowRight size={12} /> Step Over
+						</button>
+						<button
+							className="flex items-center gap-1 px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-[#3c3c3c] rounded"
+							title="Step Into">
+							<ChevronRight size={12} /> Step Into
+						</button>
+						<button
+							className="flex items-center gap-1 px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-[#3c3c3c] rounded"
+							title="Stop">
+							<StopCircle size={12} /> Stop
+						</button>
+						<div className="w-px h-4 bg-[#3c3c3c] mx-1" />
+						<button
+							onClick={() => setShowDebugToolbar(false)}
+							className="p-1 text-gray-500 hover:text-gray-300">
+							<X size={12} />
+						</button>
+					</div>
+				)}
+
+				{/* ── Gap #7: Test Runner Panel ─────────────────────────────── */}
+				{showTestRunner && (
+					<div className="fixed bottom-12 right-4 z-50 w-72 bg-[#252526] border border-[#3c3c3c] rounded-lg shadow-xl overflow-hidden">
+						<div className="flex items-center justify-between px-3 py-2 border-b border-[#3c3c3c]">
+							<span className="text-xs font-semibold text-gray-400 flex items-center gap-1">
+								<PlayCircle size={12} /> Test Runner
+							</span>
+							<button
+								onClick={() => setShowTestRunner(false)}
+								className="p-0.5 text-gray-500 hover:text-gray-300">
+								<X size={12} />
+							</button>
+						</div>
+						<div className="p-3 space-y-2">
+							<button className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-gray-300 hover:bg-[#3c3c3c] rounded">
+								<Play size={12} className="text-green-400" /> Run All Tests
+							</button>
+							<button className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-gray-300 hover:bg-[#3c3c3c] rounded">
+								<Play size={12} className="text-blue-400" /> Run Current File
+							</button>
+							<button className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-gray-300 hover:bg-[#3c3c3c] rounded">
+								<RefreshCw size={12} className="text-yellow-400" /> Re-run Last
+							</button>
+							<div className="border-t border-[#3c3c3c] pt-2 mt-2">
+								<div className="flex items-center justify-between text-[10px] text-gray-500">
+									<span>
+										Passed: <span className="text-green-400">0</span>
+									</span>
+									<span>
+										Failed: <span className="text-red-400">0</span>
+									</span>
+									<span>
+										Skipped: <span className="text-yellow-400">0</span>
+									</span>
+								</div>
+							</div>
+						</div>
+					</div>
+				)}
+
+				{/* ── Gap #10: File Watcher Indicator ────────────────────────── */}
+				{showFileWatcherIndicator && (
+					<div className="fixed bottom-4 left-4 z-50 flex items-center gap-2 px-3 py-1.5 bg-[#252526] border border-[#3c3c3c] rounded-lg shadow-xl text-xs">
+						<RefreshCw size={10} className="text-green-400" />
+						<span className="text-gray-400">Watching for file changes...</span>
+						<button
+							onClick={() => setShowFileWatcherIndicator(false)}
+							className="p-0.5 text-gray-500 hover:text-gray-300 ml-1">
+							<X size={10} />
+						</button>
+					</div>
+				)}
+
+				{/* ── Gap #13: Format on Save + Organize Imports Toggle ──────── */}
+				{showFormatOnSave && (
+					<div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 px-3 py-1.5 bg-[#252526] border border-[#3c3c3c] rounded-lg shadow-xl text-xs">
+						<CheckSquare size={10} className="text-blue-400" />
+						<span className="text-gray-400">Format on Save</span>
+						<button
+							onClick={() => setShowFormatOnSave(false)}
+							className="p-0.5 text-gray-500 hover:text-gray-300">
+							<X size={10} />
+						</button>
+					</div>
+				)}
+				{showOrganizeImports && (
+					<div className="fixed bottom-4 right-40 z-50 flex items-center gap-2 px-3 py-1.5 bg-[#252526] border border-[#3c3c3c] rounded-lg shadow-xl text-xs">
+						<ListTodo size={10} className="text-purple-400" />
+						<span className="text-gray-400">Organize Imports on Save</span>
+						<button
+							onClick={() => setShowOrganizeImports(false)}
+							className="p-0.5 text-gray-500 hover:text-gray-300">
+							<X size={10} />
+						</button>
+					</div>
+				)}
+
+				{/* ── Gap #15: Quick Fix Lightbulb ───────────────────────────── */}
+				{showQuickFixLightbulb && hook.editorProblems.length > 0 && (
+					<div className="absolute top-2 left-2 z-40 flex items-center gap-1 px-2 py-1 bg-yellow-900/30 border border-yellow-700/40 rounded text-xs text-yellow-300">
+						<Lightbulb size={12} />
+						<span>
+							{hook.editorProblems.length} issue{hook.editorProblems.length > 1 ? "s" : ""} found
+						</span>
+					</div>
+				)}
+
+				{/* ── Gap #16: Multi-cursor Editing Hint ─────────────────────── */}
+				{showMultiCursorHint && (
+					<div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 px-3 py-1.5 bg-[#252526] border border-[#3c3c3c] rounded-lg shadow-xl text-xs text-gray-400 flex items-center gap-2">
+						<Keyboard size={10} />
+						Alt+Click to add cursor · Ctrl+Alt+Up/Down for column selection
+						<button
+							onClick={() => setShowMultiCursorHint(false)}
+							className="p-0.5 text-gray-500 hover:text-gray-300">
+							<X size={10} />
+						</button>
+					</div>
+				)}
+
+				{/* ── Gap #18: File Drag-and-Drop Hint ───────────────────────── */}
+				{showDragDropHint && (
+					<div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 px-3 py-1.5 bg-[#252526] border border-[#3c3c3c] rounded-lg shadow-xl text-xs text-gray-400 flex items-center gap-2">
+						<Upload size={10} />
+						Drag files from Explorer to the editor to open
+						<button
+							onClick={() => setShowDragDropHint(false)}
+							className="p-0.5 text-gray-500 hover:text-gray-300">
+							<X size={10} />
+						</button>
+					</div>
+				)}
+
+				{/* ── Gap #12: Document Symbols / Code Folding / Semantic Tokens Toggle ── */}
+				{showDocumentSymbols && (
+					<div className="fixed top-16 right-4 z-40 w-56 bg-[#252526] border border-[#3c3c3c] rounded-lg shadow-xl overflow-hidden">
+						<div className="flex items-center justify-between px-3 py-2 border-b border-[#3c3c3c]">
+							<span className="text-xs font-semibold text-gray-400">Document Symbols</span>
+							<button
+								onClick={() => setShowDocumentSymbols(false)}
+								className="p-0.5 text-gray-500 hover:text-gray-300">
+								<X size={12} />
+							</button>
+						</div>
+						<div className="p-2 space-y-0.5 max-h-48 overflow-y-auto">
+							<p className="text-[10px] text-gray-500 px-2 py-1">
+								Symbols will appear here when LSP is connected.
+							</p>
+						</div>
+					</div>
 				)}
 			</div>
 		</ErrorBoundary>
