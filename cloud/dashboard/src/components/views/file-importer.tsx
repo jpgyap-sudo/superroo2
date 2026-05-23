@@ -35,6 +35,7 @@ interface FileImporterStats {
 interface StatsResponse {
 	success: boolean
 	stats: FileImporterStats
+	error?: string
 }
 
 interface ImportResult {
@@ -47,6 +48,7 @@ interface ImportResult {
 interface ImportResponse {
 	success: boolean
 	result: ImportResult
+	error?: string
 }
 
 function getWsUrl() {

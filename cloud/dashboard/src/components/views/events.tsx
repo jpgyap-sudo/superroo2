@@ -35,6 +35,7 @@ interface EventsResponse {
 	success: boolean
 	events: EventEntry[]
 	count: number
+	error?: string
 }
 
 const SEVERITY_OPTIONS = ["all", "info", "debug", "warn", "error"] as const
