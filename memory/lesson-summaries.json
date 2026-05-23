@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-23T00:45:39.276Z",
+  "generatedAt": "2026-05-23T00:45:59.244Z",
   "deepseekModel": "deepseek-chat",
   "ollamaUrl": "http://127.0.0.1:11434",
   "sourceFile": "memory/lessons-learned.md",
@@ -10,7 +10,7 @@
       "date": "2026-05-23",
       "model": "local",
       "confidence": "high",
-      "summary": "The lesson is to always guard calls to optional orchestrator sub-module methods with `typeof ... === \"function\"` checks, even if the parent object exists. A missing method (like `orchestrator.learningGateway.health`) can crash an entire aggregation endpoint, so fall back to default values when the method is unavailable. This defensive programming prevents a single missing or incomplete dependency from breaking the system.",
+      "summary": "When calling methods on optional orchestrator sub-modules, always guard with `typeof orchestrator.subModule.method === \"function\"` before invoking the method, even if the parent object exists. This prevents a single missing or non-function method from crashing an entire aggregation endpoint, as seen when `orchestrator.learningGateway.health()` threw a TypeError inside a Promise.all, causing the dashboard to render as an empty shell.",
       "hasEmbeddings": false
     }
   ]
