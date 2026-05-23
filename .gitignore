@@ -145,3 +145,11 @@ superroo.bundle
 
 # === Cleanup: Turbo watch logs ===
 .turbo-watch.*
+
+# === DeployerAgent: auto-added artifact ignores ===
+cloud/e2e/tab-crawl-reports/
+*.db-shm
+*.db-wal
+", text-blue-400"
+memory/.stop-hook-last-run
+memory/.sync-state.json

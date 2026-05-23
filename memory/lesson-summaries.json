@@ -1,5 +1,5 @@
 {
-	"generatedAt": "2026-05-23T06:14:50.883Z",
+	"generatedAt": "2026-05-23T06:15:54.012Z",
 	"deepseekModel": "deepseek-chat",
 	"ollamaUrl": "http://127.0.0.1:11434",
 	"sourceFile": "memory/lessons-learned.md",
@@ -10,7 +10,7 @@
 			"date": "2026-05-23",
 			"model": "deepseek-chat",
 			"confidence": "high",
-			"summary": "The PM2 ecosystem config for superroo-api and superroo-worker used `process.env.SUPERROO_VAULT_KEY || \"\"`, which only reads from the shell environment where PM2 was started, not from the `.env` file. The fix added `readEnvValue(\"SUPERROO_VAULT_KEY\")` as a fallback, matching the pattern already used for `PGPASSWORD`. The key takeaway is to always use `readEnvValue()` as a fallback for any env var in PM2 ecosystem configs that exists in the `.env` file but may not be set in the shell environment.",
+			"summary": "A PM2 ecosystem config error caused a 500 error because `SUPERROO_VAULT_KEY` was set using `process.env.SUPERROO_VAULT_KEY || \"\"`, which only reads from the shell environment, not the `.env` file. The fix added `readEnvValue(\"SUPERROO_VAULT_KEY\")` as a fallback, matching the pattern already used for `PGPASSWORD`. The key takeaway is to always use `readEnvValue()` as a fallback for any env var in PM2 configs that exists in the `.env` file but may not be in the shell environment.",
 			"hasEmbeddings": false
 		}
 	]

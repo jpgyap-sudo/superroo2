@@ -3837,25 +3837,33 @@ Fixed IDE terminal 500 error caused by missing SUPERROO_VAULT_KEY environment va
 
 The ecosystem config had SUPERROO_VAULT_KEY: process.env.SUPERROO_VAULT_KEY || "" for both superroo-api and superroo-worker. This reads from the shell environment where PM2 was started, NOT from the .env file. The .env file already had the vault key set, but the readEnvValue() helper function (which reads from .env) was only used for PGPASSWORD, not for SUPERROO_VAULT_KEY.
 
+Additionally, PM2 caches evaluated env vars from the `env` block at config load time. Running `pm2 restart` re-uses the cached values — it does NOT re-evaluate the config file. This means even after adding readEnvValue() fallback, a simple `pm2 restart` will NOT pick up the new value.
+
 #### Fix Applied
 
-Changed both occurrences from SUPERROO_VAULT_KEY: process.env.SUPERROO_VAULT_KEY || "" to SUPERROO_VAULT_KEY: process.env.SUPERROO_VAULT_KEY || readEnvValue("SUPERROO_VAULT_KEY"). This matches the pattern already used for PGPASSWORD.
+1. Changed both occurrences from SUPERROO_VAULT_KEY: process.env.SUPERROO_VAULT_KEY || "" to SUPERROO_VAULT_KEY: process.env.SUPERROO_VAULT_KEY || readEnvValue("SUPERROO_VAULT_KEY"). This matches the pattern already used for PGPASSWORD.
+2. Ran `pm2 delete superroo-api && pm2 start ecosystem.config.js --only superroo-api` to force PM2 to re-evaluate the config (same for superroo-worker).
+3. Ran `pm2 save` to persist the process list.
 
 #### Test Result
 
-pass - API health endpoint returns {"status":"online","redis":true,"worker":true} after restart.
+pass - Both superroo-api (id 59) and superroo-worker (id 60) now have SUPERROO_VAULT_KEY properly set. API health endpoint returns {"status":"online","redis":true,"worker":true}.
 
 #### Lesson Learned
 
 When using PM2 ecosystem config, env vars set as process.env.VAR || "" only read from the shell environment where PM2 was started. If the .env file contains the value, use the project readEnvValue() helper as fallback. Always check whether env vars are actually reaching the process by examining the PM2 env block, not just the .env file.
 
+CRITICAL: PM2 caches evaluated env vars from the `env` block at config load time. `pm2 restart` does NOT re-evaluate the config — it re-uses cached values. To force re-evaluation, you MUST use `pm2 delete <app> && pm2 start ecosystem.config.js --only <app>`. Always verify with `pm2 env <id> | grep KEY_NAME` after restarting.
+
 #### Reusable Rule
 
 For PM2 ecosystem configs, always add readEnvValue("VAR_NAME") as fallback for any env var that exists in the .env file but may not be set in the shell environment. The pattern is: VAR: process.env.VAR || readEnvValue("VAR").
 
+When changing PM2 env vars in ecosystem.config.js, NEVER use `pm2 restart` — it re-uses cached env vars. Always use `pm2 delete <app> && pm2 start ecosystem.config.js --only <app>` to force PM2 to re-evaluate the config. Then run `pm2 save` to persist.
+
 #### Tags
 
-pm2, env-vars, ecosystem-config, vault-key, deployment, configuration
+pm2, env-vars, ecosystem-config, vault-key, deployment, configuration, pm2-cache, env-caching
 
 ---
 
@@ -3906,5 +3914,57 @@ To be determined — this commit was auto-flagged as potentially containing a le
 #### Tags
 
 bugfix
+
+---
+
+### Auto-Extracted Lesson: Chore(learning): update lesson summaries, context, and indexes
+
+Date: 2026-05-23
+Source: Git commit d0208ade
+Model/API used: unknown
+Confidence: medium
+Related files: memory/lesson-index.jsonl, memory/lesson-summaries.json, memory/lessons-learned.md
+
+#### Task Summary
+
+chore(learning): update lesson summaries, context, and indexes
+
+#### Files Changed
+
+- `memory/lesson-index.jsonl`
+- `memory/lesson-summaries.json`
+- `memory/lessons-learned.md`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit d0208ade.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit d0208ade by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+general
 
 ---
