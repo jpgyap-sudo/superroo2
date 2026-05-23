@@ -1,25 +1,25 @@
 # Latest Agent Context
 
-Generated: 2026-05-22T02:49:58.818Z
-Task: Investigate Telegram message experience when user asks recommendations then asks coder to proceed upgrade or improvement
+Generated: 2026-05-23T00:08:37.634Z
+Task: add website flowcharts tab with diagrams for telegram debug team cloud ide and key app features
 
 ## Relevant Lessons
 
-1. **Telegram dashboard coding flow must enqueue real coder phases**
-    - Rule: When wiring a dashboard or Telegram Mini App coding console, do not point a /code UI at a generic connectivity endpoint. The frontend should POST /telegram/tasks/create with stripped instruction and a
-    - Why: When wiring a dashboard or Telegram Mini App coding console, do not point a /code UI at a generic connectivity endpoint. The frontend should POST /telegram/tasks/create with stripped instruction and auto flag; backend create should enqueue coder-plan jobs with phase/task metadata, and dashboard appr
-2. **DeepSeek V4 Coder MCP — enforce agent routing workflow for Claude Code**
-    - Rule: When designing agent routing workflows for Claude Code, do NOT rely on CLAUDE.md instructions alone. Create MCP servers that expose delegated capabilities as tools — Claude auto-discovers them from .mcp.json and uses them when appropriate, making the workflow programmatically enforceable.
-    - Why: CLAUDE.md is advisory text and cannot enforce agent routing. To make Claude follow a multi-model workflow (Claude plans/reviews → DeepSeek codes → Ollama summarizes), provide MCP tools that Claude can programmatically call. The MCP protocol (JSON-RPC over stdio) is the correct mechanism for Claude to delegate tasks to other models/APIs.
-3. **Deterministic product-to-image pattern matching with scoring system**
-    - Rule: Prefer deterministic pattern matching over AI for structured data matching tasks. Implement multiple matching strategies with weighted scoring. Set confidence thresholds. Only fall back to AI when deterministic score is below threshold.
-    - Why: AI-based product-to-image matching was unreliable and expensive. Implemented a deterministic scoring system that matches product codes (e.g., "ABC-123") to image filenames using multiple pattern strategies with weighted scores.
-4. **Telegram Bot Frictionless Coding & Context Awareness Improvements**
+1. **Advanced Features Gap Fix — 28 Gaps Across 9 Modules**
+    - Rule: Before claiming a module has 'no tests', run `find src/MODULE -name '*.test.ts'` and check all subdirectories. The test coverage may be partial, not zero.
+    - Why: Fixed all identified gaps in SuperRoo's advanced features across 9 modules: 4 dashboard views created, 4 API endpoints added, 186 tests added across 4 test files, 5 cross-module integrations wired, 5 documentation files written, 1 source bug fixed (MLSyncClient double re-queue on HTTP error).
+2. **Telegram Bot Frictionless Coding & Context Awareness Improvements**
     - Rule: Hide manual approval UI in auto-mode; use persistent reply keyboards; pass conversation context to classifiers; bound typing indicators with timeouts; handle new callbacks in both notifier and bot routing.
     - Why: Fixed auto-mode UX confusion by hiding approval buttons when auto-chaining, added phase-transition progress messages, persistent reply keyboard, typing indicators, similar/audit buttons, and enhanced classifier with conversation context.
-5. **Separate Retryable System Failures from User Clarification**
-    - Rule: Before chaining promise methods onto an integration helper, verify whether it actually returns a promise; for Telegram workflows, keep clarification and retryable_failure as distinct states with distinct copy and recovery actions.
-    - Why: Telegram coding tasks were throwing because a synchronous bridge method was treated like a promise, and retryable model failures were mislabeled as user clarification. Fixed by using try/catch for the sync bridge path and adding a separate retryable failure flow that preserves retry context.
+3. **Swap Ollama to DeepSeek API for context summarization**
+    - Rule: For context summarization in agent workflows, prefer a cloud API (DeepSeek, OpenAI) over local models smaller than 3B parameters. Add a lightweight .env loader (no npm dependency) for API keys. Always include graceful degradation (skip if API key missing).
+    - Why: Ollama 0.5B produced poor-quality summaries (hallucinated bugs, truncated text). Swapping to DeepSeek API via standard HTTPS fetch() produced accurate, detailed summaries for all 6 phases. Added loadEnvFile() to read .env without dotenv dependency. DeepSeek API costs (~$0.14/M tokens) are negligible compared to Claude tokens saved by pre-compressed context.
+4. **PM2 env_block overrides env_file - hardcode vault keys directly in ecosystem.config.js**
+    - Rule: When configuring PM2 ecosystem.config.js, NEVER use `process.env.X || ""` in the `env` block for critical secrets that are defined in `env_file`. The `env` block takes precedence over `env_file`. Either hardcode the value directly, or ensure the variable is set in the shell environment before `pm2 start`. Always verify with `cat /proc/<pid>/environ | tr '\0' '\n' | grep KEY_NAME` after restart.
+    - Why: PM2 env_file directive is unreliable. The env block process.env.X patterns override .env values with empty strings. Fixed by hardcoding SUPERROO_VAULT_KEY directly. Also fixed: shutdown handler, classifier prompt, markdown stripping, button URL validation, missing pg module.
+5. **Production deploys must keep source and dependency manifests in sync**
+    - Rule: When production source files change together with dependencies, deploy the matching `package.json` and verify generated runtime artifacts exist before declaring recovery complete.
+    - Why: Hotfixes can restore one failing layer while leaving another stale layer broken. For production recovery, validate the runtime artifact set as well as the source change, especially when a deploy spans both app code and dependency manifests.
 
 ## Active Codex Tasks
 
@@ -58,7 +58,7 @@ The SuperRoo system is organized into **21 core modules** spanning orchestration
 
 ### DeepSeek Architecture Summary
 
-The investigation affects the **Orchestrator** (task dispatch, workflow orchestration), **Agent System** (specifically the Coder agent for upgrades/improvements), and **Memory System** (SQLite persistence for conversation context). The flow requires the Orchestrator to route the recommendation request to the appropriate agent, then pass the coder's upgrade task through the **Safety System** (mode-based ACL) before execution. Architecture constraints include the **Task Queue** (BullMQ) for priority-based task ordering and the **Event Log** for observability of the entire interaction sequence.
+The **Orchestrator** and **Agent System** (specifically the Debugger agent) are the primary modules affected, as the flowcharts tab will visualize task dispatch and agent lifecycle workflows. The **Memory System** (SQLite) and **Event Log** must provide persistence and observability data for diagram generation, while the **Cloud Sandbox** and **Task Queue** (BullMQ) constrain real-time diagram updates through their priority and execution boundaries.
 
 
 ## Task Signals
@@ -115,7 +115,7 @@ Implemented `safeJsonParse<T>(json, fallback)` helper function that:
 
 ### DeepSeek Bug Memory Summary
 
-The bug entries reveal a recurring pattern of crashes caused by unsafe `JSON.parse()` usage across multiple registry modules (`BugRegistry.ts`, `TaskQueue.ts`, `FeatureRegistry.ts`, `MemoryStore.ts`) when encountering corrupted database rows. The root cause is the lack of a safe fallback mechanism for JSON parsing, leading to unhandled exceptions. The fix involves adding a `safeJsonParse` helper function to each affected file, with one module (`HealingBus.ts`) already having it and receiving enhanced usage.
+The bug entries reveal a recurring pattern of unsafe `JSON.parse()` usage across multiple registry modules (`BugRegistry`, `TaskQueue`, `FeatureRegistry`, `MemoryStore`), causing crashes on corrupted database rows. Root cause is the lack of a safe fallback for JSON parsing. Fix involves adding a `safeJsonParse` helper to each affected file, with `HealingBus.ts` already having it and receiving enhanced usage.
 
 
 ## Model Decisions
@@ -162,13 +162,13 @@ Created routing table with primary and fallback providers:
 
 ### DeepSeek Model Decision Summary
 
-For the Telegram message experience where a user asks for recommendations and then requests an upgrade or improvement, the model router service (using `kimi-k2.5`) was chosen to map task types to optimal provider/model pairs, balancing cost, quality, and speed for both recommendation and coding tasks.
+For the "add website flowcharts tab" task, the **kimi-k2.5** model was chosen for implementing the model routing service (`modelRouterService.ts`) due to its high confidence in handling cost, quality, and speed tradeoffs across task types. This decision ensures optimal provider/model pair mapping for features like Telegram debug, cloud IDE, and key app flows.
 
 
 
 ### DeepSeek File Summaries
 
-- **scripts\deepseek-coder-mcp.mjs**: This file exports a DeepSeek Coder MCP server that exposes coding tools (deepseek_code, deepseek_review, deepseek_refactor, deepseek_explain, deepseek_status) via JSON-RPC 2.0 over stdio. Its main purpose is to delegate coding tasks from Claude to DeepSeek, following the SuperRoo agent routing workflow (Claude plans/reviews, DeepSeek codes, Ollama summarizes). Key patterns include environment-based configuration (DEEPSEEK_API_KEY, DEEPSEEK_MODEL, DEEPSEEK_API_URL), a custom loadEnvFile function for .env loading, and MCP protocol helpers for sending JSON-RPC messages over stdout.
-- **.mcp.json**: This file exports an MCP server configuration defining three services: `superroo-brain` (central memory and workflow enforcement), `deepseek-coder` (delegates coding tasks to DeepSeek V4), and `ollama` (handles embeddings and local chat). Its main purpose is to orchestrate a workflow where Claude plans/reviews, DeepSeek codes and summarizes, and Ollama handles embeddings only. For the Telegram recommendation upgrade task, note the pattern that DeepSeek is mandated for coding and summarization, while Ollama is restricted to embeddings, and the `superroo-brain` enforces lesson obligations and workflow rules.
+- **cloud\dashboard\src\components\views\parallel-execution.tsx**: This file exports a `ParallelExecutionView` component that displays real-time parallel execution statistics for the orchestrator. It fetches data from `/api/orchestrator/parallel/stats` every 10 seconds, mapping backend fields to a frontend interface with concurrency limits, token budgets, and agent costs. The component follows a pattern of loading/error states with retry functionality, using Shadcn UI components and Lucide icons consistent with the dashboard's design system.
+- **cloud\dashboard\src\components\views\autonomous-loop.tsx**: This file exports the `AutonomousLoopView` component, which displays and controls the autonomous loop system (a cyclic process of audit, fix, test, simulate, improve, learn, dashboard, commit, deploy, health-check). It fetches status from `/api/autonomous/status` every 5 seconds and provides start/stop controls via POST to `/api/autonomous/start` and `/api/autonomous/stop`. Key patterns include: using `useCallback` for fetch functions, `useEffect` with polling interval, loading/error states, and a typed `AutonomousStatus` interface with `StepResult` array for step-by-step progress tracking.
 
 ```

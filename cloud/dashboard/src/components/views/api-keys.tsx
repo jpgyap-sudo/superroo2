@@ -47,6 +47,11 @@ function Pill({ children, className = "" }: { children: React.ReactNode; classNa
 	)
 }
 
+function getAuthHeaders(): Record<string, string> {
+	const token = typeof window !== "undefined" ? localStorage.getItem("superroo_auth_token") : null
+	return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
 function ProviderCard({ provider, onSaved }: { provider: Provider; onSaved: () => void }) {
 	const [apiKey, setApiKey] = useState("")
 	const [saving, setSaving] = useState(false)
@@ -65,7 +70,7 @@ function ProviderCard({ provider, onSaved }: { provider: Provider; onSaved: () =
 		try {
 			const res = await fetch(`/api/settings/providers/${provider.id}/key`, {
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
+				headers: { "Content-Type": "application/json", ...getAuthHeaders() },
 				body: JSON.stringify({ apiKey, test: true }),
 			})
 			if (!res.ok) {
@@ -87,6 +92,7 @@ function ProviderCard({ provider, onSaved }: { provider: Provider; onSaved: () =
 		try {
 			const res = await fetch(`/api/settings/providers/${provider.id}/test`, {
 				method: "POST",
+				headers: getAuthHeaders(),
 			})
 			if (!res.ok) {
 				const err = await res.json()
@@ -106,6 +112,7 @@ function ProviderCard({ provider, onSaved }: { provider: Provider; onSaved: () =
 		try {
 			const res = await fetch(`/api/settings/providers/${provider.id}/key`, {
 				method: "DELETE",
+				headers: getAuthHeaders(),
 			})
 			if (!res.ok) {
 				const err = await res.json()
@@ -132,7 +139,7 @@ function ProviderCard({ provider, onSaved }: { provider: Provider; onSaved: () =
 			}
 			const res = await fetch(`/api/settings/providers/${provider.id}`, {
 				method: "PATCH",
-				headers: { "Content-Type": "application/json" },
+				headers: { "Content-Type": "application/json", ...getAuthHeaders() },
 				body: JSON.stringify(body),
 			})
 			if (!res.ok) {
@@ -298,7 +305,7 @@ export function ApiKeysView() {
 		setLoading(true)
 		setError(null)
 		try {
-			const res = await fetch("/api/settings/providers")
+			const res = await fetch("/api/settings/providers", { headers: getAuthHeaders() })
 			if (!res.ok) throw new Error(`HTTP ${res.status}`)
 			const data = await res.json()
 			setProviders(data.providers ?? [])

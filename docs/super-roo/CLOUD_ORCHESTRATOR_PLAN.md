@@ -2,7 +2,7 @@
 
 > **Goal**: Bring the cloud orchestrator up to parity with the local VS Code [`SuperRooOrchestrator`](src/super-roo/orchestrator/SuperRooOrchestrator.ts:42).
 >
-> **Status**: Design document — implementation not started.
+> **Status**: Implementation in progress — Phase 1 (Core Shell) complete, enhancements deployed.
 
 ---
 
@@ -161,9 +161,12 @@ class CloudOrchestrator {
 ```
 cloud/orchestrator/
 ├── CloudOrchestrator.js          # Main class — lifecycle, loop, dispatch
+├── TelegramOrchestratorBridge.js # Bridge between Telegram bot and orchestrator
 ├── stores/
 │   ├── MemoryStore.js            # SQLite wrapper (port of MemoryStore.ts)
-│   └── schema.sql                # Unified schema: tasks, features, bugs, events, incidents
+│   ├── schema.sql                # Unified schema: tasks, features, bugs, events, incidents
+│   └── migrations/               # Schema migrations (append-only)
+│       └── 001_add_worker_id.sql # Atomic task claim support
 ├── modules/
 │   ├── EventLog.js               # Append-only events (SQLite + Redis pub/sub fallback)
 │   ├── TaskQueueBullMQ.js        # Priority queue with BullMQ bridge
@@ -175,7 +178,11 @@ cloud/orchestrator/
 │   ├── HealingBus.js             # Incident coordination
 │   ├── SelfHealingLoop.js        # Detect → classify → plan → fix → verify
 │   ├── ParallelExecutor.js       # Concurrency control
-│   └── AgentBus.js               # Inter-agent messaging
+│   ├── AgentBus.js               # Inter-agent messaging
+│   ├── ContextAssembler.js       # Task context enrichment (FeatureRegistry + EventLog + LearningGateway + file tree)
+│   ├── HermesClaw.js             # Memory & context agent (Ollama/OpenAI/DeepSeek)
+│   ├── LearningGateway.js        # Lesson search, store, curation, scoring
+│   └── TaskExecutor.js           # 7-step task execution pipeline
 ├── config/
 │   └── blocklist.json            # Safety blocklist (shared format with local)
 └── index.js                      # Public exports
@@ -226,10 +233,10 @@ cloud/orchestrator/
 
 **Exit criteria**:
 
-- [ ] `POST /orchestrator/tasks` returns a task ID.
-- [ ] Task progresses through `pending → running → succeeded` in SQLite.
-- [ ] Events appear in `GET /orchestrator/events`.
-- [ ] Existing `/job` endpoint still works (backward compatibility).
+- [x] `POST /orchestrator/tasks` returns a task ID.
+- [x] Task progresses through `pending → running → succeeded` in SQLite.
+- [x] Events appear in `GET /orchestrator/events`.
+- [x] Existing `/job` endpoint still works (backward compatibility).
 - [ ] [`CommitDeployLog`](src/super-roo/product-memory/CommitDeployLog.ts:83) records this phase's deployment.
 
 ---
@@ -405,6 +412,60 @@ cloud/orchestrator/
 - [ ] `CloudOrchestrator` API surface matches `SuperRooOrchestrator` semantics.
 - [ ] All existing Telegram bot, dashboard, and API functionality remains operational.
 - [ ] [`CommitDeployLog`](src/super-roo/product-memory/CommitDeployLog.ts:83) records this phase's deployment.
+
+---
+
+## 4b. Enhancements Deployed (May 2026)
+
+The following enhancements have been implemented beyond the original Phase 1 scope:
+
+### Enhancement 1: Atomic Task Claim (`claimNext`)
+
+**Files**: [`cloud/orchestrator/modules/TaskQueueBullMQ.js`](cloud/orchestrator/modules/TaskQueueBullMQ.js:254), [`cloud/orchestrator/stores/migrations/001_add_worker_id.sql`](cloud/orchestrator/stores/migrations/001_add_worker_id.sql:1)
+
+Replaces the two-statement `nextPending()` + `update(running)` pattern with a single atomic `UPDATE ... RETURNING *` SQLite statement. This prevents race conditions when multiple orchestrator instances compete for the same pending task.
+
+- New method: `claimNext(workerId, typeFilter?)` — atomically claims the highest-priority pending task
+- Migration system: [`MemoryStore._applyMigrations()`](cloud/orchestrator/stores/MemoryStore.js:63) reads numbered SQL files from `stores/migrations/`, applies unapplied ones sequentially
+- Migration `001_add_worker_id.sql`: adds `worker_id TEXT` column + index to the `tasks` table
+- Tests: 11 tests in [`cloud/test/task-queue-atomic.test.js`](cloud/test/task-queue-atomic.test.js) covering basic claim, empty queue, no double-claim, priority ordering, FIFO, type filtering, concurrent claims, timestamps
+
+### Enhancement 2: Leader Guard
+
+**Files**: [`cloud/orchestrator/CloudOrchestrator.js`](cloud/orchestrator/CloudOrchestrator.js:483), [`cloud/ecosystem.config.js`](cloud/ecosystem.config.js:85)
+
+Gates the `_startLoop()` method behind `process.env.ORCHESTRATOR_LEADER === 'true'`. Only the PM2 process with this env var set runs the continuous task-processing loop, preventing multi-process loop races.
+
+- Added `ORCHESTRATOR_LEADER: "true"` to the `superroo-api` env block in [`cloud/ecosystem.config.js`](cloud/ecosystem.config.js:85)
+
+### Enhancement 3: Submit-Time Safety Check
+
+**Files**: [`cloud/orchestrator/CloudOrchestrator.js`](cloud/orchestrator/CloudOrchestrator.js:277)
+
+Ports the capability pre-check from the local TypeScript [`SuperRooOrchestrator.submit()`](src/super-roo/orchestrator/SuperRooOrchestrator.ts:220) to the cloud JS orchestrator. Before adding a task, `submit()` calls `this.safetyManager.checkCapability(input.type)`. If blocked, the task is immediately marked as `failed` with the safety reason, and a `task.blocked` event is logged.
+
+### Enhancement 4: Context Assembly Module
+
+**Files**: [`cloud/orchestrator/modules/ContextAssembler.js`](cloud/orchestrator/modules/ContextAssembler.js:1)
+
+New module that enriches orchestrator tasks with context before TaskExecutor execution. Addresses the root cause of weak cloud coding output: **context starvation**.
+
+- `assemble(task)`: Gathers FeatureRegistry entries, EventLog recent events, LearningGateway lessons, and repo file-tree snapshot
+- `formatContext(context)`: Formats assembled context as compact text for LLM prompt injection
+- Wired into [`CloudOrchestrator.processNext()`](cloud/orchestrator/CloudOrchestrator.js:321) — runs before `taskExecutor.execute()`
+- Context is stored in `task.metadata.context` and `task.metadata.contextText` for downstream use
+
+### Enhancement 5: Telegram Path Routing
+
+**Files**: [`cloud/api/telegramBot.js`](cloud/api/telegramBot.js:10730)
+
+Adds `/task` command and `task` NLP intent that route through the orchestrator for multi-agent breakdown planning:
+
+- **`/task <description>`** — New slash command that creates an orchestrator task with `agentId: "superroo-orchestrator-agent"`. Falls back to direct BullMQ queue if orchestrator is unavailable.
+- **NLP `task` intent** — Added to `detectIntent()` with keywords: orchestrate, orchestrator, multi-step, task, plan, pipeline, workflow, coordinate, sequence, chain, automate
+- **NLP routing** — `handleNaturalLanguageInstruction()` routes `task` intents through `orchestratorBridge.createTask()` with full project resolution and conversation context
+- **Auth** — `task` added to `authRequiredIntents` set
+- **Public command** — `/task` added to `PUBLIC_COMMANDS` array
 
 ---
 

@@ -54,6 +54,7 @@ const NAV = [
 	{ id: "overview", icon: LayoutDashboard, label: "Overview" },
 	{ id: "provider-dashboard", icon: Radio, label: "Providers" },
 	{ id: "working-tree", icon: Workflow, label: "Working Tree" },
+	{ id: "flowcharts", icon: GitBranch, label: "Flowcharts" },
 	{ id: "jobs", icon: Zap, label: "Jobs" },
 	{ id: "queue", icon: Layers, label: "Queue" },
 	{ id: "projects", icon: FolderGit2, label: "Projects" },

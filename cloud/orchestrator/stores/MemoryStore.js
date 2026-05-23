@@ -52,6 +52,47 @@ class MemoryStore {
 	_applySchema() {
 		const sql = fs.readFileSync(SCHEMA_PATH, "utf-8")
 		this.db.exec(sql)
+		this._applyMigrations()
+	}
+
+	/**
+	 * Apply pending numbered SQL migrations from stores/migrations/.
+	 * Tracks applied migrations in a _migrations table.
+	 * Never edits a shipped migration — create a new numbered file.
+	 */
+	_applyMigrations() {
+		// Ensure migration tracking table exists
+		this.db.exec(`
+			CREATE TABLE IF NOT EXISTS _migrations (
+				id INTEGER PRIMARY KEY,
+				name TEXT NOT NULL UNIQUE,
+				applied_at INTEGER NOT NULL
+			)
+		`)
+
+		if (!fs.existsSync(MIGRATIONS_DIR)) return
+
+		const files = fs
+			.readdirSync(MIGRATIONS_DIR)
+			.filter((f) => f.endsWith(".sql"))
+			.sort()
+
+		const applied = new Set(
+			this.db
+				.prepare("SELECT name FROM _migrations")
+				.all()
+				.map((r) => r.name),
+		)
+
+		const insert = this.db.prepare("INSERT INTO _migrations (id, name, applied_at) VALUES (?, ?, ?)")
+
+		for (const file of files) {
+			if (applied.has(file)) continue
+			const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, file), "utf-8")
+			this.db.exec(sql)
+			const id = parseInt(file.match(/^(\d+)/)?.[1] || "0", 10)
+			insert.run(id, file, Date.now())
+		}
 	}
 
 	/**

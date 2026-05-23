@@ -237,6 +237,55 @@ class TaskQueueBullMQ {
 	}
 
 	/**
+	 * Atomically claim the next pending task for a given worker.
+	 *
+	 * Uses a single `UPDATE ... RETURNING *` statement to prevent the
+	 * race condition inherent in the two-statement nextPending() + update()
+	 * pattern. Only tasks with status = 'pending' and no worker_id are
+	 * eligible. The caller's worker_id is written atomically, making the
+	 * claim visible to all other workers.
+	 *
+	 * better-sqlite3 supports RETURNING * natively (SQLite 3.35+).
+	 *
+	 * @param {string} workerId - Unique identifier for the claiming worker
+	 * @param {string[]} [typeFilter] - Optional list of task types to claim (e.g. ['coding', 'debug'])
+	 * @returns {object|null} The claimed task, or null if no pending task
+	 */
+	claimNext(workerId, typeFilter = null) {
+		const db = this.memory.getDb()
+		let sql
+		if (typeFilter && typeFilter.length > 0) {
+			const placeholders = typeFilter.map(() => "?").join(",")
+			sql = `
+				UPDATE tasks
+				SET status = 'running', worker_id = ?, started_at = ?, updated_at = ?
+				WHERE id = (
+					SELECT id FROM tasks
+					WHERE status = 'pending' AND worker_id IS NULL AND type IN (${placeholders})
+					ORDER BY priority ASC, created_at ASC
+					LIMIT 1
+				)
+				RETURNING *
+			`
+			const row = db.prepare(sql).get(workerId, Date.now(), Date.now(), ...typeFilter)
+			return row ? this._rowToTask(row) : null
+		}
+		sql = `
+			UPDATE tasks
+			SET status = 'running', worker_id = ?, started_at = ?, updated_at = ?
+			WHERE id = (
+				SELECT id FROM tasks
+				WHERE status = 'pending' AND worker_id IS NULL
+				ORDER BY priority ASC, created_at ASC
+				LIMIT 1
+			)
+			RETURNING *
+		`
+		const row = db.prepare(sql).get(workerId, Date.now(), Date.now())
+		return row ? this._rowToTask(row) : null
+	}
+
+	/**
 	 * Get queue statistics.
 	 * @returns {object}
 	 */
@@ -299,6 +348,7 @@ class TaskQueueBullMQ {
 			updatedAt: row.updated_at,
 			startedAt: row.started_at || null,
 			completedAt: row.completed_at || null,
+			workerId: row.worker_id || null,
 		}
 	}
 }

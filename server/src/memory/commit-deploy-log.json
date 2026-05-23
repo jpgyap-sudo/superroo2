@@ -16,11 +16,7 @@
 				"memory/lesson-index.jsonl",
 				"memory/lessons-learned.md"
 			],
-			"featuresAffected": [
-				"telegram-coding",
-				"dashboard-diff-viewer",
-				"learning-layer"
-			],
+			"featuresAffected": ["telegram-coding", "dashboard-diff-viewer", "learning-layer"],
 			"bugsFixed": [],
 			"timestamp": "2026-05-20T10:28:40.253Z",
 			"modelsUsed": [
@@ -63,12 +59,7 @@
 				"cloud/dashboard/src/components/ide-terminal/ExtensionsPanel.tsx",
 				"cloud/dashboard/src/components/views/ide-terminal.tsx"
 			],
-			"featuresAffected": [
-				"Dashboard IDE",
-				"Extensions Panel",
-				"Docker Deployment",
-				"TypeScript Build"
-			],
+			"featuresAffected": ["Dashboard IDE", "Extensions Panel", "Docker Deployment", "TypeScript Build"],
 			"modelsUsed": [],
 			"workflowCompliance": null,
 			"timestamp": "2026-05-18T13:31:43.074Z",
@@ -86,12 +77,7 @@
 				"cloud/api/telegramNotifier.js",
 				"cloud/worker/agentRunners.js"
 			],
-			"featuresAffected": [
-				"Telegram Bot",
-				"Auto Mode",
-				"Intent Classification",
-				"Context Awareness"
-			],
+			"featuresAffected": ["Telegram Bot", "Auto Mode", "Intent Classification", "Context Awareness"],
 			"timestamp": "2026-05-20T01:21:36.150Z",
 			"id": "commit_repaired_1_1779241386026",
 			"modelsUsed": [],
@@ -103,12 +89,8 @@
 			"agent": "Kimi Code CLI",
 			"type": "bugfix",
 			"title": "fix(webview): bound aggregatedCostsMap with LRUCache (max 50, 5min TTL)",
-			"filesChanged": [
-				"webview-ui/src/components/chat/ChatView.tsx"
-			],
-			"featuresAffected": [
-				"webview-chat"
-			],
+			"filesChanged": ["webview-ui/src/components/chat/ChatView.tsx"],
+			"featuresAffected": ["webview-chat"],
 			"timestamp": "2026-05-20T06:49:47.537Z",
 			"id": "commit_1779259787541",
 			"modelsUsed": [],
@@ -139,9 +121,7 @@
 				"webview-ui/src/components/super-roo/tabs/settings/AdvancedVpsSettingsTab.tsx",
 				"webview-ui/src/components/super-roo/tabs/settings/ApiKeysProvidersTab.tsx"
 			],
-			"featuresAffected": [
-				"webview-all-tabs"
-			],
+			"featuresAffected": ["webview-all-tabs"],
 			"timestamp": "2026-05-20T10:34:57.215Z",
 			"id": "commit_1779273297215",
 			"modelsUsed": [],
@@ -162,11 +142,7 @@
 				"cloud/orchestrator/modules/WorkerPauseManager.js",
 				"cloud/worker/vpsRamOrchestratorWorker.js"
 			],
-			"featuresAffected": [
-				"ram-orchestrator",
-				"monitoring",
-				"dashboard"
-			],
+			"featuresAffected": ["ram-orchestrator", "monitoring", "dashboard"],
 			"bugsFixed": [],
 			"timestamp": "2026-05-20T16:59:49.499Z",
 			"modelsUsed": [
@@ -190,16 +166,9 @@
 			"type": "bugfix",
 			"title": "fix(ram-orchestrator): event property mismatch between RAMMonitor and AlertManager",
 			"description": "RAMMonitor emits stateChange with prevState and flat metrics, but AlertManager expected oldState and event.snapshot. Fixed property mapping and heartbeat listener.",
-			"filesChanged": [
-				"cloud/worker/vpsRamOrchestratorWorker.js"
-			],
-			"featuresAffected": [
-				"ram-orchestrator"
-			],
-			"bugsFixed": [
-				"undefined state in alert logs",
-				"missing snapshot in alert payload"
-			],
+			"filesChanged": ["cloud/worker/vpsRamOrchestratorWorker.js"],
+			"featuresAffected": ["ram-orchestrator"],
+			"bugsFixed": ["undefined state in alert logs", "missing snapshot in alert payload"],
 			"timestamp": "2026-05-20T17:24:34.283Z",
 			"modelsUsed": [
 				{
@@ -225,12 +194,7 @@
 				"cloud/api/routes/healing-metrics.js",
 				"docs/super-roo/GAP_AUDIT_2026-05-21.md"
 			],
-			"featuresAffected": [
-				"readme-positioning",
-				"monitoring",
-				"self-healing",
-				"cloud-api"
-			],
+			"featuresAffected": ["readme-positioning", "monitoring", "self-healing", "cloud-api"],
 			"modelsUsed": [
 				{
 					"phase": "planning",
@@ -270,9 +234,7 @@
 					"ollamaSummarized": false,
 					"centralBrainStored": false
 				},
-				"violations": [
-					"Central Brain was unreachable; lesson stored locally and queued for retry."
-				]
+				"violations": ["Central Brain was unreachable; lesson stored locally and queued for retry."]
 			},
 			"timestamp": 1779298172633
 		},
@@ -289,11 +251,7 @@
 				"memory/lessons-learned.md",
 				"memory/lesson-index.jsonl"
 			],
-			"featuresAffected": [
-				"telegram-coding",
-				"telegram-dashboard",
-				"coder-workflow"
-			],
+			"featuresAffected": ["telegram-coding", "telegram-dashboard", "coder-workflow"],
 			"modelsUsed": [
 				{
 					"phase": "planning",
@@ -350,11 +308,7 @@
 				"cloud/orchestrator/modules/SuperRooEventBus.js",
 				"server/src/memory/commit-deploy-log.json"
 			],
-			"featuresAffected": [
-				"telegram-coding",
-				"cloud-api",
-				"worker-runtime"
-			],
+			"featuresAffected": ["telegram-coding", "cloud-api", "worker-runtime"],
 			"modelsUsed": [],
 			"workflowCompliance": {
 				"isCompliant": true,
@@ -456,14 +410,8 @@
 			"type": "docs",
 			"title": "Auto-extracted lesson for Sprint 1+2 commit",
 			"description": "Auto-extracted lesson documenting A2A Protocol sendMessage fix and ASI semicolon fix",
-			"filesChanged": [
-				"memory/lesson-index.jsonl",
-				"memory/lesson-summaries.json",
-				"memory/lessons-learned.md"
-			],
-			"featuresAffected": [
-				"learning-layer"
-			],
+			"filesChanged": ["memory/lesson-index.jsonl", "memory/lesson-summaries.json", "memory/lessons-learned.md"],
+			"featuresAffected": ["learning-layer"],
 			"bugsFixed": [],
 			"timestamp": "2026-05-22T11:31:00.000Z",
 			"modelsUsed": [
@@ -504,18 +452,7 @@
 				"src/super-roo/index.ts",
 				"memory/lessons-learned.md"
 			],
-			"featuresAffected": [
-				"F4",
-				"F5",
-				"F6",
-				"F7",
-				"F8",
-				"F9",
-				"F10",
-				"G19",
-				"G22",
-				"G25"
-			],
+			"featuresAffected": ["F4", "F5", "F6", "F7", "F8", "F9", "F10", "G19", "G22", "G25"],
 			"modelsUsed": [
 				{
 					"model": "deepseek-chat",
@@ -541,20 +478,8 @@
 			"agent": "deepseek-coder",
 			"type": "docs",
 			"title": "Auto-extracted lesson for Sprint 3+4 commit",
-			"filesChanged": [
-				"memory/lesson-index.jsonl",
-				"memory/lesson-summaries.json",
-				"memory/lessons-learned.md"
-			],
-			"featuresAffected": [
-				"F4",
-				"F5",
-				"F6",
-				"F7",
-				"F8",
-				"F9",
-				"F10"
-			],
+			"filesChanged": ["memory/lesson-index.jsonl", "memory/lesson-summaries.json", "memory/lessons-learned.md"],
+			"featuresAffected": ["F4", "F5", "F6", "F7", "F8", "F9", "F10"],
 			"modelsUsed": [
 				{
 					"model": "deepseek-chat",
@@ -573,6 +498,24 @@
 				},
 				"violations": []
 			}
+		},
+		{
+			"id": "commit_4300a2d6-759e-4414-874e-f5c6f8380d8c",
+			"commitSha": "88bbdd667615bf549469c2bb2ccee939310ff83a",
+			"agent": "Kimi Code CLI",
+			"type": "bugfix",
+			"title": "fix(dashboard): visual crawler tab error fixes and e2e tests",
+			"description": "Fixed provider-dashboard toFixed crash, visual-crawler 404, autonomous-loop unauthorized UX. Added Playwright E2E tests.",
+			"filesChanged": [
+				"cloud/dashboard/src/components/views/provider-dashboard.tsx",
+				"cloud/dashboard/src/components/views/visual-crawler.tsx",
+				"cloud/dashboard/src/components/views/autonomous-loop.tsx",
+				"cloud/e2e/dashboard-tabs.spec.ts",
+				"cloud/e2e/playwright.config.ts",
+				"cloud/e2e/tab-crawl-reports/VISUAL_CRAWL_REPORT.md"
+			],
+			"featuresAffected": ["provider-dashboard", "visual-crawler", "autonomous-loop", "e2e-testing"],
+			"timestamp": "2026-05-22T23:30:17.765Z"
 		}
 	],
 	"deploys": [
@@ -598,10 +541,7 @@
 			"commitSha": "8be88a7f7",
 			"agent": "Kimi Code CLI",
 			"target": "100.64.175.88",
-			"services": [
-				"superroo-api",
-				"superroo-ram-orchestrator"
-			],
+			"services": ["superroo-api", "superroo-ram-orchestrator"],
 			"status": "healthy",
 			"timestamp": "2026-05-20T16:59:49.513Z"
 		},
@@ -611,9 +551,7 @@
 			"commitSha": "5afecfa1",
 			"agent": "Kimi Code CLI",
 			"target": "100.64.175.88",
-			"services": [
-				"superroo-ram-orchestrator"
-			],
+			"services": ["superroo-ram-orchestrator"],
 			"status": "healthy",
 			"timestamp": "2026-05-20T17:24:34.283Z"
 		},
@@ -637,11 +575,7 @@
 			"commitSha": "7f3e6f4bb",
 			"agent": "Roo Code (DeepSeek)",
 			"target": "100.64.175.88",
-			"services": [
-				"superroo-api",
-				"superroo-worker",
-				"superroo-dashboard"
-			],
+			"services": ["superroo-api", "superroo-worker", "superroo-dashboard"],
 			"status": "healthy",
 			"timestamp": "2026-05-22T11:33:46.538Z"
 		},
@@ -651,14 +585,20 @@
 			"commitSha": "95fcd9f56",
 			"agent": "deepseek-coder",
 			"target": "100.64.175.88",
-			"services": [
-				"superroo-api",
-				"superroo-worker",
-				"superroo-dashboard"
-			],
+			"services": ["superroo-api", "superroo-worker", "superroo-dashboard"],
 			"status": "healthy",
 			"timestamp": "2026-05-22T12:20:41.169Z",
 			"completedAt": "2026-05-22T12:27:19.728Z"
+		},
+		{
+			"id": "deploy_36d68c7d-bed6-4d82-a213-bdbb25404969",
+			"version": "dev-2026-05-22",
+			"commitSha": "1874c2902",
+			"agent": "Kimi Code CLI",
+			"target": "100.64.175.88",
+			"status": "healthy",
+			"deployedAt": "2026-05-22T23:59:04.594Z",
+			"featuresAffected": ["provider-dashboard", "visual-crawler", "autonomous-loop", "e2e-testing"]
 		}
 	]
 }

@@ -39,7 +39,10 @@ class TelegramOrchestratorBridge {
 	 * @returns {object} Task in telegramBot-compatible format
 	 */
 	createTask(input) {
-		const resolvedAgent = input.agentId || input.agentType || "coder"
+		const rawAgent = input.agentId || input.agentType || "coder"
+		// Map orchestrator agent to "orchestrator" type so CloudOrchestrator.processNext()
+		// routes it through TaskExecutor for multi-agent breakdown planning.
+		const resolvedAgent = rawAgent === "superroo-orchestrator-agent" ? "orchestrator" : rawAgent
 		const taskId =
 			input.tgTaskId ||
 			"TG-" + Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).slice(2, 6).toUpperCase()
@@ -49,7 +52,7 @@ class TelegramOrchestratorBridge {
 		const task = this.orchestrator.submit({
 			type: resolvedAgent,
 			input: { instruction: input.instruction, chatId: input.chatId },
-			agent: resolvedAgent,
+			agent: rawAgent,
 			sessionId: String(input.chatId),
 			metadata: {
 				source: input.source || "telegram",

@@ -115,6 +115,7 @@ module.exports = {
 				ORCHESTRATOR_MODE: "safe",
 				ORCHESTRATOR_SELF_IMPROVE: "false",
 				ORCHESTRATOR_LOOP_INTERVAL: "5000",
+				ORCHESTRATOR_LEADER: "true",
 				CODEX_TASK_LOG_PATH: "/opt/superroo2/server/src/memory/codextask.json",
 			},
 			log_file: "/opt/superroo2/cloud/logs/api-combined.log",

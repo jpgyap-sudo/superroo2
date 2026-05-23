@@ -2504,4 +2504,235 @@ To be determined — this commit was auto-flagged as potentially containing a le
 
 deployment
 
+### Lesson: Sprint 5 Dashboard Views Already Built — Verify Before Building
+
+Date: 2026-05-22
+Source: Code agent task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/dashboard/src/components/views/parallel-execution.tsx, cloud/dashboard/src/components/views/ml-engine.tsx, cloud/dashboard/src/components/views/product-memory.tsx, cloud/dashboard/src/components/views/file-importer.tsx, cloud/dashboard/src/app/page.tsx, cloud/dashboard/src/components/sidebar.tsx, product-features/feature-gap-scan.md
+
+#### Task Summary
+
+Verified that all 4 Sprint 5 dashboard views (Parallel Execution, ML Engine, Product Memory, File Importer) already exist with full implementations and are properly wired into the dashboard (page.tsx imports + PAGES registry + sidebar.tsx NAV entries). Updated feature-gap-scan.md to mark them as FIXED.
+
+#### Files Changed
+
+- product-features/feature-gap-scan.md — marked 2.2 Parallel Execution, 2.3 File Importer, 2.5 ML Engine, 2.6 Product Memory as ✅ FIXED with descriptions of existing views
+
+#### Bug Cause
+
+N/A — views were already built by a previous agent session but the gap scan was not updated.
+
+#### Fix Applied
+
+Updated the gap scan document to reflect current state.
+
+#### Test Result
+
+unknown
+
+#### Lesson Learned
+
+When a task references a gap scan or TODO list that may be stale, always verify the actual file system first. The feature-gap-scan.md listed 4 views as "MISSING" but all 4 already existed with full implementations. Always read the actual files before assuming work is needed.
+
+#### Reusable Rule
+
+Before starting work on any feature listed as "missing" or "TODO" in a planning document, first verify the actual files exist by listing the directory and reading the relevant files. Gap scans and planning docs can become stale if not updated after implementation.
+
+#### Tags
+
+dashboard, sprint-5, gap-scan, verification, stale-docs
+
+---
+
+### Auto-Extracted Lesson: (dashboard): visual crawler tab error fixes and e2e tests
+
+Date: 2026-05-22
+Source: Git commit 88bbdd66
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/dashboard/src/components/views/autonomous-loop.tsx, cloud/dashboard/src/components/views/provider-dashboard.tsx, cloud/dashboard/src/components/views/visual-crawler.tsx, cloud/e2e/dashboard-tabs.spec.ts, cloud/e2e/playwright.config.ts
+
+#### Task Summary
+
+fix(dashboard): visual crawler tab error fixes and e2e tests
+
+#### Files Changed
+
+- `cloud/dashboard/src/components/views/autonomous-loop.tsx`
+- `cloud/dashboard/src/components/views/provider-dashboard.tsx`
+- `cloud/dashboard/src/components/views/visual-crawler.tsx`
+- `cloud/e2e/dashboard-tabs.spec.ts`
+- `cloud/e2e/playwright.config.ts`
+- `cloud/e2e/tab-crawl-reports/VISUAL_CRAWL_REPORT.md`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+#### Bug Cause
+
+1. **provider-dashboard**: Used `provider.latencyMs !== null` which is `true` when `latencyMs` is `undefined`, then called `.toFixed()` on undefined. Also `selectedProviderData.usage.latencyMs.toFixed(0)` had no guard at all.
+2. **visual-crawler**: Default state was hardcoded to `http://localhost:3001` which doesn't exist in production. API fetch for reports returned 404 for new projects which was not handled gracefully.
+3. **autonomous-loop**: API returned 401 for users without loop permissions; UI rendered a raw red error card instead of a friendly setup message.
+
+#### Fix Applied
+
+1. Changed checks to `typeof provider.latencyMs === "number"` and added ternary guard for `selectedProviderData.usage.latencyMs`
+2. Changed default URL to `window.location.origin` and handled 404 in fetchReports as empty state
+3. Detected auth errors in autonomous-loop and rendered amber "not configured" card instead of red crash UI
+
+#### Test Result
+
+- Dashboard build passes (`npm run build` in cloud/dashboard)
+- E2E tests: 3 passed, 2 expected failures (bugs on deployed site not yet deployed)
+- Visual crawl re-run will confirm after deployment
+
+#### Lesson Learned
+
+Always guard `.toFixed()`, `.toString()`, and similar methods with `typeof x === "number"` rather than `x !== null`, because `undefined !== null` is `true` in JavaScript. Also, never hardcode `localhost` URLs in production UI components — derive from `window.location.origin` or environment variables.
+
+#### Reusable Rule
+
+**Rule: Number Method Guard Pattern**
+Before calling `.toFixed()`, `.toPrecision()`, `.toLocaleString()`, or any Number prototype method, always verify with `typeof value === "number"`. Never rely on `!== null`, `!= null`, or truthiness checks because `undefined` and `NaN` can pass them and cause runtime crashes.
+
+**Rule: No Localhost in Production Defaults**
+Never hardcode `http://localhost:*` as default URLs in dashboard components. Use `window.location.origin` (client-side) or `process.env.NEXT_PUBLIC_API_URL` (build-time) with localhost as a fallback only.
+
+#### Tags
+
+bugfix, visual-crawler, dashboard, e2e, typescript-null-safety, production-defaults
+
+---
+
+---
+
+### Auto-Extracted Lesson: (dashboard): visual crawler tab error fixes and e2e tests
+
+Date: 2026-05-22
+Source: Git commit 1874c290
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/dashboard/src/components/views/autonomous-loop.tsx, cloud/dashboard/src/components/views/provider-dashboard.tsx, cloud/dashboard/src/components/views/visual-crawler.tsx, cloud/e2e/dashboard-tabs.spec.ts, cloud/e2e/playwright.config.ts
+
+#### Task Summary
+
+fix(dashboard): visual crawler tab error fixes and e2e tests
+
+#### Files Changed
+
+- `cloud/dashboard/src/components/views/autonomous-loop.tsx`
+- `cloud/dashboard/src/components/views/provider-dashboard.tsx`
+- `cloud/dashboard/src/components/views/visual-crawler.tsx`
+- `cloud/e2e/dashboard-tabs.spec.ts`
+- `cloud/e2e/playwright.config.ts`
+- `cloud/e2e/tab-crawl-reports/VISUAL_CRAWL_REPORT.md`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 1874c290.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 1874c290 by JPG Yap.
+
+#### Test Result
+
+Tests were included in this commit.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+bugfix
+
+---
+
+### Lesson: Dashboard feature flowcharts tab
+
+Date: 2026-05-23
+Source: superroo-learn CLI (local fallback)
+Model/API used: local
+Confidence: medium
+Related files:
+Tags:
+
+#### Task Summary
+
+Added a dedicated SuperRoo dashboard Flowcharts tab as a static React/Tailwind documentation view instead of adding Mermaid/runtime dependencies. Register new pages by adding the view import, PAGES entry, pageLabel entry, and Sidebar NAV item. Validate dashboard UI additions with pnpm --dir cloud/dashboard lint and pnpm --dir cloud/dashboard build; lucide icon names must match the installed lucide-react version because unsupported icons fail Next type checking.
+
+#### Lesson Learned
+
+Added a dedicated SuperRoo dashboard Flowcharts tab as a static React/Tailwind documentation view instead of adding Mermaid/runtime dependencies. Register new pages by adding the view import, PAGES entry, pageLabel entry, and Sidebar NAV item. Validate dashboard UI additions with pnpm --dir cloud/dashboard lint and pnpm --dir cloud/dashboard build; lucide icon names must match the installed lucide-react version because unsupported icons fail Next type checking.
+
+#### Tags
+
+cross-project, local-fallback
+
+---
+
+### Auto-Extracted Lesson: (api): guard learningGateway.health call to prevent overview 500 crash
+
+Date: 2026-05-23
+Source: Git commit 279008ef
+Model/API used: unknown
+Confidence: medium
+Related files: cloud/api/api.js
+
+#### Task Summary
+
+fix(api): guard learningGateway.health call to prevent overview 500 crash
+
+#### Files Changed
+
+- `cloud/api/api.js`
+
+#### Bug Cause
+
+<!-- TODO: Document what caused the issue -->
+
+Unknown — extracted from commit 279008ef.
+
+#### Fix Applied
+
+<!-- TODO: Document the solution -->
+
+See commit 279008ef by JPG Yap.
+
+#### Test Result
+
+Unknown — no test files detected.
+
+#### Lesson Learned
+
+<!-- TODO: Extract reusable lesson -->
+
+To be determined — this commit was auto-flagged as potentially containing a lesson.
+
+#### Reusable Rule
+
+<!-- TODO: Define a specific rule for future agents -->
+
+**TODO: Add a specific, actionable rule based on this commit.**
+
+#### Tags
+
+api, bugfix
+
 ---

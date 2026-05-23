@@ -182,6 +182,41 @@ export async function gitCommand(action: string, payload?: Record<string, string
 
 /* ── Diff helpers ──────────────────────────────────────── */
 
+// ── Terminal Session Persistence (Improvement 4) ──────────────────────────
+
+export async function saveTerminalSession(
+	sessionId: string,
+	data: {
+		outputBlocks?: string[]
+		recentCommands?: string[]
+		cwd?: string
+		shell?: string
+	},
+): Promise<{ ok: boolean }> {
+	return apiFetch("/api/terminal-brain/process", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({
+			action: "memory",
+			command: "save",
+			sessionId,
+			nlQuery: JSON.stringify(data),
+		}),
+	})
+}
+
+export async function loadTerminalSession(sessionId: string): Promise<{
+	ok: boolean
+	output?: string[]
+	recentCommands?: string[]
+	cwd?: string
+	shell?: string
+}> {
+	return apiFetch(`/api/terminal-brain/memory?sessionId=${encodeURIComponent(sessionId)}`, {
+		method: "GET",
+	})
+}
+
 export function computeDiff(original: string, modified: string): DiffChange[] {
 	const origLines = original.split("\n")
 	const modLines = modified.split("\n")

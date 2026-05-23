@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useEffect, useRef } from "react"
+import { useState, useCallback, useEffect, useRef, useMemo } from "react"
 import {
 	useIde,
 	type WorkspaceFile,
@@ -28,9 +28,12 @@ import {
 	getWebSocketUrl,
 	sendIdeChatMessage,
 	fetchWorkspace,
+	saveTerminalSession,
+	loadTerminalSession,
 } from "@/components/ide-terminal/api"
 import { useWebSocket } from "@/components/ide-terminal/hooks/useWebSocket"
 import type { BrainTab, DiffData } from "@/components/ide-terminal/types"
+import { getAutocompleteSuggestions, getBestSuggestion } from "@/components/ide-terminal/SmartAutocomplete"
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -1368,7 +1371,148 @@ export function useIdeTerminal() {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [])
 
-	// ── Terminal command handler (with PTY support) ───────────────────────
+	// ── Improvement 4: Server-side session persistence ───────────────────
+	useEffect(() => {
+		if (!ptySessionId || outputBlocks.length === 0) return
+		const timer = setTimeout(async () => {
+			try {
+				await saveTerminalSession(ptySessionId, {
+					outputBlocks: outputBlocks.slice(-50).map((b) => b.content),
+					recentCommands: recentCommands.slice(-50),
+					cwd: ptyCwd || undefined,
+					shell: ptyShell || undefined,
+				})
+			} catch {
+				// Silently fail — persistence is best-effort
+			}
+		}, 5000) // Debounce 5s after last change
+		return () => clearTimeout(timer)
+	}, [outputBlocks, recentCommands, ptySessionId, ptyCwd, ptyShell])
+
+	// Restore session on mount if session ID is available
+	useEffect(() => {
+		if (!ptySessionId) return
+		const stored = localStorage.getItem(`superroo-session-${ptySessionId}`)
+		if (stored) {
+			try {
+				const parsed = JSON.parse(stored)
+				if (parsed.outputBlocks && Array.isArray(parsed.outputBlocks)) {
+					dispatch({ type: "SET_TERMINAL_OUTPUT", payload: parsed.outputBlocks })
+				}
+				if (parsed.recentCommands && Array.isArray(parsed.recentCommands)) {
+					dispatch({ type: "SET_RECENT_COMMANDS", payload: parsed.recentCommands })
+				}
+			} catch {
+				// Ignore
+			}
+		}
+		// Also try server-side restore
+		loadTerminalSession(ptySessionId)
+			.then((data) => {
+				if (data.ok && data.output && data.output.length > 0) {
+					dispatch({ type: "SET_TERMINAL_OUTPUT", payload: data.output })
+				}
+			})
+			.catch(() => {
+				// Server unavailable — local storage is sufficient
+			})
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ptySessionId])
+
+	// ── Levenshtein distance for command correction ──────────────────────
+
+	function levenshteinDistance(a: string, b: string): number {
+		const matrix: number[][] = []
+		for (let i = 0; i <= b.length; i++) {
+			matrix[i] = [i]
+		}
+		for (let j = 0; j <= a.length; j++) {
+			matrix[0][j] = j
+		}
+		for (let i = 1; i <= b.length; i++) {
+			for (let j = 1; j <= a.length; j++) {
+				if (b.charAt(i - 1) === a.charAt(j - 1)) {
+					matrix[i][j] = matrix[i - 1][j - 1]
+				} else {
+					matrix[i][j] = Math.min(
+						matrix[i - 1][j - 1] + 1, // substitution
+						matrix[i][j - 1] + 1, // insertion
+						matrix[i - 1][j] + 1, // deletion
+					)
+				}
+			}
+		}
+		return matrix[b.length][a.length]
+	}
+
+	// ── Find closest known command for correction ────────────────────────
+
+	function findClosestCommand(input: string, candidates: string[], maxDistance: number = 3): string | null {
+		const trimmed = input.trim().toLowerCase()
+		let best: string | null = null
+		let bestDist = Infinity
+		for (const candidate of candidates) {
+			const dist = levenshteinDistance(trimmed, candidate.toLowerCase())
+			if (dist < bestDist && dist <= maxDistance) {
+				bestDist = dist
+				best = candidate
+			}
+		}
+		return best
+	}
+
+	// ── Build known command list from recent history + common commands ───
+
+	const knownCommands: string[] = useMemo(() => {
+		const base = [
+			"npm run dev",
+			"npm run build",
+			"npm test",
+			"npm install",
+			"git status",
+			"git add .",
+			"git commit -m",
+			"git push",
+			"git pull",
+			"git log --oneline -10",
+			"ls",
+			"ls -la",
+			"pwd",
+			"cd",
+			"cat",
+			"grep",
+			"find",
+			"chmod",
+			"mkdir",
+			"rm",
+			"cp",
+			"mv",
+			"docker ps",
+			"docker compose up",
+			"docker compose down",
+			"docker logs",
+			"node --version",
+			"npm --version",
+			"pm2 status",
+			"pm2 logs",
+			"curl",
+			"ssh",
+			"scp",
+			"top",
+			"htop",
+			"df -h",
+			"free -h",
+			"ps aux",
+			"systemctl",
+			"journalctl",
+			"tail -f",
+			"head",
+		]
+		const fromHistory = recentCommands.map((c: string) => c.trim().toLowerCase())
+		return Array.from(new Set([...base, ...fromHistory])) as string[]
+	}, [recentCommands])
+
+	// ── Terminal command handler (with PTY support + command correction) ──
 
 	const handleTerminalCommand = useCallback(
 		async (cmd: string) => {
@@ -1381,6 +1525,27 @@ export function useIdeTerminal() {
 			const trimmed = cmd.trim()
 			const newHistory = [...recentCommands.filter((c) => c !== trimmed), trimmed].slice(-100)
 			dispatch({ type: "SET_RECENT_COMMANDS", payload: newHistory })
+
+			// Improvement 5: Command correction — check for close matches
+			const firstWord = trimmed.split(/\s+/)[0].toLowerCase()
+			const knownFirstWords = knownCommands.map((c) => c.split(/\s+/)[0]).filter(Boolean)
+			const uniqueFirstWords = Array.from(new Set(knownFirstWords))
+			const correction = findClosestCommand(firstWord, uniqueFirstWords, 2)
+			if (correction && correction !== firstWord) {
+				const correctedCmd = trimmed.replace(/^\S+/, correction)
+				dispatch({
+					type: "ADD_AI_MESSAGE",
+					payload: {
+						id: `correction-${Date.now()}`,
+						role: "assistant",
+						author: "System",
+						time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+						content: `💡 Did you mean \`${correctedCmd}\`? (Running corrected command)`,
+					},
+				})
+				// Use corrected command
+				cmd = correctedCmd
+			}
 
 			if (terminalMode === "shell" && ptyConnected && ptySessionId) {
 				// Send via PTY for real shell interaction
@@ -1412,7 +1577,7 @@ export function useIdeTerminal() {
 				})
 			}
 		},
-		[dispatch, ptyConnected, ptySessionId, handlePtyInput, terminalMode, recentCommands],
+		[dispatch, ptyConnected, ptySessionId, handlePtyInput, terminalMode, recentCommands, knownCommands],
 	)
 
 	// ── Terminal key handler (Up/Down for command history) ────────────────

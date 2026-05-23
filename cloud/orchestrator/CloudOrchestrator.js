@@ -19,6 +19,7 @@ const MemoryStore = require("./stores/MemoryStore")
 const EventLog = require("./modules/EventLog")
 const TaskQueueBullMQ = require("./modules/TaskQueueBullMQ")
 const { TaskExecutor } = require("./modules/TaskExecutor")
+const { ContextAssembler } = require("./modules/ContextAssembler")
 const { RAMMonitor } = require("./modules/RAMMonitor")
 const { RAMScheduler } = require("./modules/RAMScheduler")
 const { WorkerPauseManager } = require("./modules/WorkerPauseManager")
@@ -105,6 +106,15 @@ class CloudOrchestrator extends EventEmitter {
 		// Task executor for smart multi-agent breakdown
 		this.taskExecutor = null
 
+		// Context assembler for task enrichment (combats context starvation)
+		this.contextAssembler = null
+
+		// Cross-task context chaining: maps parentTaskId → {goal, output, phases}
+		/** @type {Map<string, {goal: string, output: string[], phases: Array, completedAt: number}>} */
+		this._completedTaskContexts = new Map()
+		this._maxChainedContexts = 50
+		this._chainedContextCategory = "chained_context"
+
 		// Provider resolver (set by api.js for LLM-based breakdown)
 		this._resolveProvider = null
 		this._callChatCompletion = null
@@ -131,6 +141,9 @@ class CloudOrchestrator extends EventEmitter {
 		// Initialize task executor for smart multi-agent breakdown
 		this.taskExecutor = new TaskExecutor(this)
 
+		// Load persisted chained contexts from SQLite for crash recovery
+		this._loadChainedContexts()
+
 		// Log startup event
 		this.eventLog.record({
 			type: "orchestrator.started",
@@ -142,8 +155,15 @@ class CloudOrchestrator extends EventEmitter {
 		this._running = true
 		this._startedAt = Date.now()
 
-		// Start the main processing loop
-		this._startLoop()
+		// Start the main processing loop only if this process is the leader.
+		// In PM2 multi-process mode, only the instance with ORCHESTRATOR_LEADER=true
+		// runs the loop to prevent duplicate task processing.
+		if (process.env.ORCHESTRATOR_LEADER === "true") {
+			this._startLoop()
+			console.log("[CloudOrchestrator] Leader mode — processing loop started")
+		} else {
+			console.log("[CloudOrchestrator] Follower mode — processing loop disabled (awaiting leader tasks)")
+		}
 
 		this.emit("started", { mode: this.mode, startedAt: this._startedAt })
 		console.log(`[CloudOrchestrator] Started in mode: ${this.mode}`)
@@ -264,6 +284,32 @@ class CloudOrchestrator extends EventEmitter {
 	 * @returns {object} The created task
 	 */
 	submit(input) {
+		// Pre-check capabilities at submit time so we fail fast in OFF/SAFE.
+		// Ported from SuperRooOrchestrator.submit() (src/super-roo/orchestrator/SuperRooOrchestrator.ts).
+		if (this.safetyManager) {
+			const decision = this.safetyManager.checkCapability(input.type)
+			if (!decision.allowed) {
+				// We still record the task so it appears in the dashboard, but mark it blocked.
+				const task = this.taskQueue.add({
+					...input,
+					status: "failed",
+					error: `Blocked by safety: ${decision.reason}`,
+				})
+
+				this.eventLog.record({
+					type: "task.blocked",
+					source: "CloudOrchestrator",
+					severity: "warning",
+					payload: { taskId: task.id, type: task.type, reason: decision.reason },
+					taskId: task.id,
+					sessionId: input.sessionId,
+				})
+
+				this.emit("taskSubmitted", task)
+				return task
+			}
+		}
+
 		const task = this.taskQueue.add(input)
 
 		this.eventLog.record({
@@ -286,7 +332,11 @@ class CloudOrchestrator extends EventEmitter {
 	 * @returns {Promise<object>} Processing result
 	 */
 	async processNext() {
-		const task = this.taskQueue.nextPending()
+		// Atomically claim the next pending task for this worker.
+		// claimNext() uses a single UPDATE ... RETURNING * to prevent
+		// the race condition inherent in the two-statement SELECT-then-UPDATE pattern.
+		const workerId = `worker-${process.pid}-${Date.now()}`
+		const task = this.taskQueue.claimNext(workerId)
 		if (!task) {
 			return { processed: false, reason: "no_pending_tasks" }
 		}
@@ -310,9 +360,6 @@ class CloudOrchestrator extends EventEmitter {
 			}
 		}
 
-		// Mark as running
-		this.taskQueue.update(task.id, { status: "running" })
-
 		this.eventLog.record({
 			type: "task.started",
 			source: "CloudOrchestrator",
@@ -322,6 +369,105 @@ class CloudOrchestrator extends EventEmitter {
 		})
 
 		try {
+			// ── Context assembly: enrich task before execution ─────────────
+			// ContextAssembler gathers FeatureRegistry entries, recent EventLog
+			// events, LearningGateway lessons, and a repo file-tree snapshot.
+			// This combats context starvation — the root cause of weak cloud
+			// coding output.
+			if (this.contextAssembler && task.type === "orchestrator") {
+				try {
+					const context = await this.contextAssembler.assemble(task)
+					const contextText = this.contextAssembler.formatContext(context)
+
+					// ── Cross-task context chaining (Improvement #5) ──────────
+					// If this task has a parentTaskId, inject the parent's context
+					// so the breakdown planner knows what was already done.
+					let chainedContextText = ""
+					if (task.parentTaskId && this._completedTaskContexts.has(task.parentTaskId)) {
+						const parentCtx = this._completedTaskContexts.get(task.parentTaskId)
+						chainedContextText = [
+							`Parent Task Goal: ${parentCtx.goal}`,
+							`Parent Task Output:`,
+							...(parentCtx.output || []).map((l) => `  ${l}`),
+							parentCtx.phases.length > 0
+								? `Parent Task Phases: ${parentCtx.phases.map((p) => p.title || p).join(" → ")}`
+								: "",
+						]
+							.filter(Boolean)
+							.join("\n")
+					}
+
+					// Also chain sibling tasks (same parentTaskId, already completed)
+					if (task.parentTaskId) {
+						const siblingContexts = []
+						for (const [tid, ctx] of this._completedTaskContexts) {
+							if (tid !== task.id && tid.startsWith(task.parentTaskId)) {
+								siblingContexts.push(`  - ${ctx.goal.substring(0, 100)}`)
+							}
+						}
+						if (siblingContexts.length > 0) {
+							chainedContextText +=
+								"\nCompleted Sibling Tasks:\n" + siblingContexts.slice(0, 5).join("\n")
+						}
+					}
+
+					// Attach context to task metadata so TaskExecutor can inject it
+					// into the LLM breakdown prompt.
+					task.metadata = task.metadata || {}
+					task.metadata.context = context
+					task.metadata.contextText = contextText
+					task.metadata.chainedContext = chainedContextText || undefined
+
+					// ── BullMQ Job-Level Context Assembly (Improvement #10) ──
+					// Attach assembled context directly to the BullMQ job payload
+					// so workers don't need to re-assemble context.
+					if (this.taskQueue && this.taskQueue.bullQueue) {
+						try {
+							const bullJobPayload = {
+								assembledContext: {
+									features: context.features.slice(0, 10),
+									lessons: (context.lessons || []).slice(0, 5),
+									hasFileTree: !!context.fileTree,
+									contextText: contextText.substring(0, 4000),
+									chainedContext: chainedContextText
+										? chainedContextText.substring(0, 2000)
+										: undefined,
+									complexity: context.complexity,
+									tokenBudget: context.tokenBudget,
+								},
+							}
+							// Store in task metadata for BullMQ dispatch
+							task.metadata.bullJobContext = bullJobPayload
+						} catch (bullCtxErr) {
+							console.warn(
+								"[CloudOrchestrator] BullMQ context attachment error (non-fatal):",
+								bullCtxErr.message,
+							)
+						}
+					}
+
+					this.eventLog.record({
+						type: "task.context_assembled",
+						source: "CloudOrchestrator",
+						severity: "info",
+						payload: {
+							taskId: task.id,
+							features: context.features.length,
+							events: context.recentEvents.length,
+							lessons: context.lessons.length,
+							hasFileTree: !!context.fileTree,
+							complexity: context.complexity,
+							tokenBudget: context.tokenBudget,
+							hasChainedContext: !!chainedContextText,
+							hasBullJobContext: !!task.metadata.bullJobContext,
+						},
+						taskId: task.id,
+					})
+				} catch (ctxErr) {
+					console.warn("[CloudOrchestrator] Context assembly error (non-fatal):", ctxErr.message)
+				}
+			}
+
 			// ── Orchestrator-type tasks: use smart multi-agent breakdown ──
 			if (task.type === "orchestrator" && this.taskExecutor) {
 				const result = await this.taskExecutor.execute(task)
@@ -385,6 +531,54 @@ class CloudOrchestrator extends EventEmitter {
 			payload: { taskId },
 			taskId,
 		})
+
+		// Store completed task context for cross-task chaining (Improvement #5)
+		// This allows subsequent tasks to reference the goal and output of related tasks.
+		try {
+			const task = this.taskQueue.get(taskId)
+			if (task) {
+				const instruction =
+					typeof task.input === "string"
+						? task.input
+						: task.input?.instruction || task.input?.description || ""
+				const chainedContext = {
+					goal: instruction.substring(0, 500),
+					output: Array.isArray(output) ? output.slice(0, 20) : [String(output).substring(0, 500)],
+					phases: task.metadata?.phases || [],
+					completedAt: Date.now(),
+				}
+				this._completedTaskContexts.set(taskId, chainedContext)
+
+				// Persist to SQLite for crash recovery
+				if (this.memory) {
+					try {
+						this.memory.set(
+							`chained:${taskId}`,
+							JSON.stringify(chainedContext),
+							this._chainedContextCategory,
+						)
+					} catch {
+						// Non-blocking
+					}
+				}
+
+				// Evict oldest entries if over limit
+				if (this._completedTaskContexts.size > this._maxChainedContexts) {
+					const oldestKey = this._completedTaskContexts.keys().next().value
+					this._completedTaskContexts.delete(oldestKey)
+					// Also remove from SQLite
+					if (this.memory) {
+						try {
+							this.memory.delete(`chained:${oldestKey}`)
+						} catch {
+							// Non-blocking
+						}
+					}
+				}
+			}
+		} catch {
+			// Non-blocking
+		}
 
 		this.emit("taskCompleted", { taskId, output })
 	}
@@ -610,6 +804,25 @@ class CloudOrchestrator extends EventEmitter {
 		console.log("[CloudOrchestrator] LearningGateway registered")
 	}
 
+	/**
+	 * Register the ContextAssembler module.
+	 *
+	 * ContextAssembler enriches tasks with FeatureRegistry entries, recent
+	 * EventLog events, LearningGateway lessons, and a repo file-tree snapshot
+	 * before they are dispatched to TaskExecutor. This combats context
+	 * starvation — the root cause of weak cloud coding output.
+	 *
+	 * @param {import('./modules/ContextAssembler')} contextAssembler
+	 */
+	registerContextAssembler(contextAssembler) {
+		this.contextAssembler = contextAssembler
+		// Wire safety manager to context assembler for safety-aware filtering
+		if (contextAssembler && this.safetyManager) {
+			contextAssembler.safetyManager = this.safetyManager
+		}
+		console.log("[CloudOrchestrator] ContextAssembler registered")
+	}
+
 	// ─── RAM Orchestrator Registration (Phase 7) ────────────────────────
 
 	/**
@@ -711,6 +924,39 @@ class CloudOrchestrator extends EventEmitter {
 				.map(([name]) => name),
 			taskStats: this.taskQueue ? this.taskQueue.getStats() : null,
 			eventStats: this.eventLog ? this.eventLog.getStats() : null,
+		}
+	}
+
+	/**
+	 * Load persisted chained contexts from SQLite for crash recovery.
+	 * Restores the _completedTaskContexts map from the previous session.
+	 */
+	_loadChainedContexts() {
+		if (!this.memory) return
+		try {
+			const rows = this.memory.listByCategory(this._chainedContextCategory)
+			if (!rows || rows.length === 0) return
+
+			let loaded = 0
+			for (const row of rows) {
+				try {
+					const parsed = JSON.parse(row.value)
+					if (parsed && parsed.goal) {
+						// Extract taskId from the key (format: "chained:<taskId>")
+						const taskId = row.key.replace("chained:", "")
+						this._completedTaskContexts.set(taskId, parsed)
+						loaded++
+					}
+				} catch {
+					// Skip malformed entries
+				}
+			}
+
+			if (loaded > 0) {
+				console.log(`[CloudOrchestrator] Loaded ${loaded} chained contexts from SQLite`)
+			}
+		} catch (err) {
+			console.warn("[CloudOrchestrator] Failed to load chained contexts:", err.message)
 		}
 	}
 }

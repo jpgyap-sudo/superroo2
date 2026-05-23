@@ -1,17 +1,17 @@
 {
-	"generatedAt": "2026-05-22T12:15:38.123Z",
+	"generatedAt": "2026-05-23T00:20:32.642Z",
 	"deepseekModel": "deepseek-chat",
-	"ollamaUrl": "http://100.64.175.88:11434",
+	"ollamaUrl": "http://127.0.0.1:11434",
 	"sourceFile": "memory/lessons-learned.md",
 	"count": 1,
 	"summaries": [
 		{
-			"title": "Sprint 3+4 — Multi-Provider Sandbox, Prompt Customization, Reasoning Config, TypeScript Ports, and Sprint 4 Features (F7-F10)",
-			"date": "2026-05-22",
-			"model": "deepseek-chat",
-			"confidence": "high",
-			"summary": "This lesson covers the implementation of Sprint 3 and 4 features, including a multi-provider sandbox system (E2B and Daytona), a prompt customization system with four variants and slash commands, and a reasoning configuration layer supporting multiple AI providers. Additional features include TypeScript ports for core loops, an auth system abstraction, a browser automation agent, an artifact storage system, and deployer adapters for Vercel, Cloudflare, and Netlify. The key takeaway is the creation of a modular, provider-agnostic architecture that abstracts sandbox, auth, storage, and deployment functionalities for flexible integration.",
-			"hasEmbeddings": true
+			"title": "Dashboard feature flowcharts tab",
+			"date": "2026-05-23",
+			"model": "local",
+			"confidence": "medium",
+			"summary": "The lesson explains how to add a static React/Tailwind documentation view (Flowcharts tab) to the SuperRoo dashboard by registering it via view imports, PAGES entries, pageLabel entries, and Sidebar NAV items, avoiding runtime dependencies like Mermaid. It emphasizes validating UI changes with `pnpm --dir cloud/dashboard lint` and `pnpm --dir cloud/dashboard build`, and warns that lucide icon names must match the installed `lucide-react` version to prevent Next.js type-checking failures.",
+			"hasEmbeddings": false
 		}
 	]
 }

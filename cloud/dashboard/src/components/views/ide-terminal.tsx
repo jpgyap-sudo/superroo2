@@ -124,6 +124,7 @@ import DiffViewModal from "@/components/ide-terminal/DiffViewModal"
 import { useIdeTerminal } from "@/components/ide-terminal/hooks/useIdeTerminal"
 import { useExtensionState } from "@/components/ide-terminal/hooks/useExtensionState"
 import { fetchWorkspace } from "@/components/ide-terminal/api"
+import { getAutocompleteSuggestions } from "@/components/ide-terminal/SmartAutocomplete"
 import type { BrainTab } from "@/components/ide-terminal/types"
 
 // ── Pipeline Icon ─────────────────────────────────────────────────────────
@@ -607,9 +608,22 @@ export default function IdeTerminalView() {
 											outputBlocks={outputBlocks}
 											terminalMode={hook.terminalMode}
 											terminalInput={terminalInput}
-											onTerminalInputChange={(val: string) =>
+											onTerminalInputChange={(val: string) => {
 												dispatch({ type: "SET_TERMINAL_INPUT", payload: val })
-											}
+												// Wire SmartAutocomplete — compute suggestions as user types
+												const suggestions = getAutocompleteSuggestions(val, {
+													recentCommands: hook.recentCommands,
+													workspaceFiles: (hook.files || []).map((f: any) => ({
+														path: f.path || f.name || "",
+														name: f.name || f.path || "",
+													})),
+													branch: hook.branch,
+													maxResults: 6,
+												})
+												hook.setSmartSuggestions(
+													suggestions.map((s) => ({ label: s.text, command: s.text })),
+												)
+											}}
 											onTerminalCommand={() => hook.handleTerminalCommand(terminalInput)}
 											onTerminalKeyDown={(e: React.KeyboardEvent) => {
 												hook.handleTerminalKeyDown(e, terminalInput)

@@ -59,8 +59,8 @@
 		{
 			"id": "codex_task_learning_layer_release_20260517",
 			"title": "Release learning layer workflow",
-			"summary": "Committed the learning-layer gateway, curation workflow, outcome-aware ranking, and fallback bootstrap fix; verifying deployment next.",
-			"status": "active",
+			"summary": "Committed the learning-layer gateway, curation workflow, outcome-aware ranking, and fallback bootstrap fix; verified and deployed as part of Sprint 3+4 deploy.",
+			"status": "completed",
 			"project": "superroo2",
 			"agent": "Codex",
 			"filesChanged": [
@@ -70,10 +70,12 @@
 				"cloud/orchestrator/modules/LearningPolicy.js"
 			],
 			"featuresAffected": ["learning-layer", "intelligence-layer"],
-			"notes": [],
+			"notes": [
+				"Code was already committed in 241e097ed and 279008ef4. Marking completed now before Sprint 5 deploy."
+			],
 			"startedAt": "2026-05-17T15:55:19.546Z",
-			"updatedAt": "2026-05-17T16:02:00.537Z",
-			"completedAt": null
+			"updatedAt": "2026-05-23T00:33:00.000Z",
+			"completedAt": "2026-05-23T00:33:00.000Z"
 		},
 		{
 			"id": "codex_task_62e7fa7a-1506-4e9e-97a7-1303a886a378",

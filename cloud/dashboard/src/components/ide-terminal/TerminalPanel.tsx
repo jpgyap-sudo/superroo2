@@ -29,6 +29,9 @@ import {
 	ExternalLink,
 	Check,
 	Plus,
+	RefreshCw,
+	Wand2,
+	Bug,
 } from "lucide-react"
 import type {
 	OutputBlock,
@@ -38,6 +41,7 @@ import type {
 	TerminalResourceUsage,
 	SplitTerminalTab,
 } from "@/lib/ide-store"
+import WebGLTerminalRenderer from "@/components/ide-terminal/WebGLTerminalRenderer"
 
 interface TerminalPanelProps {
 	// Core
@@ -340,6 +344,7 @@ export default function TerminalPanel({
 	const [showSuggestions, setShowSuggestions] = useState(false)
 	const [filteredCommands, setFilteredCommands] = useState<string[]>([])
 	const [showSearch, setShowSearch] = useState(false)
+	const [useWebGL, setUseWebGL] = useState(false)
 	const [searchLocalQuery, setSearchLocalQuery] = useState("")
 	const [dragOver, setDragOver] = useState(false)
 	const [showSnippetInput, setShowSnippetInput] = useState(false)
@@ -517,6 +522,15 @@ export default function TerminalPanel({
 					)}
 				</div>
 				<div className="flex items-center gap-0.5">
+					{/* Improvement 1: GPU toggle */}
+					<button
+						className={`p-1 rounded hover:bg-[#1e2535] transition-colors ${
+							useWebGL ? "text-[#58a6ff] bg-[#1e2535]" : "text-[#8b949e] hover:text-[#e6edf3]"
+						}`}
+						onClick={() => setUseWebGL(!useWebGL)}
+						title={useWebGL ? "Switch to CPU rendering" : "Switch to GPU (WebGL) rendering"}>
+						<Cpu className="w-3 h-3" />
+					</button>
 					{/* #6: Search toggle */}
 					<button
 						className={`p-1 rounded hover:bg-[#1e2535] transition-colors ${
@@ -720,94 +734,139 @@ export default function TerminalPanel({
 			)}
 
 			{/* Terminal output — Gap #12: Virtualized rendering, Gap #15: ANSI color support */}
-			<div
-				ref={scrollContainerRef}
-				className="flex-1 overflow-y-auto p-2 font-mono text-[12px] leading-relaxed min-h-[100px] max-h-[300px]"
-				onScroll={handleVirtualScroll}>
-				{outputBlocks.length === 0 ? (
-					<div className="text-[#484f58] text-center py-8">
-						<Terminal className="w-8 h-8 mx-auto mb-2 opacity-30" />
-						<p className="text-[11px]">Type a command to start</p>
-					</div>
-				) : (
-					<div style={{ height: totalHeight, position: "relative" }}>
-						{visibleBlocks.map((block, vi) => {
-							const realIdx = startIndex + vi
-							const isSearchMatch = terminalSearchQuery
-								? block.content.toLowerCase().includes(terminalSearchQuery.toLowerCase())
-								: false
-							const isSearchActive =
-								terminalSearchActiveIndex !== undefined &&
-								terminalSearchResults?.[terminalSearchActiveIndex] === realIdx
+			{/* Improvement 1: GPU-accelerated rendering via WebGL */}
+			{useWebGL ? (
+				<div className="flex-1 min-h-[100px] max-h-[300px]">
+					<WebGLTerminalRenderer
+						outputBlocks={outputBlocks}
+						visibleRange={{ start: startIndex, end: endIndex }}
+						scrollTop={scrollTop}
+						width={800}
+						height={300}
+						fontSize={terminalFontSize || 12}
+					/>
+				</div>
+			) : (
+				<div
+					ref={scrollContainerRef}
+					className="flex-1 overflow-y-auto p-2 font-mono text-[12px] leading-relaxed min-h-[100px] max-h-[300px]"
+					onScroll={handleVirtualScroll}>
+					{outputBlocks.length === 0 ? (
+						<div className="text-[#484f58] text-center py-8">
+							<Terminal className="w-8 h-8 mx-auto mb-2 opacity-30" />
+							<p className="text-[11px]">Type a command to start</p>
+						</div>
+					) : (
+						<div style={{ height: totalHeight, position: "relative" }}>
+							{visibleBlocks.map((block, vi) => {
+								const realIdx = startIndex + vi
+								const isSearchMatch = terminalSearchQuery
+									? block.content.toLowerCase().includes(terminalSearchQuery.toLowerCase())
+									: false
+								const isSearchActive =
+									terminalSearchActiveIndex !== undefined &&
+									terminalSearchResults?.[terminalSearchActiveIndex] === realIdx
 
-							return (
-								<div
-									key={block.id || realIdx}
-									style={{
-										position: "absolute",
-										top: realIdx * ITEM_HEIGHT,
-										left: 0,
-										right: 0,
-										height: ITEM_HEIGHT,
-									}}
-									className={`group ${
-										isSearchMatch ? "ring-1 ring-[#58a6ff]/30 rounded" : ""
-									} ${isSearchActive ? "bg-[#58a6ff]/10" : ""}`}>
-									<div className="flex items-start gap-1">
-										<button
-											className="mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-											onClick={() => onToggleBlockCollapse(block.id)}>
-											{block.collapsed ? (
-												<ChevronRight className="w-3 h-3 text-[#484f58]" />
-											) : (
-												<ChevronDown className="w-3 h-3 text-[#484f58]" />
-											)}
-										</button>
-										<div
-											className={`flex-1 truncate ${block.collapsed ? "line-clamp-1" : ""} ${getStatusColor(block.type)}`}>
-											{/* Gap #15: Render ANSI-colored text */}
-											{renderAnsiText(block.content, 0)}
-											{fixableErrors?.has(block.id) && !block.collapsed && (
-												<div className="flex flex-wrap gap-1 mt-1">
-													{fixableErrors.get(block.id)?.map((err, errIdx) => (
-														<button
-															key={errIdx}
-															className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] rounded bg-[var(--terminal-accent)]/20 text-[var(--terminal-accent)] hover:bg-[var(--terminal-accent)]/30 transition-colors"
-															title={err.fixSuggestion || "Fix this error"}
-															onClick={() =>
-																onTriggerInlineFix?.(block.id, err.lineText)
-															}>
-															🔧 Fix {err.errorType}
-														</button>
-													))}
-												</div>
-											)}
-										</div>
-										<div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-											{/* #10: Quick snippet */}
+								return (
+									<div
+										key={block.id || realIdx}
+										style={{
+											position: "absolute",
+											top: realIdx * ITEM_HEIGHT,
+											left: 0,
+											right: 0,
+											height: ITEM_HEIGHT,
+										}}
+										className={`group ${
+											isSearchMatch ? "ring-1 ring-[#58a6ff]/30 rounded" : ""
+										} ${isSearchActive ? "bg-[#58a6ff]/10" : ""}`}>
+										<div className="flex items-start gap-1">
 											<button
-												className="p-0.5 hover:bg-[#1e2535] rounded"
-												onClick={() => {
-													setSnippetCommand(block.content)
-													setShowSnippetInput(true)
-												}}
-												title="Save as snippet">
-												<BookmarkPlus className="w-2.5 h-2.5 text-[#484f58] hover:text-[#8b949e]" />
+												className="mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+												onClick={() => onToggleBlockCollapse(block.id)}>
+												{block.collapsed ? (
+													<ChevronRight className="w-3 h-3 text-[#484f58]" />
+												) : (
+													<ChevronDown className="w-3 h-3 text-[#484f58]" />
+												)}
 											</button>
-											<button
-												className="p-0.5 hover:bg-[#1e2535] rounded"
-												onClick={() => onCopyTerminal(realIdx, block.content)}
-												title="Copy">
-												<Copy className="w-2.5 h-2.5 text-[#484f58] hover:text-[#8b949e]" />
-											</button>
+											<div
+												className={`flex-1 truncate ${block.collapsed ? "line-clamp-1" : ""} ${getStatusColor(block.type)}`}>
+												{/* Gap #15: Render ANSI-colored text */}
+												{renderAnsiText(block.content, 0)}
+												{fixableErrors?.has(block.id) && !block.collapsed && (
+													<div className="flex flex-wrap gap-1 mt-1">
+														{fixableErrors.get(block.id)?.map((err, errIdx) => (
+															<button
+																key={errIdx}
+																className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] rounded bg-[var(--terminal-accent)]/20 text-[var(--terminal-accent)] hover:bg-[var(--terminal-accent)]/30 transition-colors"
+																title={err.fixSuggestion || "Fix this error"}
+																onClick={() =>
+																	onTriggerInlineFix?.(block.id, err.lineText)
+																}>
+																🔧 Fix {err.errorType}
+															</button>
+														))}
+													</div>
+												)}
+											</div>
+											<div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+												{/* Improvement 2: Explain button */}
+												<button
+													className="p-0.5 hover:bg-[#1e2535] rounded"
+													onClick={() =>
+														onSuggestionClick(`/explain ${block.content.slice(0, 200)}`)
+													}
+													title="Explain this output">
+													<Wand2 className="w-2.5 h-2.5 text-[#484f58] hover:text-[#58a6ff]" />
+												</button>
+												{/* Improvement 2: Fix button (for error blocks) */}
+												{(block.type === "error" || block.type === "warning") && (
+													<button
+														className="p-0.5 hover:bg-[#1e2535] rounded"
+														onClick={() =>
+															onTriggerInlineFix?.(block.id, block.content.slice(0, 300))
+														}
+														title="Fix this error">
+														<Bug className="w-2.5 h-2.5 text-[#484f58] hover:text-[#f85149]" />
+													</button>
+												)}
+												{/* Improvement 2: Run Again button (for command blocks) */}
+												{block.command && (
+													<button
+														className="p-0.5 hover:bg-[#1e2535] rounded"
+														onClick={() => {
+															onTerminalInputChange(block.command!)
+														}}
+														title="Run again">
+														<RefreshCw className="w-2.5 h-2.5 text-[#484f58] hover:text-[#3fb950]" />
+													</button>
+												)}
+												{/* #10: Quick snippet */}
+												<button
+													className="p-0.5 hover:bg-[#1e2535] rounded"
+													onClick={() => {
+														setSnippetCommand(block.content)
+														setShowSnippetInput(true)
+													}}
+													title="Save as snippet">
+													<BookmarkPlus className="w-2.5 h-2.5 text-[#484f58] hover:text-[#8b949e]" />
+												</button>
+												<button
+													className="p-0.5 hover:bg-[#1e2535] rounded"
+													onClick={() => onCopyTerminal(realIdx, block.content)}
+													title="Copy">
+													<Copy className="w-2.5 h-2.5 text-[#484f58] hover:text-[#8b949e]" />
+												</button>
+											</div>
 										</div>
 									</div>
-								</div>
-							)
-						})}
-					</div>
-				)}
-			</div>
+								)
+							})}
+						</div>
+					)}
+				</div>
+			)}
 
 			{/* #10: Snippets panel */}
 			{showSnippetsPanel && snippets && (

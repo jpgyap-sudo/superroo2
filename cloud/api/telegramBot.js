@@ -70,6 +70,7 @@ const PUBLIC_COMMANDS = [
 	"/login",
 	"/help",
 	"/about",
+	"/task",
 	"/debug",
 	"/logs",
 	"/tests",
@@ -3513,71 +3514,104 @@ async function handleCode(botToken, chatId, args, queue, orchestratorBridge, opt
 		)
 	}
 
-	// Improvement 2: Add retry logic to all queue.add() calls
-	var job = await queue.add(
-		"coder-plan-" + taskId,
-		{
-			task: instruction,
-			agentId: "superroo-coder-agent",
-			phase: "plan",
-			taskId: taskId,
-			workspaceDir: workspaceDir,
-			repoName: repoName,
-			branch: branchName,
-			brainLessons: brainLessons,
-			codingMemory: {
-				similarErrors: similarErrors,
-				projectConventions: projectConventions,
-			},
-			telegram: {
-				botToken: botToken,
-				chatId: chatId,
-				taskId: taskId,
-				branchName: branchName,
-				conversationSummary: conversationSummary,
-				auto: isAuto,
-			},
-		},
-		{
-			attempts: 3,
-			backoff: { type: "exponential", delay: 5000 },
-		},
-	)
-
-	trajectory.recordStep("tool_call", {
-		input: { tool: "queue_coder_job", args: { taskId: taskId, phase: "plan" } },
-		output: { jobId: job.id },
-		success: true,
-		metadata: { toolName: "queue_coder_job" },
-	})
-
-	if (!userTasks.has(chatId)) userTasks.set(chatId, [])
-	userTasks.get(chatId).push({
-		id: taskId,
-		instruction: instruction,
-		status: "queued",
-		branchName: branchName,
-		changedFiles: 0,
-		linesAdded: 0,
-		createdAt: new Date().toISOString(),
-		jobId: job.id,
-	})
-	scheduleStatePersist()
-
-	// Also record in Cloud Orchestrator if bridge is available
+	// ─── Route Through Orchestrator (Primary) ──────────────────────────────
+	// Send the task to the orchestrator first so it can translate the instruction
+	// into a multi-agent coding plan (context recall → safety check → breakdown).
+	// The orchestrator's TaskExecutor handles the planning and dispatches sub-tasks
+	// to the coder agent via BullMQ.
+	var orchestratorTask = null
 	if (orchestratorBridge) {
 		try {
-			orchestratorBridge.createTask({
+			orchestratorTask = orchestratorBridge.createTask({
 				tgTaskId: taskId,
 				chatId: chatId,
 				instruction: instruction,
-				agentId: "superroo-coder-agent",
+				agentId: "superroo-orchestrator-agent",
 				branchName: branchName,
 				source: "/code",
 			})
+			console.log("[telegram] /code task routed through orchestrator: " + taskId)
 		} catch (err) {
-			console.error("[telegram] Failed to record /code task in orchestrator:", err.message)
+			console.error(
+				"[telegram] Failed to route /code task through orchestrator, falling back to direct queue:",
+				err.message,
+			)
 		}
+	}
+
+	// ─── Fallback: Direct BullMQ Queue ─────────────────────────────────────
+	// If orchestrator bridge is unavailable, fall back to direct coder queue.
+	if (!orchestratorTask) {
+		var job = await queue.add(
+			"coder-plan-" + taskId,
+			{
+				task: instruction,
+				agentId: "superroo-coder-agent",
+				phase: "plan",
+				taskId: taskId,
+				workspaceDir: workspaceDir,
+				repoName: repoName,
+				branch: branchName,
+				brainLessons: brainLessons,
+				codingMemory: {
+					similarErrors: similarErrors,
+					projectConventions: projectConventions,
+				},
+				telegram: {
+					botToken: botToken,
+					chatId: chatId,
+					taskId: taskId,
+					branchName: branchName,
+					conversationSummary: conversationSummary,
+					auto: isAuto,
+				},
+			},
+			{
+				attempts: 3,
+				backoff: { type: "exponential", delay: 5000 },
+			},
+		)
+
+		trajectory.recordStep("tool_call", {
+			input: { tool: "queue_coder_job", args: { taskId: taskId, phase: "plan" } },
+			output: { jobId: job.id },
+			success: true,
+			metadata: { toolName: "queue_coder_job" },
+		})
+
+		if (!userTasks.has(chatId)) userTasks.set(chatId, [])
+		userTasks.get(chatId).push({
+			id: taskId,
+			instruction: instruction,
+			status: "queued",
+			branchName: branchName,
+			changedFiles: 0,
+			linesAdded: 0,
+			createdAt: new Date().toISOString(),
+			jobId: job.id,
+		})
+		scheduleStatePersist()
+	} else {
+		// Orchestrator path succeeded — record trajectory and user task
+		trajectory.recordStep("tool_call", {
+			input: { tool: "orchestrator_submit", args: { taskId: taskId, agentId: "superroo-orchestrator-agent" } },
+			output: { orchestratorTaskId: orchestratorTask.orchestratorTaskId },
+			success: true,
+			metadata: { toolName: "orchestrator_submit" },
+		})
+
+		if (!userTasks.has(chatId)) userTasks.set(chatId, [])
+		userTasks.get(chatId).push({
+			id: taskId,
+			instruction: instruction,
+			status: "queued",
+			branchName: branchName,
+			changedFiles: 0,
+			linesAdded: 0,
+			createdAt: new Date().toISOString(),
+			orchestratorTaskId: orchestratorTask.orchestratorTaskId,
+		})
+		scheduleStatePersist()
 	}
 
 	// Send rich notification with action buttons
@@ -5410,48 +5444,69 @@ async function handleUpgrade(botToken, chatId, args, queue, orchestratorBridge) 
 	await sendChatAction(botToken, chatId, "typing")
 
 	try {
-		// Create a coding task targeting the bot's own source files
-		var job = await queue.add("coder-plan-" + taskId, {
-			task: upgradeGoal,
-			agentId: "superroo-coder-agent",
-			phase: "plan",
-			taskId: taskId,
-			workspaceDir: "/opt/superroo2",
-			repoName: "superroo2",
-			branch: "upgrade/" + taskId.toLowerCase(),
-			telegram: {
-				botToken: botToken,
-				chatId: chatId,
-			},
-		})
-
-		if (!userTasks.has(chatId)) userTasks.set(chatId, [])
-		userTasks.get(chatId).push({
-			id: taskId,
-			instruction: upgradeGoal,
-			status: "queued",
-			branchName: "upgrade/" + taskId.toLowerCase(),
-			changedFiles: 0,
-			linesAdded: 0,
-			createdAt: new Date().toISOString(),
-			jobId: job.id,
-		})
-		scheduleStatePersist()
-
-		// Also record in Cloud Orchestrator if bridge is available
+		// ─── Route Through Orchestrator (Primary) ──────────────────────────
+		// Send upgrade tasks through the orchestrator for multi-agent breakdown.
+		var orchestratorTask = null
 		if (orchestratorBridge) {
 			try {
-				orchestratorBridge.createTask({
+				orchestratorTask = orchestratorBridge.createTask({
 					tgTaskId: taskId,
 					chatId: chatId,
 					instruction: upgradeGoal,
-					agentId: "superroo-coder-agent",
+					agentId: "superroo-orchestrator-agent",
 					branchName: "upgrade/" + taskId.toLowerCase(),
 					source: "upgrade",
 				})
+				console.log("[telegram] upgrade task routed through orchestrator: " + taskId)
 			} catch (err) {
-				console.error("[telegram] Failed to record upgrade task in orchestrator:", err.message)
+				console.error(
+					"[telegram] Failed to route upgrade task through orchestrator, falling back to direct queue:",
+					err.message,
+				)
 			}
+		}
+
+		// ─── Fallback: Direct BullMQ Queue ─────────────────────────────────
+		if (!orchestratorTask) {
+			var job = await queue.add("coder-plan-" + taskId, {
+				task: upgradeGoal,
+				agentId: "superroo-coder-agent",
+				phase: "plan",
+				taskId: taskId,
+				workspaceDir: "/opt/superroo2",
+				repoName: "superroo2",
+				branch: "upgrade/" + taskId.toLowerCase(),
+				telegram: {
+					botToken: botToken,
+					chatId: chatId,
+				},
+			})
+
+			if (!userTasks.has(chatId)) userTasks.set(chatId, [])
+			userTasks.get(chatId).push({
+				id: taskId,
+				instruction: upgradeGoal,
+				status: "queued",
+				branchName: "upgrade/" + taskId.toLowerCase(),
+				changedFiles: 0,
+				linesAdded: 0,
+				createdAt: new Date().toISOString(),
+				jobId: job.id,
+			})
+			scheduleStatePersist()
+		} else {
+			if (!userTasks.has(chatId)) userTasks.set(chatId, [])
+			userTasks.get(chatId).push({
+				id: taskId,
+				instruction: upgradeGoal,
+				status: "queued",
+				branchName: "upgrade/" + taskId.toLowerCase(),
+				changedFiles: 0,
+				linesAdded: 0,
+				createdAt: new Date().toISOString(),
+				orchestratorTaskId: orchestratorTask.orchestratorTaskId,
+			})
+			scheduleStatePersist()
 		}
 
 		// Also learn from this upgrade request via Hermes Claw
@@ -7164,6 +7219,11 @@ function detectIntent(text) {
 			{ keywords: ["update", "change", "modify", "improve", "fix"], weight: 2 },
 			{ keywords: ["add ", "remove "], weight: 1 },
 		],
+		task: [
+			{ keywords: ["orchestrate", "orchestrator", "multi-step", "multi step", "break down"], weight: 3 },
+			{ keywords: ["task", "plan", "pipeline", "workflow"], weight: 2 },
+			{ keywords: ["coordinate", "sequence", "chain", "automate"], weight: 2 },
+		],
 		ask: [
 			{
 				keywords: ["what", "how", "why", "when", "where", "who", "which", "can you", "could you", "would you"],
@@ -7216,7 +7276,7 @@ function detectIntent(text) {
 
 	// Normalize score to 0-1 range (max possible score per intent varies)
 	// Max possible: consultant=~30, debugger=~10, deployer=~15, tester=~21, coder=~16, ask=~10
-	var maxPossible = { consultant: 30, debugger: 10, deployer: 15, tester: 21, coder: 16, ask: 10 }
+	var maxPossible = { consultant: 30, debugger: 10, deployer: 15, tester: 21, coder: 16, ask: 10, task: 12 }
 	var maxScore = maxPossible[topIntent] || 10
 	var normalizedScore = Math.min(topScore / maxScore, 1.0)
 
@@ -7961,6 +8021,7 @@ async function handleNaturalLanguageInstruction(
 			"create_pr",
 			"restart_worker",
 			"code_task",
+			"task",
 			"upgrade_self",
 			"deploy",
 			"delete_data",
@@ -8029,17 +8090,48 @@ async function handleNaturalLanguageInstruction(
 				} catch (e) {
 					console.log("[telegram] debug_plan: could not resolve active project, using default")
 				}
-				await queue.add("debug-" + debugTaskId, {
-					task: text,
-					agentId: "superroo-coder-agent",
-					goal: text,
-					repo: debugRepo,
-					commands: [],
-					telegram: {
-						chatId: chatId,
-						userId: telegramUserId,
-					},
-				})
+				// Route through orchestrator first for multi-agent breakdown planning
+				if (orchestratorBridge) {
+					try {
+						orchestratorBridge.createTask({
+							tgTaskId: debugTaskId,
+							chatId: chatId,
+							instruction: text,
+							agentId: "superroo-orchestrator-agent",
+							branchName: "dbg/" + debugTaskId.toLowerCase(),
+							source: "nlp:debug_plan",
+						})
+						console.log("[telegram] debug_plan task routed through orchestrator: " + debugTaskId)
+					} catch (err) {
+						console.error(
+							"[telegram] Failed to route debug_plan through orchestrator, falling back to direct queue:",
+							err.message,
+						)
+						await queue.add("debug-" + debugTaskId, {
+							task: text,
+							agentId: "superroo-coder-agent",
+							goal: text,
+							repo: debugRepo,
+							commands: [],
+							telegram: {
+								chatId: chatId,
+								userId: telegramUserId,
+							},
+						})
+					}
+				} else {
+					await queue.add("debug-" + debugTaskId, {
+						task: text,
+						agentId: "superroo-coder-agent",
+						goal: text,
+						repo: debugRepo,
+						commands: [],
+						telegram: {
+							chatId: chatId,
+							userId: telegramUserId,
+						},
+					})
+				}
 				await sendMessage(
 					botToken,
 					chatId,
@@ -8277,6 +8369,124 @@ async function handleNaturalLanguageInstruction(
 			return true
 		}
 
+		// ─── Task / Orchestrator Intent ──────────────────────────────────────
+		// Route multi-step / orchestrator tasks through the orchestrator for
+		// breakdown planning. This is the primary NL path for /task commands.
+		// "orchestrate a deployment pipeline", "break down this feature", etc.
+		if (intentKind === "task") {
+			try {
+				var taskOptions = {
+					requireAuth: true,
+					telegramUserId: telegramUserId,
+				}
+				// Resolve project from classifier output or active project
+				var taskClassifierProject = classified.project
+				if (taskClassifierProject) {
+					var taskResolvedWs = null
+					var taskCandidateDirs = [
+						"/opt/" + taskClassifierProject,
+						"/root/" + taskClassifierProject,
+						"/home/" + taskClassifierProject,
+					]
+					var taskFsSync = require("fs")
+					for (var tcd of taskCandidateDirs) {
+						try {
+							if (taskFsSync.existsSync(tcd)) {
+								taskResolvedWs = tcd
+								break
+							}
+						} catch (_) {}
+					}
+					if (taskResolvedWs) {
+						taskOptions.workspaceDir = taskResolvedWs
+						taskOptions.repoName = taskClassifierProject
+					}
+				}
+
+				// Route through orchestrator for multi-agent breakdown planning
+				var taskId =
+					"TG-" +
+					Date.now().toString(36).toUpperCase() +
+					"-" +
+					Math.random().toString(36).slice(2, 6).toUpperCase()
+				var branchName = "tg/" + taskId.toLowerCase()
+				var conversationSummary = buildConversationSummary(chatId)
+
+				var orchestratorTask = null
+				if (orchestratorBridge) {
+					try {
+						orchestratorTask = orchestratorBridge.createTask({
+							tgTaskId: taskId,
+							chatId: chatId,
+							instruction: text,
+							agentId: "superroo-orchestrator-agent",
+							branchName: branchName,
+							source: "nlp",
+						})
+						console.log("[telegram] NLP task intent routed through orchestrator: " + taskId)
+					} catch (err) {
+						console.error(
+							"[telegram] Failed to route NLP task intent through orchestrator, falling back to direct queue:",
+							err.message,
+						)
+					}
+				}
+
+				// Fallback: Direct BullMQ Queue
+				if (!orchestratorTask) {
+					var taskJob = await queue.add("telegram-" + taskId, {
+						task: text,
+						agentId: "superroo-orchestrator-agent",
+						commands: [],
+						network: "none",
+						telegram: {
+							chatId: chatId,
+							taskId: taskId,
+							branchName: branchName,
+							conversationSummary: conversationSummary,
+						},
+					})
+					if (!userTasks.has(chatId)) userTasks.set(chatId, [])
+					userTasks.get(chatId).push({
+						id: taskId,
+						instruction: text,
+						status: "queued",
+						branchName: branchName,
+						changedFiles: 0,
+						linesAdded: 0,
+						createdAt: new Date().toISOString(),
+						jobId: taskJob.id,
+					})
+					scheduleStatePersist()
+				} else {
+					if (!userTasks.has(chatId)) userTasks.set(chatId, [])
+					userTasks.get(chatId).push({
+						id: taskId,
+						instruction: text,
+						status: "queued",
+						branchName: branchName,
+						changedFiles: 0,
+						linesAdded: 0,
+						createdAt: new Date().toISOString(),
+						orchestratorTaskId: orchestratorTask.orchestratorTaskId,
+					})
+					scheduleStatePersist()
+				}
+
+				logChatExchange(chatId, "user", text, { intent: intentKind, taskId: taskId }).catch(function () {})
+				logChatExchange(chatId, "system", "Task routed to orchestrator agent", {
+					taskId: taskId,
+					agentId: "superroo-orchestrator-agent",
+				}).catch(function () {})
+
+				await telegramNotifier.sendTaskStarted(botToken, chatId, taskId, text, "orchestrator")
+			} catch (err) {
+				logTelegramError("nlp:task", chatId, telegramUserId, err, { text: text.slice(0, 100) })
+				await sendMessage(botToken, chatId, "*Task routing error* ❌\n\n" + err.message)
+			}
+			return true
+		}
+
 		// ─── Safe Shell: VPS Query ──────────────────────────────────────────
 		// Shell intent that passed the policy check (read-only) — infer the
 		// actual command and run it on the VPS. No active project required.
@@ -8402,46 +8612,72 @@ async function handleNaturalLanguageInstruction(
 
 			var conversationSummary = buildConversationSummary(chatId)
 
-			var job = await queue.add("telegram-" + taskId, {
-				task: text,
-				agentId: legacyIntent,
-				commands: [],
-				network: "none",
-				telegram: {
-					chatId: chatId,
-					taskId: taskId,
-					branchName: branchName,
-					conversationSummary: conversationSummary,
-				},
-			})
+			// ─── Route coding intents through orchestrator (primary) ──────────
+			// Coding-related intents (coder, create_branch, create_pr) benefit from
+			// the orchestrator's multi-agent breakdown planning. Deployer/debugger
+			// tasks go directly to BullMQ.
+			var isCodingIntent = legacyIntent === "superroo-coder-agent"
+			var orchestratorTask = null
 
-			if (!userTasks.has(chatId)) userTasks.set(chatId, [])
-			userTasks.get(chatId).push({
-				id: taskId,
-				instruction: text,
-				status: "queued",
-				branchName: branchName,
-				changedFiles: 0,
-				linesAdded: 0,
-				createdAt: new Date().toISOString(),
-				jobId: job.id,
-			})
-			scheduleStatePersist()
-
-			// Also record in Cloud Orchestrator if bridge is available
-			if (orchestratorBridge) {
+			if (isCodingIntent && orchestratorBridge) {
 				try {
-					orchestratorBridge.createTask({
+					orchestratorTask = orchestratorBridge.createTask({
 						tgTaskId: taskId,
 						chatId: chatId,
 						instruction: text,
-						agentId: legacyIntent,
+						agentId: "superroo-orchestrator-agent",
 						branchName: branchName,
 						source: "nlp",
 					})
+					console.log("[telegram] NLP coding task routed through orchestrator: " + taskId)
 				} catch (err) {
-					console.error("[telegram] Failed to record NLP task in orchestrator:", err.message)
+					console.error(
+						"[telegram] Failed to route NLP coding task through orchestrator, falling back to direct queue:",
+						err.message,
+					)
 				}
+			}
+
+			// ─── Fallback: Direct BullMQ Queue ─────────────────────────────
+			if (!orchestratorTask) {
+				var job = await queue.add("telegram-" + taskId, {
+					task: text,
+					agentId: legacyIntent,
+					commands: [],
+					network: "none",
+					telegram: {
+						chatId: chatId,
+						taskId: taskId,
+						branchName: branchName,
+						conversationSummary: conversationSummary,
+					},
+				})
+
+				if (!userTasks.has(chatId)) userTasks.set(chatId, [])
+				userTasks.get(chatId).push({
+					id: taskId,
+					instruction: text,
+					status: "queued",
+					branchName: branchName,
+					changedFiles: 0,
+					linesAdded: 0,
+					createdAt: new Date().toISOString(),
+					jobId: job.id,
+				})
+				scheduleStatePersist()
+			} else {
+				if (!userTasks.has(chatId)) userTasks.set(chatId, [])
+				userTasks.get(chatId).push({
+					id: taskId,
+					instruction: text,
+					status: "queued",
+					branchName: branchName,
+					changedFiles: 0,
+					linesAdded: 0,
+					createdAt: new Date().toISOString(),
+					orchestratorTaskId: orchestratorTask.orchestratorTaskId,
+				})
+				scheduleStatePersist()
 			}
 
 			var intentLabels = {
@@ -10510,6 +10746,97 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 		} else if (command === "/code") {
 			logTelegramUsage("/code", chatId, telegramUserId, { args: cmdArgs.join(" ") })
 			await handleCode(botToken, chatId, cmdArgs, queue, orchestratorBridge)
+		} else if (command === "/task") {
+			logTelegramUsage("/task", chatId, telegramUserId, { args: cmdArgs.join(" ") })
+			var taskInstruction = cmdArgs.join(" ") || text
+			if (!taskInstruction) {
+				await sendMessage(
+					botToken,
+					chatId,
+					"*Task* 📋\n\nCreate a multi-step task that will be broken down into phases by the orchestrator.\n\n" +
+						"Usage: `/task <description>`\n\n" +
+						"*Examples:*\n" +
+						"• `/task Build a complete authentication system with login, register, and password reset`\n" +
+						"• `/task Refactor the API layer to use dependency injection`\n" +
+						"• `/task Set up CI/CD pipeline with GitHub Actions`",
+				)
+				return
+			}
+			await sendChatAction(botToken, chatId, "typing")
+			try {
+				var taskId =
+					"TG-" +
+					Date.now().toString(36).toUpperCase() +
+					"-" +
+					Math.random().toString(36).slice(2, 6).toUpperCase()
+				var branchName = "tg/" + taskId.toLowerCase()
+				var conversationSummary = buildConversationSummary(chatId)
+
+				var orchestratorTask = null
+				if (orchestratorBridge) {
+					try {
+						orchestratorTask = orchestratorBridge.createTask({
+							tgTaskId: taskId,
+							chatId: chatId,
+							instruction: taskInstruction,
+							agentId: "superroo-orchestrator-agent",
+							branchName: branchName,
+							source: "command",
+						})
+						console.log("[telegram] /task routed through orchestrator: " + taskId)
+					} catch (err) {
+						console.error(
+							"[telegram] Failed to route /task through orchestrator, falling back to direct queue:",
+							err.message,
+						)
+					}
+				}
+
+				if (!orchestratorTask) {
+					var taskJob = await queue.add("telegram-" + taskId, {
+						task: taskInstruction,
+						agentId: "superroo-orchestrator-agent",
+						commands: [],
+						network: "none",
+						telegram: {
+							chatId: chatId,
+							taskId: taskId,
+							branchName: branchName,
+							conversationSummary: conversationSummary,
+						},
+					})
+					if (!userTasks.has(chatId)) userTasks.set(chatId, [])
+					userTasks.get(chatId).push({
+						id: taskId,
+						instruction: taskInstruction,
+						status: "queued",
+						branchName: branchName,
+						changedFiles: 0,
+						linesAdded: 0,
+						createdAt: new Date().toISOString(),
+						jobId: taskJob.id,
+					})
+					scheduleStatePersist()
+				} else {
+					if (!userTasks.has(chatId)) userTasks.set(chatId, [])
+					userTasks.get(chatId).push({
+						id: taskId,
+						instruction: taskInstruction,
+						status: "queued",
+						branchName: branchName,
+						changedFiles: 0,
+						linesAdded: 0,
+						createdAt: new Date().toISOString(),
+						orchestratorTaskId: orchestratorTask.orchestratorTaskId,
+					})
+					scheduleStatePersist()
+				}
+
+				await telegramNotifier.sendTaskStarted(botToken, chatId, taskId, taskInstruction, "orchestrator")
+			} catch (err) {
+				logTelegramError("/task", chatId, telegramUserId, err, { instruction: taskInstruction })
+				await sendMessage(botToken, chatId, "*Task Error* ❌\n\n" + err.message)
+			}
 		} else if (command === "/diff") {
 			logTelegramUsage("/diff", chatId, telegramUserId, { args: cmdArgs.join(" ") })
 			await handleDiff(botToken, chatId, cmdArgs, orchestratorBridge)

@@ -173,7 +173,12 @@ class TaskExecutor {
 			typeof input === "string" ? input : input.instruction || input.description || JSON.stringify(input)
 		const workspace = input.workspace || {}
 
-		// ── Step 1: HermesClaw context recall (before breakdown) ──────────
+		// ── Step 1: Gather all context sources ────────────────────────────
+		// 1a. Assembled context from ContextAssembler (via task.metadata)
+		const assembledContextText = task.metadata?.contextText || ""
+		const chainedContext = task.metadata?.chainedContext || ""
+
+		// 1b. HermesClaw context recall (before breakdown)
 		// Inject relevant past experiences into the breakdown plan
 		let hermesContext = ""
 		if (orchestrator.learningGateway) {
@@ -220,6 +225,11 @@ class TaskExecutor {
 			}
 		}
 
+		// 1c. Merge all context sources into a single enriched context
+		const enrichedContext = [assembledContextText, chainedContext, hermesContext]
+			.filter(Boolean)
+			.join("\n\n---\n\n")
+
 		// ── Step 2: Safety check ──────────────────────────────────────────
 		if (orchestrator.safetyManager) {
 			const decision = orchestrator.safetyManager.checkCapability("orchestrator")
@@ -262,8 +272,18 @@ class TaskExecutor {
 
 		try {
 			// ── Step 4: Generate multi-agent breakdown plan ───────────────
-			// Pass HermesClaw context to the breakdown planner
-			const plan = await this._generateBreakdownPlan(instruction, workspace, hermesContext)
+			// Pass enriched context (assembled + chained + HermesClaw) to the breakdown planner
+			const plan = await this._generateBreakdownPlan(instruction, workspace, enrichedContext)
+
+			// Store phases in task metadata so completeTask() can persist them
+			// for cross-task context chaining (Improvement #5)
+			if (task.metadata) {
+				task.metadata.phases = plan.phases.map((p) => ({
+					title: p.title,
+					agent: p.agent,
+					description: p.description,
+				}))
+			}
 
 			// ── Step 5: Execute each phase ────────────────────────────────
 			const output = []
@@ -337,6 +357,9 @@ class TaskExecutor {
 					files: task.input?.files || [],
 					filesLikelyInvolved: task.input?.filesLikelyInvolved || [],
 					testCommand: task.input?.testCommand || "",
+					// BullMQ Job-Level Context Assembly (Improvement #10)
+					// Attach pre-assembled context so workers don't re-assemble
+					assembledContext: task.metadata?.bullJobContext?.assembledContext || undefined,
 				}
 
 				// Also create in SQLite queue for tracking
@@ -413,7 +436,36 @@ class TaskExecutor {
 				})
 			}
 
-			// ── Step 6: HermesClaw lesson extraction (after completion) ───
+			// ── Step 6: Lesson extraction & context usefulness feedback ───
+			// 6a. Context usefulness feedback (Improvement #8)
+			// Feed back whether the assembled context was useful for the breakdown
+			if (orchestrator.learningGateway && task.metadata?.context) {
+				try {
+					const ctx = task.metadata.context
+					const contextUsefulness = {
+						hadFeatures: (ctx.features || []).length > 0,
+						hadEvents: (ctx.recentEvents || []).length > 0,
+						hadLessons: (ctx.lessons || []).length > 0,
+						hadFileTree: !!ctx.fileTree,
+						hadChainedContext: !!task.metadata.chainedContext,
+						complexity: ctx.complexity,
+						tokenBudget: ctx.tokenBudget,
+						truncationRatio: ctx._telemetry?.truncationRatio || 0,
+						assemblyTimeMs: ctx._telemetry?.assemblyTimeMs || 0,
+					}
+					orchestrator.eventLog.record({
+						type: "context.usefulness",
+						source: "TaskExecutor",
+						severity: "info",
+						payload: contextUsefulness,
+						taskId: task.id,
+					})
+				} catch {
+					// Non-blocking
+				}
+			}
+
+			// 6b. HermesClaw lesson extraction (after completion)
 			if (this.hermesClaw) {
 				try {
 					// Fire-and-forget — don't block on lesson extraction
@@ -568,14 +620,18 @@ class TaskExecutor {
 			`Output ONLY valid JSON. No markdown, no code fences, no explanation.`,
 		]
 
-		// Inject HermesClaw context if available
+		// Inject enriched context if available
+		// This includes assembled context (features, events, lessons, file tree),
+		// chained context (parent task goal/output), and HermesClaw memory.
 		if (hermesContext) {
 			systemPromptParts.push(
 				``,
-				`### Relevant Past Experience (from HermesClaw memory):`,
+				`### Relevant Context:`,
 				hermesContext,
 				``,
-				`Use this context to avoid repeating past mistakes and leverage proven approaches.`,
+				`Use this context to understand the current project state, active features,`,
+				`recent events, relevant lessons, project structure, and any parent task context.`,
+				`Avoid repeating past mistakes and leverage proven approaches.`,
 			)
 		}
 

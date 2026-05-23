@@ -52,7 +52,8 @@
 			"ask_question",
 			"execute_safe_command",
 			"view_code",
-			"view_diff"
+			"view_diff",
+			"context_assembly"
 		],
 		"auto": [
 			"read_file",
@@ -68,7 +69,8 @@
 			"execute_command",
 			"run_tests",
 			"create_branch",
-			"commit_changes"
+			"commit_changes",
+			"context_assembly"
 		],
 		"full_autonomous": [
 			"read_file",
@@ -92,7 +94,8 @@
 			"modify_secrets",
 			"modify_infrastructure",
 			"modify_dependencies",
-			"self_improve"
+			"self_improve",
+			"context_assembly"
 		]
 	}
 }

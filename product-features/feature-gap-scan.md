@@ -51,21 +51,21 @@ These Working Tree modules have **API endpoints** but no dedicated dashboard vie
 - **Dashboard view**: `debug-team.tsx` with start/stop controls, live progress, step timeline, recent jobs
 - **Priority**: **HIGH** — Done
 
-### 2.2 Parallel Execution Engine (Module #14)
+### 2.2 Parallel Execution Engine (Module #14) ✅ FIXED
 
 - **Working Tree status**: `experimental`
 - **Features**: Parallel task execution, inter-agent messaging, parallel healing, parallel ML training
 - **API coverage**: `GET /orchestrator/parallel/stats`
-- **Gap**: No view to see parallel executor stats, active parallel tasks, agent bus messages
-- **Priority**: MEDIUM — Experimental but has an active API endpoint
+- **Dashboard view**: `parallel-execution.tsx` with StatCards (active/submitted/completed/failed), token budget bar with color-coded usage, agent token costs table with horizontal bars, auto-refresh every 10s
+- **Priority**: MEDIUM — Done
 
-### 2.3 File Importer (Module #18)
+### 2.3 File Importer (Module #18) ✅ FIXED
 
 - **Working Tree status**: `stable`
 - **Features**: File import, content extraction, type validation
 - **API coverage**: `POST /orchestrator/file-importer/import`, `GET /orchestrator/file-importer/stats`
-- **Gap**: No UI to trigger imports or view import stats/history
-- **Priority**: LOW — Stable but niche; could be folded into another view
+- **Dashboard view**: `file-importer.tsx` with import form (textarea + submit), stats cards (total imports/files/errors/last import), recent imports history, auto-refresh
+- **Priority**: LOW — Done
 
 ### 2.4 Remote Shell (Module #19)
 
@@ -75,30 +75,21 @@ These Working Tree modules have **API endpoints** but no dedicated dashboard vie
 - **Gap**: No backend API and no frontend view for remote shell operations
 - **Priority**: LOW — Experimental; the VPS control center in Settings partially covers SSH deploy
 
-### 2.5 Machine Learning Engine (Module #10)
+### 2.5 Machine Learning Engine (Module #10) ✅ FIXED
 
 - **Working Tree status**: `experimental`
 - **Features**: Neural network training, CodeLearner, DebugLearner, TestLearner, Infinite Improvement Loop
-- **Partial coverage**: `ollama-growth` and `intelligence-layer` views show learning stats and lesson curation, but do NOT expose:
-    - Neural network training status / Tensor operations
-    - Individual learner progress (CodeLearner, DebugLearner, TestLearner)
-    - Infinite Improvement Loop state
-    - Model serialization / federated merge status
-- **Gap**: No dedicated ML Engine view for the core neural network and learner subsystems
-- **Priority**: MEDIUM — Ollama Growth and Intelligence Layer cover the "lessons" side but not the "training" side
+- **Dashboard view**: `ml-engine.tsx` with model stats (type/loops/observations/predictions), learner status panel (CodeLearner, DebugLearner, TestLearner with sample counts), Infinite Improvement Loop panel (cycles/lessons/skills), "Train Cycle" button, auto-refresh every 15s
+- **Remaining gap**: Neural network training status / Tensor operations and model serialization / federated merge status are still not surfaced in the dashboard
+- **Priority**: MEDIUM — Core ML Engine view exists; training internals are a future enhancement
 
-### 2.6 Product Memory (Module #11)
+### 2.6 Product Memory (Module #11) ✅ FIXED
 
 - **Working Tree status**: `stable`
 - **Features**: Product feature tracking, update timeline, feature test history, bug-to-feature mapping, agent notes
-- **Partial coverage**: `intelligence-layer` shows lessons; `working-tree` shows module info; `bugs` shows bug registry
-- **Gap**: No dedicated view for:
-    - Product feature agent discoveries
-    - Update timeline (ProductUpdatesAgent)
-    - Feature test records (FeatureTesterAgent)
-    - Bug-to-feature mappings (BugFeatureMapperAgent)
-    - Agent notes
-- **Priority**: MEDIUM — Feature Registry and Bug Registry views exist separately, but the cross-cutting Product Memory agent outputs are not surfaced
+- **Dashboard view**: `product-memory.tsx` with features table (status badges), bugs table (severity badges), Hermes stats (memory entries/operations/avg duration), auto-refresh every 30s
+- **Remaining gap**: Update timeline (ProductUpdatesAgent), feature test records (FeatureTesterAgent), bug-to-feature mappings (BugFeatureMapperAgent), and agent notes are still not surfaced
+- **Priority**: MEDIUM — Core Product Memory view exists; agent-specific outputs are a future enhancement
 
 ---
 
