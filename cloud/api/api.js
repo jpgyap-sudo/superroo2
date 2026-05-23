@@ -2191,12 +2191,12 @@ const PROVIDERS = [
 		website: "https://deepseek.com",
 		docsUrl: "https://platform.deepseek.com/docs",
 		apiBaseUrl: "https://api.deepseek.com/v1",
-		defaultModel: "deepseek-chat-v4-flash",
+		defaultModel: "deepseek-v4-flash",
 		models: [
 			{ id: "deepseek-chat", name: "DeepSeek V3" },
 			{ id: "deepseek-reasoner", name: "DeepSeek R1" },
-			{ id: "deepseek-chat-v4-flash", name: "DeepSeek V4 Flash" },
-			{ id: "deepseek-chat-v4-pro", name: "DeepSeek V4 Pro" },
+			{ id: "deepseek-v4-flash", name: "DeepSeek V4 Flash" },
+			{ id: "deepseek-v4-pro", name: "DeepSeek V4 Pro" },
 		],
 		capabilities: ["chat", "reasoning"],
 	},
@@ -2294,7 +2294,7 @@ const DEFAULT_AGENT_ROUTES = [
 	{
 		agent: "planner",
 		label: "Planner",
-		primary: { provider: "deepseek", model: "deepseek-chat-v4-pro" },
+		primary: { provider: "deepseek", model: "deepseek-v4-pro" },
 		fallbacks: [
 			{ provider: "ollama", model: "qwen2.5:1.5b" },
 			{ provider: "anthropic", model: "claude-sonnet-4-20250514" },
@@ -2304,7 +2304,7 @@ const DEFAULT_AGENT_ROUTES = [
 	{
 		agent: "coder",
 		label: "Coder",
-		primary: { provider: "deepseek", model: "deepseek-chat-v4-flash" },
+		primary: { provider: "deepseek", model: "deepseek-v4-flash" },
 		fallbacks: [
 			{ provider: "ollama", model: "qwen2.5:1.5b" },
 			{ provider: "anthropic", model: "claude-sonnet-4-20250514" },
@@ -2314,7 +2314,7 @@ const DEFAULT_AGENT_ROUTES = [
 	{
 		agent: "debugger",
 		label: "Debugger",
-		primary: { provider: "deepseek", model: "deepseek-chat-v4-pro" },
+		primary: { provider: "deepseek", model: "deepseek-v4-pro" },
 		fallbacks: [
 			{ provider: "ollama", model: "qwen2.5:1.5b" },
 			{ provider: "anthropic", model: "claude-sonnet-4-20250514" },
@@ -2324,7 +2324,7 @@ const DEFAULT_AGENT_ROUTES = [
 	{
 		agent: "crawler",
 		label: "Crawler",
-		primary: { provider: "deepseek", model: "deepseek-chat-v4-flash" },
+		primary: { provider: "deepseek", model: "deepseek-v4-flash" },
 		fallbacks: [
 			{ provider: "ollama", model: "qwen2.5:1.5b" },
 			{ provider: "groq", model: "llama-3.3-70b-versatile" },
@@ -2334,7 +2334,7 @@ const DEFAULT_AGENT_ROUTES = [
 	{
 		agent: "tester",
 		label: "Tester",
-		primary: { provider: "deepseek", model: "deepseek-chat-v4-flash" },
+		primary: { provider: "deepseek", model: "deepseek-v4-flash" },
 		fallbacks: [
 			{ provider: "ollama", model: "qwen2.5:1.5b" },
 			{ provider: "groq", model: "llama-3.3-70b-versatile" },
@@ -2344,7 +2344,7 @@ const DEFAULT_AGENT_ROUTES = [
 	{
 		agent: "deployChecker",
 		label: "Deploy Checker",
-		primary: { provider: "deepseek", model: "deepseek-chat-v4-pro" },
+		primary: { provider: "deepseek", model: "deepseek-v4-pro" },
 		fallbacks: [
 			{ provider: "ollama", model: "qwen2.5:1.5b" },
 			{ provider: "groq", model: "llama-3.3-70b-versatile" },
@@ -2354,7 +2354,7 @@ const DEFAULT_AGENT_ROUTES = [
 	{
 		agent: "consultant",
 		label: "Consultant",
-		primary: { provider: "deepseek", model: "deepseek-chat-v4-pro" },
+		primary: { provider: "deepseek", model: "deepseek-v4-pro" },
 		fallbacks: [
 			{ provider: "ollama", model: "qwen2.5:1.5b" },
 			{ provider: "anthropic", model: "claude-sonnet-4-20250514" },

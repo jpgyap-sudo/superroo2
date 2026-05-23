@@ -26,12 +26,52 @@ function createProvider(options = {}) {
 		website: "https://deepseek.com",
 		docsUrl: "https://platform.deepseek.com/docs",
 		apiBaseUrl: baseUrl,
-		defaultModel: "deepseek-chat-v4-flash",
+		defaultModel: "deepseek-v4-flash",
 		models: [
-			{ id: "deepseek-chat", name: "DeepSeek V3", contextWindow: 128000, supportsVision: false, supportsTools: true, supportsReasoning: false, inputCostPerMTok: 0.28, outputCostPerMTok: 0.42, bestFor: ["cheap coding", "debugging"] },
-			{ id: "deepseek-reasoner", name: "DeepSeek R1", contextWindow: 128000, supportsVision: false, supportsTools: false, supportsReasoning: true, inputCostPerMTok: 0.55, outputCostPerMTok: 2.19, bestFor: ["reasoning", "math", "logic"] },
-			{ id: "deepseek-chat-v4-flash", name: "DeepSeek V4 Flash", contextWindow: 128000, supportsVision: false, supportsTools: true, supportsReasoning: false, inputCostPerMTok: 0.28, outputCostPerMTok: 0.42, bestFor: ["cheap coding", "debugging", "crawler repair"] },
-			{ id: "deepseek-chat-v4-pro", name: "DeepSeek V4 Pro", contextWindow: 128000, supportsVision: false, supportsTools: true, supportsReasoning: false, inputCostPerMTok: 0.28, outputCostPerMTok: 0.42, bestFor: ["complex coding", "architecture"] },
+			{
+				id: "deepseek-chat",
+				name: "DeepSeek V3",
+				contextWindow: 128000,
+				supportsVision: false,
+				supportsTools: true,
+				supportsReasoning: false,
+				inputCostPerMTok: 0.28,
+				outputCostPerMTok: 0.42,
+				bestFor: ["cheap coding", "debugging"],
+			},
+			{
+				id: "deepseek-reasoner",
+				name: "DeepSeek R1",
+				contextWindow: 128000,
+				supportsVision: false,
+				supportsTools: false,
+				supportsReasoning: true,
+				inputCostPerMTok: 0.55,
+				outputCostPerMTok: 2.19,
+				bestFor: ["reasoning", "math", "logic"],
+			},
+			{
+				id: "deepseek-v4-flash",
+				name: "DeepSeek V4 Flash",
+				contextWindow: 128000,
+				supportsVision: false,
+				supportsTools: true,
+				supportsReasoning: false,
+				inputCostPerMTok: 0.28,
+				outputCostPerMTok: 0.42,
+				bestFor: ["cheap coding", "debugging", "crawler repair"],
+			},
+			{
+				id: "deepseek-v4-pro",
+				name: "DeepSeek V4 Pro",
+				contextWindow: 128000,
+				supportsVision: false,
+				supportsTools: true,
+				supportsReasoning: false,
+				inputCostPerMTok: 0.28,
+				outputCostPerMTok: 0.42,
+				bestFor: ["complex coding", "architecture"],
+			},
 		],
 		capabilities: {
 			chat: true,
@@ -112,9 +152,7 @@ function createProvider(options = {}) {
 				completionTokens: data.usage?.completion_tokens || 0,
 				totalTokens: data.usage?.total_tokens || 0,
 			},
-			reasoning: choice?.message?.reasoning_content
-				? { content: choice.message.reasoning_content }
-				: undefined,
+			reasoning: choice?.message?.reasoning_content ? { content: choice.message.reasoning_content } : undefined,
 		}
 	}
 
