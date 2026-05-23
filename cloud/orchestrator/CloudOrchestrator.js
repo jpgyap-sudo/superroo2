@@ -73,6 +73,8 @@ class CloudOrchestrator extends EventEmitter {
 
 		// Phase 5 modules
 		this.parallelExecutor = null
+		this.parallelHealing = null
+		this.parallelML = null
 		this.agentBus = null
 		this.improvementLoop = null
 
@@ -714,6 +716,90 @@ class CloudOrchestrator extends EventEmitter {
 	}
 
 	/**
+	 * Register the ParallelHealingPipeline module.
+	 * @param {object} parallelHealing
+	 */
+	registerParallelHealing(parallelHealing) {
+		this.parallelHealing = parallelHealing
+	}
+
+	/**
+	 * Ensure ParallelHealingPipeline is initialized.
+	 * @returns {object} The parallelHealing instance
+	 */
+	ensureParallelHealing() {
+		if (this.parallelHealing) return this.parallelHealing
+		const { ParallelHealingPipeline } = require("./modules/ParallelHealingPipeline")
+		const ph = new ParallelHealingPipeline(this.healingBus, this.eventLog, {})
+		this.parallelHealing = ph
+		if (this.eventLog) {
+			this.eventLog.record({
+				type: "orchestrator.parallel_healing_lazy_init",
+				source: "CloudOrchestrator",
+				severity: "info",
+			})
+		}
+		console.log("[CloudOrchestrator] ParallelHealingPipeline lazy-initialized")
+		return ph
+	}
+
+	/**
+	 * Register the ParallelMLTrainer module.
+	 * @param {object} parallelML
+	 */
+	registerParallelML(parallelML) {
+		this.parallelML = parallelML
+	}
+
+	/**
+	 * Ensure ParallelMLTrainer is initialized.
+	 * @returns {object} The parallelML instance
+	 */
+	ensureParallelML() {
+		if (this.parallelML) return this.parallelML
+		const { ParallelMLTrainer } = require("./modules/ParallelMLTrainer")
+		const ml = new ParallelMLTrainer(this.eventLog, { enabled: false })
+		this.parallelML = ml
+		if (this.eventLog) {
+			this.eventLog.record({
+				type: "orchestrator.parallel_ml_lazy_init",
+				source: "CloudOrchestrator",
+				severity: "info",
+			})
+		}
+		console.log("[CloudOrchestrator] ParallelMLTrainer lazy-initialized")
+		return ml
+	}
+
+	/**
+	 * Ensure ParallelExecutor is initialized, creating a default instance if needed.
+	 * Supports lazy initialization for dashboard endpoints that query stats before
+	 * the full registration cycle completes (non-blocking API startup).
+	 * @returns {object} The parallelExecutor instance
+	 */
+	ensureParallelExecutor() {
+		if (this.parallelExecutor) return this.parallelExecutor
+		const { ParallelExecutor } = require("./modules/ParallelExecutor")
+		const pe = new ParallelExecutor({
+			maxConcurrency: 2,
+			maxTokens: 100,
+			agentRegistry: this.agentRegistry || null,
+		})
+		pe.start()
+		this.parallelExecutor = pe
+		if (this.eventLog) {
+			this.eventLog.record({
+				type: "orchestrator.parallel_executor_lazy_init",
+				source: "CloudOrchestrator",
+				severity: "info",
+				payload: { maxConcurrency: pe.maxConcurrency, maxTokens: pe.maxTokens },
+			})
+		}
+		console.log("[CloudOrchestrator] ParallelExecutor lazy-initialized")
+		return pe
+	}
+
+	/**
 	 * Register the AgentBus module.
 	 * @param {object} agentBus
 	 */
@@ -722,11 +808,59 @@ class CloudOrchestrator extends EventEmitter {
 	}
 
 	/**
+	 * Ensure AgentBus is initialized, creating a default instance if needed.
+	 * @returns {object} The agentBus instance
+	 */
+	ensureAgentBus() {
+		if (this.agentBus) return this.agentBus
+		const { AgentBus } = require("./modules/AgentBus")
+		const bus = new AgentBus({ memoryStore: this.memory || null })
+		bus.initialize()
+		this.agentBus = bus
+		if (this.eventLog) {
+			this.eventLog.record({
+				type: "orchestrator.agent_bus_lazy_init",
+				source: "CloudOrchestrator",
+				severity: "info",
+			})
+		}
+		console.log("[CloudOrchestrator] AgentBus lazy-initialized")
+		return bus
+	}
+
+	/**
 	 * Register the InfiniteImprovementLoop module.
 	 * @param {object} improvementLoop
 	 */
 	registerImprovementLoop(improvementLoop) {
 		this.improvementLoop = improvementLoop
+	}
+
+	/**
+	 * Ensure ImprovementLoop is initialized, creating a default instance if needed.
+	 * @returns {object} The improvementLoop instance
+	 */
+	ensureImprovementLoop() {
+		if (this.improvementLoop) return this.improvementLoop
+		if (!this.memory) {
+			console.warn("[CloudOrchestrator] Cannot lazy-init ImprovementLoop — memory not available")
+			return null
+		}
+		const { InfiniteImprovementLoop } = require("./modules/InfiniteImprovementLoop")
+		const loop = new InfiniteImprovementLoop({
+			memoryStore: this.memory,
+			taskQueue: this.taskQueue || null,
+		})
+		this.improvementLoop = loop
+		if (this.eventLog) {
+			this.eventLog.record({
+				type: "orchestrator.improvement_loop_lazy_init",
+				source: "CloudOrchestrator",
+				severity: "info",
+			})
+		}
+		console.log("[CloudOrchestrator] ImprovementLoop lazy-initialized")
+		return loop
 	}
 
 	/**
@@ -759,6 +893,22 @@ class CloudOrchestrator extends EventEmitter {
 	 */
 	registerCPUGuard(cpuGuard) {
 		this.cpuGuard = cpuGuard
+	}
+
+	/**
+	 * Ensure CPUGuard namespace is initialized with default functions if needed.
+	 * @returns {object} The cpuGuard namespace
+	 */
+	ensureCPUGuard() {
+		if (this.cpuGuard) return this.cpuGuard
+		const { getCpuUsagePercent, getRamUsagePercent } = require("./modules/CPUGuard")
+		const guard = {
+			getCpuUsagePercent: getCpuUsagePercent || (() => 0),
+			getRamUsagePercent: getRamUsagePercent || (() => 0),
+		}
+		this.cpuGuard = guard
+		console.log("[CloudOrchestrator] CPUGuard lazy-initialized")
+		return guard
 	}
 
 	/**
@@ -893,6 +1043,8 @@ class CloudOrchestrator extends EventEmitter {
 			healingBus: !!this.healingBus,
 			selfHealingLoop: !!this.selfHealingLoop,
 			parallelExecutor: !!this.parallelExecutor,
+			parallelHealing: !!this.parallelHealing,
+			parallelML: !!this.parallelML,
 			agentBus: !!this.agentBus,
 			improvementLoop: !!this.improvementLoop,
 			crawlerAgent: !!this.crawlerAgent,

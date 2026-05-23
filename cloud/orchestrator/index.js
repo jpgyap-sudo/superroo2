@@ -20,6 +20,8 @@ const { HealingBus } = require("./modules/HealingBus")
 const { SelfHealingLoop } = require("./modules/SelfHealingLoop")
 const { ParallelExecutor } = require("./modules/ParallelExecutor")
 const { AgentBus } = require("./modules/AgentBus")
+const { ParallelHealingPipeline } = require("./modules/ParallelHealingPipeline")
+const { ParallelMLTrainer } = require("./modules/ParallelMLTrainer")
 const { InfiniteImprovementLoop } = require("./modules/InfiniteImprovementLoop")
 const { CrawlerAgent } = require("./modules/CrawlerAgent")
 const { DeployOrchestrator } = require("./modules/DeployOrchestrator")
@@ -68,6 +70,8 @@ module.exports = {
 	SelfHealingLoop,
 	ParallelExecutor,
 	AgentBus,
+	ParallelHealingPipeline,
+	ParallelMLTrainer,
 	InfiniteImprovementLoop,
 	CrawlerAgent,
 	DeployOrchestrator,

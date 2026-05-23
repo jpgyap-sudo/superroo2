@@ -11,9 +11,9 @@
 
 // Load .env file for local development (never commit .env to git)
 try {
- require("dotenv").config({ path: require("path").join(__dirname, "..", ".env") })
+	require("dotenv").config({ path: require("path").join(__dirname, "..", ".env") })
 } catch {
- // dotenv not installed — env vars must be set via PM2 or system environment
+	// dotenv not installed — env vars must be set via PM2 or system environment
 }
 
 const http = require("http")
@@ -845,7 +845,34 @@ async function initOrchestrator() {
 			}),
 		)
 
-		orchestrator.registerAgentBus(new AgentBus(orchestrator.eventLog))
+		// Wire ParallelExecutor events → Brain WebSocket for real-time dashboard updates
+		if (orchestrator.parallelExecutor) {
+			orchestrator.parallelExecutor.on("slotAllocated", (data) =>
+				broadcastBrainEvent("parallel.slotAllocated", data),
+			)
+			orchestrator.parallelExecutor.on("slotFreed", (data) => broadcastBrainEvent("parallel.slotFreed", data))
+			orchestrator.parallelExecutor.on("slotCompleted", (data) =>
+				broadcastBrainEvent("parallel.slotCompleted", data),
+			)
+			orchestrator.parallelExecutor.on("slotFailed", (data) => broadcastBrainEvent("parallel.slotFailed", data))
+			orchestrator.parallelExecutor.on("slotCancelled", (data) =>
+				broadcastBrainEvent("parallel.slotCancelled", data),
+			)
+			orchestrator.parallelExecutor.on("slotTimeout", (data) => broadcastBrainEvent("parallel.slotTimeout", data))
+			orchestrator.parallelExecutor.on("engineStarted", (data) =>
+				broadcastBrainEvent("parallel.engineStarted", data),
+			)
+			orchestrator.parallelExecutor.on("engineStopped", (data) =>
+				broadcastBrainEvent("parallel.engineStopped", data),
+			)
+			orchestrator.parallelExecutor.on("configUpdated", (data) =>
+				broadcastBrainEvent("parallel.configUpdated", data),
+			)
+		}
+
+		const agentBus = new AgentBus({ memoryStore: orchestrator.memory })
+		await agentBus.initialize()
+		orchestrator.registerAgentBus(agentBus)
 		orchestrator.registerImprovementLoop(
 			new InfiniteImprovementLoop({
 				memoryStore: orchestrator.memory,
@@ -4095,12 +4122,18 @@ const server = http.createServer(async (req, res) => {
 						? orchestrator.parallelExecutor.getStatus()
 						: {}
 					advancedHealth.parallelExecution = {
-						status: "healthy",
+						status: execStatus.status || "healthy",
 						activeTasks: execStatus.activeTasks || 0,
 						maxConcurrency: execStatus.maxConcurrency || 2,
+						isRunning: execStatus.isRunning || false,
 					}
 				} else {
-					advancedHealth.parallelExecution = { status: "unavailable", activeTasks: 0, maxConcurrency: 2 }
+					advancedHealth.parallelExecution = {
+						status: "unavailable",
+						activeTasks: 0,
+						maxConcurrency: 2,
+						isRunning: false,
+					}
 				}
 
 				// Self-Healing (HealingBus)
@@ -10210,9 +10243,12 @@ const server = http.createServer(async (req, res) => {
 			method === "GET" &&
 			(url === "/orchestrator/cpu-guard/stats" || normalizedUrl === "/orchestrator/cpu-guard/stats")
 		) {
-			if (!orchestrator || !orchestrator.cpuGuard) {
-				sendJson(res, 503, { success: false, error: "CPUGuard not initialized" })
+			if (!orchestrator) {
+				sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
 				return
+			}
+			if (!orchestrator.cpuGuard) {
+				orchestrator.ensureCPUGuard()
 			}
 			const cpu = orchestrator.cpuGuard.getCpuUsagePercent ? orchestrator.cpuGuard.getCpuUsagePercent() : null
 			const ram = orchestrator.cpuGuard.getRamUsagePercent ? orchestrator.cpuGuard.getRamUsagePercent() : null
@@ -10227,12 +10263,136 @@ const server = http.createServer(async (req, res) => {
 			method === "GET" &&
 			(url === "/orchestrator/parallel/stats" || normalizedUrl === "/orchestrator/parallel/stats")
 		) {
+			if (!orchestrator) {
+				sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
+				return
+			}
+			// Lazy-init ParallelExecutor if missing (supports non-blocking API startup)
+			if (!orchestrator.parallelExecutor) {
+				orchestrator.ensureParallelExecutor()
+			}
+			const stats = orchestrator.parallelExecutor.getStats()
+			sendJson(res, 200, { success: true, stats })
+			return
+		}
+
+		// POST /orchestrator/parallel/start — start the parallel executor
+		if (
+			method === "POST" &&
+			(url === "/orchestrator/parallel/start" || normalizedUrl === "/orchestrator/parallel/start")
+		) {
+			if (!orchestrator) {
+				sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
+				return
+			}
+			const pe = orchestrator.ensureParallelExecutor()
+			if (!pe.isRunning()) pe.start()
+			sendJson(res, 200, { success: true, status: "started", stats: pe.getStats() })
+			return
+		}
+
+		// POST /orchestrator/parallel/stop — stop the parallel executor
+		if (
+			method === "POST" &&
+			(url === "/orchestrator/parallel/stop" || normalizedUrl === "/orchestrator/parallel/stop")
+		) {
 			if (!orchestrator || !orchestrator.parallelExecutor) {
 				sendJson(res, 503, { success: false, error: "ParallelExecutor not initialized" })
 				return
 			}
-			const stats = orchestrator.parallelExecutor.getStats()
-			sendJson(res, 200, { success: true, stats })
+			orchestrator.parallelExecutor.stop()
+			sendJson(res, 200, { success: true, status: "stopped" })
+			return
+		}
+
+		// POST /orchestrator/parallel/dispatch — dispatch a task via parallel executor
+		if (
+			method === "POST" &&
+			(url === "/orchestrator/parallel/dispatch" || normalizedUrl === "/orchestrator/parallel/dispatch")
+		) {
+			if (!orchestrator) {
+				sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
+				return
+			}
+			const pe = orchestrator.ensureParallelExecutor()
+			const { task, agent, timeoutMs } = body || {}
+			if (!task || !task.id) {
+				sendJson(res, 400, { success: false, error: "Missing task or task.id" })
+				return
+			}
+			if (!agent || !agent.id) {
+				sendJson(res, 400, { success: false, error: "Missing agent or agent.id" })
+				return
+			}
+			// Default executeFn is a no-op promise for API-level dispatch
+			const executeFn =
+				typeof task.executeFn === "function"
+					? task.executeFn
+					: () => Promise.resolve({ dispatched: true, taskId: task.id })
+			const dispatchedId = pe.dispatch(task, agent, executeFn, timeoutMs)
+			if (dispatchedId) {
+				sendJson(res, 200, { success: true, dispatched: true, taskId: dispatchedId })
+			} else {
+				sendJson(res, 429, {
+					success: false,
+					error: "Cannot dispatch task — concurrency or token limit reached",
+				})
+			}
+			return
+		}
+
+		// POST /orchestrator/parallel/cancel — cancel a running task
+		if (
+			method === "POST" &&
+			(url === "/orchestrator/parallel/cancel" || normalizedUrl === "/orchestrator/parallel/cancel")
+		) {
+			if (!orchestrator || !orchestrator.parallelExecutor) {
+				sendJson(res, 503, { success: false, error: "ParallelExecutor not initialized" })
+				return
+			}
+			const { taskId } = body || {}
+			if (!taskId) {
+				sendJson(res, 400, { success: false, error: "Missing taskId" })
+				return
+			}
+			const cancelled = orchestrator.parallelExecutor.cancel(taskId)
+			sendJson(res, 200, { success: true, cancelled })
+			return
+		}
+
+		// POST /orchestrator/parallel/drain — wait for all tasks to complete
+		if (
+			method === "POST" &&
+			(url === "/orchestrator/parallel/drain" || normalizedUrl === "/orchestrator/parallel/drain")
+		) {
+			if (!orchestrator || !orchestrator.parallelExecutor) {
+				sendJson(res, 503, { success: false, error: "ParallelExecutor not initialized" })
+				return
+			}
+			await orchestrator.parallelExecutor.drain()
+			sendJson(res, 200, { success: true, drained: true })
+			return
+		}
+
+		// POST /orchestrator/parallel/config — update runtime config
+		if (
+			method === "POST" &&
+			(url === "/orchestrator/parallel/config" || normalizedUrl === "/orchestrator/parallel/config")
+		) {
+			if (!orchestrator || !orchestrator.parallelExecutor) {
+				sendJson(res, 503, { success: false, error: "ParallelExecutor not initialized" })
+				return
+			}
+			const { maxConcurrency, maxTokens, taskTimeoutMs } = body || {}
+			orchestrator.parallelExecutor.updateConfig({ maxConcurrency, maxTokens, taskTimeoutMs })
+			sendJson(res, 200, {
+				success: true,
+				config: {
+					maxConcurrency: orchestrator.parallelExecutor.maxConcurrency,
+					maxTokens: orchestrator.parallelExecutor.maxTokens,
+					taskTimeoutMs: orchestrator.parallelExecutor.taskTimeoutMs,
+				},
+			})
 			return
 		}
 
@@ -10243,9 +10403,12 @@ const server = http.createServer(async (req, res) => {
 			method === "GET" &&
 			(url === "/orchestrator/agent-bus/stats" || normalizedUrl === "/orchestrator/agent-bus/stats")
 		) {
-			if (!orchestrator || !orchestrator.agentBus) {
-				sendJson(res, 503, { success: false, error: "AgentBus not initialized" })
+			if (!orchestrator) {
+				sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
 				return
+			}
+			if (!orchestrator.agentBus) {
+				orchestrator.ensureAgentBus()
 			}
 			const stats = orchestrator.agentBus.getStats()
 			sendJson(res, 200, { success: true, stats })
@@ -10259,9 +10422,16 @@ const server = http.createServer(async (req, res) => {
 			method === "GET" &&
 			(url === "/orchestrator/improvement/stats" || normalizedUrl === "/orchestrator/improvement/stats")
 		) {
-			if (!orchestrator || !orchestrator.improvementLoop) {
-				sendJson(res, 503, { success: false, error: "ImprovementLoop not initialized" })
+			if (!orchestrator) {
+				sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
 				return
+			}
+			if (!orchestrator.improvementLoop) {
+				const loop = orchestrator.ensureImprovementLoop()
+				if (!loop) {
+					sendJson(res, 503, { success: false, error: "ImprovementLoop not initialized" })
+					return
+				}
 			}
 			sendJson(res, 200, { success: true, stats: orchestrator.improvementLoop.stats })
 			return
@@ -10272,9 +10442,16 @@ const server = http.createServer(async (req, res) => {
 			method === "POST" &&
 			(url === "/orchestrator/improvement/cycle" || normalizedUrl === "/orchestrator/improvement/cycle")
 		) {
-			if (!orchestrator || !orchestrator.improvementLoop) {
-				sendJson(res, 503, { success: false, error: "ImprovementLoop not initialized" })
+			if (!orchestrator) {
+				sendJson(res, 503, { success: false, error: "Orchestrator not initialized" })
 				return
+			}
+			if (!orchestrator.improvementLoop) {
+				const loop = orchestrator.ensureImprovementLoop()
+				if (!loop) {
+					sendJson(res, 503, { success: false, error: "ImprovementLoop not initialized" })
+					return
+				}
 			}
 			orchestrator.improvementLoop.triggerCycle()
 			sendJson(res, 200, { success: true })

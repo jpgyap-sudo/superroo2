@@ -320,6 +320,19 @@ class AgentBus {
 	}
 
 	/**
+	 * Get bus status (lightweight health snapshot).
+	 * @returns {Object}
+	 */
+	getStatus() {
+		return {
+			status: this._initialized ? "healthy" : "initializing",
+			activeAgents: this._agents.size,
+			pendingMessages: this._pendingMessages.length,
+			initialized: this._initialized,
+		}
+	}
+
+	/**
 	 * Drain pending messages (deliver to newly registered agents).
 	 * @returns {Promise<number>} Number of messages drained.
 	 */
