@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-23T00:44:21.026Z",
+  "generatedAt": "2026-05-23T00:44:28.866Z",
   "deepseekModel": "deepseek-chat",
   "ollamaUrl": "http://127.0.0.1:11434",
   "sourceFile": "memory/lessons-learned.md",
@@ -10,7 +10,7 @@
       "date": "2026-05-23",
       "model": "local",
       "confidence": "high",
-      "summary": "The lesson warns against assuming that a method exists on an optional orchestrator sub-module just because the parent object exists. Always guard calls with `typeof orchestrator.subModule.method === \"function\"` before invoking dynamically-injected or lazily-initialized methods to prevent a single missing method from crashing an entire endpoint. This defensive programming pattern ensures robust fallback behavior when methods are unavailable.",
+      "summary": "When calling methods on optional orchestrator sub-modules, always guard with `typeof orchestrator.subModule.method === \"function\"` before invocation, even if the parent object exists. This prevents a single missing or non-function method from crashing an entire aggregation endpoint, as seen when `orchestrator.learningGateway.health()` threw a TypeError and broke the dashboard overview. Use fallback values like `null` or defaults when the method is unavailable.",
       "hasEmbeddings": false
     }
   ]
