@@ -1,6 +1,148 @@
 {
 	"commits": [
 		{
+			"id": "commit_deployer_1779516920613",
+			"commitSha": "d0208adeca4dabea35386b770d32d296de1a359e",
+			"agent": "DeployerAgent",
+			"type": "other",
+			"title": "chore(learning): update lesson summaries, context, and indexes",
+			"description": "Committed by deployer-agent.mjs on 2026-05-23T06:15:20.613Z",
+			"filesChanged": ["memory/lesson-index.jsonl", "memory/lesson-summaries.json", "memory/lessons-learned.md"],
+			"featuresAffected": ["learning-layer"],
+			"bugsFixed": [],
+			"timestamp": "2026-05-23T06:15:20.613Z",
+			"repoName": "superroo2",
+			"modelsUsed": [],
+			"workflowCompliance": {
+				"isCompliant": true,
+				"steps": {
+					"lessonsRead": true,
+					"deepseekDelegated": false,
+					"codexReviewed": false,
+					"ollamaSummarized": false,
+					"centralBrainStored": false
+				},
+				"violations": []
+			}
+		},
+		{
+			"id": "commit_deployer_1779516891768",
+			"commitSha": "c84eda233d40e4da2e09d0af95b92d5b61eafb1f",
+			"agent": "DeployerAgent",
+			"type": "feature",
+			"title": "feat(scripts): add visual-crawl-tabs E2E scripts + deployer-agent",
+			"description": "Committed by deployer-agent.mjs on 2026-05-23T06:14:51.768Z",
+			"filesChanged": ["scripts/deployer-agent.mjs"],
+			"featuresAffected": ["visual-crawler", "e2e", "deployment"],
+			"bugsFixed": [],
+			"timestamp": "2026-05-23T06:14:51.768Z",
+			"repoName": "superroo2",
+			"modelsUsed": [],
+			"workflowCompliance": {
+				"isCompliant": true,
+				"steps": {
+					"lessonsRead": true,
+					"deepseekDelegated": false,
+					"codexReviewed": false,
+					"ollamaSummarized": false,
+					"centralBrainStored": false
+				},
+				"violations": []
+			}
+		},
+		{
+			"id": "commit_deployer_1779515079638",
+			"commitSha": "a40432bbaf9f0e3e96566dc87ccb28ddaba19ff7",
+			"agent": "DeployerAgent",
+			"type": "other",
+			"title": "chore(learning): update lesson summaries, context, and indexes",
+			"description": "Committed by deployer-agent.mjs on 2026-05-23T05:44:39.638Z",
+			"filesChanged": [
+				"memory/context/latest-agent-context.md",
+				"memory/lesson-index.jsonl",
+				"memory/lesson-summaries.json",
+				"memory/lessons-learned.md"
+			],
+			"featuresAffected": ["learning-layer"],
+			"bugsFixed": [],
+			"timestamp": "2026-05-23T05:44:39.638Z",
+			"repoName": "superroo2",
+			"modelsUsed": [],
+			"workflowCompliance": {
+				"isCompliant": true,
+				"steps": {
+					"lessonsRead": true,
+					"deepseekDelegated": false,
+					"codexReviewed": false,
+					"ollamaSummarized": false,
+					"centralBrainStored": false
+				},
+				"violations": []
+			}
+		},
+		{
+			"id": "commit_deployer_1779515047480",
+			"commitSha": "65502950567d5fb2e4ab654015a490649174e1ec",
+			"agent": "DeployerAgent",
+			"type": "feature",
+			"title": "feat(scripts): add visual-crawl-tabs E2E scripts + deployer-agent",
+			"description": "Committed by deployer-agent.mjs on 2026-05-23T05:44:07.480Z",
+			"filesChanged": [
+				"scripts/deployer-agent.mjs",
+				"scripts/visual-crawl-tabs-authed.mjs",
+				"scripts/visual-crawl-tabs-debug.mjs",
+				"scripts/visual-crawl-tabs-debug2.mjs",
+				"scripts/visual-crawl-tabs-debug3.mjs",
+				"scripts/visual-crawl-tabs-fast.mjs",
+				"scripts/visual-crawl-tabs-final.mjs",
+				"scripts/visual-crawl-tabs-remaining.mjs",
+				"scripts/visual-crawl-tabs-robust.mjs",
+				"scripts/visual-crawl-tabs-verify.mjs",
+				"scripts/visual-crawl-tabs.mjs"
+			],
+			"featuresAffected": ["visual-crawler", "e2e", "deployment"],
+			"bugsFixed": [],
+			"timestamp": "2026-05-23T05:44:07.480Z",
+			"repoName": "superroo2",
+			"modelsUsed": [],
+			"workflowCompliance": {
+				"isCompliant": true,
+				"steps": {
+					"lessonsRead": true,
+					"deepseekDelegated": false,
+					"codexReviewed": false,
+					"ollamaSummarized": false,
+					"centralBrainStored": false
+				},
+				"violations": []
+			}
+		},
+		{
+			"id": "commit_deployer_1779515008075",
+			"commitSha": "f86815c7dbbb24632e141c33fa7ccbc3ef3ddc3e",
+			"agent": "DeployerAgent",
+			"type": "docs",
+			"title": "docs(dashboard): add gap analysis docs for events, predictive risk, savepoints",
+			"description": "Committed by deployer-agent.mjs on 2026-05-23T05:43:28.075Z",
+			"filesChanged": ["cloud/dashboard/docs/"],
+			"featuresAffected": ["dashboard"],
+			"bugsFixed": [],
+			"timestamp": "2026-05-23T05:43:28.075Z",
+			"repoName": "superroo2",
+			"modelsUsed": [],
+			"workflowCompliance": {
+				"isCompliant": true,
+				"steps": {
+					"lessonsRead": true,
+					"deepseekDelegated": false,
+					"codexReviewed": false,
+					"ollamaSummarized": false,
+					"centralBrainStored": false
+				},
+				"violations": []
+			}
+		},
+		{
 			"id": "commit_28d5be6f-6fa9-4bac-a0d5-2d384b57b754",
 			"commitSha": "19f7bbb77f238cd78d1b5b18da277ba4145ca0d7",
 			"agent": "Codex",
@@ -557,6 +699,27 @@
 		}
 	],
 	"deploys": [
+		{
+			"id": "deploy_deployer_1779515147039",
+			"version": "v2026-05-23T05-45-47-034Z",
+			"commitSha": "a40432bbaf9f0e3e96566dc87ccb28ddaba19ff7",
+			"agent": "DeployerAgent",
+			"status": "failed",
+			"environment": "production",
+			"commitsIncluded": [
+				"f86815c7dbbb24632e141c33fa7ccbc3ef3ddc3e",
+				"65502950567d5fb2e4ab654015a490649174e1ec",
+				"a40432bbaf9f0e3e96566dc87ccb28ddaba19ff7"
+			],
+			"featuresDeployed": [],
+			"healthCheckPassed": null,
+			"healthCheckLatencyMs": null,
+			"repoName": "superroo2",
+			"startedAt": "2026-05-23T05:45:47.039Z",
+			"completedAt": "2026-05-23T05:45:47.311Z",
+			"error": "exit code 1",
+			"failureReason": "deploy script exited with code 1"
+		},
 		{
 			"version": "3.53.3+telegram",
 			"commitSha": "8375e025c3822d9ef30ee23708c90027838bbefc",
