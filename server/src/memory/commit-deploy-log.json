@@ -637,6 +637,25 @@
 			"status": "healthy",
 			"deployedAt": "2026-05-22T23:59:04.594Z",
 			"featuresAffected": ["provider-dashboard", "visual-crawler", "autonomous-loop", "e2e-testing"]
+		},
+		{
+			"id": "deploy_49466a34f",
+			"version": "3.53.5",
+			"commitSha": "49466a34f",
+			"agent": "deepseek-coder",
+			"target": "104.248.225.250",
+			"services": ["superroo-api", "superroo-worker", "superroo-dashboard", "superroo-runtime"],
+			"status": "healthy",
+			"timestamp": "2026-05-23T00:53:30.000Z",
+			"completedAt": "2026-05-23T00:53:39.000Z",
+			"featuresAffected": [
+				"ide-terminal",
+				"terminal-brain",
+				"api-keys",
+				"orchestrator",
+				"learning-layer",
+				"flowcharts"
+			]
 		}
 	]
 }
