@@ -13491,41 +13491,78 @@ const server = http.createServer(async (req, res) => {
 			}
 			telegramBot.userTasks.get(chatId).push(taskRecord)
 
-			// Enqueue to BullMQ if available
-			let job = null
+			// Route through orchestrator (primary)
+			let orchestratorTask = null
 			try {
-				if (queue) {
-					if (isCoderAgent) {
-						job = await queue.add(
-							"coder-plan-" + taskId,
-							{
-								task: instruction,
-								agentId: "superroo-coder-agent",
-								phase: "plan",
-								taskId,
-								workspaceDir,
-								repoName,
-								branch: branchName,
-								telegram: { chatId, taskId, branchName, auto },
-							},
-							{
-								attempts: 3,
-								backoff: { type: "exponential", delay: 5000 },
-							},
-						)
-					} else {
-						job = await queue.add("telegram-" + taskId, {
-							task: instruction,
-							agentId: agent,
-							commands: [],
-							network: "none",
-							telegram: { chatId: chatId, taskId: taskId, branchName: branchName },
-						})
-					}
-					taskRecord.jobId = job && job.id
+				if (tgOrchestratorBridge) {
+					orchestratorTask = tgOrchestratorBridge.createTask({
+						tgTaskId: taskId,
+						chatId: chatId,
+						instruction: instruction,
+						agentId: isCoderAgent ? "superroo-orchestrator-agent" : agent,
+						branchName: branchName,
+						source: "mini-app",
+					})
+					taskRecord.orchestratorTaskId = orchestratorTask.orchestratorTaskId
 				}
-			} catch (qErr) {
-				console.error("[api] Failed to enqueue task:", qErr.message)
+			} catch (err) {
+				console.error("[api] Failed to route Mini App task through orchestrator:", err.message)
+			}
+
+			// Fallback: Route through orchestrator (direct, no eventBus)
+			if (!orchestratorTask && tgOrchestratorBridge) {
+				try {
+					orchestratorTask = tgOrchestratorBridge.submitDirect({
+						tgTaskId: taskId,
+						chatId: chatId,
+						instruction: instruction,
+						agentId: isCoderAgent ? "superroo-orchestrator-agent" : agent,
+						branchName: branchName,
+						source: "mini-app",
+					})
+					taskRecord.orchestratorTaskId = orchestratorTask.orchestratorTaskId
+				} catch (err2) {
+					console.error("[api] Failed to route Mini App task through orchestrator (direct):", err2.message)
+				}
+			}
+
+			// Fallback: Direct BullMQ Queue (last resort)
+			let job = null
+			if (!orchestratorTask) {
+				try {
+					if (queue) {
+						if (isCoderAgent) {
+							job = await queue.add(
+								"coder-plan-" + taskId,
+								{
+									task: instruction,
+									agentId: "superroo-coder-agent",
+									phase: "plan",
+									taskId,
+									workspaceDir,
+									repoName,
+									branch: branchName,
+									telegram: { chatId, taskId, branchName, auto },
+								},
+								{
+									attempts: 3,
+									backoff: { type: "exponential", delay: 5000 },
+								},
+							)
+						} else {
+							job = await queue.add("telegram-" + taskId, {
+								task: instruction,
+								agentId: agent,
+								commands: [],
+								network: "none",
+								telegram: { chatId: chatId, taskId: taskId, branchName: branchName },
+							})
+						}
+						taskRecord.jobId = job && job.id
+					}
+				} catch (qErr) {
+					console.error("[api] Failed to enqueue task:", qErr.message)
+				}
 			}
 			sendJson(res, 200, { success: true, taskId, branchName, jobId: job && job.id, auto })
 			return

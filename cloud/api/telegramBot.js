@@ -3539,8 +3539,32 @@ async function handleCode(botToken, chatId, args, queue, orchestratorBridge, opt
 		}
 	}
 
-	// ─── Fallback: Direct BullMQ Queue ─────────────────────────────────────
-	// If orchestrator bridge is unavailable, fall back to direct coder queue.
+	// ─── Fallback: Route Through Orchestrator (Direct) ─────────────────────
+	// If createTask() failed (e.g., eventBus down), use submitDirect() which
+	// calls orchestrator.submit() directly without eventBus emissions.
+	// This ensures ALL /code tasks go through the orchestrator's SQLite task
+	// queue and TaskExecutor, never bypassing to a raw BullMQ queue.
+	if (!orchestratorTask && orchestratorBridge) {
+		try {
+			orchestratorTask = orchestratorBridge.submitDirect({
+				tgTaskId: taskId,
+				chatId: chatId,
+				instruction: instruction,
+				agentId: "superroo-orchestrator-agent",
+				branchName: branchName,
+				source: "/code",
+			})
+			console.log("[telegram] /code task routed through orchestrator (direct fallback): " + taskId)
+		} catch (err2) {
+			console.error(
+				"[telegram] Failed to route /code task through orchestrator (direct fallback):",
+				err2.message,
+			)
+		}
+	}
+
+	// ─── Fallback: Direct BullMQ Queue (last resort) ───────────────────────
+	// Only if both orchestrator paths failed, fall back to direct coder queue.
 	if (!orchestratorTask) {
 		var job = await queue.add(
 			"coder-plan-" + taskId,
@@ -5466,7 +5490,28 @@ async function handleUpgrade(botToken, chatId, args, queue, orchestratorBridge) 
 			}
 		}
 
-		// ─── Fallback: Direct BullMQ Queue ─────────────────────────────────
+		// ─── Fallback: Route Through Orchestrator (Direct) ─────────────────
+		// If createTask() failed, try submitDirect() which bypasses eventBus.
+		if (!orchestratorTask && orchestratorBridge) {
+			try {
+				orchestratorTask = orchestratorBridge.submitDirect({
+					tgTaskId: taskId,
+					chatId: chatId,
+					instruction: upgradeGoal,
+					agentId: "superroo-orchestrator-agent",
+					branchName: "upgrade/" + taskId.toLowerCase(),
+					source: "upgrade",
+				})
+				console.log("[telegram] upgrade task routed through orchestrator (direct fallback): " + taskId)
+			} catch (err2) {
+				console.error(
+					"[telegram] Failed to route upgrade task through orchestrator (direct fallback):",
+					err2.message,
+				)
+			}
+		}
+
+		// ─── Fallback: Direct BullMQ Queue (last resort) ───────────────────
 		if (!orchestratorTask) {
 			var job = await queue.add("coder-plan-" + taskId, {
 				task: upgradeGoal,
@@ -8432,7 +8477,27 @@ async function handleNaturalLanguageInstruction(
 					}
 				}
 
-				// Fallback: Direct BullMQ Queue
+				// Fallback: Route Through Orchestrator (Direct)
+				if (!orchestratorTask && orchestratorBridge) {
+					try {
+						orchestratorTask = orchestratorBridge.submitDirect({
+							tgTaskId: taskId,
+							chatId: chatId,
+							instruction: text,
+							agentId: "superroo-orchestrator-agent",
+							branchName: branchName,
+							source: "nlp",
+						})
+						console.log("[telegram] NLP task intent routed through orchestrator (direct fallback): " + taskId)
+					} catch (err2) {
+						console.error(
+							"[telegram] Failed to route NLP task intent through orchestrator (direct fallback):",
+							err2.message,
+						)
+					}
+				}
+
+				// Fallback: Direct BullMQ Queue (last resort)
 				if (!orchestratorTask) {
 					var taskJob = await queue.add("telegram-" + taskId, {
 						task: text,
@@ -8638,7 +8703,27 @@ async function handleNaturalLanguageInstruction(
 				}
 			}
 
-			// ─── Fallback: Direct BullMQ Queue ─────────────────────────────
+			// ─── Fallback: Route Through Orchestrator (Direct) ─────────────
+			if (!orchestratorTask && isCodingIntent && orchestratorBridge) {
+				try {
+					orchestratorTask = orchestratorBridge.submitDirect({
+						tgTaskId: taskId,
+						chatId: chatId,
+						instruction: text,
+						agentId: "superroo-orchestrator-agent",
+						branchName: branchName,
+						source: "nlp",
+					})
+					console.log("[telegram] NLP coding task routed through orchestrator (direct fallback): " + taskId)
+				} catch (err2) {
+					console.error(
+						"[telegram] Failed to route NLP coding task through orchestrator (direct fallback):",
+						err2.message,
+					)
+				}
+			}
+
+			// ─── Fallback: Direct BullMQ Queue (last resort) ───────────────
 			if (!orchestratorTask) {
 				var job = await queue.add("telegram-" + taskId, {
 					task: text,
@@ -9371,32 +9456,75 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 						if (notifyResult && notifyResult.action === "retry" && notifyResult.taskId) {
 							const retryTaskId = notifyResult.taskId
 							const pendingJob = telegramNotifier.getPendingCoderJob(retryTaskId)
-							try {
-								await queue.add(
-									"coder-plan-" + retryTaskId,
-									{
-										task: pendingJob ? pendingJob.instruction : "Retry coding task",
-										agentId: "superroo-coder-agent",
-										phase: "plan",
-										taskId: retryTaskId,
-										workspaceDir: pendingJob ? pendingJob.workspaceDir : undefined,
-										repoName: pendingJob ? pendingJob.repoName : undefined,
-										branch: pendingJob ? pendingJob.branch : undefined,
-										telegram: {
-											botToken: botToken,
-											chatId: cqChatId,
-											taskId: retryTaskId,
-											branchName: pendingJob ? pendingJob.branch : undefined,
-										},
-									},
-									{ attempts: 3, backoff: { type: "exponential", delay: 5000 } },
-								)
-								logTelegramUsage("callback:notify:retry_enqueued", cqChatId, cqUserId, {
-									taskId: retryTaskId,
-								})
-							} catch (qErr) {
-								logTelegramError("callback:notify:retry_queue", cqChatId, cqUserId, qErr)
+
+							// Route retry through orchestrator (primary)
+							let orchestratorTask = null
+							if (orchestratorBridge) {
+								try {
+									orchestratorTask = orchestratorBridge.createTask({
+										tgTaskId: retryTaskId,
+										chatId: cqChatId,
+										instruction: pendingJob ? pendingJob.instruction : "Retry coding task",
+										agentId: "superroo-orchestrator-agent",
+										branchName: pendingJob ? pendingJob.branch : "tg/" + retryTaskId.toLowerCase(),
+										source: "callback:retry",
+									})
+								} catch (err) {
+									console.error(
+										"[telegram] Failed to route retry through orchestrator:",
+										err.message,
+									)
+								}
 							}
+
+							// Fallback: Route through orchestrator (direct)
+							if (!orchestratorTask && orchestratorBridge) {
+								try {
+									orchestratorTask = orchestratorBridge.submitDirect({
+										tgTaskId: retryTaskId,
+										chatId: cqChatId,
+										instruction: pendingJob ? pendingJob.instruction : "Retry coding task",
+										agentId: "superroo-orchestrator-agent",
+										branchName: pendingJob ? pendingJob.branch : "tg/" + retryTaskId.toLowerCase(),
+										source: "callback:retry",
+									})
+								} catch (err2) {
+									console.error(
+										"[telegram] Failed to route retry through orchestrator (direct):",
+										err2.message,
+									)
+								}
+							}
+
+							// Fallback: Direct BullMQ Queue (last resort)
+							if (!orchestratorTask) {
+								try {
+									await queue.add(
+										"coder-plan-" + retryTaskId,
+										{
+											task: pendingJob ? pendingJob.instruction : "Retry coding task",
+											agentId: "superroo-coder-agent",
+											phase: "plan",
+											taskId: retryTaskId,
+											workspaceDir: pendingJob ? pendingJob.workspaceDir : undefined,
+											repoName: pendingJob ? pendingJob.repoName : undefined,
+											branch: pendingJob ? pendingJob.branch : undefined,
+											telegram: {
+												botToken: botToken,
+												chatId: cqChatId,
+												taskId: retryTaskId,
+												branchName: pendingJob ? pendingJob.branch : undefined,
+											},
+										},
+										{ attempts: 3, backoff: { type: "exponential", delay: 5000 } },
+									)
+								} catch (qErr) {
+									logTelegramError("callback:notify:retry_queue", cqChatId, cqUserId, qErr)
+								}
+							}
+							logTelegramUsage("callback:notify:retry_enqueued", cqChatId, cqUserId, {
+								taskId: retryTaskId,
+							})
 						}
 					},
 					{ description: "notify" },
@@ -10790,8 +10918,27 @@ async function handleUpdate(update, botToken, queue, providers, orchestratorBrid
 							err.message,
 						)
 					}
+				// Fallback: Route Through Orchestrator (Direct)
+				if (!orchestratorTask && orchestratorBridge) {
+					try {
+						orchestratorTask = orchestratorBridge.submitDirect({
+							tgTaskId: taskId,
+							chatId: chatId,
+							instruction: taskInstruction,
+							agentId: "superroo-orchestrator-agent",
+							branchName: branchName,
+							source: "command",
+						})
+						console.log("[telegram] /task routed through orchestrator (direct fallback): " + taskId)
+					} catch (err2) {
+						console.error(
+							"[telegram] Failed to route /task through orchestrator (direct fallback):",
+							err2.message,
+						)
+					}
 				}
 
+				// Fallback: Direct BullMQ Queue (last resort)
 				if (!orchestratorTask) {
 					var taskJob = await queue.add("telegram-" + taskId, {
 						task: taskInstruction,

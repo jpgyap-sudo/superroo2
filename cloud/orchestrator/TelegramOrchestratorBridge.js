@@ -86,6 +86,57 @@ class TelegramOrchestratorBridge {
 	}
 
 	/**
+	 * submitDirect — Lightweight fallback that calls orchestrator.submit() directly
+	 * without eventBus emissions. Used when createTask() fails (e.g., eventBus down).
+	 * This ensures the fallback path still routes through the orchestrator's SQLite
+	 * task queue and TaskExecutor, rather than bypassing to a raw BullMQ queue.
+	 *
+	 * @param {Object} input
+	 * @param {string} [input.tgTaskId] - Telegram task ID
+	 * @param {number|string} input.chatId - Telegram chat ID
+	 * @param {string} input.instruction - Coding instruction
+	 * @param {string} [input.agentId] - Agent ID (default: "superroo-orchestrator-agent")
+	 * @param {string} [input.branchName] - Git branch name
+	 * @param {string} [input.source] - Source label (default: "telegram")
+	 * @returns {Object} Task result with orchestratorTaskId
+	 */
+	submitDirect(input) {
+		const rawAgent = input.agentId || input.agentType || "superroo-orchestrator-agent"
+		const resolvedAgent = rawAgent === "superroo-orchestrator-agent" ? "orchestrator" : rawAgent
+		const taskId =
+			input.tgTaskId ||
+			"TG-" + Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).slice(2, 6).toUpperCase()
+		const branchName = input.branchName || "tg/" + taskId.toLowerCase()
+
+		const task = this.orchestrator.submit({
+			type: resolvedAgent,
+			input: { instruction: input.instruction, chatId: input.chatId },
+			agent: rawAgent,
+			sessionId: String(input.chatId),
+			metadata: {
+				source: input.source || "telegram",
+				chatId: input.chatId,
+				taskId,
+				branchName,
+				tgTaskId: input.tgTaskId || null,
+				fallback: true,
+			},
+		})
+
+		return {
+			id: taskId,
+			orchestratorTaskId: task.id,
+			instruction: input.instruction,
+			status: "queued",
+			agentId: resolvedAgent,
+			branchName: branchName,
+			changedFiles: 0,
+			linesAdded: 0,
+			createdAt: new Date().toISOString(),
+		}
+	}
+
+	/**
 	 * List tasks for a given chat (session).
 	 * @param {number|string} chatId
 	 * @param {number} [limit=50]
