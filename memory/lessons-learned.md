@@ -2942,3 +2942,48 @@ To be determined — this commit was auto-flagged as potentially containing a le
 general
 
 ---
+
+### Lesson: VPS Deploy — Missing Files on main Branch Require SCP Fallback
+
+Date: 2026-05-23
+Source: deepseek-coder task completion
+Model/API used: deepseek-chat
+Confidence: high
+Related files: cloud/dashboard/src/components/views/flowcharts.tsx, cloud/orchestrator/modules/ContextAssembler.js, server/src/memory/commit-deploy-log.json
+
+#### Task Summary
+
+Completed Phase 1 Terminal Brain Upgrade deployment to VPS. Fixed two missing-file issues on the main branch that caused build and API failures: flowcharts.tsx (dashboard build) and ContextAssembler.js (API crash). Both files existed locally on different branches but were never committed to main. Used SCP to copy files to VPS as a workaround, then committed them properly and pushed to main.
+
+#### Files Changed
+
+- server/src/memory/commit-deploy-log.json — added deploy record for 49466a34f
+
+#### Bug Cause
+
+Files committed on feature branches were never merged to main. When deploying from main, the VPS build failed because flowcharts.tsx was missing (dashboard import at page.tsx:57), and the API crashed because ContextAssembler.js was missing (required by CloudOrchestrator.js:22).
+
+#### Fix Applied
+
+1. Copied flowcharts.tsx to VPS via SCP to unblock dashboard build
+2. Copied ContextAssembler.js to VPS via SCP to fix API crash
+3. Committed both files to main branch properly
+4. Pushed to main and pulled on VPS
+
+#### Test Result
+
+pass — Dashboard HTTP 200, API health HTTP 200, all PM2 services running
+
+#### Lesson Learned
+
+When deploying from main, always verify that all files referenced by imports/requires exist on the main branch. Feature-branch-only files will cause build failures and runtime crashes on deploy. Use `git diff main...HEAD --name-only` to check what's missing before deploying.
+
+#### Reusable Rule
+
+Before deploying from main, run `git diff main...HEAD --name-only` to identify files that exist on the current branch but not on main. For each file referenced by imports in the deployed codebase, ensure it exists on main or is included in the deploy commit.
+
+#### Tags
+
+deployment, vps, missing-files, scp, main-branch, terminal-brain
+
+---
