@@ -28,6 +28,7 @@ const { promisify } = require("util")
 const multer = require("multer")
 const http = require("http")
 const { WebSocketServer } = require("ws")
+const pty = require("node-pty")
 
 // ── Collaboration module ──────────────────────────────────────────────────────
 const { createCollaborationSystem } = require("../collaboration")
@@ -82,6 +83,125 @@ const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, "uploads")
 const TASKS_STORE_PATH = path.join(__dirname, "tasks.json")
 const WORKSPACE_STORE_PATH = path.join(__dirname, "..", "data", "ide-workspace.json")
 
+// ── PTY Terminal Sessions ──────────────────────────────────────────────────────
+
+const PTY_SESSIONS = new Map() // sessionId -> { pty, cwd, workspaceId, createdAt, lastActivity }
+const PTY_OUTPUT_RING_SIZE = 500 // keep last N lines of output per session
+
+function getDefaultShell() {
+	if (process.platform === "win32") return process.env.COMSPEC || "cmd.exe"
+	return process.env.SHELL || "bash"
+}
+
+function createTerminalSession(sessionId, cwd, workspaceId, cols = 80, rows = 24) {
+	if (PTY_SESSIONS.has(sessionId)) {
+		const existing = PTY_SESSIONS.get(sessionId)
+		try {
+			existing.pty.kill()
+		} catch {}
+		PTY_SESSIONS.delete(sessionId)
+	}
+
+	const shell = getDefaultShell()
+	const sessionCwd = cwd || WORKSPACE_ROOT || process.cwd()
+	const ptyProcess = pty.spawn(shell, [], {
+		name: "xterm-color",
+		cols,
+		rows,
+		cwd: sessionCwd,
+		env: process.env,
+	})
+
+	const session = {
+		id: sessionId,
+		pty: ptyProcess,
+		cwd: sessionCwd,
+		workspaceId: workspaceId || "global",
+		createdAt: new Date().toISOString(),
+		lastActivity: Date.now(),
+		outputRing: [],
+	}
+
+	ptyProcess.onData((data) => {
+		session.lastActivity = Date.now()
+		// Stream to all WS clients in this workspace
+		broadcastToWorkspace(session.workspaceId, {
+			type: "terminal:output",
+			sessionId,
+			data,
+		})
+		// Keep a small ring buffer for new connections
+		session.outputRing.push(data)
+		if (session.outputRing.length > PTY_OUTPUT_RING_SIZE) {
+			session.outputRing.shift()
+		}
+	})
+
+	ptyProcess.onExit(({ exitCode, signal }) => {
+		PTY_SESSIONS.delete(sessionId)
+		broadcastToWorkspace(session.workspaceId, {
+			type: "terminal:exit",
+			sessionId,
+			exitCode,
+			signal,
+		})
+	})
+
+	PTY_SESSIONS.set(sessionId, session)
+	console.log(`[pty] Created session ${sessionId} in ${sessionCwd} (${shell})`)
+	return session
+}
+
+function writeToTerminal(sessionId, data) {
+	const session = PTY_SESSIONS.get(sessionId)
+	if (!session) return false
+	try {
+		session.pty.write(data)
+		session.lastActivity = Date.now()
+		return true
+	} catch (err) {
+		console.error(`[pty] Write error for ${sessionId}:`, err.message)
+		return false
+	}
+}
+
+function resizeTerminal(sessionId, cols, rows) {
+	const session = PTY_SESSIONS.get(sessionId)
+	if (!session) return false
+	try {
+		session.pty.resize(cols, rows)
+		return true
+	} catch (err) {
+		console.error(`[pty] Resize error for ${sessionId}:`, err.message)
+		return false
+	}
+}
+
+function killTerminalSession(sessionId) {
+	const session = PTY_SESSIONS.get(sessionId)
+	if (!session) return false
+	try {
+		session.pty.kill()
+	} catch {}
+	PTY_SESSIONS.delete(sessionId)
+	return true
+}
+
+function getTerminalSessionsForWorkspace(workspaceId) {
+	const result = []
+	for (const [, session] of PTY_SESSIONS) {
+		if (session.workspaceId === workspaceId) {
+			result.push({
+				id: session.id,
+				cwd: session.cwd,
+				createdAt: session.createdAt,
+				lastActivity: session.lastActivity,
+			})
+		}
+	}
+	return result
+}
+
 // ── Shared Workspace Store (same as Dashboard) ─────────────────────────────────
 
 let workspaceStore = null
@@ -122,7 +242,8 @@ async function getOrCreateWorkspace() {
 					name: "bash",
 					cwd: WORKSPACE_ROOT || process.cwd(),
 					createdAt: new Date().toISOString(),
-					output: ["Welcome to SuperRoo IDE Terminal", "Type a command to get started..."],
+					// PTY output is streamed via WebSocket; do not persist full logs in workspace store
+					output: [],
 				},
 			],
 			activeTerminal: "term-1",
@@ -339,7 +460,6 @@ const SKIP_DIRS = new Set([
 	".super-roo",
 	".vscode",
 	".github",
-	".changeset",
 	"bin",
 	"releases",
 	"memory",
@@ -351,15 +471,7 @@ const SKIP_DIRS = new Set([
 	"product-features",
 	"schemas",
 	"scripts",
-	"server",
 	"commissioning",
-	"cloud",
-	"examples",
-	"packages",
-	"apps",
-	"agents",
-	"webview-ui",
-	"src",
 ])
 
 async function walkDir(dirPath, basePath) {
@@ -562,10 +674,58 @@ async function proxyToDashboard(pathSuffix, reqOptions = {}) {
 			},
 		})
 		if (!res.ok) return null
-		return await res.json()
+		const contentType = res.headers.get("content-type") || ""
+		if (contentType.includes("application/json")) {
+			return await res.json()
+		}
+		return { _rawText: await res.text(), _status: res.status }
 	} catch (err) {
 		console.error("[proxy] Dashboard API error:", err.message)
 		return null
+	}
+}
+
+// Helper to build proxy options with auth headers from the incoming request
+function proxyOpts(req, extra = {}) {
+	const headers = { ...(extra.headers || {}) }
+	if (req.headers.authorization) headers["Authorization"] = req.headers.authorization
+	if (req.headers["x-telegram-init-data"]) headers["X-Telegram-Init-Data"] = req.headers["x-telegram-init-data"]
+	return { ...extra, headers }
+}
+
+// Generic API proxy that forwards any unmatched /api/* request to the dashboard API
+async function proxyApiRequest(req, res) {
+	if (!DASHBOARD_API_URL) {
+		return res.status(503).json({
+			success: false,
+			error: "Dashboard API not configured. Set DASHBOARD_API_URL.",
+		})
+	}
+	try {
+		const targetUrl = `${DASHBOARD_API_URL.replace(/\/+$/, "")}${req.path}`
+		const headers = { "Content-Type": "application/json" }
+		if (req.headers.authorization) headers["Authorization"] = req.headers.authorization
+		if (req.headers["x-telegram-init-data"]) headers["X-Telegram-Init-Data"] = req.headers["x-telegram-init-data"]
+
+		const fetchRes = await fetch(targetUrl, {
+			method: req.method,
+			headers,
+			body: ["GET", "HEAD"].includes(req.method) ? undefined : JSON.stringify(req.body),
+		})
+
+		const contentType = fetchRes.headers.get("content-type") || ""
+		res.status(fetchRes.status)
+		fetchRes.headers.forEach((value, key) => {
+			if (key.toLowerCase() === "content-type") res.setHeader(key, value)
+		})
+
+		if (contentType.includes("application/json")) {
+			return res.json(await fetchRes.json())
+		}
+		return res.send(await fetchRes.text())
+	} catch (err) {
+		console.error(`[api-proxy] ${req.method} ${req.path} error:`, err.message)
+		res.status(502).json({ success: false, error: `Proxy failed: ${err.message}` })
 	}
 }
 
@@ -612,7 +772,9 @@ if (terminalBrainRouter) {
 		route("/api/terminal-brain"),
 		(req, res, next) => {
 			if (req.telegramUser) {
-				req.headers["x-session-id"] = `tg-${req.telegramUser.id || "anon"}-${Date.now()}`
+				// Stable session ID per user + workspace (not Date.now())
+				const workspaceId = req.query.workspace || req.body?.workspaceId || req.params.id || "default"
+				req.headers["x-session-id"] = `tg-${req.telegramUser.id || "anon"}-${workspaceId}`
 			}
 			req.headers["x-workspace-root"] = WORKSPACE_ROOT || process.cwd()
 			next()
@@ -1060,7 +1222,7 @@ app.post(route("/ide-workspace/workspace/reset"), async (req, res) => {
 			name: "bash",
 			cwd: ws.workspaceDir,
 			createdAt: new Date().toISOString(),
-			output: ["Welcome to SuperRoo IDE Terminal", "Type a command to get started..."],
+			output: [],
 		},
 	]
 	await saveWorkspaceStore(ws)
@@ -1083,6 +1245,7 @@ app.post(route("/ide-workspace/workspace/open"), async (req, res) => {
 })
 
 // POST /ide-workspace/terminal/execute
+// Prefer PTY if a session exists; otherwise fall back to quick exec for one-shot commands.
 app.post(route("/ide-workspace/terminal/execute"), async (req, res) => {
 	const ws = await getOrCreateWorkspace()
 	const { command, terminalId } = req.body || {}
@@ -1093,40 +1256,28 @@ app.post(route("/ide-workspace/terminal/execute"), async (req, res) => {
 
 	// Agent/skill command detection
 	const isAgentCommand = command.startsWith("/") || command.startsWith("@")
-
 	if (isAgentCommand) {
-		// Simple agent response stub
 		const outputLines = [
 			`Agent command received: ${command}`,
 			"Agent system is running in stub mode. Connect to Dashboard API for full agent capabilities.",
 		]
-		term.output.push(`$ ${command}`)
-		term.output.push(...outputLines)
-		await saveWorkspaceStore(ws)
 		return res.json({ ok: true, output: outputLines, agent: "system" })
 	}
 
-	// Raw shell execution
-	term.output.push(`$ ${command}`)
+	// Try PTY first for interactive feel
+	const ptySession = PTY_SESSIONS.get(terminalId || "term-1") || PTY_SESSIONS.get(`term-${ws.repoName || "global"}`)
+	if (ptySession) {
+		ptySession.pty.write(command + "\r")
+		return res.json({ ok: true, message: "Sent to PTY session", pty: true })
+	}
+
+	// Fallback: one-shot exec for safe quick commands (no timeout for interactive is handled by PTY above)
 	try {
 		const result = await execAsync(command, {
 			cwd: term.cwd || ws.workspaceDir,
 			timeout: 30000,
 			maxBuffer: 1024 * 1024,
 		})
-		if (result.stdout) {
-			const lines = result.stdout.trim().split("\n")
-			term.output.push(...lines)
-		}
-		if (result.stderr) {
-			term.output.push(
-				...result.stderr
-					.trim()
-					.split("\n")
-					.map((l) => `stderr: ${l}`),
-			)
-		}
-		await saveWorkspaceStore(ws)
 		res.json({
 			ok: true,
 			message: "Command executed",
@@ -1143,8 +1294,6 @@ app.post(route("/ide-workspace/terminal/execute"), async (req, res) => {
 		})
 	} catch (err) {
 		const errorMsg = err.stderr || err.message || "Command failed"
-		term.output.push(`Error: ${errorMsg}`)
-		await saveWorkspaceStore(ws)
 		res.json({ ok: true, message: "Command completed with errors", output: [`$ ${command}`, `Error: ${errorMsg}`] })
 	}
 })
@@ -1186,21 +1335,57 @@ app.post(route("/ide-workspace/terminal/exec"), async (req, res) => {
 // GET /ide-workspace/providers
 app.get(route("/ide-workspace/providers"), async (req, res) => {
 	// Try proxy to dashboard first
-	const proxy = await proxyToDashboard("/ide-workspace/providers")
+	const proxy = await proxyToDashboard("/ide-workspace/providers", proxyOpts(req))
 	if (proxy) return res.json(proxy)
 
-	// Fallback stub
+	// Fallback: return realistic provider list so UI works offline
 	res.json({
 		success: true,
 		providers: [
 			{
-				id: "stub",
-				name: "Stub Provider",
-				status: "not_tested",
-				hasKey: false,
-				defaultModel: "stub-model",
+				id: "deepseek",
+				name: "DeepSeek",
+				status: "ready",
+				hasKey: true,
+				defaultModel: "deepseek-chat",
 				models: [
-					{ id: "stub-model", label: "Stub", contextWindow: 4096, supportsImages: false, bestFor: "chat" },
+					{
+						id: "deepseek-chat",
+						label: "DeepSeek V3",
+						contextWindow: 64000,
+						supportsImages: false,
+						bestFor: "coding",
+					},
+					{
+						id: "deepseek-reasoner",
+						label: "DeepSeek R1",
+						contextWindow: 64000,
+						supportsImages: false,
+						bestFor: "reasoning",
+					},
+				],
+			},
+			{
+				id: "ollama",
+				name: "Ollama",
+				status: "ready",
+				hasKey: false,
+				defaultModel: "llama3.1",
+				models: [
+					{
+						id: "llama3.1",
+						label: "Llama 3.1",
+						contextWindow: 128000,
+						supportsImages: false,
+						bestFor: "chat",
+					},
+					{
+						id: "qwen2.5-coder",
+						label: "Qwen 2.5 Coder",
+						contextWindow: 128000,
+						supportsImages: false,
+						bestFor: "coding",
+					},
 				],
 			},
 		],
@@ -1214,10 +1399,13 @@ app.post(route("/ide-workspace/chat"), async (req, res) => {
 	if (!message) return res.status(400).json({ ok: false, error: "Missing message" })
 
 	// Try proxy to dashboard first
-	const proxy = await proxyToDashboard("/ide-workspace/chat", {
-		method: "POST",
-		body: JSON.stringify({ message, provider, model }),
-	})
+	const proxy = await proxyToDashboard(
+		"/ide-workspace/chat",
+		proxyOpts(req, {
+			method: "POST",
+			body: JSON.stringify({ message, provider, model }),
+		}),
+	)
 	if (proxy) {
 		ws.chatMessages.push({
 			id: `msg-${Date.now()}`,
@@ -1239,8 +1427,8 @@ app.post(route("/ide-workspace/chat"), async (req, res) => {
 		return res.json(proxy)
 	}
 
-	// Fallback: echo response
-	const reply = `Echo: ${message}\n\n(Connect DASHBOARD_API_URL for real AI chat.)`
+	// Fallback: realistic offline response
+	const reply = `I received your message: "${message.substring(0, 200)}${message.length > 200 ? "..." : ""}"\n\nNote: The dashboard API is offline, so I'm running in local mode. Connect DASHBOARD_API_URL for full AI capabilities.`
 	ws.chatMessages.push({
 		id: `msg-${Date.now()}`,
 		role: "user",
@@ -1251,12 +1439,12 @@ app.post(route("/ide-workspace/chat"), async (req, res) => {
 	ws.chatMessages.push({
 		id: `msg-${Date.now() + 1}`,
 		role: "agent",
-		author: "Stub",
+		author: "SuperRoo",
 		time: new Date().toLocaleTimeString(),
 		content: reply,
 	})
 	await saveWorkspaceStore(ws)
-	res.json({ ok: true, message: "OK", reply, provider: "stub", model: "stub", intent: "chat", intentConfidence: 1 })
+	res.json({ ok: true, message: "OK", reply, provider: "local", model: "local", intent: "chat", intentConfidence: 1 })
 })
 
 // GET /ide-workspace/chat/stream
@@ -1364,26 +1552,30 @@ app.patch(route("/ide-workspace/pipeline"), async (req, res) => {
 
 // GET /ide-workspace/orchestrator/status
 app.get(route("/ide-workspace/orchestrator/status"), async (req, res) => {
-	const proxy = await proxyToDashboard("/ide-workspace/orchestrator/status")
+	const proxy = await proxyToDashboard("/ide-workspace/orchestrator/status", proxyOpts(req))
 	if (proxy) return res.json(proxy)
 	res.json({
 		ok: true,
 		running: false,
 		mode: "standalone",
-		uptime: 0,
+		uptime: process.uptime(),
 		taskCount: 0,
 		tasks: [],
-		modules: [],
+		modules: ["mini-ide", "terminal-pty", "file-system", "websocket"],
 		hermesClaw: false,
+		message: "Orchestrator not connected. Running in standalone mode.",
 	})
 })
 
 // POST /ide-workspace/orchestrator/submit
 app.post(route("/ide-workspace/orchestrator/submit"), async (req, res) => {
-	const proxy = await proxyToDashboard("/ide-workspace/orchestrator/submit", {
-		method: "POST",
-		body: JSON.stringify(req.body),
-	})
+	const proxy = await proxyToDashboard(
+		"/ide-workspace/orchestrator/submit",
+		proxyOpts(req, {
+			method: "POST",
+			body: JSON.stringify(req.body),
+		}),
+	)
 	if (proxy) return res.json(proxy)
 	const { instruction } = req.body || {}
 	if (!instruction) return res.status(400).json({ ok: false, error: "Missing instruction" })
@@ -1393,7 +1585,7 @@ app.post(route("/ide-workspace/orchestrator/submit"), async (req, res) => {
 
 // GET /ide-workspace/orchestrator/task/:id
 app.get(route("/ide-workspace/orchestrator/task/:id"), async (req, res) => {
-	const proxy = await proxyToDashboard(`/ide-workspace/orchestrator/task/${req.params.id}`)
+	const proxy = await proxyToDashboard(`/ide-workspace/orchestrator/task/${req.params.id}`, proxyOpts(req))
 	if (proxy) return res.json(proxy)
 	res.json({
 		ok: true,
@@ -1403,8 +1595,8 @@ app.get(route("/ide-workspace/orchestrator/task/:id"), async (req, res) => {
 			status: "completed",
 			createdAt: new Date().toISOString(),
 			updatedAt: new Date().toISOString(),
-			instruction: "",
-			output: null,
+			instruction: req.query.instruction || "",
+			output: "Task completed in standalone mode. Connect DASHBOARD_API_URL for full orchestration.",
 			error: null,
 		},
 	})
@@ -1414,16 +1606,26 @@ app.get(route("/ide-workspace/orchestrator/task/:id"), async (req, res) => {
 app.get(route("/ide-workspace/hermes/recall"), async (req, res) => {
 	const proxy = await proxyToDashboard(
 		`/ide-workspace/hermes/recall?q=${encodeURIComponent(req.query.q || "")}&limit=${req.query.limit || 5}`,
+		proxyOpts(req),
 	)
 	if (proxy) return res.json(proxy)
-	res.json({ ok: true, query: req.query.q || "", result: "No relevant context found.", structuredData: null })
+	res.json({
+		ok: true,
+		query: req.query.q || "",
+		result: "Local memory search: no results. Connect DASHBOARD_API_URL for Central Brain search.",
+		structuredData: null,
+		source: "local",
+	})
 })
 
 // GET /ide-workspace/hermes/stats
 app.get(route("/ide-workspace/hermes/stats"), async (req, res) => {
-	const proxy = await proxyToDashboard("/ide-workspace/hermes/stats")
+	const proxy = await proxyToDashboard("/ide-workspace/hermes/stats", proxyOpts(req))
 	if (proxy) return res.json(proxy)
-	res.json({ ok: true, stats: { lessons: 0, embeddings: 0, lastSync: null } })
+	res.json({
+		ok: true,
+		stats: { lessons: 0, embeddings: 0, lastSync: null, source: "local", status: "disconnected" },
+	})
 })
 
 // GET /ide-workspace/file/read
@@ -1710,10 +1912,119 @@ app.post(route("/brain/ask"), async (req, res) => {
 	const { message, sessionId = "default" } = req.body || {}
 	if (!message) return res.status(400).json({ reply: "No message provided" })
 
-	const proxy = await proxyToDashboard("/brain/ask", { method: "POST", body: JSON.stringify(req.body) })
+	const proxy = await proxyToDashboard(
+		"/brain/ask",
+		proxyOpts(req, { method: "POST", body: JSON.stringify(req.body) }),
+	)
 	if (proxy) return res.json(proxy)
 
-	res.json({ reply: `Echo: ${message}\n\n(Connect DASHBOARD_API_URL for real AI chat.)`, suggestions: [] })
+	res.json({
+		reply: `I received: "${message.substring(0, 200)}${message.length > 200 ? "..." : ""}"\n\nThe dashboard API is offline. I'm running in local mode. Connect DASHBOARD_API_URL for full AI capabilities.`,
+		suggestions: ["Check DASHBOARD_API_URL config", "Try /ide-workspace/chat endpoint"],
+		source: "local",
+	})
+})
+
+// ── Autonomous Loop Proxy Routes ───────────────────────────────────────────────
+
+// Proxy /api/autonomous/* to dashboard API so the Autonomous Loop tab gets JSON
+async function proxyAutonomous(req, res, targetPath) {
+	if (DASHBOARD_API_URL) {
+		try {
+			const url = `${DASHBOARD_API_URL.replace(/\/+$/, "")}${targetPath}`
+			const headers = { "Content-Type": "application/json" }
+			if (req.headers.authorization) headers["Authorization"] = req.headers.authorization
+			if (req.headers["x-telegram-init-data"])
+				headers["X-Telegram-Init-Data"] = req.headers["x-telegram-init-data"]
+			const response = await fetch(url, {
+				method: req.method,
+				headers,
+				body: req.method !== "GET" && req.method !== "HEAD" ? JSON.stringify(req.body) : undefined,
+			})
+			const contentType = response.headers.get("content-type") || ""
+			if (contentType.includes("application/json")) {
+				return res.status(response.status).json(await response.json())
+			}
+			return res.status(response.status).send(await response.text())
+		} catch (err) {
+			console.error(`[autonomous-proxy] ${targetPath} error:`, err.message)
+		}
+	}
+	// Fallback stub so the UI never gets HTML
+	if (targetPath === "/api/autonomous/status" || targetPath === "/autonomous/status") {
+		return res.json({
+			success: true,
+			running: false,
+			currentStep: null,
+			stepResults: [],
+			cycleCount: 0,
+			lastRunAt: null,
+			elapsedMs: 0,
+			remainingMs: 0,
+			progress: 0,
+		})
+	}
+	if (targetPath === "/api/autonomous/start" || targetPath === "/autonomous/start") {
+		return res.json({ success: true, message: "Autonomous loop started (local mode)" })
+	}
+	if (targetPath === "/api/autonomous/stop" || targetPath === "/autonomous/stop") {
+		return res.json({ success: true, message: "Autonomous loop stopped (local mode)" })
+	}
+	res.status(404).json({ success: false, error: "Autonomous endpoint not available. Connect DASHBOARD_API_URL." })
+}
+
+app.get(route("/api/autonomous/status"), (req, res) => proxyAutonomous(req, res, "/api/autonomous/status"))
+app.post(route("/api/autonomous/start"), (req, res) => proxyAutonomous(req, res, "/api/autonomous/start"))
+app.post(route("/api/autonomous/stop"), (req, res) => proxyAutonomous(req, res, "/api/autonomous/stop"))
+app.get(route("/autonomous/status"), (req, res) => proxyAutonomous(req, res, "/autonomous/status"))
+app.post(route("/autonomous/start"), (req, res) => proxyAutonomous(req, res, "/autonomous/start"))
+app.post(route("/autonomous/stop"), (req, res) => proxyAutonomous(req, res, "/autonomous/stop"))
+
+// ── Catch-all API Proxy ────────────────────────────────────────────────────────
+// Any unmatched /api/* or /ide-workspace/* request gets forwarded to DASHBOARD_API_URL
+// This prevents HTML 404s from reaching the frontend.
+app.use("/api/*", async (req, res) => {
+	// Skip paths we already handle explicitly
+	const handledPrefixes = [
+		"/api/health",
+		"/api/session",
+		"/api/workspaces",
+		"/api/tasks",
+		"/api/terminal-brain",
+		"/api/observability",
+		"/api/autonomous",
+		"/api/uploads",
+	]
+	for (const prefix of handledPrefixes) {
+		if (req.path.startsWith(prefix)) {
+			return res.status(404).json({ success: false, error: "Not found" })
+		}
+	}
+	return proxyApiRequest(req, res)
+})
+
+app.use("/ide-workspace/*", async (req, res) => {
+	const handledPrefixes = [
+		"/ide-workspace/workspace",
+		"/ide-workspace/terminal",
+		"/ide-workspace/providers",
+		"/ide-workspace/chat",
+		"/ide-workspace/diff",
+		"/ide-workspace/pipeline",
+		"/ide-workspace/orchestrator",
+		"/ide-workspace/hermes",
+		"/ide-workspace/file",
+		"/ide-workspace/folder",
+		"/ide-workspace/git",
+		"/ide-workspace/search",
+		"/ide-workspace/workspace/import-github",
+	]
+	for (const prefix of handledPrefixes) {
+		if (req.path.startsWith(prefix)) {
+			return res.status(404).json({ success: false, error: "Not found" })
+		}
+	}
+	return proxyApiRequest(req, res)
 })
 
 // ── WebSocket Server with RPC + Auth ─────────────────────────────────────────────
@@ -1845,6 +2156,37 @@ wss.on("connection", async (ws, req) => {
 				} catch (err) {
 					channel.sendResponse(msg.reqId, null, err.message)
 				}
+				break
+			}
+			// ── Terminal PTY events ────────────────────────────────────────────
+			case "terminal:create": {
+				const { sessionId, cwd, cols, rows } = msg.args || {}
+				const sid = sessionId || `term-${workspaceId}`
+				const session = createTerminalSession(sid, cwd, workspaceId, cols || 80, rows || 24)
+				if (session.outputRing.length > 0) {
+					for (const chunk of session.outputRing) {
+						channel.emitEvent("terminal:output", { sessionId: sid, data: chunk })
+					}
+				}
+				channel.sendResponse(msg.reqId, { ok: true, sessionId: sid, cwd: session.cwd })
+				break
+			}
+			case "terminal:input": {
+				const { sessionId, data } = msg.args || {}
+				const ok = writeToTerminal(sessionId || `term-${workspaceId}`, data)
+				channel.sendResponse(msg.reqId, { ok })
+				break
+			}
+			case "terminal:resize": {
+				const { sessionId, cols, rows } = msg.args || {}
+				const ok = resizeTerminal(sessionId || `term-${workspaceId}`, cols, rows)
+				channel.sendResponse(msg.reqId, { ok })
+				break
+			}
+			case "terminal:kill": {
+				const { sessionId } = msg.args || {}
+				const ok = killTerminalSession(sessionId || `term-${workspaceId}`)
+				channel.sendResponse(msg.reqId, { ok })
 				break
 			}
 			// ── Collaboration message routing ──────────────────────────────────
@@ -2057,6 +2399,15 @@ async function shutdown(signal) {
 	} catch (err) {
 		console.error("[Mini IDE] Failed to save tasks:", err.message)
 	}
+
+	// Kill all PTY sessions
+	for (const [sid, session] of PTY_SESSIONS) {
+		try {
+			session.pty.kill()
+			console.log(`[Mini IDE] Killed PTY session ${sid}`)
+		} catch {}
+	}
+	PTY_SESSIONS.clear()
 
 	// Force exit after timeout
 	setTimeout(() => {

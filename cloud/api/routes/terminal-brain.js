@@ -24,7 +24,21 @@ const brains = new Map()
 
 function getOrCreateBrain(sessionId, workspaceRoot) {
 	if (!brains.has(sessionId)) {
-		const { TerminalBrain } = require("../../../packages/terminal-core/src/brain")
+		let TerminalBrain
+		try {
+			// Prefer compiled dist
+			const mod = require("../../../packages/terminal-core/dist/index.cjs")
+			TerminalBrain = mod.TerminalBrain
+		} catch {
+			// Fallback to ESM dist or src (if ts-node is present)
+			try {
+				const mod = require("../../../packages/terminal-core/dist/index.js")
+				TerminalBrain = mod.TerminalBrain
+			} catch {
+				const mod = require("../../../packages/terminal-core/src/brain")
+				TerminalBrain = mod.TerminalBrain
+			}
+		}
 		const brain = new TerminalBrain({ workspaceRoot, sessionId })
 		brains.set(sessionId, brain)
 	}
@@ -34,8 +48,10 @@ function getOrCreateBrain(sessionId, workspaceRoot) {
 // ─── Middleware ───────────────────────────────────────────────────────────
 
 router.use((req, res, next) => {
-	const sessionId = req.headers["x-session-id"] || req.query.sessionId || `session-${Date.now()}`
+	// Stable session ID: prefer header, then query, then workspace-derived, never Date.now()
 	const workspaceRoot = req.headers["x-workspace-root"] || process.env.WORKSPACE_ROOT || process.cwd()
+	const workspaceId = req.query.workspace || req.body?.workspaceId || req.params.id || "default"
+	const sessionId = req.headers["x-session-id"] || req.query.sessionId || `session-${workspaceId}`
 	req.brain = getOrCreateBrain(sessionId, workspaceRoot)
 	req.sessionId = sessionId
 	next()

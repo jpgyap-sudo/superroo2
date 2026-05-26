@@ -6,6 +6,7 @@
   <title>SuperRoo Mini IDE</title>
   <link rel="stylesheet" href="styles.css" />
   <link rel="stylesheet" data-name="vs/editor/editor.main" href="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/editor/editor.main.min.css" />
+  <link rel="stylesheet" href="lib/xterm.css" />
 </head>
 <body>
   <div id="app">
@@ -240,19 +241,14 @@
           <!-- Terminal -->
           <div class="bp-content active" id="bp-terminal">
             <div class="terminal-toolbar">
-              <span class="terminal-shell">bash</span>
+              <span class="terminal-shell" id="terminal-shell-name">bash</span>
               <div class="terminal-toolbar-actions">
                 <button onclick="clearTerminal()" title="Clear">🗑</button>
                 <button onclick="copyTerminal()" title="Copy">📋</button>
                 <button onclick="toggleRecording()" id="btn-rec" title="Record">⏺</button>
               </div>
             </div>
-            <div class="terminal-output" id="terminal-output"></div>
-            <div class="terminal-input-wrap">
-              <span class="terminal-prompt">$</span>
-              <input type="text" class="terminal-input" id="terminal-input" placeholder="Type a command or @agent..." autocomplete="off" />
-              <button class="terminal-send" onclick="executeTerminalCommand()">▶</button>
-            </div>
+            <div id="terminal-container" style="flex:1;min-height:0;overflow:hidden"></div>
           </div>
           <!-- Output -->
           <div class="bp-content" id="bp-output">
@@ -339,6 +335,8 @@
 
   <input type="file" id="file-input" multiple style="display:none" onchange="handleFileSelect(event)" />
   <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
+  <script src="lib/xterm.min.js"></script>
+  <script src="lib/xterm-addon-fit.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

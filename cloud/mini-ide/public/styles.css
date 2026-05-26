@@ -794,6 +794,21 @@ body {
 	color: var(--text-primary);
 }
 
+#terminal-container {
+	flex: 1;
+	min-height: 0;
+	overflow: hidden;
+	padding: 4px;
+}
+
+#terminal-container .xterm {
+	height: 100%;
+}
+
+#terminal-container .xterm-screen {
+	padding: 4px;
+}
+
 .terminal-input-wrap {
 	display: flex;
 	align-items: center;

@@ -41,6 +41,9 @@ const state = {
 		history: [],
 		historyIndex: -1,
 		recentCommands: [],
+		term: null,
+		termFit: null,
+		termSessionId: null,
 	},
 	panel: "terminal",
 	panelCollapsed: false,
@@ -939,7 +942,121 @@ window.toggleBottomPanelSize = function () {
 	else bp.style.maxHeight = "50vh"
 }
 
-// ── Terminal ─────────────────────────────────────────────────────────────────
+// ── Terminal (xterm.js + node-pty via WebSocket) ────────────────────────────
+
+let rpcReqId = 0
+function rpcCall(method, args, timeoutMs = 10000) {
+	return new Promise((resolve, reject) => {
+		if (!ws || ws.readyState !== WebSocket.OPEN) {
+			return reject(new Error("WebSocket not connected"))
+		}
+		const reqId = ++rpcReqId
+		const handler = (e) => {
+			try {
+				const msg = JSON.parse(e.data)
+				if (msg.reqId === reqId) {
+					ws.removeEventListener("message", handler)
+					if (msg.error) reject(new Error(msg.error))
+					else resolve(msg.result)
+				}
+			} catch {}
+		}
+		ws.addEventListener("message", handler)
+		ws.send(JSON.stringify({ reqId, method, args }))
+		setTimeout(() => {
+			ws.removeEventListener("message", handler)
+			reject(new Error("RPC timeout"))
+		}, timeoutMs)
+	})
+}
+
+function initTerminal() {
+	if (state.terminal.term) return
+	const container = document.getElementById("terminal-container")
+	if (!container || typeof Terminal === "undefined") return
+
+	const term = new Terminal({
+		fontSize: 13,
+		fontFamily: "'JetBrains Mono', 'Fira Code:', monospace",
+		cursorBlink: true,
+		cursorStyle: "block",
+		theme: {
+			background: "#0d1117",
+			foreground: "#c9d1d9",
+			cursor: "#c9d1d9",
+			selectionBackground: "#264f78",
+			black: "#0d1117",
+			red: "#ff7b72",
+			green: "#7ee787",
+			yellow: "#e3b341",
+			blue: "#79c0ff",
+			magenta: "#d2a8ff",
+			cyan: "#56d4dd",
+			white: "#b0b8c4",
+		},
+	})
+
+	const fitAddon = new FitAddon.FitAddon()
+	term.loadAddon(fitAddon)
+	term.open(container)
+	fitAddon.fit()
+
+	term.onData((data) => {
+		if (!state.terminal.termSessionId) return
+		try {
+			ws.send(
+				JSON.stringify({
+					method: "terminal:input",
+					args: { sessionId: state.terminal.termSessionId, data },
+				}),
+			)
+		} catch {}
+	})
+
+	term.onResize(({ cols, rows }) => {
+		if (!state.terminal.termSessionId) return
+		try {
+			ws.send(
+				JSON.stringify({
+					method: "terminal:resize",
+					args: { sessionId: state.terminal.termSessionId, cols, rows },
+				}),
+			)
+		} catch {}
+	})
+
+	state.terminal.term = term
+	state.terminal.termFit = fitAddon
+
+	// Resize observer for container
+	const ro = new ResizeObserver(() => {
+		try {
+			fitAddon.fit()
+		} catch {}
+	})
+	ro.observe(container)
+}
+
+async function createTerminalSession() {
+	if (!ws || ws.readyState !== WebSocket.OPEN) return
+	const workspaceId = state.active ? state.active.id : state.repoName || "global"
+	const sessionId = `term-${workspaceId}`
+	try {
+		const result = await rpcCall("terminal:create", {
+			sessionId,
+			cwd: state.active ? "" : state.repoName ? `/opt/${state.repoName}` : "",
+			cols: state.terminal.term ? state.terminal.term.cols : 80,
+			rows: state.terminal.term ? state.terminal.term.rows : 24,
+		})
+		if (result && result.ok) {
+			state.terminal.termSessionId = result.sessionId
+			const shellName = document.getElementById("terminal-shell-name")
+			if (shellName) shellName.textContent = "bash"
+		}
+	} catch (err) {
+		console.error("[terminal] Failed to create session:", err.message)
+	}
+}
 
 window.toggleTerminal = function () {
 	if (state.panelCollapsed) {
@@ -948,69 +1065,46 @@ window.toggleTerminal = function () {
 		document.querySelector(".ide-shell").classList.remove("panel-collapsed")
 	}
 	switchBottomPanel("terminal")
-	setTimeout(() => document.getElementById("terminal-input")?.focus(), 100)
+	setTimeout(() => {
+		initTerminal()
+		if (state.terminal.term) {
+			state.terminal.term.focus()
+			try {
+				state.terminal.termFit.fit()
+			} catch {}
+		}
+		if (!state.terminal.termSessionId) createTerminalSession()
+	}, 50)
 }
 
 window.executeTerminalCommand = async function () {
-	const input = document.getElementById("terminal-input")
-	if (!input) return
-	const cmd = input.value.trim()
-	if (!cmd) return
-	input.value = ""
-
-	appendTerminal(`$ ${cmd}`, "command")
-	if (apiMode === "dashboard" || state.active) {
-		try {
-			let res
-			if (apiMode === "dashboard") {
-				res = await dashRequest("/terminal/execute", {
-					method: "POST",
-					body: JSON.stringify({ command: cmd, terminalId: "term-1" }),
-				})
-			} else {
-				res = await apiRequest(`/api/workspaces/${state.active.id}/command`, {
-					method: "POST",
-					body: JSON.stringify({ prompt: cmd, terminal: true }),
-				})
-			}
-			const out = res.output || res.message || JSON.stringify(res, null, 2)
-			if (Array.isArray(out)) {
-				out.forEach((l) => appendTerminal(l, l.includes("error") || l.includes("Error") ? "error" : "output"))
-			} else {
-				out.split("\n").forEach((l) =>
-					appendTerminal(l, l.includes("error") || l.includes("Error") ? "error" : "output"),
-				)
-			}
-		} catch (err) {
-			appendTerminal(`❌ ${err.message}`, "error")
-		}
-	} else {
-		appendTerminal("❌ No workspace selected", "error")
+	// Deprecated: xterm handles input directly via onData
+	// Kept for backward-compat if called externally
+	if (!state.terminal.termSessionId) {
+		showNotice("❌ Terminal not ready", true)
+		return
 	}
 }
 
-function appendTerminal(text, type = "output") {
-	const container = document.getElementById("terminal-output")
-	if (!container) return
-	const div = document.createElement("div")
-	div.className = `term-block term-block-${type}`
-	div.textContent = text
-	container.appendChild(div)
-	container.scrollTop = container.scrollHeight
+function appendTerminal(text) {
+	if (state.terminal.term) {
+		state.terminal.term.write(text)
+	}
 }
 
 window.clearTerminal = function () {
-	const el = document.getElementById("terminal-output")
-	if (el) el.innerHTML = ""
+	if (state.terminal.term) {
+		state.terminal.term.clear()
+	}
 }
 
 window.copyTerminal = function () {
-	const el = document.getElementById("terminal-output")
-	if (!el) return
-	const text = Array.from(el.children)
-		.map((c) => c.textContent)
-		.join("\n")
-	navigator.clipboard.writeText(text).then(() => showNotice("📋 Copied"))
+	if (state.terminal.term) {
+		state.terminal.term.selectAll()
+		const text = state.terminal.term.getSelection()
+		state.terminal.term.clearSelection()
+		navigator.clipboard.writeText(text).then(() => showNotice("📋 Copied"))
+	}
 }
 
 window.toggleRecording = function () {
@@ -1255,11 +1349,36 @@ function connectWebSocket() {
 			clearTimeout(wsReconnectTimer)
 			wsReconnectTimer = null
 		}
+		// Create or reattach PTY terminal session
+		setTimeout(() => {
+			initTerminal()
+			createTerminalSession()
+		}, 200)
 	}
 
 	ws.onmessage = (event) => {
 		try {
 			const msg = JSON.parse(event.data)
+			// Handle server events (not RPC responses)
+			if (msg.event) {
+				if (msg.event === "terminal:output" && msg.data) {
+					appendTerminal(msg.data.data)
+				}
+				if (msg.event === "terminal:exit" && msg.data) {
+					appendTerminal(
+						`\r\n[Process exited${msg.data.exitCode != null ? " with code " + msg.data.exitCode : ""}]\r\n`,
+					)
+					state.terminal.termSessionId = null
+				}
+				if (msg.event === "log-entry") {
+					state.logs.unshift(msg.data.log)
+				}
+				if (msg.event === "pipeline-update") {
+					state.pipeline = msg.data.pipeline || []
+					renderPipeline()
+				}
+			}
+			// Legacy broadcast messages (type field)
 			if (msg.type === "terminal-output") appendTerminal(msg.line)
 			if (msg.type === "log-entry") {
 				state.logs.unshift(msg.log)
@@ -1273,6 +1392,7 @@ function connectWebSocket() {
 
 	ws.onclose = () => {
 		updateWsStatus(false)
+		state.terminal.termSessionId = null
 		wsReconnectTimer = setTimeout(() => connectWebSocket(), 5000)
 	}
 
