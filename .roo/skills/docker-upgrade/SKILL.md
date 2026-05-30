@@ -1,3 +1,8 @@
+---
+name: docker-upgrade
+description: Guides Docker containerization of SuperRoo using Multi-container Docker Compose. Invoke with `docker upgrade`.
+---
+
 # 🐳 Docker Upgrade Skill
 
 **Trigger phrase**: `docker upgrade`

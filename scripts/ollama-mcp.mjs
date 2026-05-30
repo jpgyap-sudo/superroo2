@@ -57,7 +57,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const HELPER_SCRIPT = path.join(__dirname, "ml", "ollama-curl-helper.cmd")
 const TMP_DIR = fsSync.mkdtempSync(path.join(os.tmpdir(), "sr-ollama-mcp-"))
 
-const OLLAMA_URL = process.env.OLLAMA_URL || "http://100.64.175.88:11434"
+const LOCAL_OLLAMA_URL = "http://127.0.0.1:11434"
+const VPS_OLLAMA_URL = "http://100.64.175.88:11434"
+// Prefer local Ollama; fall back to VPS via Tailscale if env var not set
+const OLLAMA_URL = process.env.OLLAMA_URL || LOCAL_OLLAMA_URL
 const DEFAULT_MODEL = process.env.OLLAMA_MODEL || "qwen2.5:0.5b"
 const EMBED_MODEL = process.env.OLLAMA_EMBED_MODEL || "nomic-embed-text"
 const OLLAMA_TIMEOUT_MS = parseInt(process.env.OLLAMA_TIMEOUT || "120000", 10)
@@ -105,8 +108,12 @@ function curlOllama(url, body, timeoutMs) {
 	}
 }
 
+function getActiveUrl() {
+	return process.env.OLLAMA_URL || OLLAMA_URL
+}
+
 function ollamaFetch(endpoint, body) {
-	const url = `${OLLAMA_URL}${endpoint}`
+	const url = `${getActiveUrl()}${endpoint}`
 	const data = curlOllama(url, body, OLLAMA_TIMEOUT_MS)
 	if (!data) {
 		throw new Error(`Ollama API error: no response from ${url}`)
@@ -115,7 +122,7 @@ function ollamaFetch(endpoint, body) {
 }
 
 function ollamaGet(endpoint) {
-	const url = `${OLLAMA_URL}${endpoint}`
+	const url = `${getActiveUrl()}${endpoint}`
 	const data = curlOllama(url, null, 10000)
 	if (!data) {
 		throw new Error(`Ollama GET error: no response from ${url}`)
@@ -426,14 +433,31 @@ function main() {
 	log(`Default model: ${DEFAULT_MODEL}`)
 	log(`Embed model: ${EMBED_MODEL}`)
 
-	// Quick health check on startup
-	try {
-		const data = ollamaGet("/api/tags")
-		const models = (data.models || []).map((m) => m.name)
-		log(`Connected — models available: ${models.join(", ") || "none"}`)
-	} catch (error) {
-		log(`⚠️  Ollama not reachable at ${OLLAMA_URL} — ${error.message}`)
-		log(`Tools will return errors until connection is restored.`)
+	// Quick health check on startup — try local first, fall back to VPS
+	const urlsToTry = [
+		{ url: LOCAL_OLLAMA_URL, name: "local" },
+		{ url: VPS_OLLAMA_URL, name: "VPS (100.64.175.88)" },
+	]
+	if (process.env.OLLAMA_URL) urlsToTry.unshift({ url: process.env.OLLAMA_URL, name: "env" })
+
+	let connected = false
+	for (const { url, name } of urlsToTry) {
+		try {
+			const data = curlOllama(`${url}/api/tags`, null, 4000)
+			if (data && data.models) {
+				if (url !== OLLAMA_URL) {
+					process.env.OLLAMA_URL = url
+					log(`Using ${name} Ollama at ${url}`)
+				}
+				const models = (data.models || []).map((m) => m.name)
+				log(`Connected (${name}) — models: ${models.join(", ") || "none"}`)
+				connected = true
+				break
+			}
+		} catch {}
+	}
+	if (!connected) {
+		log(`⚠️  Ollama not reachable (local or VPS) — tools will return errors until connection is restored.`)
 	}
 
 	// Read JSON-RPC requests from stdin

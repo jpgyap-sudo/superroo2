@@ -81,17 +81,7 @@ export default defineConfig(({ mode }) => {
 		define["process.env.PKG_OUTPUT_CHANNEL"] = JSON.stringify("SuperRoo-Nightly")
 	}
 
-	const plugins: PluginOption[] = [
-		react({
-			babel: {
-				plugins: [["babel-plugin-react-compiler", { target: "18" }]],
-			},
-		}),
-		tailwindcss(),
-		persistPortPlugin(),
-		wasmPlugin(),
-		sourcemapPlugin(),
-	]
+	const plugins: PluginOption[] = [react(), tailwindcss(), persistPortPlugin(), wasmPlugin(), sourcemapPlugin()]
 
 	return {
 		plugins,

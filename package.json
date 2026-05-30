@@ -63,7 +63,12 @@
 	"pnpm": {
 		"onlyBuiltDependencies": [
 			"@vscode/ripgrep",
-			"better-sqlite3"
+			"@vscode/vsce-sign",
+			"better-sqlite3",
+			"esbuild",
+			"keytar",
+			"msgpackr-extract",
+			"node-pty"
 		],
 		"overrides": {
 			"tar-fs": ">=3.1.1",

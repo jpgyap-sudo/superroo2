@@ -1,5 +1,6 @@
 ---
 name: terminal-brain-upgrade
+description: Upgrades the cloud IDE terminal (Dashboard or Mini IDE) with smart features — autocomplete, AI assistance, block output, and UX improvements. Invoke when asked to improve terminal intelligence.
 ---
 
 # Terminal Brain Upgrade Skill

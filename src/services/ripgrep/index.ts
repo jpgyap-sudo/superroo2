@@ -88,11 +88,14 @@ export async function getBinPath(vscodeAppRoot: string): Promise<string | undefi
 		return (await fileExistsAtPath(fullPath)) ? fullPath : undefined
 	}
 
+	const platform = `${process.platform}-${process.arch}`
 	return (
 		(await checkPath("node_modules/@vscode/ripgrep/bin/")) ||
 		(await checkPath("node_modules/vscode-ripgrep/bin")) ||
 		(await checkPath("node_modules.asar.unpacked/vscode-ripgrep/bin/")) ||
-		(await checkPath("node_modules.asar.unpacked/@vscode/ripgrep/bin/"))
+		(await checkPath("node_modules.asar.unpacked/@vscode/ripgrep/bin/")) ||
+		(await checkPath(`node_modules/@vscode/ripgrep-universal/bin/${platform}/`)) ||
+		(await checkPath(`node_modules.asar.unpacked/@vscode/ripgrep-universal/bin/${platform}/`))
 	)
 }
 

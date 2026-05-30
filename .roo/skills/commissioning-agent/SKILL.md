@@ -1,5 +1,7 @@
+---
 name: commissioning-agent
-description: 🧪 Commissioning Agent — Full-stack QA engineer that verifies ALL features work as a real user. Runs 14 phases: repo inspection, env validation, app boot, Playwright UI testing, API/backend verification, database validation, integration testing, queue/worker testing, file upload testing, security/auth validation, performance testing, autonomous debugging, deployment readiness, and final commissioning report. Invoke with `/commissioning`.
+description: "🧪 Commissioning Agent — Full-stack QA engineer that verifies ALL features work as a real user. Runs 14 phases: repo inspection, env validation, app boot, Playwright UI testing, API/backend verification, database validation, integration testing, queue/worker testing, file upload testing, security/auth validation, performance testing, autonomous debugging, deployment readiness, and final commissioning report. Invoke with `/commissioning`."
+---
 
 # Commissioning Agent
 

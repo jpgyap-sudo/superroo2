@@ -37,11 +37,13 @@ process.on("SIGINT", () => { restoreEslint(); process.exit(130) })
 process.on("SIGTERM", () => { restoreEslint(); process.exit(143) })
 
 // Run the original build pipeline
+// On Windows, standalone mode is disabled (symlinks require admin/Developer Mode)
+const isWindows = process.platform === "win32"
 const steps = [
 	["node", ["scripts/clean-next.mjs"]],
 	["npx", ["next", "build"]],
 	["node", ["scripts/verify-next-css.mjs"]],
-	["node", ["scripts/prepare-standalone.mjs"]],
+	...(isWindows ? [] : [["node", ["scripts/prepare-standalone.mjs"]]]),
 ]
 
 let exitCode = 0
