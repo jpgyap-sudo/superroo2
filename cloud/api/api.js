@@ -3798,6 +3798,7 @@ function broadcastBrainEvent(event, data) {
 let brainServices = null
 let brainServicesPromise = null
 let brainSwarmEventsWired = false
+let brainLastError = null
 
 async function getBrainServices() {
 	if (brainServices) return brainServices
@@ -3807,11 +3808,18 @@ async function getBrainServices() {
 		try {
 			const { Pool } = require("pg")
 			const brain = require("../orchestrator/stores/brain")
+			// Use explicit connection params to avoid PGPASSWORD/PGDATABASE env var interference
+			const brainUrl =
+				process.env.BRAIN_DATABASE_URL ||
+				process.env.DATABASE_URL ||
+				"postgresql://superroo:superroo_secret_2026@127.0.0.1:5432/superroo_brain"
+			const parsedUrl = new URL(brainUrl)
 			const pool = new Pool({
-				connectionString:
-					process.env.BRAIN_DATABASE_URL ||
-					process.env.DATABASE_URL ||
-					"postgresql://superroo:superroo@127.0.0.1:5432/superroo_brain",
+				host: parsedUrl.hostname,
+				port: parseInt(parsedUrl.port, 10) || 5432,
+				user: decodeURIComponent(parsedUrl.username),
+				password: decodeURIComponent(parsedUrl.password),
+				database: parsedUrl.pathname.replace(/^\//, ""),
 				max: 5,
 				idleTimeoutMillis: 30000,
 				connectionTimeoutMillis: 5000,
@@ -3865,6 +3873,7 @@ async function getBrainServices() {
 			writeApiLog("info", "brain-v2", "Central Brain v2 services initialized", {})
 			return brainServices
 		} catch (err) {
+			brainLastError = err.message
 			writeApiLog("warn", "brain-v2", `Central Brain v2 unavailable: ${err.message}`, {})
 			return null
 		} finally {
@@ -6671,6 +6680,21 @@ const server = http.createServer(async (req, res) => {
 			} catch (err) {
 				sendJson(res, 400, { success: false, error: err.message })
 			}
+			return
+		}
+
+		// GET /brain/health — Check brain connectivity with detailed error info
+		if (method === "GET" && normalizedUrl === "/brain/health") {
+			const svc = await getBrainServices()
+			if (!svc) {
+				sendJson(res, 503, {
+					success: false,
+					error: brainLastError || "Central Brain v2 not available (pgvector not connected)",
+					healthy: false,
+				})
+				return
+			}
+			sendJson(res, 200, { success: true, healthy: true, data: { status: "connected" } })
 			return
 		}
 
@@ -10898,11 +10922,18 @@ const server = http.createServer(async (req, res) => {
 					sendJson(res, 400, { success: false, error: "No lessons provided" })
 					return
 				}
-				// Use the already-initialized hermesClaw store (avoids pg module path issues)
-				const store = orchestrator?.hermesClaw?.bugKnowledgeStore
+				// Try using the already-initialized hermesClaw store first
+				let store = orchestrator?.hermesClaw?.bugKnowledgeStore
 				if (!store) {
-					sendJson(res, 503, { success: false, error: "BugKnowledgeStore not ready" })
-					return
+					// Fallback: initialize BugKnowledgeStore directly (orchestrator in safe mode)
+					try {
+						const { BugKnowledgeStore } = require("../orchestrator/stores/BugKnowledgeStore")
+						store = new BugKnowledgeStore()
+						await store.init()
+					} catch (initErr) {
+						sendJson(res, 503, { success: false, error: `BugKnowledgeStore not ready: ${initErr.message}` })
+						return
+					}
 				}
 				const results = []
 				for (const lesson of lessons) {
@@ -10923,6 +10954,12 @@ const server = http.createServer(async (req, res) => {
 					} catch (e) {
 						results.push({ id: lesson.id, success: false, error: e.message })
 					}
+				}
+				// Close the store if we created it ourselves
+				if (store && typeof store.close === "function" && !orchestrator?.hermesClaw?.bugKnowledgeStore) {
+					try {
+						await store.close()
+					} catch {}
 				}
 				const synced = results.filter((r) => r.success).length
 				sendJson(res, 200, { success: true, synced, failed: results.filter((r) => !r.success).length, results })
@@ -14377,6 +14414,34 @@ const server = http.createServer(async (req, res) => {
 
 		// ── Autonomous Loop Endpoints ──────────────────────────────────────────
 
+		// Map AutonomousLoop._getStepName() strings → canonical dashboard step IDs
+		// AutonomousLoop returns: "Simulate (E2E)", "Improve Code Quality", "Pattern Learning"
+		// Dashboard AUTONOMOUS_STEPS expects: "simulate", "improve", "learn"
+		const AUTONOMOUS_STEP_CANONICAL = {
+			audit: "audit",
+			fix: "fix",
+			test: "test",
+			"simulate (e2e)": "simulate",
+			"simulate e2e": "simulate",
+			"improve code quality": "improve",
+			"pattern learning": "learn",
+			dashboard: "dashboard",
+			commit: "commit",
+			deploy: "deploy",
+			"health check": "health-check",
+		}
+		function canonicalAutonomousStep(name) {
+			if (!name) return null
+			const key = name.toLowerCase().replace(/[()]/g, "").trim().replace(/\s+/g, " ")
+			return (
+				AUTONOMOUS_STEP_CANONICAL[key] ||
+				name
+					.toLowerCase()
+					.replace(/\s+/g, "-")
+					.replace(/[^a-z0-9-]/g, "")
+			)
+		}
+
 		// GET /autonomous/status — Get autonomous loop status (no jobId, for dashboard)
 		if (method === "GET" && (url === "/autonomous/status" || normalizedUrl === "/autonomous/status")) {
 			const email = auth.requireAuth(req, res)
@@ -14397,15 +14462,18 @@ const server = http.createServer(async (req, res) => {
 				sendJson(res, 200, {
 					success: true,
 					running: status.running,
-					currentStep: status.currentStepName || null,
+					currentStep: canonicalAutonomousStep(status.currentStepName),
 					stepResults: (status.stepResults || []).map((r) => ({
-						step: r.name?.toLowerCase().replace(/\s+/g, "-") || `step-${r.step}`,
+						step: canonicalAutonomousStep(r.name) || `step-${r.step}`,
 						status: r.status === "completed" ? "passed" : r.status === "error" ? "failed" : r.status,
 						duration: r.duration || 0,
 						details: r.details || r.error || "",
 					})),
 					cycleCount: Math.floor((status.stepResults?.length || 0) / 10),
 					lastRunAt: status.startedAt ? new Date(status.startedAt).toISOString() : null,
+					elapsedMs: status.elapsedMs || 0,
+					remainingMs: status.remainingMs || 0,
+					progress: status.progress || 0,
 				})
 			} catch (err) {
 				sendJson(res, 500, { success: false, error: err.message })
@@ -14689,6 +14757,156 @@ const server = http.createServer(async (req, res) => {
 					return
 				}
 				sendJson(res, 200, { success: true, message: "Test notification sent" })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// ── Daily Autonomous Report Endpoints ──────────────────────────────────────
+
+		// GET /autonomous/reports — List all daily reports
+		if (method === "GET" && (url === "/autonomous/reports" || normalizedUrl === "/autonomous/reports")) {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
+			try {
+				const { listReports } = require("./daily-autonomous")
+				const reports = await listReports()
+				sendJson(res, 200, { success: true, reports })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /autonomous/reports/:id — Get a specific report
+		if (
+			method === "GET" &&
+			(url.startsWith("/autonomous/reports/") || normalizedUrl.startsWith("/autonomous/reports/"))
+		) {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
+			try {
+				const reportId = url.split("/autonomous/reports/")[1] || normalizedUrl.split("/autonomous/reports/")[1]
+				const { getReport } = require("./daily-autonomous")
+				const report = await getReport(reportId)
+				if (!report) {
+					sendJson(res, 404, { success: false, error: "Report not found" })
+					return
+				}
+				sendJson(res, 200, { success: true, report })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /autonomous/reports/run — Trigger a manual daily pipeline run
+		if (method === "POST" && (url === "/autonomous/reports/run" || normalizedUrl === "/autonomous/reports/run")) {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
+			try {
+				const { runDailyPipeline } = require("./daily-autonomous")
+				const body = await parseBody(req)
+
+				// Wire Telegram notification if available
+				const telegramOpts = {}
+				if (telegramBot && TELEGRAM_BOT_TOKEN) {
+					const bossChatId = process.env.BOSS_TELEGRAM_CHAT_ID || "8485794779"
+					telegramOpts.telegramBot = telegramBot
+					telegramOpts.telegramChatId = body.telegramChatId || bossChatId
+				}
+
+				const report = await runDailyPipeline({
+					authToken: body.authToken || "",
+					orchestrator: global.__orchestrator || undefined,
+					runAutoFix: body.runAutoFix !== false,
+					...telegramOpts,
+				})
+				sendJson(res, 200, { success: true, report })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /autonomous/reports/schedule — Initialize the daily scheduler
+		if (
+			method === "POST" &&
+			(url === "/autonomous/reports/schedule" || normalizedUrl === "/autonomous/reports/schedule")
+		) {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
+			try {
+				const { scheduleDailyPipeline } = require("./daily-autonomous")
+				const body = await parseBody(req)
+
+				// Wire Telegram notification if available
+				const telegramOpts = {}
+				if (telegramBot && TELEGRAM_BOT_TOKEN) {
+					const bossChatId = process.env.BOSS_TELEGRAM_CHAT_ID || "8485794779"
+					telegramOpts.telegramBot = telegramBot
+					telegramOpts.telegramChatId = body.telegramChatId || bossChatId
+				}
+
+				// Check if already scheduled
+				if (global.__dailyAutonomousTimer) {
+					sendJson(res, 200, {
+						success: true,
+						message: "Daily pipeline is already scheduled for 2:00 AM PHT",
+					})
+					return
+				}
+
+				global.__dailyAutonomousTimer = scheduleDailyPipeline({
+					authToken: body.authToken || "",
+					orchestrator: global.__orchestrator || undefined,
+					runAutoFix: body.runAutoFix !== false,
+					...telegramOpts,
+				})
+
+				sendJson(res, 200, { success: true, message: "Daily pipeline scheduled for 2:00 AM PHT" })
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /autonomous/reports/schedule — Check scheduler status
+		if (
+			method === "GET" &&
+			(url === "/autonomous/reports/schedule" || normalizedUrl === "/autonomous/reports/schedule")
+		) {
+			try {
+				const { loadSchedulerState } = require("./daily-autonomous")
+				const state = await loadSchedulerState()
+				sendJson(res, 200, {
+					success: true,
+					scheduled: !!global.__dailyAutonomousTimer,
+					nextRunAt: state?.nextRunAt || null,
+					state,
+				})
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// POST /autonomous/reports/cancel — Cancel the scheduled pipeline
+		if (
+			method === "POST" &&
+			(url === "/autonomous/reports/cancel" || normalizedUrl === "/autonomous/reports/cancel")
+		) {
+			const email = auth.requireAuth(req, res)
+			if (!email) return
+			try {
+				const { clearSchedulerState } = require("./daily-autonomous")
+				if (global.__dailyAutonomousTimer) {
+					clearTimeout(global.__dailyAutonomousTimer)
+					global.__dailyAutonomousTimer = null
+				}
+				await clearSchedulerState()
+				sendJson(res, 200, { success: true, message: "Daily pipeline scheduler cancelled" })
 			} catch (err) {
 				sendJson(res, 500, { success: false, error: err.message })
 			}
@@ -15022,6 +15240,18 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// ── Autonomous Builder Endpoints ────────────────────────────────────────
+		if (url.startsWith("/api/autonomous")) {
+			try {
+				const { routeRequest } = require("./autonomous/autonomous.routes")
+				const handled = await routeRequest(method, url, req, res, { sendJson, parseBody, auth, orchestrator })
+				if (handled) return
+			} catch (err) {
+				sendJson(res, 500, { success: false, error: err.message })
+				return
+			}
+		}
+
 		sendJson(res, 404, { error: "not_found", detail: `No route for ${method} ${url}` })
 	} catch (err) {
 		console.error(`[api] Error handling ${method} ${url}:`, err.message)
@@ -15186,9 +15416,44 @@ Promise.all([loadEncryptedSecrets(), auth.loadStore()]).then(async () => {
 		})
 
 	// Listen with retry to handle EADDRINUSE after PM2 restart
-	listenWithRetry(server, PORT).catch((err) => {
-		console.error(`[api] Failed to listen on port ${PORT}:`, err.message)
-		writeApiLog("error", "cloud-api", "Failed to start server", { error: err.message, port: PORT })
-		process.exit(1)
-	})
+	listenWithRetry(server, PORT)
+		.then(async () => {
+			// ── Scheduler Recovery: Restore daily autonomous timer after restart ──
+			try {
+				const { loadSchedulerState, scheduleDailyPipeline } = require("./daily-autonomous")
+				const state = await loadSchedulerState()
+				if (state && state.nextRunAt) {
+					const nextRun = new Date(state.nextRunAt)
+					const now = new Date()
+					if (nextRun > now) {
+						console.log(`[api] Restoring daily autonomous scheduler — next run at ${nextRun.toISOString()}`)
+						// Wire Telegram notification if available
+						const telegramOpts = {}
+						if (telegramBot && TELEGRAM_BOT_TOKEN) {
+							const bossChatId = process.env.BOSS_TELEGRAM_CHAT_ID || "8485794779"
+							telegramOpts.telegramBot = telegramBot
+							telegramOpts.telegramChatId = bossChatId
+						}
+						global.__dailyAutonomousTimer = scheduleDailyPipeline({
+							authToken: "",
+							orchestrator: global.__orchestrator || undefined,
+							runAutoFix: true,
+							...telegramOpts,
+						})
+						console.log("[api] Daily autonomous scheduler restored from persisted state")
+					} else {
+						console.log(
+							`[api] Persisted scheduler state is in the past (${nextRun.toISOString()}) — skipping recovery`,
+						)
+					}
+				}
+			} catch (err) {
+				console.error("[api] Failed to restore daily autonomous scheduler:", err.message)
+			}
+		})
+		.catch((err) => {
+			console.error(`[api] Failed to listen on port ${PORT}:`, err.message)
+			writeApiLog("error", "cloud-api", "Failed to start server", { error: err.message, port: PORT })
+			process.exit(1)
+		})
 })

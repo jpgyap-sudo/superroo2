@@ -1,18 +1,25 @@
 # SuperRoo Mini IDE Container
-# Build context: repo root (needs cloud/ for mini-ide and api routes)
-# Note: cloud/node_modules is bind-mounted from host in docker-compose.yml
+# Build context: repo root (needs cloud/ for mini-ide and sibling modules)
 FROM node:20-slim
 
 RUN apt-get update && apt-get install -y curl \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /opt/superroo2
+WORKDIR /opt/superroo2/cloud/mini-ide
 
-# Copy package.json for reference (node_modules mounted at runtime)
-COPY cloud/package.json ./
+# Copy mini-ide package.json and install dependencies first (layer caching)
+COPY cloud/mini-ide/package.json ./
 
-# Copy source code
-COPY cloud/ ./cloud/
+# Install build dependencies for node-pty (native module), then npm install, then remove build deps
+RUN apt-get update && apt-get install -y curl python3 make g++ \
+    && npm install --omit=dev \
+    && apt-get remove -y python3 make g++ \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the entire cloud/ directory so sibling modules resolve correctly
+# (../collaboration, ../orchestrator, ../api/routes, ../api/auth)
+COPY cloud/ /opt/superroo2/cloud/
 
 # Create required directories
 RUN mkdir -p /opt/superroo2/cloud/mini-ide/uploads \
@@ -20,8 +27,8 @@ RUN mkdir -p /opt/superroo2/cloud/mini-ide/uploads \
 
 EXPOSE 8081
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:8081 || exit 1
 
 ENV NODE_ENV=production
-CMD ["node", "cloud/mini-ide/server.js"]
+CMD ["node", "server.js"]
