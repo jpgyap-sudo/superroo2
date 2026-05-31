@@ -1,0 +1,45 @@
+# =============================================================================
+# SuperRoo — Model Context Settings for Extended Context Windows
+# =============================================================================
+
+# Base configuration template for models supporting large contexts
+# Use `ollama create -f Modelfile.<model> <model>-large` to create
+
+# --- nomic-embed-text (32K context max) ---
+FROM nomic-embed-text:latest
+PARAMETER num_ctx 32768
+PARAMETER num_batch 512
+PARAMETER temperature 0
+
+# --- llama3.1 (128K context max) ---
+FROM llama3.1:latest
+PARAMETER num_ctx 65536
+PARAMETER num_batch 512
+PARAMETER repeat_penalty 1.0
+PARAMETER temperature 0.7
+
+# --- qwen2.5 (128K context max) ---
+FROM qwen2.5:latest
+PARAMETER num_ctx 65536
+PARAMETER num_batch 512
+PARAMETER repeat_penalty 1.0
+PARAMETER temperature 0.7
+
+# --- phi3 (128K context max) ---
+FROM phi3:latest
+PARAMETER num_ctx 65536
+PARAMETER num_batch 512
+PARAMETER repeat_penalty 1.0
+PARAMETER temperature 0.7
+
+# --- codestral (128K context max) ---
+FROM codestral:latest
+PARAMETER num_ctx 65536
+PARAMETER num_batch 512
+PARAMETER repeat_penalty 1.0
+PARAMETER temperature 0.2
+
+# --- Command to create optimized models ---
+# ollama create -f Modelfile.nomic-embed nomic-embed-text-large
+# ollama create -f Modelfile.llama31 llama3.1-large
+# ollama create -f Modelfile.qwen25 qwen2.5-large

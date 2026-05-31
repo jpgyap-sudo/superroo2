@@ -1,0 +1,40 @@
+[Unit]
+Description=SuperRoo — Optimized Ollama Service for 64GB RAM
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Performance optimizations for 64GB RAM systems
+Environment=OLLAMA_NUM_THREADS=16
+Environment=OLLAMA_MAX_LOADED_MODELS=5
+Environment=OLLAMA_CONTEXT_LENGTH=65536
+Environment=OLLAMA_FLASH_ATTENTION=1
+Environment=OLLAMA_KV_CACHE_QUANTIZATION=8bit
+Environment=OLLAMA_GPU=1
+Environment=OLLAMA_NUMA=1
+Environment=OLLAMA_BATCH_SIZE=512
+Environment=OLLAMA_MAX_QUEUE=512
+Environment=OLLAMA_KEEP_ALIVE=1h
+Environment=OLLAMA_UNLOAD_UNUSED_MODELS_AFTER=24h
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=65536
+
+# CPU affinity (adjust for your CPU topology)
+# For systems with multiple NUMA nodes, consider binding to specific cores
+# Taskset example: Taskset=0-15 (first 16 cores)
+
+# Memory locking for better performance
+MemoryLock=268435456
+
+# Restart policy
+Restart=always
+RestartSec=5
+
+# Timeout settings
+TimeoutStartSec=300
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

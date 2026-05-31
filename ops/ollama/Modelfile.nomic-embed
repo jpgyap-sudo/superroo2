@@ -1,0 +1,4 @@
+FROM nomic-embed-text:latest
+PARAMETER num_ctx 32768
+PARAMETER num_batch 512
+PARAMETER temperature 0

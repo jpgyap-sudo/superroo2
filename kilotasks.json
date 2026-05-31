@@ -1,0 +1,120 @@
+{
+	"project": "Kilo Code Local Brain Integration",
+	"created": "2026-05-31T07:28:00+08:00",
+	"status": "in_progress",
+	"completed_tasks": [
+		{
+			"id": "TASK-001",
+			"title": "Create Memory Architecture Documentation",
+			"description": "Produce architecture diagram, folder structure, database schema, MCP tool specs, API specs, implementation plan, and risk analysis",
+			"status": "completed",
+			"files_created": [
+				"docs/super-roo/memory-upgrade/architecture-diagram.md",
+				"docs/super-roo/memory-upgrade/folder-structure.md",
+				"docs/super-roo/memory-upgrade/database-schema.md",
+				"docs/super-roo/memory-upgrade/mcp-tool-specifications.md",
+				"docs/super-roo/memory-upgrade/api-specifications.md",
+				"docs/super-roo/memory-upgrade/implementation-plan.md",
+				"docs/super-roo/memory-upgrade/risk-analysis.md",
+				"docs/super-roo/memory-upgrade/SUMMARY.md",
+				"docs/super-roo/memory-upgrade/README.md"
+			]
+		},
+		{
+			"id": "TASK-002",
+			"title": "Implement Local Brain SQLite Database",
+			"description": "Create Local Brain class with SQLite storage for summaries, cache, temporary lessons, agent state, file relationships, and config",
+			"status": "completed",
+			"files_created": [
+				"C:/Users/user/.superroo/local-brain/index.js",
+				"C:/Users/user/.superroo/local-brain/package.json",
+				"C:/Users/user/.superroo/local-brain/index.sqlite"
+			],
+			"notes": "Dependencies installed (sqlite3, uuid). Tested with comprehensive test script."
+		},
+		{
+			"id": "TASK-003",
+			"title": "Update AGENTS.md for Agent Workflow Superseding",
+			"description": "Modify AGENTS.md to clarify that agent-specific coding workflows supersede default MCP orchestration while maintaining shared learning layer access",
+			"status": "completed",
+			"files_modified": ["AGENTS.md"]
+		},
+		{
+			"id": "TASK-004",
+			"title": "Integrate Local Brain into Kilo Code Extension API",
+			"description": "Modify src/extension/api.ts and src/extension.ts to instantiate and pass LocalBrain instance",
+			"status": "partially_completed",
+			"files_modified": ["src/extension/api.ts", "src/extension.ts"],
+			"notes": "LocalBrain instantiated and passed to API constructor. Actual usage methods not yet implemented."
+		}
+	],
+	"remaining_tasks": [
+		{
+			"id": "TASK-005",
+			"title": "Implement LocalBrain Usage Methods in API Class",
+			"description": "Add methods to API class that delegate to LocalBrain for all memory operations",
+			"status": "pending",
+			"files_to_modify": ["src/extension/api.ts"],
+			"subtasks": [
+				"Add summary management methods (getProjectSummary, saveProjectSummary, getSessionSummary, saveSessionSummary, getArchitectureNotes, saveArchitectureNotes)",
+				"Add cache management methods (cacheCentralBrainResponse, getCachedCentralBrainResponse)",
+				"Add lesson management methods (saveTemporaryLesson, getTemporaryLessons, promoteLessonToCentralBrain)",
+				"Add agent state methods (setAgentState, getAgentState)",
+				"Add file relationship methods (addFileRelationship, getFileRelationships)",
+				"Add configuration methods (setConfig, getConfig)"
+			]
+		},
+		{
+			"id": "TASK-006",
+			"title": "Implement Synchronization Logic",
+			"description": "Add automatic synchronization between Local Brain and Central Brain based on rules",
+			"status": "pending",
+			"files_to_modify": ["src/extension/api.ts", "src/extension.ts"],
+			"subtasks": [
+				"Session end handling: generate summary, save to LocalBrain, evaluate for promotion",
+				"Lesson promotion: check confidence threshold and content type, auto-promote to Central Brain",
+				"Central Brain sync: check LocalBrain cache first, query Central Brain if missing, cache responses"
+			]
+		},
+		{
+			"id": "TASK-007",
+			"title": "Update MCP Bridge Configuration",
+			"description": "Add Local Brain MCP server to .mcp.json for direct access",
+			"status": "pending",
+			"files_to_modify": [".mcp.json"],
+			"notes": "Consider adding 'local-brain' MCP server pointing to LocalBrain implementation"
+		},
+		{
+			"id": "TASK-008",
+			"title": "Testing and Validation",
+			"description": "Create comprehensive tests to verify Local Brain functionality",
+			"status": "pending",
+			"files_to_create": [
+				"src/extension/__tests__/LocalBrain.test.ts",
+				"src/extension/__tests__/LocalBrainSync.test.ts"
+			],
+			"subtasks": [
+				"Verify data persists between VS Code restarts",
+				"Confirm offline functionality works",
+				"Check synchronization with Central Brain",
+				"Measure performance improvements from local caching",
+				"Test promotion/demotion of lessons"
+			]
+		},
+		{
+			"id": "TASK-009",
+			"title": "Documentation Updates",
+			"description": "Update Kilo Code documentation to explain Local Brain usage",
+			"status": "pending",
+			"files_to_modify": ["README.md", "docs/super-roo/memory-upgrade/implementation-plan.md"],
+			"subtasks": [
+				"Document what gets stored in Local Brain vs Central Brain",
+				"Explain synchronization workflow",
+				"Add manual synchronization instructions",
+				"Document privacy considerations"
+			]
+		}
+	],
+	"current_status": "Foundation complete. Local Brain database created and integrated into extension API. Remaining work is to implement actual usage methods and synchronization logic.",
+	"next_agent_should_start_with": "TASK-005"
+}

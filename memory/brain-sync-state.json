@@ -1,0 +1,405 @@
+{
+	"synced": {
+		"7fb00d154510": {
+			"title": "Memory Evolution v3 — Versioning, Feedback, Auto-Trust, and Innovative Features for Central Brain",
+			"date": "2026-05-21",
+			"syncedAt": "2026-05-30T01:54:47.852Z"
+		},
+		"cf3ef9945d75": {
+			"title": "MCP Lesson Obligation System — Mandate coding agents to contribute lessons",
+			"date": "2026-05-21",
+			"syncedAt": "2026-05-30T01:54:51.474Z"
+		},
+		"0431f7c8429a": {
+			"title": "P0 globalization — Deploy System projectName override + CommitDeployLog repoName + env var path config",
+			"date": "2026-05-21",
+			"syncedAt": "2026-05-30T01:54:51.874Z"
+		},
+		"07c1bf74917e": {
+			"title": "Fix blank page on Parallel Execution and Autonomous Loop tabs — constructor arg mismatch and silent error swallowing",
+			"date": "2026-05-21",
+			"syncedAt": "2026-05-30T01:54:52.243Z"
+		},
+		"0732632027b8": {
+			"title": "Adding Prometheus metrics, telemetry, alerting, and DLQ inspection to monitoring API",
+			"date": "2026-05-21",
+			"syncedAt": "2026-05-30T01:54:52.813Z"
+		},
+		"07c8e8897574": {
+			"title": "Fix 502 Bad Gateway — SuperRoo dashboard crashed due to missing styled-jsx in Next.js standalone build",
+			"date": "2026-05-21",
+			"syncedAt": "2026-05-30T01:54:53.199Z"
+		},
+		"af47ba21caab": {
+			"title": "Commissioning dashboard API response shape normalization",
+			"date": "2026-05-21",
+			"syncedAt": "2026-05-30T01:54:53.792Z"
+		},
+		"9706609bb88c": {
+			"title": "RAM Orchestrator Audit — Proxy Routes, TypeError, Hysteresis, File Rotation",
+			"date": "2026-05-21",
+			"syncedAt": "2026-05-30T01:54:54.357Z"
+		},
+		"4a0cfbea8035": {
+			"title": "README positioning and healing metrics live source proof",
+			"date": "2026-05-21",
+			"syncedAt": "2026-05-30T01:54:54.761Z"
+		},
+		"cc22282c7e10": {
+			"title": "Competitor research infrastructure — 5 repos cloned, deep-analyzed, comparison matrix generated",
+			"date": "2026-05-21",
+			"syncedAt": "2026-05-30T01:54:55.158Z"
+		},
+		"8777ee482e93": {
+			"title": "Storage Adapter Layer — pluggable vector DB backends for Central Brain",
+			"date": "2026-05-21",
+			"syncedAt": "2026-05-30T01:54:55.511Z"
+		},
+		"e0a42f842183": {
+			"title": "Sandboxed Execution Environment — Docker-based code sandbox with container pooling and manager",
+			"date": "2026-05-21",
+			"syncedAt": "2026-05-30T01:54:55.873Z"
+		},
+		"f122a6bca366": {
+			"title": "Cloud Sandbox wiring gap fixes and innovative feature implementation",
+			"date": "2026-05-21",
+			"syncedAt": "2026-05-30T01:54:56.227Z"
+		},
+		"a5b9aa858294": {
+			"title": "Eclipse Theia deep analysis — architecture patterns for SuperRoo IDE improvement",
+			"date": "2026-05-21",
+			"syncedAt": "2026-05-30T01:54:56.580Z"
+		},
+		"b970fa20834b": {
+			"title": "Eclipse Theia adoption plan — 7-phase roadmap to supercharge SuperRoo with IDE platform patterns",
+			"date": "2026-05-21",
+			"syncedAt": "2026-05-30T01:54:56.944Z"
+		},
+		"cc57f7854118": {
+			"title": "Memory Evolution v3 — 13 gap fixes (critical, moderate, minor) all resolved",
+			"date": "2026-05-21",
+			"syncedAt": "2026-05-30T01:54:57.339Z"
+		},
+		"ae63acfc27d1": {
+			"title": "Phase 2 Consensus Router — Multi-Agent Weighted Voting and Performance-Tracking Model Router",
+			"date": "2026-05-21",
+			"syncedAt": "2026-05-30T01:54:58.035Z"
+		},
+		"818d1556943c": {
+			"title": "Tailscale LocalSystem WFP block workaround — userspace-networking as user process",
+			"date": "2026-05-21",
+			"syncedAt": "2026-05-30T01:54:58.418Z"
+		},
+		"f171bd7968de": {
+			"title": "Predictive Failure Engine + Swarm Debugger Integration",
+			"date": "2026-05-21",
+			"syncedAt": "2026-05-30T01:54:58.833Z"
+		},
+		"50767b1cd109": {
+			"title": "Cross-Phase Wiring Test Fix — Aligning Test Expectations with Actual APIs",
+			"date": "2026-05-21",
+			"syncedAt": "2026-05-30T01:54:59.205Z"
+		},
+		"4567774acd89": {
+			"title": "SelfHealingLoop \u001a SwarmDebugger wiring for auto-debug on critical incidents",
+			"date": "2026-05-22",
+			"syncedAt": "2026-05-30T01:54:59.584Z"
+		},
+		"477c476d9d98": {
+			"title": "9/10 Upgrade — repo cleanup, product README, reuse analytics, security hardening, dashboard polish",
+			"date": "2026-05-22",
+			"syncedAt": "2026-05-30T01:55:00.371Z"
+		},
+		"0d36c655f947": {
+			"title": "Product Polish — Clean Root, README Rewrite, ROADMAP/ARCHITECTURE/SECURITY_MODEL, Docker Compose, Memory UI",
+			"date": "2026-05-22",
+			"syncedAt": "2026-05-30T01:55:00.880Z"
+		},
+		"448ba9e0160c": {
+			"title": "Gap Analysis & Innovative Feature Proposals — Competitor Research Synthesis",
+			"date": "2026-05-22",
+			"syncedAt": "2026-05-30T01:55:01.179Z"
+		},
+		"9ce17585f5b6": {
+			"title": "Telegram recommendation follow-up routing",
+			"date": "2026-05-22",
+			"syncedAt": "2026-05-30T01:55:01.454Z"
+		},
+		"9aaf3936663f": {
+			"title": "Use dependency injection for fs operations instead of vi.spyOn on Windows",
+			"date": "2026-05-22",
+			"syncedAt": "2026-05-30T01:55:01.734Z"
+		},
+		"7ee3e0896dc2": {
+			"title": "A2A Protocol sendMessage must check localAgentId, not agent registry",
+			"date": "2026-05-22",
+			"syncedAt": "2026-05-30T01:55:02.251Z"
+		},
+		"baba7a0aff0e": {
+			"title": "Sprint 3+4 — Multi-Provider Sandbox, Prompt Customization, Reasoning Config, TypeScript Ports, and Sprint 4 Features (F7-F10)",
+			"date": "2026-05-22",
+			"syncedAt": "2026-05-30T01:55:02.613Z"
+		},
+		"d96800dd19b8": {
+			"title": "Sprint 5 Dashboard Views Already Built — Verify Before Building",
+			"date": "2026-05-22",
+			"syncedAt": "2026-05-30T01:55:03.133Z"
+		},
+		"964d685161ff": {
+			"title": "Dashboard feature flowcharts tab",
+			"date": "2026-05-23",
+			"syncedAt": "2026-05-30T01:55:03.426Z"
+		},
+		"3f25326e1804": {
+			"title": "Guard optional orchestrator methods before calling them",
+			"date": "2026-05-23",
+			"syncedAt": "2026-05-30T01:55:03.749Z"
+		},
+		"dde550e397de": {
+			"title": "VPS Deploy — Missing Files on main Branch Require SCP Fallback",
+			"date": "2026-05-23",
+			"syncedAt": "2026-05-30T01:55:04.072Z"
+		},
+		"2b88da20347a": {
+			"title": "Flowcharts + Visual Crawler tab gap analysis — all improvements implemented",
+			"date": "2026-05-23",
+			"syncedAt": "2026-05-30T01:55:04.425Z"
+		},
+		"0a19ccff8b40": {
+			"title": "Dashboard Gap Implementation - API Keys and IDE Terminal tabs",
+			"date": "2026-05-23",
+			"syncedAt": "2026-05-30T01:55:04.786Z"
+		},
+		"9617e6c0a491": {
+			"title": "Predictive Risk Dashboard Tab — Full Repair (Schema, API, Frontend)",
+			"date": "2026-05-23",
+			"syncedAt": "2026-05-30T01:55:05.148Z"
+		},
+		"f07d404d68a4": {
+			"title": "Events Dashboard Tab — Silent Data-Shape Failures",
+			"date": "2026-05-23",
+			"syncedAt": "2026-05-30T01:55:05.504Z"
+		},
+		"702de83e182f": {
+			"title": "Comprehensive Dashboard Gap Closure — CRUD, Export, Polling, Search/Filter, Theming",
+			"date": "2026-05-23",
+			"syncedAt": "2026-05-30T01:55:06.379Z"
+		},
+		"e2d3facb2b57": {
+			"title": "Save Points Tab — From Mock Facade to Real Data",
+			"date": "2026-05-23",
+			"syncedAt": "2026-05-30T01:55:06.668Z"
+		},
+		"fb6d699fbcdb": {
+			"title": "Dashboard gap closure deployment — SSH via public IP when Tailscale is offline",
+			"date": "2026-05-23",
+			"syncedAt": "2026-05-30T01:55:06.976Z"
+		},
+		"b9eedb071bbb": {
+			"title": "Brain service TDZ route initialization",
+			"date": "2026-05-23",
+			"syncedAt": "2026-05-30T01:55:07.273Z"
+		},
+		"5f7929d113eb": {
+			"title": "SUPERROO_VAULT_KEY missing from PM2 env - readEnvValue() fallback fix",
+			"date": "2026-05-23",
+			"syncedAt": "2026-05-30T01:55:07.767Z"
+		},
+		"a75c7a01eb1d": {
+			"title": "SKILL.md YAML Frontmatter Must Be Valid — Missing delimiters and unquoted colons cause extension startup errors",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:29.402Z"
+		},
+		"7d890cec3956": {
+			"title": "ripgrep Universal Package — Add @vscode/ripgrep-universal path to getBinPath waterfall",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:29.640Z"
+		},
+		"18025d885dfb": {
+			"title": "Next.js Standalone Build Fails on Windows — Symlinks need Developer Mode or Admin rights",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:29.895Z"
+		},
+		"15d8fa98d98b": {
+			"title": "Remove babel-plugin-react-compiler from Vite — Experimental plugin breaks VS Code webview builds",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:30.140Z"
+		},
+		"760907b95b45": {
+			"title": "Ollama Local-First with VPS Fallback — Prefer 127.0.0.1 before Tailscale VPS",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:30.627Z"
+		},
+		"ac28ee5de138": {
+			"title": "ClineProvider Webview HTML Debugging — Try/catch and logging for resolveWebviewView",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:31.142Z"
+		},
+		"a27401050a76": {
+			"title": "AGENTS.md Multi-Agent Workflow — Agent-specific workflows supersede MCP, learning layer is always mandatory",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:31.643Z"
+		},
+		"70ee3397e9a2": {
+			"title": "MermaidBlock Simplification — Remove complex Mermaid renderer, fall back to CodeBlock on upstream breakage",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:31.933Z"
+		},
+		"c67f0b2f7712": {
+			"title": "Ollama Docker Entrypoint Optimization — env vars for high-memory VPS performance",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:32.415Z"
+		},
+		"72ba1f2d0dbf": {
+			"title": "nginx mini-IDE Path Prefix — Strip /tg/ prefix when proxying to mini-IDE",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:32.707Z"
+		},
+		"b4ba812a7ce7": {
+			"title": "mini-IDE Terminal — Replace exec with node-pty WebSocket terminal for interactive PTY support",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:33.007Z"
+		},
+		"9c3547192918": {
+			"title": "Autonomous Loop Status Guard — Guard JSON.parse against HTML error page responses",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:33.518Z"
+		},
+		"94a5402d2704": {
+			"title": "Telegram Bot Missing Brace — Silent logical bug from unmatched orchestratorBridge if-block",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:33.786Z"
+		},
+		"34b7573f04e9": {
+			"title": "Telegram Orchestrator submitDirect() — Route all task paths through orchestrator bridge",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:34.040Z"
+		},
+		"52f83ffd61f6": {
+			"title": "DeepSeek Model Name Format — V4 API uses deepseek-v4-flash not deepseek-chat-v4-flash",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:34.325Z"
+		},
+		"d27313370d51": {
+			"title": "LocalBrain Integration in extension.ts — Instantiate in activate() and inject via constructor",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:34.571Z"
+		},
+		"013a42936c2a": {
+			"title": "Learning Layer Multi-Source Sync — All three stores must be updated together after adding lessons",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:35.046Z"
+		},
+		"712d78bde143": {
+			"title": "Thinker Agent Workflow — Three-layer thinking process for Kilo Code",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:35.290Z"
+		},
+		"ffab49bade79": {
+			"title": "Shell Keyword Detection Tightening",
+			"date": "2026-05-17",
+			"syncedAt": "2026-05-31T11:13:35.547Z"
+		},
+		"3bccc86cbd8e": {
+			"title": "SuperRoo uses three parallel learning layer stores",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:36.018Z"
+		},
+		"7f8049d10789": {
+			"title": "SKILL.md YAML frontmatter: always use --- delimiters and quote colons",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:36.277Z"
+		},
+		"5fd216f50d6d": {
+			"title": "ripgrep resolution: add @vscode/ripgrep-universal/bin/[platform]-[arch]/ to getBinPath",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:36.593Z"
+		},
+		"f385bc7aa1bc": {
+			"title": "Next.js standalone output: gate on process.platform !== win32 for symlinks",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:36.897Z"
+		},
+		"7a5b91efffe5": {
+			"title": "Remove babel-plugin-react-compiler — breaks VS Code webview builds",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:37.197Z"
+		},
+		"21bcb56cccf3": {
+			"title": "Ollama: always try local 127.0.0.1:11434 before VPS 100.64.175.88:11434",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:37.518Z"
+		},
+		"45d0a20b6066": {
+			"title": "VS Code webview blank panel: wrap HTML generation in try/catch with logging",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:37.799Z"
+		},
+		"769749bd2be0": {
+			"title": "MermaidBlock: fall back to CodeBlock when mermaid module breaks on version update",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:38.057Z"
+		},
+		"493d36ef038f": {
+			"title": "DeepSeek V4 model names: deepseek-v4-flash (no -chat- infix)",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:38.294Z"
+		},
+		"125427cd2ac4": {
+			"title": "Telegram bot: missing brace in if(orchestratorBridge) swallows all reply logic",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:38.597Z"
+		},
+		"51595468fe91": {
+			"title": "Telegram routing: all handler paths must go through orchestratorBridge.submitDirect()",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:38.916Z"
+		},
+		"59972a6b3c1b": {
+			"title": "node-pty + xterm.js: only correct approach for web-based interactive terminals",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:39.236Z"
+		},
+		"2ad04e112961": {
+			"title": "API polling: always check response.ok and wrap JSON.parse in try/catch",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:39.515Z"
+		},
+		"1652f15aebc4": {
+			"title": "HermesClaw already integrates with askAI for context-enriched answers",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:39.768Z"
+		},
+		"5db6d86e3d3e": {
+			"title": "AGENTS.md: agent-specific workflows supersede MCP, but learning layer is mandatory",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:40.012Z"
+		},
+		"143514db1966": {
+			"title": "Ollama Docker: explicit perf env vars make VPS inference dramatically faster",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:40.247Z"
+		},
+		"93e21154eac3": {
+			"title": "nginx proxy: trailing slash on proxy_pass strips the location prefix",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:40.703Z"
+		},
+		"95b73354b0c0": {
+			"title": "CI/CD pipeline: never skip tests on main branch, always gate deploys on green",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:40.977Z"
+		},
+		"40d0693cea13": {
+			"title": "Caching strategy: cache AI embeddings and model outputs to avoid redundant Ollama calls",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:41.247Z"
+		},
+		"6244282004ad": {
+			"title": "PostgreSQL pgvector: always create HNSW index on embedding column for sub-10ms similarity search",
+			"date": "2026-05-31",
+			"syncedAt": "2026-05-31T11:13:41.536Z"
+		}
+	},
+	"lastSyncAt": "2026-05-31T11:13:41.560Z"
+}
