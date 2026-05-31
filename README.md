@@ -361,6 +361,48 @@ Key security measures:
 
 ---
 
+## 🧠 Kilo Code Workflow
+
+Kilo Code uses a four-layer thinking process with explicit agent roles:
+
+```
+Thinker Agent → Architect Agent → Coder Agent → Reviewer Agent
+     ↓              ↓              ↓              ↓
+ Auto Free      hermes3:latest   qwen2.5-coder:7b   kilo-auto/free
+ (planning)    (design)         (implementation)   (review)
+```
+
+### Model Selection
+
+| Model                     | Size  | Best For                                |
+| ------------------------- | ----- | --------------------------------------- |
+| `qwen2.5-coder:7b`        | 4.7GB | General coding tasks (default)          |
+| `qwen2.5-coder:14b`       | 9.0GB | Complex coding tasks                    |
+| `phi4:latest`             | 9.1GB | Reasoning-heavy tasks, debugging        |
+| `nomic-embed-text:latest` | 274MB | Embeddings for semantic search          |
+| `kilo-auto/free`          | API   | Smart model routing for planning/review |
+
+### Central Brain MCP
+
+The Central Brain MCP server provides:
+
+- Lesson storage with PostgreSQL/pgvector integration
+- JSONL fallback when database unavailable
+- Lesson obligation tracking
+- Workflow rules enforcement
+
+```bash
+# Start Central Brain with PostgreSQL
+docker compose up -d postgres
+
+# Run MCP server
+node scripts/central-brain-mcp.mjs
+```
+
+See `.kilo/workflow.md` for complete documentation.
+
+---
+
 ## 🤝 Contributing
 
 We love community contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.

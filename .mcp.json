@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "ollama": {
+      "command": "node",
+      "args": ["scripts/ollama-mcp.mjs"],
+      "env": {
+        "OLLAMA_URL": "http://127.0.0.1:11434",
+        "OLLAMA_MODEL": "hermes3",
+        "OLLAMA_EMBED_MODEL": "nomic-embed-text"
+      }
+    },
+    "central-brain": {
+      "command": "node",
+      "args": ["scripts/central-brain-mcp.mjs"],
+      "env": {
+        "PROJECT_ID": "kilo-code",
+        "DATABASE_URL": "postgresql://superroo:superroo@localhost:5432/superroo_brain"
+      }
+    }
+  }
+}
