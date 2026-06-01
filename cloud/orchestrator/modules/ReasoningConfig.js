@@ -73,21 +73,20 @@ class ReasoningConfig {
 			}
 		})
 
-		// Anthropic — uses thinking.budget_tokens
+		// Anthropic — adaptive thinking with effort (budget_tokens deprecated on 4.6+)
 		this.registerProviderMapping("anthropic", (level) => {
 			switch (level) {
 				case ReasoningLevel.OFF:
-					return { thinking: { type: "disabled" } }
+					return {}
 				case ReasoningLevel.MINIMAL:
-					return { thinking: { type: "enabled", budget_tokens: 1024 } }
 				case ReasoningLevel.LOW:
-					return { thinking: { type: "enabled", budget_tokens: 2048 } }
+					return { reasoning: { effort: "low" } }
 				case ReasoningLevel.MEDIUM:
-					return { thinking: { type: "enabled", budget_tokens: 4096 } }
+					return { reasoning: { effort: "medium" } }
 				case ReasoningLevel.HIGH:
-					return { thinking: { type: "enabled", budget_tokens: 8192 } }
+					return { reasoning: { effort: "high" } }
 				case ReasoningLevel.AUTO:
-					return { thinking: { type: "enabled", budget_tokens: 4096 } }
+					return { reasoning: { effort: "high" } }
 				default:
 					return {}
 			}
@@ -139,8 +138,10 @@ class ReasoningConfig {
 		// Set defaults for common models
 		this.setDefault("gpt-4o", ReasoningLevel.MEDIUM)
 		this.setDefault("gpt-4o-mini", ReasoningLevel.LOW)
+		this.setDefault("claude-opus-4-8", ReasoningLevel.HIGH)
+		this.setDefault("claude-sonnet-4-6", ReasoningLevel.HIGH)
+		this.setDefault("claude-haiku-4-5-20251001", ReasoningLevel.LOW)
 		this.setDefault("claude-sonnet-4-20250514", ReasoningLevel.HIGH)
-		this.setDefault("claude-haiku-3-5-20241022", ReasoningLevel.LOW)
 		this.setDefault("deepseek-chat", ReasoningLevel.MEDIUM)
 		this.setDefault("deepseek-reasoner", ReasoningLevel.HIGH)
 		this.setDefault("gemini-2.0-flash", ReasoningLevel.LOW)
