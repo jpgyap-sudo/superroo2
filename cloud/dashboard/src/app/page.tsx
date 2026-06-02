@@ -55,11 +55,13 @@ import { EventsView } from "@/components/views/events"
 import { BuildQueueView } from "@/components/views/build-queue"
 import { PredictiveRiskView } from "@/components/views/predictive-risk"
 import { FlowchartsView } from "@/components/views/flowcharts"
+import { ExtensionSyncView } from "@/components/views/extension-sync"
 import { LoginPage } from "@/components/auth/login"
 
 const PAGES: Record<string, React.FC> = {
 	overview: Overview,
 	flowcharts: FlowchartsView,
+	"extension-sync": ExtensionSyncView,
 	"working-tree": WorkingTreeView,
 	"provider-dashboard": ProviderDashboardView,
 	jobs: JobsView,
@@ -207,6 +209,7 @@ export default function Dashboard() {
 		{
 			overview: "Overview",
 			flowcharts: "Flowcharts",
+			"extension-sync": "Extension Sync",
 			"working-tree": "Working Tree",
 			jobs: "Jobs",
 			queue: "Queue",
@@ -247,6 +250,12 @@ export default function Dashboard() {
 			"mcp-servers": "MCP Servers",
 			sandbox: "Sandbox",
 			"provider-dashboard": "Providers",
+			features: "Features",
+			crawler: "Crawler",
+			"file-importer": "File Importer",
+			savepoints: "Savepoints",
+			events: "Events",
+			"build-queue": "Build Queue",
 			"predictive-risk": "Predictive Risk",
 		}[page] || page
 

@@ -48,6 +48,7 @@ import {
 	Upload,
 	History,
 	ShieldAlert,
+	Network,
 } from "lucide-react"
 
 const NAV = [
@@ -55,6 +56,7 @@ const NAV = [
 	{ id: "provider-dashboard", icon: Radio, label: "Providers" },
 	{ id: "working-tree", icon: Workflow, label: "Working Tree" },
 	{ id: "flowcharts", icon: GitBranch, label: "Flowcharts" },
+	{ id: "extension-sync", icon: Network, label: "Extension Sync" },
 	{ id: "jobs", icon: Zap, label: "Jobs" },
 	{ id: "queue", icon: Layers, label: "Queue" },
 	{ id: "projects", icon: FolderGit2, label: "Projects" },
