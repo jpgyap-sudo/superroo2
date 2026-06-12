@@ -1,0 +1,5 @@
+- [ ] Add GitHub online scanner (no clone) to packages/repo-scanner/src/scanner.ts
+- [ ] Extend TerminalBrain request types + handler for context_github
+- [ ] Add global skill template instructions for github scanner task agent
+- [ ] Add minimal docs entry so extensions/users know where to place the global skill
+- [ ] Run targeted tests/build (as available) and ensure TypeScript compiles

@@ -1,3 +1,893 @@
 {
-	"tasks": []
+  "tasks": [
+    {
+      "id": "codex_task_global_codex_brain_persistence_20260601",
+      "title": "Make Codex Brain global and persistent",
+      "summary": "Added a repeatable global Codex Brain installer that writes user-level Codex config, global AGENTS instructions, a Codex Brain user skill, SuperRoo workflow/resources, MCP config exports, and command wrappers in ~/.superroo/bin. Added the global bin directory to the user PATH and verified the wrappers from outside the repo.",
+      "status": "completed",
+      "project": "superroo2",
+      "agent": "codex",
+      "filesChanged": [
+        "scripts/install-global-codex-brain.mjs",
+        "memory/lessons-learned.md",
+        "memory/lesson-index.jsonl",
+        "server/src/memory/codextask.json",
+        "C:/Users/user/.codex/config.toml",
+        "C:/Users/user/.codex/AGENTS.md",
+        "C:/Users/user/.codex/skills/codex-brain/SKILL.md",
+        "C:/Users/user/.codex/mcp.codex-brain.json",
+        "C:/Users/user/.superroo/bin/*",
+        "C:/Users/user/.superroo/workflows/codex-brain-global-workflow.md",
+        "C:/Users/user/.superroo/resources/codex-brain-global.md",
+        "C:/Users/user/.superroo/mcp/codex-brain.json"
+      ],
+      "featuresAffected": [
+        "codex-brain",
+        "global-config",
+        "skills",
+        "mcp",
+        "learning-layer"
+      ],
+      "notes": [
+        "The installer is idempotent and rewrites only managed global blocks/files.",
+        "The global user PATH now includes C:/Users/user/.superroo/bin for future terminals.",
+        "Wrapper smoke tests passed from C:/Users/user, outside the superroo2 repo."
+      ],
+      "startedAt": "2026-06-01T12:05:00.000+08:00",
+      "updatedAt": "2026-06-01T12:25:00.000+08:00",
+      "completedAt": "2026-06-01T12:25:00.000+08:00"
+    },
+    {
+      "id": "codex_task_codex_brain_mcp_agent_upgrades_20260601",
+      "title": "Wire Codex Brain MCP and agent RAG upgrades",
+      "summary": "Added a Codex Brain MCP wrapper around the local Ollama-backed Codex Brain CLI, wired it into MCP and Kilo agent configs, upgraded Central Brain fallback search to hybrid BM25/vector/RRF, documented the no-DeepSeek Codex Brain workflow, and blocked Claude memory deletion with append-only guardrails.",
+      "status": "completed",
+      "project": "superroo2",
+      "agent": "codex",
+      "filesChanged": [
+        "scripts/codex-brain-mcp.mjs",
+        "scripts/central-brain-mcp.mjs",
+        ".mcp.json",
+        ".codex/config.toml",
+        ".kilo/workflow.md",
+        ".kilo/agent/architect.md",
+        ".kilo/agent/coder.md",
+        ".kilo/agent/context-collector.md",
+        ".kilo/agent/memory-retriever.md",
+        ".kilo/agent/project-analyst.md",
+        ".kilo/agent/researcher.md",
+        ".kilo/agent/reviewer.md",
+        ".kilo/agent/thinker.md",
+        ".kilo/agent/vision.md",
+        "docs/agent-workflow/codex-brain.md",
+        "memory/lessons-learned.md",
+        "memory/lesson-index.jsonl",
+        "memory/codex-brain/memory.json",
+        "server/src/memory/codextask.json",
+        "C:/Users/user/brain/src/server.js",
+        "C:/Users/user/.codex/config.toml"
+      ],
+      "featuresAffected": [
+        "codex-brain",
+        "mcp",
+        "learning-layer",
+        "kilo-code",
+        "claude-brain",
+        "ollama"
+      ],
+      "notes": [
+        "DeepSeek was not used for this task per user instruction.",
+        "Codex Brain MCP exposes retrieve, collect, code, recall, remember, and outcome tools over JSON-RPC.",
+        "All Kilo agents now declare codex-brain MCP access in addition to Central Brain.",
+        "Claude's local forget tool is blocked and instructs agents to append corrective lessons instead of deleting memory."
+      ],
+      "startedAt": "2026-06-01T05:35:00.000+08:00",
+      "updatedAt": "2026-06-01T06:05:00.000+08:00",
+      "completedAt": "2026-06-01T06:05:00.000+08:00"
+    },
+    {
+      "id": "codex_task_unified_append_only_learning_layer_20260601",
+      "title": "Unify local extension lessons with append-only guardrails",
+      "summary": "Added an append-only local extension lesson consolidator for Claude, Codex, and Kilo lesson sources; added a guard script and pre-commit hook to block edits, deletes, rewrites, or reorders of existing canonical lesson files; synced one new Codex local lesson into the learning layer and Codex Brain. VPS sync was attempted but the public API returned 502 and the Tailscale API fetch failed from this machine.",
+      "status": "completed",
+      "project": "superroo2",
+      "agent": "codex",
+      "filesChanged": [
+        "scripts/sync-local-extension-lessons.mjs",
+        "scripts/guard-append-only-lessons.mjs",
+        "scripts/sync-lessons-to-central-brain.mjs",
+        ".husky/pre-commit",
+        "memory/lessons-learned.md",
+        "memory/lesson-index.jsonl",
+        "memory/codex-brain/memory.json",
+        "server/src/memory/codextask.json"
+      ],
+      "featuresAffected": [
+        "learning-layer",
+        "central-brain",
+        "codex-brain",
+        "claude-brain",
+        "kilo-code",
+        "guardrails"
+      ],
+      "notes": [
+        "Local consolidation found 35 extension candidates, skipped 34 duplicates, and appended 1 new Codex lesson.",
+        "Append-only guard passed against the current working tree for memory/lessons-learned.md and memory/lesson-index.jsonl.",
+        "VPS sync has 3 pending lessons but failed: https://dev.abcx124.xyz/api returned 502 and http://100.64.175.88:8787 fetch failed."
+      ],
+      "startedAt": "2026-06-01T05:10:00.000+08:00",
+      "updatedAt": "2026-06-01T05:25:00.000+08:00",
+      "completedAt": "2026-06-01T05:25:00.000+08:00"
+    },
+    {
+      "id": "codex_task_sync_vps_lessons_to_codex_brain_20260601",
+      "title": "Sync learning lessons into Codex Brain",
+      "summary": "Attempted to pull all VPS Central Brain lessons into the local SuperRoo learning layer, but the live /lessons/export endpoint returned HTTP 401 and Tailscale SSH failed because the documented id_superroo_vps key is not present locally. Added deduped full-index seeding to Codex Brain and embedded all available local SuperRoo lessons into memory/codex-brain/memory.json.",
+      "status": "completed",
+      "project": "superroo2",
+      "agent": "codex",
+      "filesChanged": [
+        "scripts/codex-brain.mjs",
+        "scripts/pull-vps-lessons.mjs",
+        "memory/codex-brain/memory.json",
+        "server/src/memory/codextask.json",
+        "memory/lessons-learned.md",
+        "memory/lesson-index.jsonl"
+      ],
+      "featuresAffected": [
+        "codex-brain",
+        "learning-layer",
+        "central-brain",
+        "memory-sync"
+      ],
+      "notes": [
+        "VPS API health endpoint on 100.64.175.88:8787 is reachable, but /lessons/export returns 401.",
+        "SSH to root@100.64.175.88 is reachable but denied publickey because C:\\Users\\User\\.ssh\\id_superroo_vps is not present.",
+        "Local lesson-index has 387 valid rows and 383 unique lesson IDs; four duplicate IDs were skipped during Codex Brain seeding.",
+        "Codex Brain now has 384 total memories, including 383 unique SuperRoo lesson memories."
+      ],
+      "startedAt": "2026-06-01T04:40:00.000+08:00",
+      "updatedAt": "2026-06-01T04:55:00.000+08:00",
+      "completedAt": "2026-06-01T04:55:00.000+08:00"
+    },
+    {
+      "id": "codex_task_codex_brain_wrapper_20260601",
+      "title": "Create Codex Brain wrapper",
+      "summary": "Added a repo-local Codex Brain CLI that calls local Ollama models as researcher, analyst, retriever, context collector, reviewer, and coder agents. It stores Codex-owned hybrid memory in memory/codex-brain/memory.json, supports lesson seeding, retrieval, collection, code/code-pro/code-verified/code-with-memory commands, and documents the workflow.",
+      "status": "completed",
+      "project": "superroo2",
+      "agent": "codex",
+      "filesChanged": [
+        "scripts/codex-brain.mjs",
+        "docs/agent-workflow/codex-brain.md",
+        ".codex/config.toml",
+        "memory/codex-brain/memory.json",
+        "memory/lessons-learned.md",
+        "memory/lesson-index.jsonl",
+        "server/src/memory/codextask.json"
+      ],
+      "featuresAffected": [
+        "codex-brain",
+        "ollama",
+        "learning-layer",
+        "agent-workflow"
+      ],
+      "notes": [
+        "Local Ollama at 127.0.0.1:11434 is healthy with hermes3, nomic-embed-text, qwen2.5-coder:7b, qwen2.5-coder:14b, qwen3:14b, phi4, and llava:7b.",
+        "Smoke checks verified status, remember, recall, collections, and fast code generation."
+      ],
+      "startedAt": "2026-06-01T00:00:00.000Z",
+      "updatedAt": "2026-06-01T00:00:00.000Z",
+      "completedAt": "2026-06-01T00:00:00.000Z"
+    },
+    {
+      "id": "codex_task_ollama_024_compat_20260519",
+      "title": "Adjust Ollama 0.24 compatibility",
+      "summary": "Updated Ollama defaults for the live VPS 0.24.0 model set, added modern /api/embed handling with legacy /api/embeddings fallback, fixed the Ollama MCP ESM readline startup bug, and made agent context summarization bounded so it completes instead of timing out.",
+      "status": "completed",
+      "project": "superroo2",
+      "agent": "codex",
+      "filesChanged": [
+        "src/super-roo/ollama/OllamaClient.ts",
+        "scripts/ollama-mcp.mjs",
+        "scripts/ml/build-agent-context.mjs",
+        "scripts/ml/ollama-curl-helper.cmd",
+        "cloud/api/api.js",
+        "cloud/orchestrator/stores/BugKnowledgeStore.js",
+        "scripts/pull-ollama-models.sh",
+        "scripts/run-migration-post-processing.sh",
+        "docs/super-roo/ollama-activation.md",
+        "docs/super-roo/CENTRAL_BRAIN.md",
+        "memory/lessons-learned.md",
+        "memory/lesson-index.jsonl"
+      ],
+      "featuresAffected": [
+        "ollama",
+        "learning-layer",
+        "central-brain",
+        "agent-context"
+      ],
+      "notes": [
+        "Live VPS Ollama reports version 0.24.0 with hermes3, qwen2.5:1.5b, and nomic-embed-text:latest.",
+        "Local Windows PATH does not expose the ollama CLI, so verification used Tailscale HTTP probes."
+      ],
+      "startedAt": "2026-05-19T01:26:50.430Z",
+      "updatedAt": "2026-05-19T01:34:30.000Z",
+      "completedAt": "2026-05-19T01:34:30.000Z"
+    },
+    {
+      "id": "codex_task_workflow_compliance_dashboard_20260518",
+      "title": "Improve workflow compliance dashboard",
+      "summary": "Added compliance tracking diagnostics, service health visibility, and deploy verification improvements; restored the missing VPS API/dashboard processes and verified live recovery.",
+      "status": "completed",
+      "project": "superroo2",
+      "agent": "codex",
+      "filesChanged": [
+        "cloud/api/routes/workflow-compliance.js",
+        "cloud/dashboard/src/components/views/workflow-compliance.tsx",
+        "cloud/api/routes/monitoring.js",
+        "cloud/dashboard/src/components/views/monitoring.tsx",
+        "cloud/worker/autoDeployer.js",
+        "scripts/test-dashboard-workflow.mjs",
+        "memory/lessons-learned.md",
+        "memory/lesson-index.jsonl"
+      ],
+      "featuresAffected": [
+        "workflow-compliance",
+        "monitoring",
+        "deploy"
+      ],
+      "notes": [
+        "Production dashboard/API were restarted on the VPS and public dashboard returned HTTP 200 afterward.",
+        "Full dashboard tsc remains blocked locally by the existing missing next package resolution issue."
+      ],
+      "startedAt": "2026-05-18T13:23:09.475Z",
+      "updatedAt": "2026-05-18T13:26:55.717Z",
+      "completedAt": "2026-05-18T13:26:55.717Z"
+    },
+    {
+      "id": "codex_task_learning_layer_release_20260517",
+      "title": "Release learning layer workflow",
+      "summary": "Committed the learning-layer gateway, curation workflow, outcome-aware ranking, and fallback bootstrap fix; verified and deployed as part of Sprint 3+4 deploy.",
+      "status": "completed",
+      "project": "superroo2",
+      "agent": "codex",
+      "filesChanged": [
+        "cloud/api/api.js",
+        "cloud/dashboard/src/components/views/intelligence-layer.tsx",
+        "cloud/orchestrator/modules/LearningGateway.js",
+        "cloud/orchestrator/modules/LearningPolicy.js"
+      ],
+      "featuresAffected": [
+        "learning-layer",
+        "intelligence-layer"
+      ],
+      "notes": [
+        "Code was already committed in 241e097ed and 279008ef4. Marking completed now before Sprint 5 deploy."
+      ],
+      "startedAt": "2026-05-17T15:55:19.546Z",
+      "updatedAt": "2026-05-23T00:33:00.000Z",
+      "completedAt": "2026-05-23T00:33:00.000Z"
+    },
+    {
+      "id": "codex_task_62e7fa7a-1506-4e9e-97a7-1303a886a378",
+      "title": "Fix extension TS errors - Express v5 types, OllamaPipeline, test mocks",
+      "summary": "Fixed 5 categories of TS errors blocking the VSIX build: (1) OllamaPipeline missing codexBrief/deepseekTask fields - wired up builders and added fields to result type. (2) CodexBriefBuilder circular ref summary.codexBrief - replaced with summary.rawModelOutput. (3) DeepSeekTaskBuilder ref summary.deepseekTask - replaced with summary.suggestedFix. (4) ClineProvider.spec.ts read-only onDidChangeVisibility - fixed with Object.defineProperty. (5) Express v5 req.params typed as string|string[] - fixed all route handlers with Request<{param:string}> generics. Also installed express + @types/express. VSIX 3.53.2 built and installed.",
+      "status": "completed",
+      "project": "superroo2",
+      "agent": "codex",
+      "filesChanged": [
+        "src/super-roo/ollama/OllamaPipeline.ts",
+        "src/super-roo/ollama/CodexBriefBuilder.ts",
+        "src/super-roo/ollama/DeepSeekTaskBuilder.ts",
+        "src/core/webview/__tests__/ClineProvider.spec.ts",
+        "src/super-roo/settings/routes/providerRoutes.ts",
+        "src/super-roo/settings/routes/modelRouterRoutes.ts"
+      ],
+      "featuresAffected": [],
+      "notes": [],
+      "startedAt": "2026-05-17T11:25:42.719Z",
+      "updatedAt": "2026-05-17T11:25:42.719Z",
+      "completedAt": "2026-05-17T11:25:42.719Z"
+    },
+    {
+      "id": "codex_task_webview_visibility_refresh_20260517",
+      "title": "Add SuperRoo webview visibility refresh",
+      "summary": "Added a soft recovery refresh when the webview becomes visible again plus an immediate unhydrated handshake retry on document visibility changes.",
+      "status": "completed",
+      "project": "superroo2",
+      "agent": "codex",
+      "filesChanged": [
+        "src/core/webview/ClineProvider.ts",
+        "webview-ui/src/App.tsx",
+        "src/core/webview/__tests__/ClineProvider.spec.ts",
+        "webview-ui/src/__tests__/App.spec.tsx"
+      ],
+      "featuresAffected": [
+        "webview-ui"
+      ],
+      "notes": [
+        "Switching away from and back to the SuperRoo view now triggers a state resend without destructive reload.",
+        "VS Code still needs one reload after VSIX reinstall before this new behavior is active."
+      ],
+      "startedAt": "2026-05-17T09:19:20.415Z",
+      "updatedAt": "2026-05-17T09:19:20.415Z",
+      "completedAt": "2026-05-17T09:19:20.415Z"
+    },
+    {
+      "id": "codex_task_webview_blackout_20260517",
+      "title": "Fix SuperRoo webview blackout and finish MCP handoff",
+      "summary": "Fixed launch hydration so custom-mode load failures no longer leave the UI blank, added visible loading state, verified focused tests, and reinstalled the repaired VSIX.",
+      "status": "completed",
+      "project": "superroo2",
+      "agent": "codex",
+      "filesChanged": [
+        "src/core/webview/webviewMessageHandler.ts",
+        "webview-ui/src/App.tsx",
+        "webview-ui/src/__tests__/App.spec.tsx",
+        "src/core/webview/__tests__/webviewMessageHandler.spec.ts"
+      ],
+      "featuresAffected": [
+        "webview-ui",
+        "central-brain",
+        "mcp"
+      ],
+      "notes": [
+        "Current Codex host session still needs reload to attach the newly configured MCP server.",
+        "Installed extension refreshed at 2026-05-17 17:12 local time; VS Code restart/window reload required to load it."
+      ],
+      "startedAt": "2026-05-17T09:06:22.873Z",
+      "updatedAt": "2026-05-17T09:13:46.282Z",
+      "completedAt": "2026-05-17T09:13:46.282Z"
+    },
+    {
+      "id": "codex_task_bootstrap",
+      "title": "Wire Codex task memory",
+      "summary": "Implemented local + VPS persistent Codex task memory, exposed it through MCP and REST fallback, and verified live writes.",
+      "status": "completed",
+      "project": "superroo2",
+      "agent": "codex",
+      "filesChanged": [
+        "AGENTS.md",
+        ".roo/mcp.json",
+        "cloud/api/api.js",
+        "cloud/ecosystem.config.js",
+        "cloud/orchestrator/modules/CodexTaskLog.js",
+        "docs/super-roo/CENTRAL_BRAIN.md",
+        "server/src/memory/McpMemoryServer.ts",
+        "server/src/memory/codextask.json"
+      ],
+      "featuresAffected": [
+        "central-brain",
+        "mcp"
+      ],
+      "notes": [],
+      "startedAt": "2026-05-17T08:57:44.126Z",
+      "updatedAt": "2026-05-17T09:04:03.107Z",
+      "completedAt": "2026-05-17T09:04:03.107Z"
+    },
+    {
+      "id": "codex_predictive_risk_sync_20260601",
+      "title": "Predictive risk sync across extensions",
+      "status": "completed",
+      "agent": "codex",
+      "summary": "Verified shared predictive risk CLI/MCP tooling, fixed global Windows wrapper adoption by removing blocked PowerShell wrappers and reinstalling .cmd wrappers, and confirmed PowerShell resolves superroo-risk-assess.cmd successfully.",
+      "files": [
+        "scripts/install-global-codex-brain.mjs",
+        "scripts/shared-risk-engine.mjs",
+        "scripts/codex-brain.mjs",
+        "scripts/codex-brain-mcp.mjs",
+        "docs/agent-workflow/predictive-risk-sync.md",
+        "C:/Users/user/.superroo/bin/superroo-risk-assess.cmd"
+      ],
+      "features": [
+        "predictive-risk",
+        "codex-brain",
+        "kilo-code",
+        "claude-brain",
+        "learning-layer"
+      ],
+      "updatedAt": "2026-06-01T23:07:05.121Z",
+      "createdAt": "2026-06-01T12:23:57.409Z",
+      "project": "superroo2"
+    },
+    {
+      "id": "codex_fix_central_brain_mcp_20260601",
+      "title": "Fix Central Brain HTTP MCP offline",
+      "status": "completed",
+      "agent": "codex",
+      "summary": "Restored HTTP MCP server on 127.0.0.1:3419, fixed rate-limit health default, added PostgreSQL connect/query timeouts in stdio adapter, and corrected Kilo global central-brain MCP path/env.",
+      "files": [
+        "server/src/memory/McpMemoryServer.ts",
+        "scripts/central-brain-mcp.mjs",
+        "C:/Users/user/.config/kilo/.mcp.json",
+        "memory/lessons-learned.md",
+        "memory/lesson-index.jsonl"
+      ],
+      "features": [
+        "central-brain",
+        "mcp",
+        "learning-layer"
+      ],
+      "updatedAt": "2026-06-01T12:38:12.546Z",
+      "createdAt": "2026-06-01T12:27:31.800Z",
+      "project": "superroo2"
+    },
+    {
+      "id": "codex_extension_indexing_agent_20260601",
+      "title": "Build extension indexing agent",
+      "status": "completed",
+      "agent": "codex",
+      "summary": "Added a SuperRoo extension indexing agent with safe canonical-outward sync, duplicate-title guards, global wrapper commands, and alias-aware coverage auditing for Brain MCP, Codex Brain, Claude Brain, Kilo MCP, Claude MCP, and Central Brain HTTP MCP.",
+      "files": [
+        "scripts/extension-indexing-agent.mjs",
+        "scripts/dedupe-lesson-index.mjs",
+        "scripts/install-global-codex-brain.mjs",
+        "memory/lessons-learned.md",
+        "memory/lesson-index.jsonl"
+      ],
+      "features": [
+        "learning-layer",
+        "central-brain",
+        "extension-sync",
+        "indexing-agent"
+      ],
+      "updatedAt": "2026-06-01T12:57:47.835Z",
+      "createdAt": "2026-06-01T12:40:05.673Z",
+      "project": "superroo2"
+    },
+    {
+      "id": "codex_fix_kilo_config_gaps_autofree_thinker_20260602",
+      "title": "Fix Kilo Code config gaps while preserving Auto Free Thinker",
+      "status": "completed",
+      "agent": "codex",
+      "summary": "Aligned live ~/.kilo, legacy ~/.config/kilo, and repo .kilo configs. Preserved kilo-auto/free only for Thinker, moved Reviewer/support agents to installed local models, added default_agent thinker, standardized MCP envs and predictive risk references, and verified config health.",
+      "files": [
+        "C:/Users/user/.kilo/kilo.json",
+        "C:/Users/user/.kilo/mcp.json",
+        "C:/Users/user/.kilo/workflow.md",
+        "C:/Users/user/.kilo/agent/thinker.md",
+        "C:/Users/user/.kilo/agent/coder.md",
+        "C:/Users/user/.kilo/skill/brain-mcp/SKILL.md",
+        "C:/Users/user/.config/kilo/kilo.json",
+        "C:/Users/user/.config/kilo/.mcp.json",
+        "C:/Users/user/.config/kilo/agent/thinker.md",
+        "C:/Users/user/.config/kilo/agent/coder.md",
+        ".kilo/kilo.json",
+        ".kilo/workflow.md",
+        ".kilo/agent/thinker.md",
+        ".kilo/agent/coder.md",
+        ".kilo/agent/reviewer.md",
+        ".mcp.json"
+      ],
+      "features": [
+        "kilo-code",
+        "agent-workflow",
+        "codex-brain",
+        "predictive-risk",
+        "ollama"
+      ],
+      "updatedAt": "2026-06-01T23:29:30.740Z",
+      "createdAt": "2026-06-01T23:29:30.740Z",
+      "project": "superroo2"
+    },
+    {
+      "id": "codex_global_mcp_extensions_20260602",
+      "title": "Connect extensions to global SuperRoo MCP",
+      "status": "completed",
+      "agent": "codex",
+      "summary": "Connected Codex, Claude, Kilo Code, legacy Kilo, Blackbox, SuperRoo VS Code, and Roo Cline to the shared local SuperRoo MCP stack; mirrored the global SuperRoo MCP skill/resource; verified config parsing, script paths, shared env keys, Codex Brain status, and lesson guard.",
+      "files": [
+        "C:/Users/user/.superroo/mcp/codex-brain.json",
+        "C:/Users/user/.codex/config.toml",
+        "C:/Users/user/.codex/AGENTS.md",
+        "C:/Users/user/.claude/settings.json",
+        "C:/Users/user/.claude/CLAUDE.md",
+        "C:/Users/user/.kilo/mcp.json",
+        "C:/Users/user/.kilo/GLOBAL_RULES.md",
+        "C:/Users/user/.config/kilo/.mcp.json",
+        "C:/Users/user/Documents/.blackbox/.blackboxrules",
+        "C:/Users/user/AppData/Roaming/Code/User/globalStorage/blackboxapp.blackboxagent/settings/blackbox_mcp_settings.json",
+        "C:/Users/user/.superroo/skills/superroo-global-mcp/SKILL.md",
+        "C:/Users/user/.superroo/resources/superroo-global-mcp.md"
+      ],
+      "features": [
+        "global-mcp",
+        "learning-layer",
+        "extension-integration"
+      ],
+      "updatedAt": "2026-06-01T23:51:29.779Z",
+      "createdAt": "2026-06-01T23:50:24.038Z",
+      "project": "superroo2"
+    },
+    {
+      "id": "codex_global_skills_resources_superroo_root_20260602",
+      "title": "Route global skills and resources through SuperRoo root",
+      "status": "completed",
+      "agent": "codex",
+      "summary": "Made ~/.superroo/skills and ~/.superroo/resources the canonical creation/query roots, documented the policy, converted extension-local SuperRoo MCP skill/resource copies to pointer shims, and added SUPERROO_SKILLS_DIR/SUPERROO_RESOURCES_DIR to MCP consumers.",
+      "files": [
+        "C:/Users/user/.superroo/skills/superroo-global-mcp/SKILL.md",
+        "C:/Users/user/.superroo/resources/superroo-global-mcp.md",
+        "C:/Users/user/.superroo/resources/global-skills-resources.md",
+        "C:/Users/user/.codex/AGENTS.md",
+        "C:/Users/user/.codex/config.toml",
+        "C:/Users/user/.claude/CLAUDE.md",
+        "C:/Users/user/.kilo/GLOBAL_RULES.md",
+        "C:/Users/user/Documents/.blackbox/.blackboxrules"
+      ],
+      "features": [
+        "global-mcp",
+        "skills",
+        "resources",
+        "extension-integration"
+      ],
+      "updatedAt": "2026-06-01T23:58:36.616Z",
+      "createdAt": "2026-06-01T23:57:36.063Z",
+      "project": "superroo2"
+    },
+    {
+      "id": "codex_global_skills_agent_20260602",
+      "title": "Create Global Skills Agent across extensions",
+      "status": "completed",
+      "agent": "codex",
+      "summary": "Added a canonical SuperRoo Global Skills Agent, client discovery shims, Kilo agent pointer, extension instruction references, SUPERROO_GLOBAL_SKILLS_AGENT MCP envs, and a local-Ollama coding accuracy skill/resource.",
+      "files": [
+        "C:/Users/user/.superroo/agents/global-skills-agent.md",
+        "C:/Users/user/.superroo/skills/global-skills-agent/SKILL.md",
+        "C:/Users/user/.superroo/resources/global-skills-agent.md",
+        "C:/Users/user/.superroo/skills/local-ollama-coding-accuracy/SKILL.md",
+        "C:/Users/user/.superroo/resources/local-ollama-coding-accuracy.md",
+        "C:/Users/user/.codex/AGENTS.md",
+        "C:/Users/user/.codex/config.toml",
+        "C:/Users/user/.claude/CLAUDE.md",
+        "C:/Users/user/.kilo/GLOBAL_RULES.md",
+        "C:/Users/user/Documents/.blackbox/.blackboxrules"
+      ],
+      "features": [
+        "global-skills",
+        "resources",
+        "extension-integration",
+        "ollama-coding"
+      ],
+      "updatedAt": "2026-06-02T00:05:13.171Z",
+      "createdAt": "2026-06-01T23:59:46.548Z",
+      "project": "superroo2"
+    },
+    {
+      "id": "codex_phased_security_sync_brain_ollama_20260602",
+      "title": "Task codex_phased_security_sync_brain_ollama_20260602",
+      "status": "completed",
+      "agent": "codex",
+      "updatedAt": "2026-06-02T01:56:42.255Z",
+      "project": "superroo2"
+    },
+    {
+      "id": "codex_extension_sync_dashboard_20260602",
+      "title": "Add extension sync dashboard tab",
+      "status": "completed",
+      "agent": "codex",
+      "summary": "Added a SuperRoo cloud dashboard tab for local extension sync coverage, potential gaps, and integration opportunities. Verified TypeScript and production build.",
+      "files": [
+        "cloud/dashboard/src/components/views/extension-sync.tsx",
+        "cloud/dashboard/src/app/page.tsx",
+        "cloud/dashboard/src/components/sidebar.tsx",
+        "memory/lessons-learned.md",
+        "memory/lesson-index.jsonl"
+      ],
+      "features": [
+        "dashboard",
+        "learning-layer",
+        "extension-sync"
+      ],
+      "updatedAt": "2026-06-02T12:24:26.646Z",
+      "createdAt": "2026-06-02T12:14:42.262Z",
+      "project": "superroo2"
+    },
+    {
+      "id": "codex_fix_kilo_code_gaps_20260602",
+      "title": "Fix Kilo Code extension sync gaps",
+      "status": "completed",
+      "agent": "codex",
+      "summary": "Repaired Kilo Code and legacy Kilo sync gaps: real user-level task paths, sync-health Kilo counts, missing lesson mirrors, legacy MCP config drift, task registry participation, and outcome learning seed. Verified Kilo gap scan is clean.",
+      "files": [
+        "scripts/global-sync-engine.mjs",
+        "scripts/global-sync-executor.mjs",
+        "scripts/sync-health.mjs",
+        "scripts/sync-tasks-bidirectional.mjs"
+      ],
+      "features": [
+        "kilo-code",
+        "extension-sync",
+        "learning-layer",
+        "mcp"
+      ],
+      "updatedAt": "2026-06-02T13:16:05.550Z",
+      "createdAt": "2026-06-02T13:08:47.004Z",
+      "project": "superroo2"
+    },
+    {
+      "id": "codex_improve_blackbox_gaps_20260602",
+      "title": "Improve Blackbox extension gaps",
+      "status": "completed",
+      "agent": "codex",
+      "summary": "Repaired Blackbox gaps: missing lessons, task mirror, sync-health visibility, outcome learning, and skill/resource mirrors. Verified Blackbox gapCount is 0.",
+      "files": [
+        "scripts/global-sync-engine.mjs",
+        "scripts/global-sync-executor.mjs",
+        "scripts/sync-health.mjs",
+        "scripts/sync-tasks-bidirectional.mjs"
+      ],
+      "features": [
+        "blackbox",
+        "extension-sync",
+        "learning-layer",
+        "mcp"
+      ],
+      "updatedAt": "2026-06-02T13:41:12.031Z",
+      "createdAt": "2026-06-02T13:37:08.396Z",
+      "project": "superroo2"
+    },
+    {
+      "id": "codex_commit_deploy_extension_sync_20260602",
+      "title": "Commit and deploy Extension Sync dashboard",
+      "status": "completed",
+      "agent": "codex",
+      "summary": "Committed 9badf45db, pushed branch, deployed Extension Sync tab to VPS via Tailscale SSH scoped file copy/build/restart, verified HTTP 200 and PM2 online, and identified remaining deployment/sync gaps.",
+      "files": [
+        "cloud/dashboard/src/app/page.tsx",
+        "cloud/dashboard/src/components/sidebar.tsx",
+        "cloud/dashboard/src/components/views/extension-sync.tsx",
+        "scripts/global-sync-engine.mjs",
+        "scripts/global-sync-executor.mjs",
+        "scripts/sync-health.mjs",
+        "scripts/sync-tasks-bidirectional.mjs"
+      ],
+      "features": [
+        "extension-sync",
+        "dashboard",
+        "deploy"
+      ],
+      "updatedAt": "2026-06-02T14:00:03.968Z",
+      "createdAt": "2026-06-02T13:49:00.543Z",
+      "project": "superroo2"
+    },
+    {
+      "id": "codex_vps_mcp_fallback_20260602",
+      "title": "Build global VPS MCP fallback access",
+      "status": "completed",
+      "agent": "codex",
+      "summary": "Added Central Brain DB candidate fallback, a global MCP fallback installer, and a Tailscale SSH tunnel script. Applied JSON MCP configs across repo, Kilo, legacy Kilo, Blackbox, SuperRoo VS Code, and Roo Cline; verified tunnel access.",
+      "files": [
+        "scripts/central-brain-mcp.mjs",
+        "scripts/install-global-vps-mcp-access.mjs",
+        "scripts/start-vps-mcp-access.ps1"
+      ],
+      "features": [
+        "mcp",
+        "vps-fallback",
+        "cross-extension"
+      ],
+      "updatedAt": "2026-06-02T14:08:54.368Z",
+      "createdAt": "2026-06-02T14:08:54.368Z",
+      "project": "superroo2"
+    },
+    {
+      "id": "codex_worktree_triage_20260602",
+      "title": "Triage uncommitted SuperRoo working tree",
+      "status": "active",
+      "agent": "codex",
+      "summary": "Classify uncommitted files, fix safe working-tree gaps, and report remaining blockers without reverting user work.",
+      "files": [],
+      "features": [
+        "working-tree",
+        "git-hygiene",
+        "learning-layer"
+      ],
+      "updatedAt": "2026-06-02T14:09:56.090Z",
+      "createdAt": "2026-06-02T14:09:56.090Z",
+      "project": "superroo2"
+    },
+    {
+      "id": "kilo_test_global_task_20260601",
+      "title": "Test global task registry connection",
+      "status": "completed",
+      "agent": "kilo-code",
+      "summary": "Verify task_upsert and task_list work via codex-brain MCP",
+      "files": [
+        "scripts/codex-brain-mcp.mjs"
+      ],
+      "features": [
+        "global-task-registry"
+      ],
+      "updatedAt": "2026-06-01T04:54:22.003Z",
+      "createdAt": "2026-06-01T04:54:22.003Z",
+      "project": "superroo2"
+    },
+    {
+      "id": "kilo_vision_integration_verification_20260601",
+      "title": "Verify Kilo Code vision integration",
+      "summary": "MCP tools, model configuration, and extension routing are complete; extension build/chat image verification remains pending.",
+      "status": "active",
+      "agent": "kilo-code",
+      "files": [
+        ".kilo/agent/vision.md",
+        ".kilo/command/analyze-image.md",
+        "scripts/ollama-mcp.mjs",
+        "scripts/central-brain-mcp.mjs",
+        "src/api/providers/fetchers/ollama.ts",
+        "src/core/task/Task.ts"
+      ],
+      "features": [
+        "vision-integration",
+        "kilo-code",
+        "mcp"
+      ],
+      "createdAt": "2026-06-01T05:25:07.000+08:00",
+      "updatedAt": "2026-06-02T21:13:45.829+08:00",
+      "project": "superroo2"
+    },
+    {
+      "id": "codex_fix_kilo_auto_free_20260601",
+      "title": "Fix Kilo Code removed Auto Free model slug",
+      "status": "completed",
+      "agent": "unknown",
+      "summary": "Replaced kilo-auto/free references in live Kilo and repo Kilo configs with local qwen3:14b to resolve model not found kilo/kilo-auto/free.",
+      "files": [
+        "C:/Users/user/.config/kilo/agent/architect.md",
+        ".kilo/agent/thinker.md",
+        ".kilo/agent/reviewer.md",
+        ".kilo/agent/architect.md",
+        ".kilo/command/think-and-plan.md",
+        ".kilo/workflow.md",
+        "README.md",
+        "src/README.md",
+        "scripts/central-brain-mcp.mjs"
+      ],
+      "features": [
+        "kilo-code",
+        "local-ollama",
+        "agent-workflow"
+      ],
+      "updatedAt": "2026-06-01T10:56:05.883Z",
+      "createdAt": "2026-06-01T10:56:05.883Z",
+      "project": "superroo2"
+    },
+    {
+      "id": "codex_global_kilo_thinker_gate_20260601",
+      "title": "Add global Kilo Thinker-first workflow gate",
+      "status": "completed",
+      "agent": "unknown",
+      "summary": "Set global Kilo default_agent to thinker, added global thinker agent, and added Thinker delegation checks to all global Kilo agents before coding or project-changing actions.",
+      "files": [
+        "C:/Users/user/.config/kilo/kilo.json",
+        "C:/Users/user/.config/kilo/agent/thinker.md",
+        "C:/Users/user/.config/kilo/agent/coder.md",
+        "C:/Users/user/.config/kilo/agent/advanced-coder.md",
+        "C:/Users/user/.config/kilo/agent/autonomous-coder.md",
+        "C:/Users/user/.config/kilo/agent/architect.md",
+        "C:/Users/user/.config/kilo/agent/crawler.md",
+        "C:/Users/user/.config/kilo/agent/summarizer.md",
+        "C:/Users/user/.config/kilo/agent/alternative.md",
+        "C:/Users/user/.config/kilo/workflow.md"
+      ],
+      "features": [
+        "kilo-code",
+        "agent-workflow",
+        "global-config"
+      ],
+      "updatedAt": "2026-06-01T11:55:54.249Z",
+      "createdAt": "2026-06-01T11:55:54.249Z",
+      "project": "superroo2"
+    },
+    {
+      "id": "codex_predictive_risk_sync_20260601",
+      "title": "Predictive risk sync across extensions",
+      "status": "completed",
+      "agent": "unknown",
+      "summary": "Stale active task closed after verification: predictive risk sync is implemented, MCP tools are exposed, global risk store is shared, and Windows PowerShell now resolves superroo-risk-assess to the .cmd wrapper instead of a blocked .ps1 script.",
+      "files": [
+        "scripts/install-global-codex-brain.mjs",
+        "C:/Users/user/.superroo/bin/superroo-risk-assess.cmd"
+      ],
+      "features": [
+        "predictive-risk",
+        "codex-brain",
+        "kilo-code",
+        "claude-brain",
+        "learning-layer"
+      ],
+      "updatedAt": "2026-06-01T23:07:05.134Z",
+      "createdAt": "2026-06-01T12:06:00.533Z",
+      "project": "superroo2"
+    },
+    {
+      "id": "blackbox_extension_sync_maintenance_20260602",
+      "title": "Maintain Blackbox extension sync",
+      "summary": "Track Blackbox lesson mirror, task sync, health visibility, outcome learning, and SuperRoo skill/resource pointer coverage.",
+      "status": "active",
+      "agent": "blackbox",
+      "files": [
+        "C:/Users/user/Documents/.blackbox/.blackboxrules",
+        "C:/Users/user/AppData/Roaming/Code/User/globalStorage/blackboxapp.blackboxagent/settings/blackbox_mcp_settings.json",
+        "C:/Users/user/Documents/.blackbox/memory/lessons.jsonl",
+        "C:/Users/user/Documents/.blackbox/tasks.json"
+      ],
+      "features": [
+        "blackbox",
+        "extension-sync",
+        "learning-layer",
+        "mcp"
+      ],
+      "createdAt": "2026-06-02T21:35:00.000+08:00",
+      "updatedAt": "2026-06-02T21:35:00.000+08:00",
+      "project": "superroo2"
+    },
+    {
+      "id": "kilo_vision_integration_verification_20260601",
+      "title": "Verify Kilo Code vision integration",
+      "summary": "MCP tools, model configuration, and extension routing are complete; extension build/chat image verification remains pending.",
+      "status": "active",
+      "agent": "kilo-legacy",
+      "files": [
+        ".kilo/agent/vision.md",
+        ".kilo/command/analyze-image.md",
+        "scripts/ollama-mcp.mjs",
+        "scripts/central-brain-mcp.mjs",
+        "src/api/providers/fetchers/ollama.ts",
+        "src/core/task/Task.ts"
+      ],
+      "features": [
+        "vision-integration",
+        "kilo-code",
+        "mcp"
+      ],
+      "createdAt": "2026-06-01T05:25:07.000+08:00",
+      "updatedAt": "2026-06-02T21:13:45.829+08:00",
+      "project": "superroo2"
+    },
+    {
+      "id": "codex_kilo_webview_handoff_20260607",
+      "title": "Persist Kilo Code webview test handoff",
+      "status": "completed",
+      "agent": "claude",
+      "summary": "Created durable Kilo Code handoff context for manual VS Code F5 webview runtime testing and recorded it in active work, webview log, local lessons, lesson index, and Central Brain.",
+      "files": [
+        "ACTIVE_WORK.md",
+        ".kilo/tasks/webview-manual-test-handoff.md",
+        "docs/logs/superroo-extension-fixes.md",
+        "memory/lessons-learned.md",
+        "memory/lesson-index.jsonl"
+      ],
+      "features": [
+        "VS Code extension webview"
+      ],
+      "updatedAt": "2026-06-07T07:57:25.187Z",
+      "createdAt": "2026-06-07T07:51:53.956Z",
+      "project": "superroo2",
+      "syncedAt": "2026-06-07T15:23:45.757Z"
+    },
+    {
+      "id": "codex_kilo_vscode_direct_launch_20260607",
+      "title": "Persist Kilo VS Code direct launch instruction",
+      "status": "active",
+      "agent": "claude",
+      "summary": "Update Kilo persistence so it attempts to launch VS Code/Extension Development Host from terminal instead of claiming CLI-only inability.",
+      "files": [
+        ".kilo/command/test-webview.md",
+        ".kilo/tasks/webview-manual-test-handoff.md",
+        "ACTIVE_WORK.md",
+        "docs/logs/superroo-extension-fixes.md"
+      ],
+      "features": [
+        "VS Code extension webview"
+      ],
+      "updatedAt": "2026-06-07T12:15:28.606Z",
+      "createdAt": "2026-06-07T12:15:28.606Z",
+      "project": "superroo2",
+      "syncedAt": "2026-06-07T15:23:45.757Z"
+    }
+  ],
+  "syncedFrom": "C:\\Users\\user\\.superroo\\tasks\\global-tasks.json",
+  "syncedAt": "2026-06-02T14:18:21.264Z"
 }

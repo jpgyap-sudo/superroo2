@@ -1,7 +1,8 @@
-import { Activity, AlertCircle, CheckCircle2, Clock, Cpu, Pause, Play, ShieldAlert } from "lucide-react"
+import { Activity, AlertCircle, CheckCircle2, Clock, Cpu, Pause, Play, ShieldAlert, RefreshCw, Wifi, WifiOff } from "lucide-react"
 
 import { useSr } from "../hooks/SrContext"
 import { ModePill, PriorityPill, TaskStatusPill, formatRelative } from "../parts/Pills"
+import { vscode } from "@/utils/vscode"
 
 export function DashboardTab() {
 	const { snapshot, mockMode } = useSr()
@@ -17,7 +18,7 @@ export function DashboardTab() {
 		)
 	}
 
-	const { mode, selfImprove, running, queue, agents, recentTasks } = snapshot
+	const { mode, selfImprove, running, queue, agents, recentTasks, syncStatus } = snapshot
 
 	return (
 		<div className="p-4 flex flex-col gap-4">
@@ -52,6 +53,18 @@ export function DashboardTab() {
 					sublabel={queue.blocked24h ? `${queue.blocked24h} blocked` : undefined}
 				/>
 			</div>
+
+			{/* Sync status row */}
+			{syncStatus && (
+				<div className="grid grid-cols-1 gap-3">
+					<StatCard
+						icon={syncStatus.isOnline ? <Wifi className="size-4 text-green-400" /> : <WifiOff className="size-4 text-red-400" />}
+						label="ML Sync"
+						value={syncStatus.isOnline ? "Online" : "Offline"}
+						sublabel={syncStatus.degradedMode ? `Degraded: ${syncStatus.degradationReason?.slice(0, 40) || "Unknown"}` : undefined}
+					/>
+				</div>
+			)}
 
 			{/* Agents */}
 			<section className="rounded border border-vscode-panel-border">
@@ -90,7 +103,10 @@ export function DashboardTab() {
 						<li className="px-3 py-4 text-sm text-vscode-descriptionForeground">No tasks yet.</li>
 					)}
 					{recentTasks.map((t) => (
-						<li key={t.id} className="px-3 py-2 flex items-start gap-3">
+						<li
+							key={t.id}
+							className="px-3 py-2 flex items-start gap-3 cursor-pointer hover:bg-vscode-list-hoverBackground transition-colors"
+							onClick={() => vscode.postMessage({ type: "showTaskWithId", text: t.id })}>
 							<TaskStatusPill status={t.status} />
 							<PriorityPill priority={t.priority} />
 							<div className="flex-1 min-w-0">

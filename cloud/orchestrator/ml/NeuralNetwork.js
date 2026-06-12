@@ -715,4 +715,32 @@ class BinaryCrossEntropyLoss {
 		const grad = new Tensor(Array.from(prediction._data))
 		grad._rows = prediction._rows; grad._cols = prediction._cols
 		for (let i = 0; i < N; i++) {
-			const p = Math.max(Math.min(prediction
+			const p = Math.max(Math.min(prediction._data[i], 1 - 1e-7), 1e-7)
+			const t = target._data[i]
+			loss -= t * Math.log(p) + (1 - t) * Math.log(1 - p)
+			grad._data[i] = (p - t) / (p * (1 - p) * N)
+		}
+		loss /= N
+		return { loss, grad }
+	}
+}
+
+// ─── Exports ─────────────────────────────────────────────────────────────────────
+
+module.exports = {
+	Tensor,
+	DenseLayer,
+	BatchNormLayer,
+	ReLULayer,
+	TanhLayer,
+	SigmoidLayer,
+	SoftmaxLayer,
+	DropoutLayer,
+	Conv2DLayer,
+	SGD,
+	Momentum,
+	AdamOptimizer,
+	MSELoss,
+	CrossEntropyLoss,
+	BinaryCrossEntropyLoss,
+}

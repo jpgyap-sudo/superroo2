@@ -2,25 +2,44 @@
 
 This file provides guidance to agents when working with code in this repository.
 
-## Superoo Agent Routing
+## ⚡ Read Before Starting Work
 
-Default orchestration flow:
+**[`ACTIVE_WORK.md`](ACTIVE_WORK.md)** — shared task board. Check what other agents are doing and update your section when you finish.
 
-1. Superoo retrieves relevant lessons from memory.
-2. DeepSeek API compresses context (lessons, files, architecture, bugs, features, model decisions) into a compact task brief. Pre-computed lesson summaries from `memory/lesson-summaries.json` are injected directly — no re-compression needed.
-3. Superoo builds compact task context.
-4. DeepSeek is the default implementation coder.
-5. Codex reviews architecture, safety, tests, and regressions.
-6. New lessons are extracted after task completion.
-7. DeepSeek API generates lesson summaries; Ollama generates embeddings for semantic search.
-8. Central Brain stores the lesson permanently.
+**[`docs/logs/superroo-extension-fixes.md`](docs/logs/superroo-extension-fixes.md)** — MANDATORY for any agent working on the SuperRoo VS Code extension webview issue. Read this log before starting work to see what other agents already tried. After attempting a fix, append a new entry with date, agent/model, files changed, what was changed, why, what was tested, result, and next steps. Do NOT delete or overwrite previous entries. Only append.
 
-Important:
+## Global Workflow
 
-- Ollama is NOT the default coder.
-- DeepSeek MCP is the mandatory coding worker for substantial implementation tasks.
-- Codex is the planner/reviewer.
-- Superoo orchestrates all models.
+This repository uses a structured, context-driven delegation pipeline:
+
+### 1. Think and Plan
+
+- Analyze task requirements and complexity
+- Use `kilo-auto/free` for high-level reasoning and model routing decisions
+- Determine if the task is low/medium/high complexity
+
+### 2. Context Loading (Mandatory Before Substantial Work)
+
+Read these files before delegating:
+- `ACTIVE_WORK.md` — check what other agents are doing
+- `AGENTS.md` — project-specific agent rules
+- `CLAUDE.md` — project instructions
+- `.kilo/kilo.json` — Kilo configuration
+- `.kilo/agent/architect.md` / `.kilo/agent/coder.md` — agent capabilities
+
+### 3. Memory Context Retrieval
+
+- `retrieve_context("<task>")` — surface relevant past lessons
+- `collect_context("<task>")` — for substantial multi-file/architecture tasks
+
+### 4. Delegation Routing
+
+| Task Type | Target Agent |
+|-----------|-------------|
+| Architecture/design | `architect` |
+| Simple implementation | `coder` |
+| Complex multi-step | `architect` → `coder` → `reviewer` |
+| Research/exploration | `researcher` |
 
 ## Required Before Coding
 
@@ -572,6 +591,14 @@ This rule applies to ALL projects in the SuperRoo ecosystem. When working on a n
 | wf-005 | When submitting tasks via `submit_task`, the `agent` parameter should default to `"deepseek-coder"`. | recommended |
 | wf-006 | Use `brain_search_memory` (pgvector semantic search) instead of `hermes_recall` for memory retrieval. | recommended |
 
+### Agent Workflow Supersedes MCP Workflow
+
+While the MCP server enforces a default workflow for standardization, **agent-specific coding workflows supersede the MCP coding workflow**. The critical requirement is that:
+
+1. **All extensions contribute to and can access the shared SuperRoo learning layer** - This is non-negotiable and enforced by wf-004
+2. **Agents may use their preferred coding agents/workflows** - As long as they fulfill the learning layer obligation (wf-004)
+3. **The Central Brain remains the master source of truth for shared knowledge** - Ensuring cross-project learning consistency
+
 ### Client Implementation
 
 MCP clients SHOULD:
@@ -580,6 +607,7 @@ MCP clients SHOULD:
 2. Call `brain_get_workflow_rules` at session start to confirm the mandated workflow.
 3. Respect `workflowWarnings` returned by `submit_task` and adjust the agent parameter accordingly.
 4. Register lesson intent via `brain_register_lesson_intent` before starting work and store the lesson via `brain_store_lesson` after completion.
+5. **Remember**: While you may use your preferred coding workflow, you MUST still contribute to the shared learning layer (wf-004).
 
 ### Compliance
 

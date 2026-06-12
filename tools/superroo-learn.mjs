@@ -52,7 +52,7 @@ const NO_FALLBACK = process.env.SUPERROO_NO_FALLBACK === "1"
 /**
  * Shared cross-project lesson store directory.
  * Can be overridden via SUPERROO_MEMORY_DIR env var.
- * Defaults to ~/superroo/superroo2/memory/ which is the superroo2 repo.
+ * Defaults to ~/.superroo/memory so cross-project lessons have a global mirror.
  */
 const SHARED_MEMORY_DIR = (() => {
 	if (process.env.SUPERROO_MEMORY_DIR) {
@@ -60,6 +60,7 @@ const SHARED_MEMORY_DIR = (() => {
 	}
 	// Try common locations
 	const candidates = [
+		path.join(os.homedir(), ".superroo", "memory"),
 		path.join(os.homedir(), "superroo", "superroo2", "memory"),
 		path.join(os.homedir(), "superroo2", "memory"),
 	]

@@ -17,7 +17,7 @@ const TMP_DIR = fsSync.mkdtempSync(path.join(os.tmpdir(), "sr-ollama-"))
 const LOCAL_OLLAMA_URL = "http://127.0.0.1:11434"
 const VPS_OLLAMA_URL = "http://100.64.175.88:11434"
 // Use 0.5B by default — 1.5B doesn't fit in VPS RAM (3.8GB total, 588MB free)
-const SUMMARIZE_MODEL = process.env.OLLAMA_SUMMARIZE_MODEL || "qwen2.5:0.5b"
+const SUMMARIZE_MODEL = process.env.OLLAMA_SUMMARIZE_MODEL || "hermes3"
 const OLLAMA_GEN_TIMEOUT_MS = parseInt(process.env.OLLAMA_TIMEOUT || "60000", 10)
 const OLLAMA_CONNECT_TIMEOUT_MS = 3_000 // 3s timeout for connectivity check
 const OLLAMA_MAX_FILE_SUMMARIES = parseInt(process.env.OLLAMA_MAX_FILE_SUMMARIES || "2", 10)

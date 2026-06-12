@@ -53,13 +53,13 @@ Write-Host "Done! Restart Ollama for changes to take effect." -ForegroundColor Y
 Write-Host ""
 Write-Host "Memory budget:" -ForegroundColor Cyan
 Write-Host "  hermes3 8B Q4_0       : ~4.3 GB"
-Write-Host "  qwen2.5-coder:14b     : ~8.4 GB"
+Write-Host "  qwen3:14b             : ~8.9 GB"
 Write-Host "  qwen2.5-coder:7b      : ~4.4 GB"
 Write-Host "  phi4 14.7B            : ~8.4 GB"
 Write-Host "  nomic-embed-text      : ~0.3 GB"
 Write-Host "  KV cache (131072 ctx) : ~8.0 GB  (per active request)"
 Write-Host "  ─────────────────────────────────"
-Write-Host "  All models loaded     : ~25.8 GB"
+Write-Host "  All models loaded     : ~26.3 GB"
 Write-Host "  Available for OS/apps : ~38 GB"
 Write-Host ""
 Write-Host "With OLLAMA_KEEP_ALIVE=24h, models stay warm all day." -ForegroundColor Green

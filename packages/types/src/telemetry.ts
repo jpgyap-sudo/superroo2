@@ -38,6 +38,9 @@ export enum TelemetryEventName {
 
 	CONTEXT_CONDENSED = "Context Condensed",
 	SLIDING_WINDOW_TRUNCATION = "Sliding Window Truncation",
+	CONDENSE_AUTOCOMPLETE_SHOWN = "Condense Autocomplete Shown",
+	CONDENSE_AUTOCOMPLETE_ACCEPTED = "Condense Autocomplete Accepted",
+	CONDENSE_AUTOCOMPLETE_DISMISSED = "Condense Autocomplete Dismissed",
 
 	CODE_ACTION_USED = "Code Action Used",
 	PROMPT_ENHANCED = "Prompt Enhanced",
@@ -201,6 +204,9 @@ export const rooCodeTelemetryEventSchema = z.discriminatedUnion("type", [
 			TelemetryEventName.MODEL_CACHE_EMPTY_RESPONSE,
 			TelemetryEventName.CONTEXT_CONDENSED,
 			TelemetryEventName.SLIDING_WINDOW_TRUNCATION,
+			TelemetryEventName.CONDENSE_AUTOCOMPLETE_SHOWN,
+			TelemetryEventName.CONDENSE_AUTOCOMPLETE_ACCEPTED,
+			TelemetryEventName.CONDENSE_AUTOCOMPLETE_DISMISSED,
 			TelemetryEventName.TAB_SHOWN,
 			TelemetryEventName.MODE_SETTINGS_CHANGED,
 			TelemetryEventName.CUSTOM_MODE_CREATED,

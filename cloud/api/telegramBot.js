@@ -1250,7 +1250,7 @@ function splitLongMessage(text, maxLen) {
 async function _callOllamaChat(messages, options) {
 	options = options || {}
 	var ollamaBaseUrl = process.env.OLLAMA_BASE_URL || process.env.OLLAMA_HOST || "http://127.0.0.1:11434"
-	var ollamaModel = process.env.OLLAMA_MODEL || process.env.OLLAMA_CHAT_MODEL || "qwen2.5:0.5b"
+	var ollamaModel = process.env.OLLAMA_MODEL || process.env.OLLAMA_CHAT_MODEL || "hermes3"
 	var numPredict = options.num_predict || 4096
 	var temperature = options.temperature != null ? options.temperature : 0.7
 	var timeout = options.timeout || 120_000
@@ -5262,6 +5262,8 @@ async function handleHermes(botToken, chatId, args, providers) {
 				"Hermes Claw is your memory & learning agent. It stores lessons from every interaction, " +
 				"builds a knowledge base with vector search (pgvector + Ollama), and gets smarter over time.\n\n" +
 				"*Subcommands:*\n" +
+				"• `/hermes ask <question>` — *Claude-powered Q&A* (runs even while Claude Code is coding!)\n" +
+				"  Example: `/hermes ask what did we fix about ripgrep?`\n\n" +
 				"• `/hermes recall <query>` — Recall context from memory (RAG-powered)\n" +
 				"  Example: `/hermes recall how to fix build errors`\n\n" +
 				"• `/hermes learn <topic> | <content>` — Store a new lesson\n" +
@@ -5424,6 +5426,101 @@ async function handleHermes(botToken, chatId, args, providers) {
 			}
 			var lessonReply = telegramEngineer.formatHermesLessons(lessonResult)
 			await sendMessage(botToken, chatId, lessonReply)
+		} else if (subcommand === "ask") {
+			// /hermes ask <question> — Claude-powered Q&A with full HermesClaw RAG context
+			if (!query) {
+				await sendMessage(
+					botToken,
+					chatId,
+					"*Usage:* `/hermes ask <question>`\n\n" +
+						"Ask anything while Claude Code is working. This agent runs independently on the VPS using " +
+						"HermesClaw RAG memory + Claude API to answer your questions in parallel.\n\n" +
+						"Examples:\n" +
+						"• `/hermes ask what did we fix about ripgrep?`\n" +
+						"• `/hermes ask how does the mini-IDE terminal work?`\n" +
+						"• `/hermes ask what is the deepseek model name format?`",
+				)
+				return
+			}
+			// Step 1: Recall HermesClaw RAG context
+			var hermesRagContext = ""
+			try {
+				var orchestrator = global.__orchestrator
+				if (orchestrator && orchestrator.hermesClaw) {
+					var ragResult = await orchestrator.hermesClaw.recallContext(query, 5)
+					if (ragResult && ragResult.output) {
+						hermesRagContext = ragResult.output.substring(0, 2000)
+					}
+				}
+			} catch (ragErr) {
+				console.log("[hermes ask] RAG recall failed (non-fatal):", ragErr.message)
+			}
+
+			// Step 2: Read recent lessons for additional context
+			var lessonContext = ""
+			try {
+				var lessonIndexPath = path.join(__dirname, "../../memory/lesson-index.jsonl")
+				var lessonIndexContent = await fs.readFile(lessonIndexPath, "utf8").catch(function () { return "" })
+				var recentLessons = lessonIndexContent
+					.trim()
+					.split("\n")
+					.slice(-20)
+					.map(function (line) {
+						try {
+							var entry = JSON.parse(line)
+							return entry.title + ": " + (entry.lesson_summary || entry.rule_summary || "")
+						} catch { return null }
+					})
+					.filter(Boolean)
+					.join("\n")
+				if (recentLessons) lessonContext = recentLessons
+			} catch (lessonErr) {
+				console.log("[hermes ask] Lesson context load failed (non-fatal):", lessonErr.message)
+			}
+
+			// Step 3: Call Claude API (Anthropic) specifically for this Q&A
+			var anthropicKey = process.env.ANTHROPIC_API_KEY
+			var askAnswer = ""
+			if (anthropicKey) {
+				try {
+					var askSystemPrompt = "You are the Hermes Q&A agent for the SuperRoo project — a VS Code extension with ML engine, Cloud Dashboard, Telegram bot, and Central Brain. " +
+						"Answer questions concisely and accurately using the provided context from the project knowledge base and recent lessons. " +
+						"If you don't know, say so clearly. Format responses in Telegram markdown (bold with *, italic with _, code with backticks)."
+					if (hermesRagContext) askSystemPrompt += "\n\n## HermesClaw RAG Context (most relevant past knowledge):\n" + hermesRagContext
+					if (lessonContext) askSystemPrompt += "\n\n## Recent Engineering Lessons:\n" + lessonContext
+
+					var anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
+						method: "POST",
+						headers: { "x-api-key": anthropicKey, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
+						body: JSON.stringify({
+							model: "claude-haiku-4-5-20251001",
+							max_tokens: 1024,
+							system: askSystemPrompt,
+							messages: [{ role: "user", content: query }],
+						}),
+					})
+					var anthropicData = await anthropicRes.json()
+					if (anthropicData.content && anthropicData.content[0]) {
+						askAnswer = anthropicData.content[0].text
+					}
+				} catch (claudeErr) {
+					console.log("[hermes ask] Claude API call failed:", claudeErr.message)
+				}
+			}
+
+			// Fallback: use existing askAI if Claude API wasn't available
+			if (!askAnswer) {
+				askAnswer = await askAI(query, providers, chatId, { includeSuggestions: false })
+			}
+
+			await sendMessage(
+				botToken,
+				chatId,
+				"*🧠 Hermes Ask* — _Claude-powered Q&A_\n\n" +
+					"*Q:* " + query + "\n\n" +
+					askAnswer +
+					(hermesRagContext ? "\n\n_Source: HermesClaw RAG + Project Lessons_" : ""),
+			)
 		} else {
 			await sendMessage(
 				botToken,
@@ -5431,7 +5528,8 @@ async function handleHermes(botToken, chatId, args, providers) {
 				"*Unknown hermes subcommand:* `" +
 					subcommand +
 					"`\n\n" +
-					"Use `/hermes help` to see available subcommands.",
+					"Use `/hermes help` to see available subcommands.\n\n" +
+					"*New:* `/hermes ask <question>` — Ask anything while Claude Code is coding!",
 			)
 		}
 	} catch (err) {

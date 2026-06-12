@@ -18,6 +18,9 @@
  *   node scripts/pull-vps-lessons.mjs --md-only    # skip lesson-index
  *   node scripts/pull-vps-lessons.mjs --limit 500  # cap total pulled
  *
+ * Optional auth:
+ *   SUPERROO_DAEMON_TOKEN, SUPERROO_API_KEY, or SUPERROO_CLOUD_TOKEN
+ *
  * Requires VPS API to be running with GET /api/lessons/export endpoint.
  * Deploy cloud/api/api.js first if the endpoint is not yet live.
  */
@@ -34,6 +37,7 @@ const ROOT = path.resolve(__dirname, "..")
 
 const API_URL       = process.env.SUPERROO_API_URL || "https://dev.abcx124.xyz/api"
 const EXPORT_URL    = `${API_URL}/lessons/export`
+const API_TOKEN     = process.env.SUPERROO_DAEMON_TOKEN || process.env.SUPERROO_API_KEY || process.env.SUPERROO_CLOUD_TOKEN || ""
 const BATCH_SIZE    = 100
 const TIMEOUT_MS    = 30000
 
@@ -84,7 +88,8 @@ async function fetchBatch(offset, limit) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
-    const res = await fetch(url, { signal: controller.signal })
+    const headers = API_TOKEN ? { Authorization: `Bearer ${API_TOKEN}` } : undefined
+    const res = await fetch(url, { headers, signal: controller.signal })
     clearTimeout(timer)
     if (!res.ok) {
       const txt = await res.text().catch(() => "")

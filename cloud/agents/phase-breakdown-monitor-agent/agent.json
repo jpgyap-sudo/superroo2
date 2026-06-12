@@ -1,0 +1,23 @@
+{
+	"id": "phase-breakdown-monitor-agent",
+	"name": "Phase Breakdown Monitor Agent",
+	"category": "planning",
+	"description": "Watches new feature requests, new app plans, and debugging workstreams, and invokes the phase breakdown skill when problems need structured decomposition.",
+	"version": "1.0.0",
+	"enabled": true,
+	"modelPolicy": { "preferred": "codex", "fallbacks": ["claude-sonnet", "gpt-5.5", "kimi"], "maxTokens": 6000 },
+	"skills": ["skills/phase-breakdown-monitor.md"],
+	"workflows": ["workflows/monitor-and-invoke-phase-breakdown.md"],
+	"resources": ["resources/phase-breakdown-triggers.md"],
+	"memory": { "enabled": true, "scope": "project" },
+	"outputs": "outputs",
+	"safety": {
+		"requiresApproval": false,
+		"canEditFiles": false,
+		"canPublish": false,
+		"canDeploy": false,
+		"blockedCommands": ["rm -rf /", ".env", "overwrite agent.json", "auto merge", "reboot", "shutdown"],
+		"approvalTriggers": []
+	},
+	"runtime": { "sandbox": true, "timeoutSeconds": 600, "maxRetries": 1 }
+}

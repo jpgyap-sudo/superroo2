@@ -83,7 +83,7 @@ const DEFAULT_CONFIG = {
 	// Legacy fallbacks: OLLAMA_HOST (for base URL), OLLAMA_HERMES_MODEL, OLLAMA_CHAT_MODEL (for model)
 	ollamaBaseUrl: process.env.OLLAMA_BASE_URL || process.env.OLLAMA_HOST || "http://127.0.0.1:11434",
 	ollamaModel:
-		process.env.OLLAMA_MODEL || process.env.OLLAMA_HERMES_MODEL || process.env.OLLAMA_CHAT_MODEL || "qwen2.5:0.5b",
+		process.env.OLLAMA_MODEL || process.env.OLLAMA_HERMES_MODEL || process.env.OLLAMA_CHAT_MODEL || "hermes3",
 	// Fallback provider (OpenAI — expensive, only when Ollama fails)
 	apiKey: process.env.OPENAI_API_KEY || "",
 	model: "gpt-4o-mini",

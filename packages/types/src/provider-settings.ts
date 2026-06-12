@@ -55,7 +55,7 @@ export const isDynamicProvider = (key: string): key is DynamicProvider =>
  * Local providers require localhost API calls in order to get the model list.
  */
 
-export const localProviders = ["ollama", "lmstudio"] as const
+export const localProviders = ["ollama", "lmstudio", "supercontinue"] as const
 
 export type LocalProvider = (typeof localProviders)[number]
 
@@ -128,6 +128,7 @@ export const providerNames = [
 	"vertex",
 	"xai",
 	"zai",
+	"supercontinue",
 ] as const
 
 export const providerNamesSchema = z.enum(providerNames)
@@ -394,6 +395,18 @@ const basetenSchema = apiModelIdProviderModelSchema.extend({
 	basetenApiKey: z.string().optional(),
 })
 
+const supercontinueSchema = baseProviderSettingsSchema.extend({
+	ollamaModelId: z.string().optional(),
+	ollamaBaseUrl: z.string().optional(),
+	ollamaApiKey: z.string().optional(),
+	ollamaNumCtx: z.number().int().min(128).optional(),
+})
+
+// Discriminated union schema for supercontinue (with apiProvider literal)
+const supercontinueDiscriminatedSchema = supercontinueSchema.merge(
+	z.object({ apiProvider: z.literal("supercontinue") }),
+)
+
 const defaultSchema = z.object({
 	apiProvider: z.undefined(),
 })
@@ -428,6 +441,7 @@ export const providerSettingsSchemaDiscriminated = z.discriminatedUnion("apiProv
 	qwenCodeSchema.merge(z.object({ apiProvider: z.literal("qwen-code") })),
 	rooSchema.merge(z.object({ apiProvider: z.literal("roo") })),
 	vercelAiGatewaySchema.merge(z.object({ apiProvider: z.literal("vercel-ai-gateway") })),
+	supercontinueDiscriminatedSchema,
 	defaultSchema,
 ])
 
@@ -462,6 +476,7 @@ export const providerSettingsSchema = z.object({
 	...qwenCodeSchema.shape,
 	...rooSchema.shape,
 	...vercelAiGatewaySchema.shape,
+	...supercontinueSchema.shape,
 	...codebaseIndexProviderSchema.shape,
 })
 
@@ -537,7 +552,8 @@ export const modelIdKeysByProvider: Record<TypicalProvider, ModelIdKey> = {
 	fireworks: "apiModelId",
 	roo: "apiModelId",
 	"vercel-ai-gateway": "vercelAiGatewayModelId",
-}
+	supercontinue: "ollamaModelId",
+} as const
 
 /**
  * ANTHROPIC_STYLE_PROVIDERS
@@ -658,4 +674,5 @@ export const MODELS_BY_PROVIDER: Record<
 	// Local providers; models discovered from localhost endpoints.
 	lmstudio: { id: "lmstudio", label: "LM Studio", models: [] },
 	ollama: { id: "ollama", label: "Ollama", models: [] },
+	supercontinue: { id: "supercontinue", label: "SuperContinue", models: [] },
 }

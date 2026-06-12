@@ -18,6 +18,7 @@ export type TaskRouteType =
 	| "deployment"
 	| "architecture"
 	| "fast_fix"
+	| "condense_autocomplete"
 
 export type ModelCapability =
 	| "chat"
@@ -28,6 +29,8 @@ export type ModelCapability =
 	| "coding"
 	| "research"
 	| "fast"
+	| "offline"
+	| "condense_autocomplete"
 
 export interface ProviderModel {
 	id: string

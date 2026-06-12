@@ -19,7 +19,7 @@ if (fs.existsSync(envPath)) {
 
 import type { CloudUserInfo, AuthState } from "@superroo/types"
 import { CloudService } from "@superroo/cloud"
-import { TelemetryService, PostHogTelemetryClient } from "@superroo/telemetry"
+import { TelemetryService } from "@superroo/telemetry"
 import { customToolRegistry } from "@superroo/core"
 
 import "./utils/path" // Necessary to have access to String.prototype.toPosix.
@@ -48,6 +48,8 @@ import {
 	CodeActionProvider,
 } from "./activate"
 import { registerSuperRooCommands } from "./super-roo-host/registerSuperRooCommands"
+import { APPROVAL_PRESETS, ApprovalModeName, RooApprovalAdapter } from "./super-roo-host/RooApprovalAdapter"
+import { SafetyMode } from "./super-roo/types"
 import { initializeI18n } from "./i18n"
 import { flushModels, initializeModelCacheRefresh, refreshModels } from "./api/providers/fetchers/modelCache"
 
@@ -97,21 +99,36 @@ async function checkWorktreeAutoOpen(
 			await context.globalState.update("worktreeAutoOpenPath", undefined)
 
 			outputChannel.appendLine(`[Worktree] Auto-opening SuperRoo sidebar for worktree: ${worktreeAutoOpenPath}`)
-
-			// Open the SuperRoo sidebar with a slight delay to ensure UI is ready
-			setTimeout(async () => {
-				try {
-					await vscode.commands.executeCommand("superroo.plusButtonClicked")
-				} catch (error) {
-					outputChannel.appendLine(
-						`[Worktree] Error auto-opening sidebar: ${error instanceof Error ? error.message : String(error)}`,
-					)
-				}
-			}, 500)
 		}
 	} catch (error) {
 		outputChannel.appendLine(
 			`[Worktree] Error checking worktree auto-open: ${error instanceof Error ? error.message : String(error)}`,
+		)
+	}
+}
+
+async function applyAutoApprovalAndStartTask(
+	provider: ClineProvider,
+	outputChannel: vscode.OutputChannel,
+): Promise<void> {
+	try {
+		const adapter = new RooApprovalAdapter(provider)
+		const savedMode = (provider.superRooSafetyMode ?? SafetyMode.FULL_AUTONOMOUS) as ApprovalModeName
+		await adapter.apply(savedMode)
+		outputChannel.appendLine(`[AutoApproval] Applied ${savedMode} preset`)
+
+		setTimeout(async () => {
+			try {
+				await vscode.commands.executeCommand("superroo.plusButtonClicked")
+			} catch (error) {
+				outputChannel.appendLine(
+					`[AutoApproval] Error auto-triggering task: ${error instanceof Error ? error.message : String(error)}`,
+				)
+			}
+		}, 500)
+	} catch (error) {
+		outputChannel.appendLine(
+			`[AutoApproval] Failed to apply: ${error instanceof Error ? error.message : String(error)}`,
 		)
 	}
 }
@@ -139,9 +156,12 @@ export async function activate(context: vscode.ExtensionContext) {
 	const telemetryService = TelemetryService.createInstance()
 
 	try {
-		telemetryService.register(new PostHogTelemetryClient())
+		// Use BrowserTelemetryClient for webview context (avoids Node.js dependencies)
+		// PostHogTelemetryClient is used in extension host context (Node.js)
+		const { BrowserTelemetryClient } = await import("@superroo/telemetry")
+		telemetryService.register(new BrowserTelemetryClient())
 	} catch (error) {
-		console.warn("Failed to register PostHogTelemetryClient:", error)
+		console.warn("Failed to register BrowserTelemetryClient:", error)
 	}
 
 	// Create logger for cloud services.
@@ -205,7 +225,11 @@ export async function activate(context: vscode.ExtensionContext) {
 		const { NoopEventLog } = require("./super-roo/product-memory/NoopEventLog")
 
 		const modelEventLog = new NoopEventLog()
-		const memoryDir = path.join(context.extensionPath, "server", "src", "memory")
+		// Use global ~/.superroo/product-memory so all agents can read/write it
+		const os = require("os")
+		const memoryDir = process.env.SUPERROO_PRODUCT_MEMORY_DIR
+			|| (process.env.SUPERROO_HOME ? path.join(process.env.SUPERROO_HOME, "product-memory") : null)
+			|| path.join(os.homedir(), ".superroo", "product-memory")
 
 		initializeModelUsageTracker(modelEventLog, memoryDir)
 		initializeWorkflowEnforcer(modelEventLog)
@@ -324,6 +348,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	// Check for worktree auto-open path (set when switching to a worktree)
 	await checkWorktreeAutoOpen(context, outputChannel)
+
+	// Apply FULL_AUTONOMOUS auto-approval preset and auto-trigger task startup
+	await applyAutoApprovalAndStartTask(provider, outputChannel)
 
 	// Auto-import configuration if specified in settings.
 	try {

@@ -8,7 +8,7 @@ import { ExtensionStateContextProvider } from "@/context/ExtensionStateContext"
 
 import SettingsView from "../SettingsView"
 
-vi.mock("@src/utils/vscode", () => ({ vscode: { postMessage: vi.fn() } }))
+vi.mock("@src/utils/vscode", () => ({ vscode: { postMessage: vi.fn(), getState: vi.fn(() => undefined), setState: vi.fn() } }))
 
 vi.mock("../ApiConfigManager", () => ({
 	__esModule: true,

@@ -24,6 +24,7 @@
  */
 
 import * as path from "node:path"
+import * as os from "node:os"
 
 import { EventLog } from "../logging/EventLog"
 import { MemoryStore } from "../memory/MemoryStore"
@@ -75,7 +76,26 @@ export class SuperRooOrchestrator {
 		this.queue = new TaskQueue(this.memory, this.events)
 		this.features = new FeatureRegistry(this.memory, this.events)
 		this.agents = new AgentRegistry()
-		this.mlLoop = new InfiniteImprovementLoop(this)
+
+		// ParallelML created before mlLoop since it's a dependency
+		this.parallelML = new ParallelMLTrainer(this.events, {
+			enabled: true,
+			learnerTimeoutMs: 60_000,
+		})
+
+		this.mlLoop = new InfiniteImprovementLoop(this, {
+			minSamples: 5,
+			maxIterations: 1000,
+			idleSleepMs: 5000,
+			trainEpochs: 20,
+			confidenceThreshold: 0.75,
+			maxActionsPerIteration: 3,
+			modelDir: path.join(os.homedir(), ".superroo", "models"),
+			brainOutcomesPath: path.join(os.homedir(), ".superroo", "brain", "ml-outcomes.json"),
+			cloudApiBaseUrl: config.cloudApiBaseUrl,
+			cloudAuthToken: config.cloudAuthToken,
+			parallelML: this.parallelML,
+		})
 		this.healingLoop = new SelfHealingLoop(this, {
 			cycleIntervalMs: config.healingCycleIntervalMs ?? 30000,
 			maxPerCycle: 10,
@@ -123,10 +143,6 @@ export class SuperRooOrchestrator {
 				high: config.healingAutoFixPolicies?.high ?? false,
 				critical: config.healingAutoFixPolicies?.critical ?? false,
 			},
-		})
-		this.parallelML = new ParallelMLTrainer(this.events, {
-			enabled: true,
-			learnerTimeoutMs: 60_000,
 		})
 	}
 

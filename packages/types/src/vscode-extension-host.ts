@@ -115,7 +115,9 @@ export interface ExtensionMessage {
 		| "fileContent"
 		| "codeChanges"
 		| "codeChangeReverted"
+		| "condenseAutocompleteState"
 	text?: string
+	enabled?: boolean
 	/** For fileContent: { path, content, error? } */
 	fileContent?: { path: string; content: string | null; error?: string }
 	/** For codeChanges: taskId + changes array */
@@ -377,6 +379,7 @@ export type ExtensionState = Pick<
 
 	autoCondenseContext: boolean
 	autoCondenseContextPercent: number
+	condenseAutocomplete: boolean
 	marketplaceItems?: MarketplaceItem[]
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	marketplaceInstalledMetadata?: { project: Record<string, any>; global: Record<string, any> }

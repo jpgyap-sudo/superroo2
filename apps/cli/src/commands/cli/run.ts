@@ -34,6 +34,8 @@ import { VERSION } from "@/lib/utils/version.js"
 import { ExtensionHost, ExtensionHostOptions } from "@/agent/index.js"
 import { isExpectedControlFlowError } from "./cancellation.js"
 import { runStdinStreamMode } from "./stdin-stream.js"
+import { AgentBus } from "../../../../../src/super-roo/parallel/AgentBus.js"
+import { HermesAgent } from "../../../../../src/super-roo/agents/HermesAgent.js"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROO_MODEL_WARMUP_TIMEOUT_MS = 10_000
@@ -617,6 +619,19 @@ export async function run(promptArg: string | undefined, flagOptions: FlagOption
 				}
 			}
 
+			// Initialize AgentBus and register HermesAgent for parallel question handling
+			// Create a minimal EventLog that doesn't require MemoryStore for CLI mode
+			const agentBus = new AgentBus({
+				info: () => {},
+				debug: () => {},
+				warn: () => {},
+				error: () => {},
+			} as any)
+			const hermesAgent = new HermesAgent()
+			hermesAgent.registerOnBus(agentBus)
+			// Make AgentBus available globally for ExtensionHost to access
+			;(global as Record<string, unknown>).__agentBus = agentBus
+
 			if (jsonEmitter) {
 				jsonEmitter.attachToClient(host.client)
 			}
@@ -636,6 +651,7 @@ export async function run(promptArg: string | undefined, flagOptions: FlagOption
 					setStreamRequestId: (id) => {
 						streamRequestId = id
 					},
+					agentBus,
 				})
 			} else {
 				if (isResumeRequested) {

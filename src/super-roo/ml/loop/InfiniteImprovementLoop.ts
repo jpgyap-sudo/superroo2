@@ -4,28 +4,34 @@
  * The core of SuperRoo's self-improving capability.
  *
  * Workflow:
- *   1. OBSERVE   — collect task outcomes, test results, bug reports with richer labels
+ *   1. OBSERVE   — collect task outcomes from orchestrator queue + brain server outcomes
  *   2. LEARN     — train CodeLearner, DebugLearner, TestLearner end-to-end
  *   3. PREDICT   — score upcoming tasks, predict failures, prioritise work
  *   4. ACT       — submit follow-up tasks via orchestrator (validated)
  *   5. EVALUATE  — compare predicted vs actual outcomes, track metrics
- *   6. PERSIST   — save model weights so learning survives restarts
+ *   6. PERSIST   — save model weights so learning survives restarts (brain server reads these)
  *   7. SYNC      — upload local model to cloud, download merged cloud model
  *   8. LOOP      — sleep and repeat
  *
  * Enhanced with bidirectional ML sync via MLSyncClient.
+ * Brain server outcomes (record_outcome MCP tool) are loaded each cycle and merged into training.
  */
 
+import { readFileSync, existsSync } from "fs"
+import { homedir } from "os"
+import { join } from "path"
 import type { SuperRooOrchestrator } from "../../orchestrator/SuperRooOrchestrator"
 import type { Task, TaskInputRaw } from "../../types"
 import { CancellableSleep } from "../../utils/CancellableSleep"
-import { CodeLearner } from "../learning/CodeLearner"
-import { DebugLearner } from "../learning/DebugLearner"
+import { CodeLearner, type CodeSample } from "../learning/CodeLearner"
+import { DebugLearner, type DebugSample } from "../learning/DebugLearner"
 import { TestLearner } from "../learning/TestLearner"
 import { ActionOutcomeTracker } from "../engine/Metrics"
 import { MLSyncClient, type MLSyncConfig, type SyncObservation } from "../sync/MLSyncClient"
 import { ModelPersistence } from "../engine/ModelPersistence"
 import { NeuralNetwork } from "../engine/NeuralNetwork"
+import type { ParallelMLTrainer } from "../../parallel/ParallelMLTrainer"
+import type { TrainingExample } from "../../healing/MLClassifier"
 
 export interface LoopConfig {
 	/** Minimum samples before training starts. */
@@ -48,6 +54,17 @@ export interface LoopConfig {
 	cloudAuthToken?: string
 	/** Sync interval in ms. Default: 5 minutes. */
 	syncIntervalMs?: number
+	/**
+	 * Path to the brain server's ml-outcomes.json file.
+	 * Outcomes recorded via the `record_outcome` MCP tool are loaded here
+	 * each training cycle and merged into CodeLearner training data.
+	 * Defaults to ~/.superroo/brain/ml-outcomes.json
+	 */
+	brainOutcomesPath?: string
+	/** Parallel ML trainer for concurrent learner training (GAP #2). */
+	parallelML?: ParallelMLTrainer
+	/** Training examples from the healing MLClassifier, converted to DebugSamples (GAP #5). */
+	mlClassifierTrainingExamples?: TrainingExample[]
 }
 
 export interface LoopStats {
@@ -126,12 +143,30 @@ export class InfiniteImprovementLoop {
 				dir: this.config.modelDir || ".",
 				name: "ml-sync-model",
 			})
+			// Create separate persistence instances for each learner (GAP #3 fix)
+			const codePersistence = new ModelPersistence({
+				dir: this.config.modelDir || ".",
+				name: "code-learner",
+			})
+			const debugPersistence = new ModelPersistence({
+				dir: this.config.modelDir || ".",
+				name: "debug-learner",
+			})
+			const testPersistence = new ModelPersistence({
+				dir: this.config.modelDir || ".",
+				name: "test-learner",
+			})
 			const syncConfig: MLSyncConfig = {
 				apiBaseUrl: this.config.cloudApiBaseUrl,
 				syncIntervalMs: this.config.syncIntervalMs,
 				authToken: this.config.cloudAuthToken,
 			}
-			this.mlSyncClient = new MLSyncClient(syncConfig, this.modelPersistence)
+			this.mlSyncClient = new MLSyncClient(
+				syncConfig,
+				this.modelPersistence,
+				null /* neuralNetwork */,
+				[codePersistence, debugPersistence, testPersistence],
+			)
 		}
 	}
 
@@ -257,14 +292,66 @@ export class InfiniteImprovementLoop {
 		}
 	}
 
+	// ── Brain Server Outcome Loader ───────────────────────────────────────────
+
+	/**
+	 * Load CodeSamples recorded via the brain MCP `record_outcome` tool.
+	 * Returns an empty array if the file doesn't exist or can't be parsed.
+	 */
+	private loadBrainOutcomes(): CodeSample[] {
+		const outcomesPath =
+			this.config.brainOutcomesPath ||
+			join(homedir(), ".superroo", "brain", "ml-outcomes.json")
+		if (!existsSync(outcomesPath)) return []
+		try {
+			const raw = JSON.parse(readFileSync(outcomesPath, "utf8")) as Array<{
+				features: number[]
+				success?: number
+				quality?: number
+				bugRisk?: number
+			}>
+			return raw
+				.filter((o) => Array.isArray(o.features) && o.features.length === 8)
+				.map((o) => ({
+					features: o.features,
+					success: o.success,
+					quality: o.quality,
+					bugRisk: o.bugRisk,
+				}))
+		} catch {
+			return []
+		}
+	}
+
 	// ── Phase 1: Observe + Learn ──────────────────────────────────────────────
 
 	private async observeAndLearn(): Promise<void> {
-		// Collect recent task outcomes
+		// Collect recent task outcomes from orchestrator queue
 		const tasks = this.orchestrator.queue.list({ limit: 100 })
 		const codeSamples = this.extractCodeSamples(tasks)
 		const debugSamples = this.extractDebugSamples(tasks)
 		const testSamples = this.extractTestSamples(tasks)
+
+		// Merge brain server outcomes (from Claude's record_outcome MCP calls)
+		const brainOutcomes = this.loadBrainOutcomes()
+		if (brainOutcomes.length > 0) {
+			codeSamples.push(...brainOutcomes as CodeSample[])
+			this.orchestrator.events.debug(
+				"ml.loop.brain_outcomes",
+				`Loaded ${brainOutcomes.length} brain server outcomes into training`,
+			)
+		}
+
+		// Merge MLClassifier healing examples into DebugSamples (GAP #5)
+		const classifierExamples = this.config.mlClassifierTrainingExamples
+		if (classifierExamples && classifierExamples.length > 0) {
+			const classifierDebugSamples = this.convertClassifierExamples(classifierExamples)
+			debugSamples.push(...classifierDebugSamples)
+			this.orchestrator.events.debug(
+				"ml.loop.classifier_examples",
+				`Loaded ${classifierDebugSamples.length} classifier examples into debug training`,
+			)
+		}
 
 		this.stats.totalSamples = codeSamples.length + debugSamples.length + testSamples.length
 
@@ -276,47 +363,81 @@ export class InfiniteImprovementLoop {
 			return
 		}
 
-		// Train each learner with error handling
-		let codeLoss: { qualityLoss: number; successLoss: number; bugRiskLoss: number }
-		let debugLoss: { causeLoss: number; complexityLoss: number; fixSuccessLoss: number }
-		let testLoss: { failLoss: number; timeLoss: number; coverageLoss: number }
+		// Train using ParallelMLTrainer when available (GAP #2), otherwise fall back to sequential
+		let codeLoss: { qualityLoss: number; successLoss: number; bugRiskLoss: number } | null = null
+		let debugLoss: { causeLoss: number; complexityLoss: number; fixSuccessLoss: number } | null = null
+		let testLoss: { failLoss: number; timeLoss: number; coverageLoss: number } | null = null
+		let codeMetrics: object | null = null
+		let debugMetrics: object | null = null
+		let testMetrics: object | null = null
 
-		try {
-			codeLoss = this.codeLearner.train(codeSamples)
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err)
-			this.orchestrator.events.error("ml.loop.train_error", `CodeLearner training failed: ${msg}`)
-			codeLoss = { qualityLoss: NaN, successLoss: NaN, bugRiskLoss: NaN }
+		if (this.config.parallelML) {
+			// Use parallel training
+			const result = await this.config.parallelML.trainAll(
+				this.codeLearner,
+				this.debugLearner,
+				this.testLearner,
+				codeSamples,
+				debugSamples,
+				testSamples,
+			)
+			codeLoss = result.codeLoss
+			debugLoss = result.debugLoss
+			testLoss = result.testLoss
+			codeMetrics = result.codeMetrics
+			debugMetrics = result.debugMetrics
+			testMetrics = result.testMetrics
+
+			if (result.codeError) {
+				this.orchestrator.events.error("ml.loop.train_error", `CodeLearner parallel training failed: ${result.codeError}`)
+			}
+			if (result.debugError) {
+				this.orchestrator.events.error("ml.loop.train_error", `DebugLearner parallel training failed: ${result.debugError}`)
+			}
+			if (result.testError) {
+				this.orchestrator.events.error("ml.loop.train_error", `TestLearner parallel training failed: ${result.testError}`)
+			}
+		} else {
+			// Sequential fallback
+			try {
+				codeLoss = this.codeLearner.train(codeSamples)
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err)
+				this.orchestrator.events.error("ml.loop.train_error", `CodeLearner training failed: ${msg}`)
+			}
+
+			try {
+				debugLoss = this.debugLearner.train(debugSamples)
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err)
+				this.orchestrator.events.error("ml.loop.train_error", `DebugLearner training failed: ${msg}`)
+			}
+
+			try {
+				testLoss = this.testLearner.train(testSamples)
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err)
+				this.orchestrator.events.error("ml.loop.train_error", `TestLearner training failed: ${msg}`)
+			}
 		}
 
-		try {
-			debugLoss = this.debugLearner.train(debugSamples)
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err)
-			this.orchestrator.events.error("ml.loop.train_error", `DebugLearner training failed: ${msg}`)
-			debugLoss = { causeLoss: NaN, complexityLoss: NaN, fixSuccessLoss: NaN }
+		// Build NaN-free loss array for validation
+		const allLosses: number[] = []
+		if (codeLoss) {
+			if (!Number.isNaN(codeLoss.qualityLoss)) allLosses.push(codeLoss.qualityLoss)
+			if (!Number.isNaN(codeLoss.successLoss)) allLosses.push(codeLoss.successLoss)
+			if (!Number.isNaN(codeLoss.bugRiskLoss)) allLosses.push(codeLoss.bugRiskLoss)
 		}
-
-		try {
-			testLoss = this.testLearner.train(testSamples)
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err)
-			this.orchestrator.events.error("ml.loop.train_error", `TestLearner training failed: ${msg}`)
-			testLoss = { failLoss: NaN, timeLoss: NaN, coverageLoss: NaN }
+		if (debugLoss) {
+			if (!Number.isNaN(debugLoss.causeLoss)) allLosses.push(debugLoss.causeLoss)
+			if (!Number.isNaN(debugLoss.complexityLoss)) allLosses.push(debugLoss.complexityLoss)
+			if (!Number.isNaN(debugLoss.fixSuccessLoss)) allLosses.push(debugLoss.fixSuccessLoss)
 		}
-
-		// Validate losses are finite numbers
-		const allLosses = [
-			codeLoss.qualityLoss,
-			codeLoss.successLoss,
-			codeLoss.bugRiskLoss,
-			debugLoss.causeLoss,
-			debugLoss.complexityLoss,
-			debugLoss.fixSuccessLoss,
-			testLoss.failLoss,
-			testLoss.timeLoss,
-			testLoss.coverageLoss,
-		].filter((v) => !Number.isNaN(v))
+		if (testLoss) {
+			if (!Number.isNaN(testLoss.failLoss)) allLosses.push(testLoss.failLoss)
+			if (!Number.isNaN(testLoss.timeLoss)) allLosses.push(testLoss.timeLoss)
+			if (!Number.isNaN(testLoss.coverageLoss)) allLosses.push(testLoss.coverageLoss)
+		}
 
 		if (allLosses.length === 0) {
 			this.orchestrator.events.warn("ml.loop.train_error", "All training losses are NaN, models may be corrupted")
@@ -344,21 +465,27 @@ export class InfiniteImprovementLoop {
 		const avgLoss = allLosses.reduce((a, b) => a + b, 0) / allLosses.length
 		this.stats.lastTrainLoss = avgLoss
 
-		// Evaluate metrics on the latest samples
-		const codeMetrics = this.codeLearner.evaluate(codeSamples)
-		const debugMetrics = this.debugLearner.evaluate(debugSamples)
-		const testMetrics = this.testLearner.evaluate(testSamples)
-		this.stats.lastMetrics = { code: codeMetrics, debug: debugMetrics, test: testMetrics }
+		// Evaluate metrics (skip if already computed by parallel trainer)
+		if (!codeMetrics && codeSamples.length > 0) {
+			codeMetrics = this.codeLearner.evaluate(codeSamples)
+		}
+		if (!debugMetrics && debugSamples.length > 0) {
+			debugMetrics = this.debugLearner.evaluate(debugSamples)
+		}
+		if (!testMetrics && testSamples.length > 0) {
+			testMetrics = this.testLearner.evaluate(testSamples)
+		}
+		this.stats.lastMetrics = { code: codeMetrics ?? {}, debug: debugMetrics ?? {}, test: testMetrics ?? {} }
 
 		this.orchestrator.events.info("ml.loop.learn", `Trained on ${this.stats.totalSamples} samples`, {
 			data: {
-				codeLoss,
-				debugLoss,
-				testLoss,
+				codeLoss: codeLoss ?? { qualityLoss: NaN, successLoss: NaN, bugRiskLoss: NaN },
+				debugLoss: debugLoss ?? { causeLoss: NaN, complexityLoss: NaN, fixSuccessLoss: NaN },
+				testLoss: testLoss ?? { failLoss: NaN, timeLoss: NaN, coverageLoss: NaN },
 				avgLoss,
-				codeMetrics,
-				debugMetrics,
-				testMetrics,
+				codeMetrics: codeMetrics ?? {},
+				debugMetrics: debugMetrics ?? {},
+				testMetrics: testMetrics ?? {},
 			},
 		})
 
@@ -380,7 +507,7 @@ export class InfiniteImprovementLoop {
 	 * Queue training samples as observations for cloud sync.
 	 */
 	private queueObservationsForSync(
-		codeSamples: Array<{ features: number[]; quality: number; success: number; bugRisk: number }>,
+		codeSamples: CodeSample[],
 		debugSamples: Array<{ features: number[]; causeCategory: number; fixComplexity: number; fixSuccess: number }>,
 		testSamples: Array<{ features: number[]; willFail: number; execTime: number; coverageGap: number }>,
 	): void {
@@ -393,8 +520,8 @@ export class InfiniteImprovementLoop {
 			const obs: SyncObservation = {
 				taskType: "code",
 				inputSummary: `features: [${s.features.map((f) => f.toFixed(2)).join(",")}]`,
-				outputSummary: `quality=${s.quality.toFixed(2)}, success=${s.success}, bugRisk=${s.bugRisk}`,
-				success: s.success === 1,
+				outputSummary: `quality=${(s.quality ?? 0).toFixed(2)}, success=${s.success ?? 0}, bugRisk=${s.bugRisk ?? 0}`,
+				success: (s.success ?? 0) === 1,
 				durationMs: 0,
 				featuresLocal: s.features,
 				featuresUnified: s.features.concat(0, 0, 0),
@@ -611,6 +738,83 @@ export class InfiniteImprovementLoop {
 		return { valid: true }
 	}
 
+	// ── Classifier example conversion (GAP #5) ───────────────────────────────
+
+	/**
+	 * Convert MLClassifier TrainingExamples to DebugSamples for the DebugLearner.
+	 * Maps the 22 MLClassifier categories into 5 DebugLearner cause categories.
+	 */
+	private convertClassifierExamples(examples: TrainingExample[]) {
+		return examples
+			.filter((ex) => ex.confirmed && ex.category !== "UNKNOWN")
+			.map((ex) => {
+				const features = this.classifierTextToFeatures(ex.text)
+				const causeCategory = this.mapClassifierCategory(ex.category)
+				return {
+					features,
+					causeCategory,
+					fixComplexity: 0.5, // neutral default — no retry info from classifier
+					fixSuccess: 1, // confirmed incidents mean the cause was correctly identified
+				}
+			})
+	}
+
+	/**
+	 * Convert classifier incident text to an 8-dim feature vector.
+	 * Uses heuristics similar to taskToFeatures but from raw text.
+	 */
+	private classifierTextToFeatures(text: string): number[] {
+		const lower = text.toLowerCase()
+		return [
+			Math.min(text.length / 200, 1), // goal length proxy
+			lower.includes("api") || lower.includes("network") ? 1 : 0, // capabilities proxy
+			lower.includes("write") || lower.includes("file") ? 1 : 0, // hasWrite proxy
+			lower.includes("exec") || lower.includes("command") ? 1 : 0, // hasExecute proxy
+			lower.includes("critical") || lower.includes("high") ? 1 : 0.5, // priority proxy
+			lower.includes("retry") || lower.includes("attempt") ? 0.5 : 0, // attempts proxy
+			lower.includes("follow") || lower.includes("dependent") ? 1 : 0, // isFollowup proxy
+			0, // reserved
+		]
+	}
+
+	/**
+	 * Map MLClassifier's 22 RootCauseCategory values to DebugLearner's 5 cause categories.
+	 * DebugLearner categories: 0=syntax/parse, 1=type, 2=assert/expect, 3=other, 4=env/config
+	 */
+	private mapClassifierCategory(category: string): number {
+		switch (category) {
+			case "SYNTAX_ERROR":
+			case "PARSE_ERROR":
+			case "IMPORT_ERROR":
+				return 0 // syntax/parse
+			case "TYPE_ERROR":
+			case "NULL_POINTER":
+			case "UNDEFINED_VARIABLE":
+			case "REFERENCE_ERROR":
+				return 1 // type/null/ref
+			case "ASSERTION_ERROR":
+			case "TEST_FAILURE":
+			case "EXPECTATION_FAILED":
+				return 2 // assert/expect
+			case "API_ERROR":
+			case "TIMEOUT":
+			case "NETWORK_ERROR":
+			case "DB_CONNECTION":
+			case "AUTH_ERROR":
+			case "PERMISSION_DENIED":
+			case "RATE_LIMIT":
+				return 3 // runtime/other
+			case "MEMORY":
+			case "DISK_FULL":
+			case "RESOURCE_EXHAUSTED":
+			case "CONFIG_ERROR":
+			case "ENV_ERROR":
+				return 4 // env/config
+			default:
+				return 3 // unknown → runtime default
+		}
+	}
+
 	// ── Feature extraction ────────────────────────────────────────────────────
 
 	private taskToFeatures(task: Task): number[] {
@@ -637,7 +841,7 @@ export class InfiniteImprovementLoop {
 
 	// ── Richer label extraction ───────────────────────────────────────────────
 
-	private extractCodeSamples(tasks: Task[]) {
+	private extractCodeSamples(tasks: Task[]): CodeSample[] {
 		return tasks
 			.filter((t) => t.agent === "coder" && t.status !== "pending")
 			.map((t) => {

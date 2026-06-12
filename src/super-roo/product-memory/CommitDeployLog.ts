@@ -139,7 +139,11 @@ export class CommitDeployLog {
 		memoryDir?: string,
 	) {
 		// Allow env var override for cross-project support
-		this.logDir = memoryDir || process.env.COMMIT_DEPLOY_LOG_DIR || path.resolve(process.cwd(), "server/src/memory")
+		this.logDir = memoryDir
+			|| process.env.COMMIT_DEPLOY_LOG_DIR
+			|| process.env.SUPERROO_PRODUCT_MEMORY_DIR
+			|| (process.env.SUPERROO_HOME ? `${process.env.SUPERROO_HOME}/product-memory` : null)
+			|| require("path").join(require("os").homedir(), ".superroo", "product-memory")
 		this.logPath = path.join(this.logDir, LOG_FILE)
 	}
 

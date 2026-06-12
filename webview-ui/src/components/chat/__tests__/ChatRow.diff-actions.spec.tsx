@@ -10,6 +10,8 @@ const mockPostMessage = vi.fn()
 vi.mock("@src/utils/vscode", () => ({
 	vscode: {
 		postMessage: (...args: unknown[]) => mockPostMessage(...args),
+		getState: vi.fn(() => undefined),
+		setState: vi.fn(),
 	},
 }))
 

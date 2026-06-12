@@ -20,7 +20,11 @@ import { getGitStatus } from "../../utils/git"
 import { Task } from "../task/Task"
 import { formatReminderSection } from "./reminder"
 
-export async function getEnvironmentDetails(cline: Task, includeFileDetails: boolean = false) {
+export async function getEnvironmentDetails(
+	cline: Task,
+	includeFileDetails: boolean = false,
+	skipTerminalWait: boolean = false,
+) {
 	let details = ""
 
 	const clineProvider = cline.providerRef.deref()
@@ -76,7 +80,7 @@ export async function getEnvironmentDetails(cline: Task, includeFileDetails: boo
 		...TerminalRegistry.getBackgroundTerminals(false),
 	]
 
-	if (busyTerminals.length > 0) {
+	if (busyTerminals.length > 0 && !skipTerminalWait) {
 		if (cline.didEditFile) {
 			await delay(300) // Delay after saving file to let terminals catch up.
 		}

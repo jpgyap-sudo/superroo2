@@ -11,52 +11,73 @@ This file provides guidance to Claude Code when working with the SuperRoo reposi
 This project uses a model-routing workflow:
 
 - **Codex** = planner, reviewer, tester, final verifier
-- **DeepSeek** = primary low-cost coder / refactor worker AND context summarizer (via build-agent-context.mjs and ollama-summarize-lesson.mjs)
-- **Ollama** = embeddings only (nomic-embed-text), local chat (qwen2.5:0.5b)
+- **Ollama** = primary local coder / refactor worker, embeddings (nomic-embed-text), local chat (hermes3)
+- **DeepSeek** = optional context and lesson summarizer when configured
 - **Central Brain** = persistent memory database / pgvector / lesson store
-- **Claude** = planner, reviewer, orchestrator — delegates coding to DeepSeek via MCP
+- **Claude** = planner, reviewer, orchestrator — delegates coding to Ollama via MCP
 
 ### Workflow Enforcement (MCP Tools)
 
-Claude Code MUST use the `deepseek-coder` and `ollama` MCP servers (registered in `.mcp.json`) to follow the SuperRoo agent routing workflow:
+Claude Code MUST use the `ollama` MCP server (registered in `.mcp.json`) to follow the SuperRoo agent routing workflow:
 
 | Phase         | Tool                          | Provider     | When to Use                                                                    |
 | ------------- | ----------------------------- | ------------ | ------------------------------------------------------------------------------ |
 | **Plan**      | Claude's own model            | Claude       | Analyze requirements, design architecture, plan implementation                 |
 | **Context**   | `build-agent-context.mjs`     | DeepSeek API | Run before coding to compress repo context into task brief                     |
-| **Code**      | `deepseek_code`               | DeepSeek V4  | Write new code, implement features, create files                               |
-| **Review**    | `deepseek_review`             | DeepSeek V4  | Review code for bugs, security, performance                                    |
-| **Refactor**  | `deepseek_refactor`           | DeepSeek V4  | Improve existing code structure and quality                                    |
-| **Explain**   | `deepseek_explain`            | DeepSeek V4  | Understand complex code, generate docs                                         |
+| **Code**      | `ollama_chat`                 | Ollama coder | Write new code, implement features, create files                               |
+| **Review**    | `ollama_chat`                 | Ollama pro   | Review code for bugs, security, performance                                    |
+| **Refactor**  | `ollama_chat`                 | Ollama coder | Improve existing code structure and quality                                    |
+| **Explain**   | `ollama_chat`                 | Ollama       | Understand complex code, generate docs                                         |
 | **Summarize** | `ollama-summarize-lesson.mjs` | DeepSeek API | Summarize lessons after coding (DeepSeek for summaries, Ollama for embeddings) |
 | **Embed**     | `ollama_embed`                | Ollama (VPS) | Generate embeddings for semantic search or RAG                                 |
 | **Chat**      | `ollama_chat`                 | Ollama (VPS) | Quick questions, code explanations via local model                             |
 
-**Workflow rule:** Claude MUST call `deepseek_code` for any substantial coding task instead of writing code directly. Claude handles planning, review, and orchestration. DeepSeek handles implementation AND summarization. Ollama handles embeddings only.
+**Workflow rule:** Claude MUST call `ollama_chat` for any substantial coding task instead of writing code directly. Claude handles planning, review, and orchestration. Ollama handles implementation, refactoring, review assistance, embeddings, and local chat.
 
-**DeepSeek MCP tools (via `deepseek-coder` server):**
+**Ollama coding route (via `ollama` server):**
 
-1. **`deepseek_code(prompt, system?, model?, temperature?, max_tokens?)** — Generate code using DeepSeek V4. Pass the coding task as `prompt`. Optionally set `system` prompt for context.
+Use `ollama_chat(message, model?, system?)` with these models:
 
-2. **`deepseek_review(code, context?, model?)** — Review code using DeepSeek V4. Returns structured review with severity levels.
+- `qwen2.5-coder:7b` — default coding implementation model.
+- `qwen3:14b` — complex coding, review, and higher-risk changes.
+- `hermes3:latest` — quick explanations and planning support.
 
-3. **`deepseek_refactor(code, instructions?, model?)** — Refactor code using DeepSeek V4. Pass refactoring goals as `instructions`.
+Recommended coding prompt shape:
 
-4. **`deepseek_explain(code, context?, model?)** — Explain code using DeepSeek V4. Returns detailed explanation with design patterns and data flow.
+```text
+Use qwen2.5-coder:7b. Implement this change using the repo's existing patterns.
+Return a concise patch plan and the exact code edits needed.
+```
 
-5. \*\*`deepseek_status()` — Check if DeepSeek API is configured and reachable.
+**Ollama MCP tools (via `ollama` server, local first with VPS fallback):**
 
-**Ollama MCP tools (via `ollama` server, connects to VPS at `100.64.175.88:11434`):**
+1. **`ollama_summarize(text, model?)** — [DEPRECATED] Summarize text using Ollama (hermes3). Prefer the repo context builder for task context.
 
-6. **`ollama_summarize(text, model?)** — [DEPRECATED] Summarize text using VPS Ollama (qwen2.5:0.5b) — quality is poor. Use `build-agent-context.mjs` (DeepSeek) for context compression or `ollama-summarize-lesson.mjs` (DeepSeek + Ollama) for lesson summarization instead.
+2. **`ollama_embed(text)** — Generate embeddings using nomic-embed-text. Use for semantic search or RAG pipelines.
 
-7. **`ollama_embed(text)** — Generate embeddings using nomic-embed-text on VPS Ollama. Use for semantic search or RAG pipelines.
+3. **`ollama_chat(message, model?, system?)** — Chat with a local model. Use for coding, refactoring, review assistance, quick questions, and code explanations.
 
-8. **`ollama_chat(message, model?, system?)** — Chat with a model on VPS Ollama. Use for quick questions or code explanations.
+4. **`ollama_vision(image_path, prompt?, model?)** — Analyze local images with a vision model.
 
-9. \*\*`ollama_list_models()` — List available models on the VPS Ollama instance.
+5. **`ollama_list_models()`** — List available models on the configured Ollama instance.
 
-10. \*\*`ollama_status()` — Check if VPS Ollama is reachable and healthy.
+6. **`ollama_status()`** — Check if Ollama is reachable and healthy.
+
+## SuperRoo Extension Fix Log — MANDATORY
+
+When working on the SuperRoo VS Code extension webview issue:
+
+1. **Before starting:** Read `docs/logs/superroo-extension-fixes.md` to see what other agents already tried.
+2. **After attempting a fix:** Append a new entry to that log file with:
+   - Date and agent/model name
+   - Files changed
+   - What was changed and why
+   - What was tested
+   - Result (pass/fail/unknown)
+   - Next steps
+3. **Do NOT delete or overwrite** previous entries. Only append.
+
+This prevents duplicate work and helps all agents build on prior attempts instead of repeating them.
 
 ## Learning Layer — Mandatory Sync
 

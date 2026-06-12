@@ -108,6 +108,54 @@ export function transformMessagesForCondensing<
 	}))
 }
 
+/**
+ * Checks if a message is pure tool output (no user intent) and can be skipped during condensation.
+ * Tool-only messages don't need summarization as they contain no conversational context.
+ */
+export function isPureToolOutput(message: ApiMessage): boolean {
+	if (typeof message.content === "string") {
+		return false
+	}
+	if (!Array.isArray(message.content)) {
+		return false
+	}
+	// Check if all content blocks are tool_use or tool_result
+	return message.content.every(
+		(block) => block.type === "tool_use" || block.type === "tool_result" || block.type === "image",
+	)
+}
+
+/**
+ * Attempts to rescue context overflow by calling local Ollama Phi model.
+ * This is a fallback when the primary model fails due to context size limits.
+ */
+async function tryLocalOllamaRescue(messages: ApiMessage[]): Promise<string | null> {
+	try {
+		const response = await fetch("http://127.0.0.1:11434/api/generate", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				model: "phi4:latest",
+				prompt: `Summarize this conversation in 1-2 sentences:\n\n${messages
+					.map((m) => `${m.role}: ${typeof m.content === "string" ? m.content : JSON.stringify(m.content)}`)
+					.join("\n")}`,
+				stream: false,
+			}),
+		})
+
+		if (!response.ok) {
+			return null
+		}
+
+		const data = await response.json()
+		const summary = data.response ?? null
+		// Prepend COMPACT_BRIEF_READY marker for context overflow rescue
+		return summary ? `COMPACT_BRIEF_READY: true\n\n${summary}` : null
+	} catch {
+		return null
+	}
+}
+
 export const MIN_CONDENSE_THRESHOLD = 5 // Minimum percentage of context window to trigger condensing
 export const MAX_CONDENSE_THRESHOLD = 100 // Maximum percentage of context window to trigger condensing
 
@@ -223,6 +271,7 @@ export type SummarizeResponse = {
 
 export type SummarizeConversationOptions = {
 	messages: ApiMessage[]
+	allMessages?: ApiMessage[]
 	apiHandler: ApiHandler
 	systemPrompt: string
 	taskId: string
@@ -256,6 +305,7 @@ export type SummarizeConversationOptions = {
 export async function summarizeConversation(options: SummarizeConversationOptions): Promise<SummarizeResponse> {
 	const {
 		messages,
+		allMessages,
 		apiHandler,
 		systemPrompt,
 		taskId,
@@ -267,13 +317,14 @@ export async function summarizeConversation(options: SummarizeConversationOption
 		cwd,
 		rooIgnoreController,
 	} = options
+	const fullMessages = allMessages ?? messages
 	TelemetryService.instance.captureContextCondensed(
 		taskId,
 		isAutomaticTrigger ?? false,
 		!!customCondensingPrompt?.trim(),
 	)
 
-	const response: SummarizeResponse = { messages, cost: 0, summary: "" }
+	const response: SummarizeResponse = { messages: fullMessages, cost: 0, summary: "" }
 
 	// Get messages to summarize (all messages since the last summary, if any)
 	const messagesToSummarize = getMessagesSinceLastSummary(messages)
@@ -294,6 +345,12 @@ export async function summarizeConversation(options: SummarizeConversationOption
 		return { ...response, error }
 	}
 
+	// Filter out pure tool output messages - they contain no conversational context
+	// This reduces input size and speeds up summarization
+	const messagesWithToolResults = injectSyntheticToolResults(
+		messagesToSummarize.filter((msg) => !isPureToolOutput(msg)),
+	)
+
 	// Use custom prompt if provided and non-empty, otherwise use the default CONDENSE prompt
 	// This respects user's custom condensing prompt setting
 	const condenseInstructions = customCondensingPrompt?.trim() || supportPrompt.default.CONDENSE
@@ -302,10 +359,6 @@ export async function summarizeConversation(options: SummarizeConversationOption
 		role: "user",
 		content: condenseInstructions,
 	}
-
-	// Inject synthetic tool_results for orphan tool_calls to prevent API rejections
-	// (e.g., when user triggers condense after receiving attempt_completion but before responding)
-	const messagesWithToolResults = injectSyntheticToolResults(messagesToSummarize)
 
 	// Transform tool_use and tool_result blocks to text representations.
 	// This is necessary because some providers (like Bedrock via LiteLLM) require the `tools` parameter
@@ -347,12 +400,54 @@ export async function summarizeConversation(options: SummarizeConversationOption
 		console.error("Error during condensing API call:", error)
 		const errorMessage = error instanceof Error ? error.message : String(error)
 
+		// Check for ContextOverflowError - try local Ollama Phi rescue
+		const anyError = error as unknown as Record<string, unknown>
+		if (error instanceof Error && error.name === "ContextOverflowError" && isAutomaticTrigger) {
+			console.log("[summarizeConversation] Context overflow detected, attempting local Ollama Phi rescue...")
+			try {
+				const rescueSummary = await tryLocalOllamaRescue(messagesToSummarize)
+				if (rescueSummary) {
+					// Build summary with rescue content
+					const summaryContent: Anthropic.Messages.ContentBlockParam[] = [
+						{ type: "text", text: rescueSummary },
+					]
+
+					const condenseId = crypto.randomUUID()
+					const lastMsgTs = fullMessages[fullMessages.length - 1]?.ts ?? Date.now()
+
+					const summaryMessage: ApiMessage = {
+						role: "user",
+						content: summaryContent,
+						ts: lastMsgTs + 1,
+						isSummary: true,
+						condenseId,
+					}
+
+					const newMessages = fullMessages.map((msg) => {
+						if (!msg.condenseParent) {
+							return { ...msg, condenseParent: condenseId }
+						}
+						return msg
+					})
+					newMessages.push(summaryMessage)
+
+					return {
+						messages: newMessages,
+						summary: rescueSummary,
+						cost: 0,
+						condenseId,
+					}
+				}
+			} catch (rescueError) {
+				console.error("[summarizeConversation] Local Ollama rescue failed:", rescueError)
+			}
+		}
+
 		// Capture detailed error information for debugging
 		let errorDetails = ""
 		if (error instanceof Error) {
 			errorDetails = `Error: ${error.message}`
 			// Capture any additional API error properties
-			const anyError = error as unknown as Record<string, unknown>
 			if (anyError.status) {
 				errorDetails += `\n\nHTTP Status: ${anyError.status}`
 			}
@@ -394,7 +489,7 @@ export async function summarizeConversation(options: SummarizeConversationOption
 
 	// Extract command blocks from the first message (original task)
 	// These represent active workflows that must persist across condensings
-	const firstMessage = messages[0]
+	const firstMessage = fullMessages[0]
 	const commandBlocks = firstMessage ? extractCommandBlocks(firstMessage) : ""
 
 	// Build the summary content as separate text blocks
@@ -453,7 +548,7 @@ ${commandBlocks}
 
 	// Use the last message's timestamp + 1 to ensure unique timestamp for summary.
 	// The summary goes at the end of all messages.
-	const lastMsgTs = messages[messages.length - 1]?.ts ?? Date.now()
+	const lastMsgTs = fullMessages[fullMessages.length - 1]?.ts ?? Date.now()
 
 	const summaryMessage: ApiMessage = {
 		role: "user", // Fresh start model: summary is a user message
@@ -475,7 +570,7 @@ ${commandBlocks}
 	// [summary]  ← Fresh start!
 
 	// Tag ALL messages with condenseParent
-	const newMessages = messages.map((msg) => {
+	const newMessages = fullMessages.map((msg) => {
 		// If message already has a condenseParent, we leave it - nested condense is handled by filtering
 		if (!msg.condenseParent) {
 			return { ...msg, condenseParent: condenseId }

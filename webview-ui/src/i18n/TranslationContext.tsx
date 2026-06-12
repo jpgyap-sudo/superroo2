@@ -17,6 +17,7 @@ export const TranslationProvider: React.FC<{ children: ReactNode }> = ({ childre
 	// Initialize with default configuration
 	const { i18n } = useTranslation()
 	// Get the extension state directly - it already contains all state properties
+	// Use safe defaults if state is not yet hydrated
 	const extensionState = useExtensionState()
 
 	// Load translations once when the component mounts
@@ -29,7 +30,10 @@ export const TranslationProvider: React.FC<{ children: ReactNode }> = ({ childre
 	}, [])
 
 	useEffect(() => {
-		i18n.changeLanguage(extensionState.language)
+		// Only change language if we have a valid language value
+		if (extensionState.language) {
+			i18n.changeLanguage(extensionState.language)
+		}
 	}, [i18n, extensionState.language])
 
 	// Memoize the translation function to prevent unnecessary re-renders

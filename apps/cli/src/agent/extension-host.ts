@@ -37,6 +37,7 @@ import { ExtensionClient } from "./extension-client.js"
 import { OutputManager } from "./output-manager.js"
 import { PromptManager } from "./prompt-manager.js"
 import { AskDispatcher } from "./ask-dispatcher.js"
+import { AgentBus } from "../../../../src/super-roo/parallel/AgentBus.js"
 
 // Pre-configured logger for CLI message activity debugging.
 const cliLogger = new DebugLogger("CLI")
@@ -113,6 +114,8 @@ export interface ExtensionHostInterface extends IExtensionHost<ExtensionHostEven
 	resumeTask(taskId: string): Promise<void>
 	sendToExtension(message: WebviewMessage): void
 	dispose(): Promise<void>
+	/** Get the AgentBus for parallel agent coordination */
+	getAgentBus?(): AgentBus | undefined
 }
 
 export class ExtensionHost extends EventEmitter implements ExtensionHostInterface {
@@ -537,15 +540,22 @@ export class ExtensionHost extends EventEmitter implements ExtensionHostInterfac
 		return this.waitForTaskCompletion()
 	}
 
-	// ==========================================================================
+// ==========================================================================
 	// Public Agent State API
 	// ==========================================================================
 
 	/**
-	 * Get the current agent loop state.
+	 * Get the current agent state information.
 	 */
 	public getAgentState(): AgentStateInfo {
 		return this.client.getAgentState()
+	}
+
+	/**
+	 * Get the AgentBus for parallel agent coordination (if available).
+	 */
+	public getAgentBus?(): AgentBus | undefined {
+		return (global as Record<string, unknown>).__agentBus as AgentBus | undefined
 	}
 
 	/**

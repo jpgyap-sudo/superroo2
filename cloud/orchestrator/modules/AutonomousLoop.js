@@ -981,7 +981,7 @@ class AutonomousLoop {
 			if (this._modelUsageTracker) {
 				try {
 					const ollamaBaseUrl = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434"
-					const ollamaModel = process.env.OLLAMA_MODEL || "qwen2.5:0.5b"
+					const ollamaModel = process.env.OLLAMA_MODEL || "hermes3"
 					const summaryPrompt = `Summarize the following git diff for a commit message:\n\n${gitStatus.stdout.slice(0, 4000)}`
 					const startTime = Date.now()
 					const summaryRes = await fetch(`${ollamaBaseUrl}/api/generate`, {

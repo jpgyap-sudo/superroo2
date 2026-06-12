@@ -851,6 +851,7 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 								maxGitStatusFiles={maxGitStatusFiles}
 								customSupportPrompts={customSupportPrompts || {}}
 								setCustomSupportPrompts={setCustomSupportPromptsField}
+								condenseAutocomplete={cachedState?.condenseAutocomplete ?? true}
 								setCachedStateField={setCachedStateField}
 							/>
 						)}

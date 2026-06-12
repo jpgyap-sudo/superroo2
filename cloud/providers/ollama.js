@@ -20,16 +20,17 @@ function createProvider(options = {}) {
 	const definition = {
 		id: "ollama",
 		name: "Ollama (Local)",
-		description: "Local Ollama models (qwen2.5:0.5b, qwen2.5:1.5b)",
+		description: "Local Ollama models (hermes3, qwen3:14b, qwen2.5-coder:7b)",
 		envName: null,
 		website: "https://ollama.com",
 		docsUrl: "https://github.com/ollama/ollama",
 		apiBaseUrl: baseUrl,
-		defaultModel: "qwen2.5:0.5b",
+		defaultModel: "hermes3",
 		local: true,
 		models: [
-			{ id: "qwen2.5:0.5b", name: "Qwen 2.5 0.5B", contextWindow: 32768, supportsVision: false, supportsTools: false, supportsReasoning: false, inputCostPerMTok: 0, outputCostPerMTok: 0, bestFor: ["local embedding", "fast classification"] },
-			{ id: "qwen2.5:1.5b", name: "Qwen 2.5 1.5B", contextWindow: 32768, supportsVision: false, supportsTools: false, supportsReasoning: false, inputCostPerMTok: 0, outputCostPerMTok: 0, bestFor: ["local tasks", "summaries"] },
+			{ id: "qwen3:14b", name: "Qwen3 14B", contextWindow: 131072, supportsVision: false, supportsTools: true, supportsReasoning: true, inputCostPerMTok: 0, outputCostPerMTok: 0, bestFor: ["complex coding", "multi-file work", "architecture"] },
+			{ id: "qwen2.5-coder:7b", name: "Qwen2.5 Coder 7B", contextWindow: 131072, supportsVision: false, supportsTools: false, supportsReasoning: false, inputCostPerMTok: 0, outputCostPerMTok: 0, bestFor: ["fast edits", "quick functions"] },
+			{ id: "hermes3", name: "Hermes 3 8B", contextWindow: 131072, supportsVision: false, supportsTools: false, supportsReasoning: false, inputCostPerMTok: 0, outputCostPerMTok: 0, bestFor: ["research", "analysis", "memory retrieval"] },
 		],
 		capabilities: {
 			chat: true,
@@ -170,7 +171,7 @@ function createProvider(options = {}) {
 	 * @returns {Promise<number[]>}
 	 */
 	async function embed(text, model) {
-		const embedModel = model || "qwen2.5:0.5b"
+		const embedModel = model || "hermes3"
 		const url = `${baseUrl}/api/embed`
 
 		const response = await fetch(url, {

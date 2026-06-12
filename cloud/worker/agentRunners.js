@@ -2021,7 +2021,7 @@ async function runHealer(job) {
 async function ollamaSummarize(runnerType, job, result) {
 	try {
 		const ollamaBaseUrl = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434"
-		const ollamaModel = process.env.OLLAMA_MODEL || "qwen2.5:0.5b"
+		const ollamaModel = process.env.OLLAMA_MODEL || "hermes3"
 		const instruction = job.data?.instruction || ""
 		const outputText = Array.isArray(result.output) ? result.output.join("\n").substring(0, 3000) : ""
 

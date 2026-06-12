@@ -6,7 +6,7 @@ import { rooCodeSettingsSchema } from "./global-settings.js"
  * Roo CLI stdin commands
  */
 
-export const rooCliCommandNames = ["start", "message", "cancel", "ping", "shutdown"] as const
+export const rooCliCommandNames = ["start", "message", "cancel", "ping", "shutdown", "question"] as const
 
 export const rooCliCommandNameSchema = z.enum(rooCliCommandNames)
 
@@ -55,17 +55,25 @@ export const rooCliPingCommandSchema = rooCliCommandBaseSchema.extend({
 export type RooCliPingCommand = z.infer<typeof rooCliPingCommandSchema>
 
 export const rooCliShutdownCommandSchema = rooCliCommandBaseSchema.extend({
-	command: z.literal("shutdown"),
+  command: z.literal("shutdown"),
 })
 
 export type RooCliShutdownCommand = z.infer<typeof rooCliShutdownCommandSchema>
 
+export const rooCliQuestionCommandSchema = rooCliCommandBaseSchema.extend({
+  command: z.literal("question"),
+  prompt: z.string(),
+})
+
+export type RooCliQuestionCommand = z.infer<typeof rooCliQuestionCommandSchema>
+
 export const rooCliInputCommandSchema = z.discriminatedUnion("command", [
-	rooCliStartCommandSchema,
-	rooCliMessageCommandSchema,
-	rooCliCancelCommandSchema,
-	rooCliPingCommandSchema,
-	rooCliShutdownCommandSchema,
+  rooCliStartCommandSchema,
+  rooCliMessageCommandSchema,
+  rooCliCancelCommandSchema,
+  rooCliPingCommandSchema,
+  rooCliShutdownCommandSchema,
+  rooCliQuestionCommandSchema,
 ])
 
 export type RooCliInputCommand = z.infer<typeof rooCliInputCommandSchema>

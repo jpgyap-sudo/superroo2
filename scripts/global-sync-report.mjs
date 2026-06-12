@@ -1,0 +1,273 @@
+#!/usr/bin/env node
+/**
+ * global-sync-report.mjs — Ollama-Powered Status Report Generator
+ *
+ * Uses Ollama to analyze the sync matrix and generate a natural-language
+ * status report. Falls back to rule-based reporting if Ollama is unavailable.
+ *
+ * USAGE:
+ *   node scripts/global-sync-report.mjs            # generate report
+ *   node scripts/global-sync-report.mjs --audit    # audit mode
+ *   node scripts/global-sync-report.mjs --simple   # rule-based only
+ */
+
+import fs from "node:fs"
+import path from "node:path"
+import { fileURLToPath } from "node:url"
+import http from "node:http"
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const ROOT = process.env.PROJECT_ROOT || path.resolve(__dirname, "..")
+const SUPERROO_HOME =
+  process.env.SUPERROO_HOME || path.join(process.env.USERPROFILE || process.env.HOME || "", ".superroo")
+const HEALTH_FILE = path.join(SUPERROO_HOME, "sync-health.json")
+const OLLAMA_URL = process.env.OLLAMA_URL || "http://127.0.0.1:11434"
+const OLLAMA_MODEL = process.env.SUPERROO_OLLAMA_MODEL || "qwen3:14b"
+
+const args = process.argv.slice(2)
+const simple = args.includes("--simple") || args.includes("--status")
+const auditReportsDir = path.join(SUPERROO_HOME, "memory", "audit-reports")
+
+const log = (...a) => console.log(...a)
+const warn = (...a) => console.warn("  ⚠️  ", ...a)
+
+// ── Load latest audit report ───────────────────────────────────────────────
+
+function loadLatestAuditReport() {
+  try {
+    if (!fs.existsSync(auditReportsDir)) return null
+    const files = fs.readdirSync(auditReportsDir)
+      .filter(f => f.startsWith("audit-") && f.endsWith(".json"))
+      .sort()
+      .reverse()
+
+    if (files.length === 0) return null
+    const latestPath = path.join(auditReportsDir, files[0])
+    const content = fs.readFileSync(latestPath, "utf8")
+    const reports = JSON.parse(content)
+    // Reports are stored as array in daily files
+    const report = Array.isArray(reports) ? reports[reports.length - 1] : reports
+    return report
+  } catch {
+    return null
+  }
+}
+
+function ollamaAvailable() {
+  return new Promise((resolve) => {
+    const req = http.get(`${OLLAMA_URL}/api/tags`, (res) => {
+      resolve(res.statusCode === 200)
+    })
+    req.on("error", () => resolve(false))
+    req.setTimeout(2000, () => {
+      req.destroy()
+      resolve(false)
+    })
+  })
+}
+
+async function ollamaComplete(prompt) {
+  const body = JSON.stringify({
+    model: OLLAMA_MODEL,
+    prompt,
+    stream: false,
+    options: { temperature: 0.3, num_predict: 2048 },
+  })
+
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      `${OLLAMA_URL}/api/generate`,
+      { method: "POST", headers: { "Content-Type": "application/json" } },
+      (res) => {
+        let data = ""
+        res.on("data", (chunk) => (data += chunk))
+        res.on("end", () => {
+          try {
+            const parsed = JSON.parse(data)
+            resolve(parsed.response || "")
+          } catch {
+            resolve("")
+          }
+        })
+      },
+    )
+    req.on("error", reject)
+    req.setTimeout(60000, () => {
+      req.destroy()
+      reject(new Error("timeout"))
+    })
+    req.write(body)
+    req.end()
+  })
+}
+
+function buildSummary() {
+  let health = { lastRun: null, lastStatus: "unknown", consecutiveFailures: 0 }
+  if (fs.existsSync(HEALTH_FILE)) {
+    try {
+      health = JSON.parse(fs.readFileSync(HEALTH_FILE, "utf8"))
+    } catch {}
+  }
+
+  // First try to load from latest audit report
+  const auditReport = loadLatestAuditReport()
+  if (auditReport && auditReport.scanResult) {
+    return { engine: auditReport.scanResult, health, auditReport }
+  }
+
+  // Fallback: run engine scan
+  try {
+    const engineOut = require("child_process").spawnSync(
+      process.execPath,
+      [path.join(__dirname, "global-sync-engine.mjs"), "--json"],
+      { cwd: ROOT, encoding: "utf8", timeout: 30000, windowsHide: true },
+    )
+    if (engineOut.status === 0 && engineOut.stdout.trim()) {
+      return { engine: JSON.parse(engineOut.stdout), health }
+    }
+  } catch {}
+
+  return { engine: null, health }
+}
+
+function ruleBasedReport(data) {
+  const { engine, health } = data
+
+  if (!engine) {
+    return `# Global Sync Report — ${new Date().toISOString().slice(0, 10)}
+
+**Status:** Could not load engine output.
+
+Run the engine first:
+  node scripts/global-sync-engine.mjs --status
+`
+  }
+
+  const { summary, matrix } = engine
+  const lines = []
+
+  lines.push(`# Global Sync Report`)
+  lines.push("")
+  lines.push(`> Generated: ${new Date().toISOString()}`)
+  lines.push("")
+  lines.push("## Ecosystem Health")
+  lines.push("")
+  lines.push(`- Extensions scanned: ${summary.totalExtensions}`)
+  lines.push(`- Total gaps: ${summary.totalGaps}`)
+  lines.push(`- Safe to fix: ${summary.safeFixes}`)
+  lines.push(`- Needs approval: ${summary.approvalRequired}`)
+  lines.push("")
+  lines.push("## Gap Breakdown by Domain")
+  lines.push("")
+  for (const [domain, count] of Object.entries(summary.byDomain)) {
+    lines.push(`| ${domain} | ${count} gaps |`)
+  }
+  lines.push("")
+  lines.push("## Per-Extension Status")
+  lines.push("")
+
+  for (const [extId, ext] of Object.entries(matrix)) {
+    if (ext.gapCount === 0) {
+      lines.push(`- **${extId}** — ✅ fully synced`)
+    } else {
+      lines.push(`- **${extId}** — ⚠️ ${ext.gapCount} gaps (${ext.safeCount} safe, ${ext.approvalCount} approval-required)`)
+    }
+  }
+
+  lines.push("")
+  lines.push("## Sync Daemon Health")
+  lines.push("")
+  lines.push(`- Last run: ${health.lastRun || "never"}`)
+  lines.push(`- Last status: ${health.lastStatus || "unknown"}`)
+  lines.push(`- Consecutive failures: ${health.consecutiveFailures || 0}`)
+  lines.push("")
+  lines.push("---")
+  lines.push('*Generated by global-sync-report.mjs (rule-based mode, Ollama unavailable or --simple)*')
+
+  return lines.join("\n")
+}
+
+async function buildEngineResult() {
+  let scanText = ""
+  try {
+    const engineOut = require("child_process").spawnSync(
+      process.execPath,
+      [path.join(__dirname, "global-sync-engine.mjs")],
+      { cwd: ROOT, encoding: "utf8", timeout: 30000, windowsHide: true },
+    )
+    if (engineOut.status === 0) {
+      scanText = engineOut.stdout.slice(0, 8000)
+    }
+  } catch {}
+
+  return scanText
+}
+
+async function ollamaReport(data) {
+  if (!(await ollamaAvailable())) {
+    warn("Ollama not available — using rule-based report")
+    return ruleBasedReport(data)
+  }
+
+  const scanText = await buildEngineResult()
+  const { health } = data
+
+  const prompt = `You are the SuperRoo Global Sync Agent. Analyze the cross-extension sync status and produce a concise executive summary.
+
+## Sync Scan Results
+
+${scanText}
+
+## Sync Daemon Health
+- Last run: ${health.lastRun || "never"}
+- Last status: ${health.lastStatus || "unknown"}
+- Consecutive failures: ${health.consecutiveFailures || 0}
+
+## Instructions
+
+Write a concise status report (markdown) covering:
+1. Overall health of the ecosystem
+2. Which extension needs the most attention
+3. Recommended priority actions
+4. Any risks or anomalies
+
+Keep it under 60 lines. Be direct and actionable. Use tables for gap breakdowns.
+`
+
+  try {
+    const response = await ollamaComplete(prompt)
+    if (response && response.trim().length > 50) {
+      return response.trim()
+    }
+  } catch (e) {
+    warn(`Ollama completion failed: ${e.message}`)
+  }
+
+  return ruleBasedReport(data)
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
+
+async function main() {
+  log("")
+  log("══════════════════════════════════════════════════════════════")
+  log("  📊 Global Sync Report")
+  log("══════════════════════════════════════════════════════════════")
+  log("")
+
+  const data = buildSummary()
+
+  let report
+  if (simple) {
+    report = ruleBasedReport(data)
+  } else {
+    report = await ollamaReport(data)
+  }
+
+  console.log(report)
+}
+
+main().catch((e) => {
+  console.error("❌ Report generation failed:", e.message)
+  process.exit(1)
+})

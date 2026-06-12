@@ -107,6 +107,18 @@ function loadJsonl(filePath) {
     .filter(Boolean)
 }
 
+function allTasksFromRegistry(registry) {
+  if (Array.isArray(registry?.tasks)) return registry.tasks
+  const tasks = []
+  for (const [project, projectData] of Object.entries(registry?.projects || {})) {
+    for (const [agent, agentTasks] of Object.entries(projectData || {})) {
+      if (agent === "updatedAt" || !Array.isArray(agentTasks)) continue
+      for (const task of agentTasks) tasks.push({ ...task, project, agent })
+    }
+  }
+  return tasks
+}
+
 function dirCount(dirPath) {
   if (!exists(dirPath)) return 0
   try {
@@ -326,6 +338,12 @@ const EXTENSION_TARGETS = {
       "mcp_settings.json",
     ),
   },
+  "task-agent": {
+    tasks: path.join(SUPERROO_HOME, "tasks", "global-tasks.json"),
+    skills: path.join(SUPERROO_HOME, "skills", "task-agent"),
+    resources: path.join(SUPERROO_HOME, "resources", "task-agent.md"),
+    mcpConfig: path.join(SUPERROO_HOME, "mcp", "codex-brain.json"),
+  },
 }
 
 // ── Load scan results ───────────────────────────────────────────────────────────
@@ -370,6 +388,56 @@ function atomicWrite(filePath, content) {
 }
 
 // ── Lesson distribution ───────────────────────────────────────────────────────
+
+function importCanonicalTasks(extId, targets) {
+  const tasksPath = targets.tasks
+  if (!tasksPath) return false
+
+  const canonicalTasks = allTasksFromRegistry(loadJson(CANONICAL.tasks, { tasks: [] }))
+  if (canonicalTasks.length === 0) {
+    warn("No canonical tasks to import")
+    return false
+  }
+
+  const existingTasks = allTasksFromRegistry(loadJson(tasksPath, { tasks: [] }))
+  if (existingTasks.length > 0) {
+    logAction({
+      type: "import_tasks",
+      extId,
+      target: tasksPath,
+      status: "skipped",
+      result: `target already has ${existingTasks.length} tasks`,
+    })
+    return true
+  }
+
+  if (dryRun) {
+    logAction({
+      type: "import_tasks",
+      extId,
+      target: tasksPath,
+      status: "dry-run",
+      result: `would import ${canonicalTasks.length} canonical tasks`,
+    })
+    return true
+  }
+
+  ensureParentDir(tasksPath)
+  atomicWrite(tasksPath, JSON.stringify({
+    tasks: canonicalTasks,
+    syncedFrom: CANONICAL.tasks,
+    syncedAt: new Date().toISOString(),
+  }, null, 2) + "\n")
+  logAction({
+    type: "import_tasks",
+    extId,
+    target: tasksPath,
+    status: "success",
+    result: `imported ${canonicalTasks.length} canonical tasks`,
+  })
+  ok(`Imported ${canonicalTasks.length} canonical tasks to ${tasksPath}`)
+  return true
+}
 
 function distributeCanonicalLessons(extId, targets) {
   const extLessonsPath = targets.lessons
@@ -717,6 +785,28 @@ function applyFix(gap) {
   const domain = gap.domain
   const actionType = gap.action
 
+  // Special handling for task-agent — it's read-only and only needs its own skill
+  if (extId === "task-agent") {
+    if (domain === "skills" && actionType === "create_shims") {
+      const canonicalSkillPath = path.join(CANONICAL.skills, "task-agent")
+      const shimPath = path.join(targets.skills, "SKILL.md")
+      // Check if skill already exists (task-agent is canonical, so check for its own file)
+      if (exists(shimPath)) {
+        logAction({
+          type: "create_shim",
+          extId,
+          target: shimPath,
+          status: "skipped",
+          result: "skill already exists",
+        })
+        return true
+      }
+      createSkillShim(extId, canonicalSkillPath, "task-agent", targets.skills)
+      return true
+    }
+    return false
+  }
+
   switch (domain) {
     case "skills":
       if (actionType === "create_shims" && targets.skills) {
@@ -781,7 +871,10 @@ function applyFix(gap) {
       break
 
     case "tasks":
-      if (actionType === "import_canonical" || actionType === "mark_stale_warning") {
+      if (actionType === "import_canonical") {
+        return importCanonicalTasks(extId, targets)
+      }
+      if (actionType === "mark_stale_warning") {
         logAction({
           type: "task_review",
           extId,

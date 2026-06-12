@@ -51,6 +51,8 @@ import { useCloudUpsell } from "@src/hooks/useCloudUpsell"
 import KimiTasksPanel from "./KimiTasksPanel"
 import { useScrollLifecycle } from "@src/hooks/useScrollLifecycle"
 import { Cloud } from "lucide-react"
+import { modelRouterApi } from "@src/components/super-roo/lib/modelRouterApi"
+import { telemetryClient } from "@src/utils/TelemetryClient"
 
 export interface ChatViewProps {
 	isHidden: boolean
@@ -164,6 +166,10 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 	>(undefined)
 	const [isCondensing, setIsCondensing] = useState<boolean>(false)
 	const [showAnnouncementModal, setShowAnnouncementModal] = useState(false)
+	const [autocompleteSuggestion, setAutocompleteSuggestion] = useState<string>("")
+	const [autocompleteLoading, setAutocompleteLoading] = useState<boolean>(false)
+	const [condenseAutocompleteEnabled, setCondenseAutocompleteEnabled] = useState<boolean>(true)
+	const autocompleteAbortControllerRef = useRef<AbortController | null>(null)
 	const everVisibleMessagesTsRef = useRef<LRUCache<number, boolean>>(
 		new LRUCache({
 			max: 100,
@@ -1024,6 +1030,12 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 						setIsCondensing(false)
 					}
 					break
+				case "condenseAutocompleteState":
+					// Update autocomplete availability based on backend setting
+					if (typeof message.enabled === "boolean") {
+						setCondenseAutocompleteEnabled(message.enabled)
+					}
+					break
 				case "checkpointInitWarning":
 					setCheckpointWarning(message.checkpointWarning)
 					break
@@ -1681,6 +1693,91 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 		vscode.postMessage({ type: "condenseTaskContextRequest", text: taskId })
 	}
 
+	const handleAutocompleteInput = useCallback(
+		async (value: string) => {
+			// Only autocomplete during condense operations and when enabled by backend
+			if (!isCondensing || !condenseAutocompleteEnabled || !value || value.length < 2) {
+				setAutocompleteSuggestion("")
+				return
+			}
+
+			// Cancel previous request
+			if (autocompleteAbortControllerRef.current) {
+				autocompleteAbortControllerRef.current.abort()
+			}
+
+			const controller = new AbortController()
+			autocompleteAbortControllerRef.current = controller
+
+			setAutocompleteLoading(true)
+			try {
+				const result = await modelRouterApi.generateAutocomplete({
+					partialMessage: value,
+					maxTokens: 64,
+				})
+
+				if (!controller.signal.aborted && typeof result === "object" && "completion" in result) {
+					setAutocompleteSuggestion(result.completion)
+				}
+			} catch (error) {
+				if (!controller.signal.aborted) {
+					console.warn("[autocomplete] Failed to generate suggestion:", error)
+					setAutocompleteSuggestion("")
+				}
+			} finally {
+				if (!controller.signal.aborted) {
+					setAutocompleteLoading(false)
+				}
+			}
+		},
+		[isCondensing],
+	)
+
+	const handleAcceptAutocomplete = useCallback(() => {
+		if (autocompleteSuggestion) {
+			setInputValue((prev) => prev + autocompleteSuggestion)
+			setAutocompleteSuggestion("")
+			setAutocompleteLoading(false)
+			// Telemetry: track acceptance
+			telemetryClient.capture("Condense Autocomplete Accepted", {
+				taskId: currentTaskItem?.id || "unknown",
+				latencyMs: autocompleteSuggestion.length,
+			})
+		}
+	}, [autocompleteSuggestion, currentTaskItem])
+
+	const handleDismissAutocomplete = useCallback(() => {
+		setAutocompleteSuggestion("")
+		setAutocompleteLoading(false)
+		if (autocompleteAbortControllerRef.current) {
+			autocompleteAbortControllerRef.current.abort()
+		}
+		// Telemetry: track dismissal
+		telemetryClient.capture("Condense Autocomplete Dismissed", { taskId: currentTaskItem?.id || "unknown" })
+	}, [currentTaskItem])
+
+	// Clear autocomplete when condense ends
+	useEffect(() => {
+		if (!isCondensing) {
+			setAutocompleteSuggestion("")
+			setAutocompleteLoading(false)
+			if (autocompleteAbortControllerRef.current) {
+				autocompleteAbortControllerRef.current.abort()
+			}
+		}
+	}, [isCondensing])
+
+	// Trigger autocomplete when user types during condense
+	useEffect(() => {
+		if (!isCondensing || !inputValue || inputValue.length < 2) {
+			return
+		}
+		const timer = setTimeout(() => {
+			handleAutocompleteInput(inputValue)
+		}, 150)
+		return () => clearTimeout(timer)
+	}, [inputValue, isCondensing, handleAutocompleteInput])
+
 	const areButtonsVisible = showScrollToBottom || primaryButtonText || secondaryButtonText
 
 	return (
@@ -1940,6 +2037,11 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 				isStreaming={isStreaming}
 				onStop={handleStopTask}
 				onEnqueueMessage={handleEnqueueCurrentMessage}
+				autocompleteSuggestion={autocompleteSuggestion}
+				autocompleteLoading={autocompleteLoading}
+				onAcceptAutocomplete={handleAcceptAutocomplete}
+				onDismissAutocomplete={handleDismissAutocomplete}
+				isCondensing={isCondensing}
 			/>
 
 			{isProfileDisabled && (

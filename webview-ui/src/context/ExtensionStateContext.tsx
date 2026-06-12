@@ -134,6 +134,8 @@ export interface ExtensionStateContextType extends ExtensionState {
 	setAutoCondenseContext: (value: boolean) => void
 	autoCondenseContextPercent: number
 	setAutoCondenseContextPercent: (value: number) => void
+	condenseAutocomplete: boolean
+	setCondenseAutocomplete: (value: boolean) => void
 	routerModels?: RouterModels
 	includeDiagnosticMessages?: boolean
 	setIncludeDiagnosticMessages: (value: boolean) => void
@@ -277,6 +279,7 @@ export const ExtensionStateContextProvider: React.FC<{ children: React.ReactNode
 		organizationSettingsVersion: -1,
 		autoCondenseContext: true,
 		autoCondenseContextPercent: 100,
+		condenseAutocomplete: true,
 		profileThresholds: {},
 		codebaseIndexConfig: {
 			codebaseIndexEnabled: true,
@@ -340,8 +343,10 @@ export const ExtensionStateContextProvider: React.FC<{ children: React.ReactNode
 	const handleMessage = useCallback(
 		(event: MessageEvent) => {
 			const message: ExtensionMessage = event.data
+			console.debug("[ExtensionStateContext.handleMessage] Received message:", message.type, "didHydrateState:", didHydrateState)
 			switch (message.type) {
 				case "state": {
+					console.debug("[ExtensionStateContext] State message received, apiConfiguration:", !!message.state?.apiConfiguration)
 					const newState = message.state ?? {}
 					setState((prevState) => {
 						const mergedState = mergeExtensionState(prevState, newState)
@@ -359,6 +364,7 @@ export const ExtensionStateContextProvider: React.FC<{ children: React.ReactNode
 					})
 					setShowWelcome(!checkExistKey(newState.apiConfiguration))
 					setDidHydrateState(true)
+					console.debug("[ExtensionStateContext] didHydrateState set to true")
 					// Update alwaysAllowFollowupQuestions if present in state message
 					if ((newState as any).alwaysAllowFollowupQuestions !== undefined) {
 						setAlwaysAllowFollowupQuestions((newState as any).alwaysAllowFollowupQuestions)
@@ -512,15 +518,15 @@ export const ExtensionStateContextProvider: React.FC<{ children: React.ReactNode
 	)
 
 	useEffect(() => {
+		console.debug("[ExtensionStateContext] Setting up message event listener")
 		window.addEventListener("message", handleMessage)
 		return () => {
+			console.debug("[ExtensionStateContext] Removing message event listener")
 			window.removeEventListener("message", handleMessage)
 		}
 	}, [handleMessage])
 
-	useEffect(() => {
-		vscode.postMessage({ type: "webviewDidLaunch" })
-	}, [])
+	// Note: webviewDidLaunch is sent from App.tsx with retry logic, not here
 
 	// Watch for authentication state changes and refresh Roo models
 	useEffect(() => {
@@ -638,6 +644,8 @@ export const ExtensionStateContextProvider: React.FC<{ children: React.ReactNode
 		setAutoCondenseContext: (value) => setState((prevState) => ({ ...prevState, autoCondenseContext: value })),
 		setAutoCondenseContextPercent: (value) =>
 			setState((prevState) => ({ ...prevState, autoCondenseContextPercent: value })),
+		setCondenseAutocomplete: (value) =>
+			setState((prevState) => ({ ...prevState, condenseAutocomplete: value })),
 		setProfileThresholds: (value) => setState((prevState) => ({ ...prevState, profileThresholds: value })),
 		includeDiagnosticMessages: state.includeDiagnosticMessages,
 		setIncludeDiagnosticMessages: (value) => {

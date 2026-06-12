@@ -91,12 +91,17 @@ Quick edits, single functions, small changes.
 
 ### `code_pro(prompt, context?)`
 
-**Model: qwen2.5-coder:14b | Speed: 3-8s**
+**Model: qwen3:14b | Speed: 3-8s**
 Complex implementations, multi-file work, architecture-level code.
+
+### `code_pro_verified(prompt, context?, max_retries?)`
+
+**Model: qwen3:14b + self-correction | Speed: 5-20s**
+Same as `code_pro` but runs `node --check` on the output. If there's a syntax error, feeds it back and retries (default 3 attempts). Use when correctness matters more than speed.
 
 ### `code_with_memory(prompt, collection?, memory_limit?, fast?)`
 
-**Model: qwen2.5-coder:14b + RAG | Speed: 4-10s**
+**Model: qwen3:14b + RAG | Speed: 4-10s**
 Automatically injects relevant project context from memory.
 Best when task needs to follow existing project patterns.
 
@@ -124,7 +129,7 @@ General Q&A with auto-injected memory context.
 
 ### `warmup()`
 
-Pre-loads hermes3, qwen2.5-coder:7b, qwen2.5-coder:14b into RAM.
+Pre-loads hermes3, qwen2.5-coder:7b, qwen3:14b into RAM.
 Run at session start for instant responses all day.
 
 ### `brain_status()`

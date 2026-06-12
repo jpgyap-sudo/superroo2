@@ -106,7 +106,7 @@ export interface SkillFile {
 export const DEFAULT_HERMES_CONFIG: HermesClawConfig = {
 	ollamaBaseUrl: process.env.OLLAMA_BASE_URL || process.env.OLLAMA_HOST || "http://127.0.0.1:11434",
 	ollamaModel:
-		process.env.OLLAMA_MODEL || process.env.OLLAMA_HERMES_MODEL || process.env.OLLAMA_CHAT_MODEL || "qwen2.5:0.5b",
+		process.env.OLLAMA_MODEL || process.env.OLLAMA_HERMES_MODEL || process.env.OLLAMA_CHAT_MODEL || "hermes3",
 	apiKey: process.env.OPENAI_API_KEY || "",
 	model: "gpt-4o-mini",
 	baseUrl: "https://api.openai.com/v1",

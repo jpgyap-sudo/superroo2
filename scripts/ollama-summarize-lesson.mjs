@@ -2,17 +2,18 @@
 /**
  * Lesson Summarizer
  *
- * Summarizes lessons from memory files using DeepSeek API for natural language
- * summarization and Ollama for embedding generation.
+ * Summarizes lessons from memory files using Hermes 3 (local Ollama) for natural
+ * language summarization and nomic-embed-text for embedding generation.
  *
  * Usage: node scripts/ollama-summarize-lesson.mjs [file]
  * Default: processes memory/lessons-learned.md
  *
  * Supports both modern "### Lesson:" and legacy "### Legacy Lesson:" formats.
- * Gracefully handles DeepSeek API or Ollama being offline — logs warning and exits cleanly.
+ * Gracefully handles Ollama being offline — logs warning and exits cleanly.
  *
- * NOTE: Embeddings still use Ollama via curl.exe helper (nomic-embed-text is tiny).
- * Summarization uses DeepSeek API via standard HTTPS fetch().
+ * NOTE: Both summarization and embeddings use local Ollama (no cloud API required).
+ *   Summarization: hermes3 via curl.exe helper
+ *   Embeddings:    nomic-embed-text via curl.exe helper
  */
 
 import fs from 'fs/promises'
@@ -48,13 +49,8 @@ function loadEnvFile(filePath) {
 loadEnvFile(path.join(ROOT, ".env"))
 loadEnvFile(path.join(ROOT, "cloud", ".env"))
 
-// ── DeepSeek API configuration ──
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || ""
-const DEEPSEEK_API_URL = process.env.DEEPSEEK_API_URL || "https://api.deepseek.com/v1/chat/completions"
-const DEEPSEEK_MODEL = process.env.DEEPSEEK_SUMMARIZE_MODEL || "deepseek-chat"
-const DEEPSEEK_TIMEOUT_MS = parseInt(process.env.DEEPSEEK_TIMEOUT || "30000", 10)
-
-// ── Ollama configuration (for embeddings only) ──
+// ── Ollama configuration (summarization + embeddings) ──
+const HERMES_MODEL = process.env.HERMES_MODEL || "hermes3"
 const LOCAL_OLLAMA_URL = 'http://127.0.0.1:11434'
 const VPS_OLLAMA_URL = 'http://100.64.175.88:11434'
 const OLLAMA_URL = process.env.OLLAMA_URL || LOCAL_OLLAMA_URL
@@ -175,53 +171,29 @@ function getOllamaUrl() {
 }
 
 /**
- * Generate summary using DeepSeek API (standard HTTPS fetch — no Tailscale IP involved)
+ * Generate summary using Hermes 3 (local Ollama, via curl helper)
  */
-async function generateSummary(lesson) {
-  if (!DEEPSEEK_API_KEY) {
-    console.warn(`  ⚠️  DEEPSEEK_API_KEY not set — skipping summary for "${lesson.title}"`)
-    return null
-  }
+function generateSummary(lesson, ollamaUrl) {
   try {
-    const prompt = `Summarize this engineering lesson in 2-3 sentences, focusing on the key takeaway:
-
-Title: ${lesson.title}
-Content: ${lesson.content.slice(0, 3000)}
-
-Provide a concise summary:`
-
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), DEEPSEEK_TIMEOUT_MS)
-    const response = await fetch(DEEPSEEK_API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: DEEPSEEK_MODEL,
-        messages: [
-          { role: "system", content: "You are a precise lesson summarizer. Summarize engineering lessons concisely while preserving all key facts. Output only the summary, no preamble." },
-          { role: "user", content: prompt },
-        ],
-        max_tokens: 200,
-        temperature: 0.3,
-      }),
-      signal: controller.signal,
-    })
-    clearTimeout(timeout)
-    if (!response.ok) {
-      console.warn(`  ⚠️  DeepSeek API error: ${response.status} ${response.statusText}`)
-      return null
-    }
-    const data = await response.json()
-    return data?.choices?.[0]?.message?.content?.trim() || 'No summary generated'
+    const url = ollamaUrl || getOllamaUrl()
+    const data = curlOllama(`${url}/api/chat`, {
+      model: HERMES_MODEL,
+      stream: false,
+      options: { temperature: 0.3 },
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a precise lesson summarizer. Summarize engineering lessons concisely while preserving all key facts. Output only the summary, no preamble.',
+        },
+        {
+          role: 'user',
+          content: `Summarize this engineering lesson in 2-3 sentences, focusing on the key takeaway:\n\nTitle: ${lesson.title}\nContent: ${lesson.content.slice(0, 3000)}\n\nProvide a concise summary:`,
+        },
+      ],
+    }, 60000)
+    return data?.message?.content?.trim() || null
   } catch (error) {
-    if (error.name === "AbortError") {
-      console.warn(`  ⚠️  DeepSeek API request timed out for "${lesson.title}"`)
-    } else {
-      console.warn(`  ⚠️  DeepSeek API request failed for "${lesson.title}": ${error.message?.split("\n")[0] || error}`)
-    }
+    console.warn(`  ⚠️  Hermes 3 summary failed for "${lesson.title}": ${error.message}`)
     return null
   }
 }
@@ -286,8 +258,8 @@ function isOllamaReachable() {
  *   --last-only Only process the most recent lesson (for hook usage after commit)
  *   [file]      Path to lessons file (default: memory/lessons-learned.md)
  *
- * Summarization uses DeepSeek API (async fetch).
- * Embeddings use Ollama (sync curl helper, for nomic-embed-text only).
+ * Summarization: Hermes 3 via local Ollama (curl helper).
+ * Embeddings:    nomic-embed-text via local Ollama (curl helper).
  */
 async function main() {
   const args = process.argv.slice(2)
@@ -297,100 +269,77 @@ async function main() {
   const filePath = path.resolve(ROOT, targetFile)
 
   if (!quiet) {
-    console.log(`📚 Lesson Summarizer`)
+    console.log(`📚 Lesson Summarizer (Hermes 3 + nomic-embed-text)`)
     console.log(`Target: ${targetFile}`)
-    console.log(`DeepSeek API: ${DEEPSEEK_API_KEY ? '✅ configured' : '⚠️  not set'}`)
+    console.log(`Hermes model: ${HERMES_MODEL}`)
     console.log(`Ollama URL: ${OLLAMA_URL}`)
     console.log('')
   }
 
-  // Check DeepSeek API key for summarization
-  const hasDeepSeek = !!DEEPSEEK_API_KEY
-  if (!hasDeepSeek) {
-    if (!quiet) console.log('⚠️  DEEPSEEK_API_KEY not set — summaries will be skipped')
-  }
-
-  // Check Ollama availability for embeddings (tries local → VPS fallback)
+  // Check Ollama availability (tries local → VPS fallback)
   const activeUrl = isOllamaReachable()
   if (!activeUrl) {
-    if (!quiet) console.log('⚠️  Ollama not reachable (local or VPS) — embeddings will be skipped')
-  } else {
-    if (!quiet && activeUrl !== OLLAMA_URL) {
-      console.log(`✅ Using ${activeUrl.includes('100.64') ? 'VPS' : 'local'} Ollama at ${activeUrl}`)
-    }
-    process.env.OLLAMA_URL = activeUrl
-  }
-
-  if (!hasDeepSeek && !activeUrl) {
-    if (!quiet) console.log('⚠️  No API key and no Ollama — nothing to do')
+    if (!quiet) console.log('⚠️  Ollama not reachable (local or VPS) — nothing to do')
     process.exit(0)
   }
 
+  if (!quiet && activeUrl !== OLLAMA_URL) {
+    console.log(`✅ Using ${activeUrl.includes('100.64') ? 'VPS' : 'local'} Ollama at ${activeUrl}`)
+  }
+  process.env.OLLAMA_URL = activeUrl
+
   try {
-    // Check if file exists
     await fs.access(filePath)
-    
-    // Read and parse lessons
     const content = await fs.readFile(filePath, 'utf-8')
     let lessons = parseLessons(content)
-    
-    if (!quiet) console.log(`Found ${lessons.length} lessons`)
-    if (!quiet) console.log('')
+
+    if (!quiet) console.log(`Found ${lessons.length} lessons\n`)
 
     if (lessons.length === 0) {
       if (!quiet) console.log('No lessons to process.')
       return
     }
 
-    // If --last-only, only process the most recent lesson
     if (lastOnly) {
       lessons = [lessons[lessons.length - 1]]
     }
 
-    // Process each lesson
     const summaries = []
     for (let i = 0; i < lessons.length; i++) {
       const lesson = lessons[i]
-      if (!quiet) console.log(`[${i + 1}/${lessons.length}] Processing: ${lesson.title}`)
-      
-      // Generate summary via DeepSeek API (async)
-      const summary = hasDeepSeek ? await generateSummary(lesson) : null
-      
-      // Generate embeddings via Ollama (sync curl helper)
-      const embeddings = activeUrl ? generateEmbeddings(lesson.content, activeUrl) : null
-      
+      if (!quiet) console.log(`[${i + 1}/${lessons.length}] ${lesson.title}`)
+
+      // Summarize via Hermes 3 (sync curl helper)
+      const summary = generateSummary(lesson, activeUrl)
+
+      // Embed via nomic-embed-text (sync curl helper)
+      const embeddings = generateEmbeddings(lesson.content, activeUrl)
+
       summaries.push({
         ...lesson,
         summary,
-        embeddings: embeddings ? `[${embeddings.length} dimensions]` : null
+        embeddings: embeddings ? `[${embeddings.length} dimensions]` : null,
       })
     }
 
-    // Output summary report
     if (!quiet) {
       console.log('')
       console.log('═'.repeat(60))
       console.log('SUMMARY REPORT')
       console.log('═'.repeat(60))
-      
       for (const s of summaries) {
         console.log(`\n📖 ${s.title}`)
         console.log(`   Model: ${s.model} | Confidence: ${s.confidence}`)
-        if (s.summary) {
-          console.log(`   Summary: ${s.summary}`)
-        }
-        if (s.embeddings) {
-          console.log(`   Embeddings: ${s.embeddings}`)
-        }
+        if (s.summary) console.log(`   Summary: ${s.summary}`)
+        if (s.embeddings) console.log(`   Embeddings: ${s.embeddings}`)
       }
     }
 
-    // Save summaries to JSON
     const outputPath = path.resolve(ROOT, 'memory/lesson-summaries.json')
     await fs.writeFile(outputPath, JSON.stringify({
       generatedAt: new Date().toISOString(),
-      deepseekModel: DEEPSEEK_MODEL,
-      ollamaUrl: activeUrl || OLLAMA_URL,
+      hermesModel: HERMES_MODEL,
+      ollamaUrl: activeUrl,
       sourceFile: targetFile,
       count: summaries.length,
       summaries: summaries.map(s => ({
@@ -399,15 +348,15 @@ async function main() {
         model: s.model,
         confidence: s.confidence,
         summary: s.summary,
-        hasEmbeddings: !!s.embeddings
-      }))
+        hasEmbeddings: !!s.embeddings,
+      })),
     }, null, 2))
-    
-    if (!quiet) console.log(`✅ Summaries saved to: memory/lesson-summaries.json`)
+
+    if (!quiet) console.log(`\n✅ Summaries saved to: memory/lesson-summaries.json`)
 
   } catch (error) {
     if (!quiet) console.error('❌ Error:', error.message)
-    process.exit(0) // Non-zero exit would alarm hooks — exit cleanly
+    process.exit(0)
   }
 }
 

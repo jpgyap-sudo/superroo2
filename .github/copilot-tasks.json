@@ -1,0 +1,86 @@
+{
+  "tasks": [
+    {
+      "id": "copilot_local_ollama_coder_20260607",
+      "title": "Upgrade Copilot Chat to local Ollama coding agent",
+      "summary": "Make GitHub Copilot Chat use a Copilot-only local Ollama workflow with Hermes 3 planning, Phi-4 architecture, Qwen2.5-Coder coding, nomic-embed-text search, and SuperRoo Memory Explorer long-term memory.",
+      "status": "completed",
+      "project": "superroo2",
+      "agent": "copilot",
+      "files": [
+        ".github/copilot-instructions.md",
+        ".github/copilot-tasks.json",
+        "scripts/copilot-local-coder.mjs",
+        "docs/agent-workflow/copilot-local-ollama-coder.md"
+      ],
+      "features": [
+        "copilot",
+        "local-ollama-coder",
+        "superroo-memory-explorer"
+      ],
+      "notes": [
+        "This local agent is scoped only to GitHub Copilot Chat.",
+        "Other coding extensions must keep their own routing and must not be migrated to this workflow.",
+        "Role map: planner hermes3, architect phi4, coding qwen2.5-coder:7b, complex coding qwen2.5-coder:14b, embeddings nomic-embed-text.",
+        "Verified all requested Ollama models are READY.",
+        "Smoke test completed through Hermes 3 planner, Phi-4 architect, Qwen2.5-Coder 7B coder, and SuperRoo Memory Explorer."
+      ],
+      "startedAt": "2026-06-07T23:00:00+08:00",
+      "updatedAt": "2026-06-07T23:12:00+08:00"
+    },
+    {
+      "id": "copilot_sync_with_superroo_20260605",
+      "title": "Sync GitHub Copilot tasks with SuperRoo",
+      "summary": "Track GitHub Copilot work through .github/copilot-tasks.json and synchronize it into the shared SuperRoo global task registry and ACTIVE_WORK board.",
+      "status": "completed",
+      "project": "superroo2",
+      "agent": "copilot",
+      "files": [
+        ".github/copilot-instructions.md",
+        ".github/copilot-tasks.json",
+        "scripts/copilot-ollama-fallback.mjs",
+        "scripts/sync-tasks-bidirectional.mjs",
+        "scripts/gen-active-work.mjs"
+      ],
+      "features": [
+        "task-sync",
+        "copilot",
+        "ollama-fallback",
+        "superroo-learning-layer"
+      ],
+      "notes": [
+        "Copilot Chat/API fallback now uses scripts/copilot-ollama-fallback.mjs.",
+        "Fallback tries Codex Brain smart_code first, then direct Ollama qwen2.5-coder:7b if Codex Brain is unavailable.",
+        "Copilot task sync is wired into scripts/sync-tasks-bidirectional.mjs and ACTIVE_WORK.md generation.",
+        "Phase Breakdown Monitor event hooks are tracked as a completed follow-up task."
+      ],
+      "startedAt": "2026-06-05T06:55:00+08:00",
+      "updatedAt": "2026-06-05T09:11:28+08:00"
+    },
+    {
+      "id": "copilot_phase_breakdown_monitor_hooks_20260605",
+      "title": "Wire phase breakdown monitor event hooks",
+      "summary": "Continue the Copilot monitor-agent task by automatically sending new feature, bug, debug-team, and debug/triage job events to the Phase Breakdown Monitor Agent.",
+      "status": "completed",
+      "project": "superroo2",
+      "agent": "copilot",
+      "files": [
+        ".github/copilot-tasks.json",
+        "cloud/agents/phase-breakdown-monitor-agent/agent.json",
+        "cloud/api/api.js"
+      ],
+      "features": [
+        "phase-breakdown-monitor",
+        "event-hooks",
+        "debug-triage",
+        "copilot"
+      ],
+      "notes": [
+        "The monitor agent receives feature creation events when the request looks like new feature/app planning or complex architecture work.",
+        "Bug reports, debug-team starts, and generic debug/triage jobs now enqueue phase-breakdown-monitor-agent jobs with event context."
+      ],
+      "startedAt": "2026-06-05T08:46:59+08:00",
+      "updatedAt": "2026-06-05T08:46:59+08:00"
+    }
+  ]
+}

@@ -3,6 +3,7 @@
 import * as os from "os"
 import * as path from "path"
 import * as vscode from "vscode"
+import { describe, expect, it, beforeEach, vi } from "vitest"
 
 import type { GlobalState, ProviderSettings } from "@superroo/types"
 import { TelemetryService } from "@superroo/telemetry"
@@ -119,6 +120,10 @@ vi.mock("../../mentions", () => ({
 
 vi.mock("../../../integrations/misc/extract-text", () => ({
 	extractTextFromFile: vi.fn().mockResolvedValue("Mock file content"),
+}))
+
+vi.mock("../build-tools", () => ({
+	buildNativeToolsArrayWithRestrictions: vi.fn().mockResolvedValue({ tools: [], allowedFunctionNames: undefined }),
 }))
 
 vi.mock("../../environment/getEnvironmentDetails", () => ({
@@ -278,6 +283,79 @@ describe("Grace Retry Error Handling", () => {
 	})
 
 	describe("Grace Retry Pattern", () => {
+		it("should handle nested Poolside context window errors by truncating and retrying", async () => {
+			const task = new Task({
+				provider: mockProvider,
+				apiConfiguration: mockApiConfig,
+				task: "test task",
+				startTask: false,
+			})
+
+			const poolsideContextError = {
+				name: "APIError",
+				data: {
+					message: "[Poolside] Input length 281598 exceeds the maximum allowed input length of 262112 tokens.",
+					statusCode: 400,
+					responseBody: JSON.stringify({
+						error: {
+							message: "Provider returned error",
+							code: 400,
+							metadata: {
+								raw: JSON.stringify({
+									error: {
+										code: 400,
+										message:
+											"Input length 281598 exceeds the maximum allowed input length of 262112 tokens.",
+										type: "Bad Request",
+									},
+								}),
+								provider_name: "Poolside",
+							},
+						},
+					}),
+				},
+			}
+
+			const failedStream = (async function* () {
+				throw poolsideContextError
+			})()
+			const successStream = (async function* () {
+				yield { type: "text", text: "Recovered after context truncation" } as any
+			})()
+			const createMessage = vi.fn().mockReturnValueOnce(failedStream).mockReturnValueOnce(successStream)
+			const handleContextWindowExceededError = vi
+				.spyOn(task as any, "handleContextWindowExceededError")
+				.mockResolvedValue(undefined)
+
+			;(task as any).api = {
+				createMessage,
+				countTokens: vi.fn().mockResolvedValue(1),
+				getModel: vi.fn().mockReturnValue({
+					id: "poolside/test",
+					info: { contextWindow: 262_112, maxTokens: 8_192 },
+				}),
+			}
+			;(task as any).apiConversationHistory = [
+				{ role: "user", content: [{ type: "text", text: "oversized task" }], ts: Date.now() },
+			]
+			vi.spyOn(task as any, "getSystemPrompt").mockResolvedValue("system prompt")
+			vi.spyOn(task as any, "getTokenUsage").mockReturnValue({ contextTokens: 0 })
+			mockProvider.getState = vi.fn().mockResolvedValue({
+				apiConfiguration: mockApiConfig,
+				autoApprovalEnabled: false,
+				mode: "ask",
+			})
+
+			const chunks = []
+			for await (const chunk of task.attemptApiRequest(0, { skipProviderRateLimit: true })) {
+				chunks.push(chunk)
+			}
+
+			expect(handleContextWindowExceededError).toHaveBeenCalledTimes(1)
+			expect(createMessage).toHaveBeenCalledTimes(2)
+			expect(chunks).toEqual([{ type: "text", text: "Recovered after context truncation" }])
+		})
+
 		it("should not show error on first failure (grace retry)", async () => {
 			const task = new Task({
 				provider: mockProvider,

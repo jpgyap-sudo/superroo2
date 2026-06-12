@@ -16,8 +16,34 @@ function checkIsOpenRouterContextWindowError(error: unknown): boolean {
 
 		// Use Record<string, any> for proper type narrowing
 		const err = error as Record<string, any>
-		const status = err.status ?? err.code ?? err.error?.status ?? err.response?.status
-		const message: string = String(err.message || err.error?.message || "")
+		const status =
+			err.status ?? err.code ?? err.statusCode ?? err.error?.status ?? err.data?.statusCode ?? err.response?.status
+		const messages = [
+			err.message,
+			err.error?.message,
+			err.data?.message,
+			err.response?.data?.message,
+			err.responseBody,
+			err.data?.responseBody,
+			err.body,
+		]
+
+		for (const body of [err.responseBody, err.data?.responseBody, err.body, err.response?.data]) {
+			if (typeof body === "string") {
+				try {
+					const parsed = JSON.parse(body)
+					messages.push(parsed?.error?.message, parsed?.error?.metadata?.raw)
+				} catch {
+					// Raw response bodies are still useful for pattern matching below.
+				}
+			} else if (body && typeof body === "object") {
+				messages.push(body.error?.message, body.error?.metadata?.raw)
+			}
+		}
+
+		const message = messages
+			.filter((value): value is string => typeof value === "string" && value.length > 0)
+			.join("\n")
 
 		// Known OpenAI/OpenRouter-style signal (code 400 and message includes "context length")
 		const CONTEXT_ERROR_PATTERNS = [
@@ -25,6 +51,7 @@ function checkIsOpenRouterContextWindowError(error: unknown): boolean {
 			/\bmaximum\s*context\b/i,
 			/\b(?:input\s*)?tokens?\s*exceed/i,
 			/\btoo\s*many\s*tokens?\b/i,
+			/\binput\s+length\s+\d+\s+exceeds\s+the\s+maximum\s+allowed\s+input\s+length\b/i,
 		] as const
 
 		return String(status) === "400" && CONTEXT_ERROR_PATTERNS.some((pattern) => pattern.test(message))

@@ -8,7 +8,7 @@
  * the reusable lesson.
  *
  * This script is intentionally dependency-free. It stores memory in
- * memory/codex-brain/memory.json and uses local Ollama first, with optional
+ * ~/.superroo/memory/codex-brain/memory.json by default and uses local Ollama first, with optional
  * fallback to the Tailscale VPS.
  */
 
@@ -19,11 +19,16 @@ import os from "node:os"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
+import { assessRisk, formatRiskAssessment, recordRiskPattern, riskStats } from "./shared-risk-engine.mjs"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const ROOT = path.resolve(__dirname, "..")
-const BRAIN_DIR = path.join(ROOT, "memory", "codex-brain")
+// PROJECT_ROOT env var makes this CLI portable across projects
+const ROOT = process.env.PROJECT_ROOT || path.resolve(__dirname, "..")
+const SUPERROO_HOME = process.env.SUPERROO_HOME || path.join(os.homedir(), ".superroo")
+const GLOBAL_MEMORY_DIR = process.env.SUPERROO_MEMORY_DIR || path.join(SUPERROO_HOME, "memory")
+const BRAIN_DIR = process.env.CODEX_BRAIN_MEMORY_DIR || path.join(GLOBAL_MEMORY_DIR, "codex-brain")
 const MEMORY_PATH = path.join(BRAIN_DIR, "memory.json")
+const PROJECT_ID = process.env.PROJECT_ID || path.basename(ROOT)
 
 const LOCAL_OLLAMA = "http://127.0.0.1:11434"
 const VPS_OLLAMA = "http://100.64.175.88:11434"
@@ -161,8 +166,22 @@ function ensureBrainDir() {
 	fs.mkdirSync(BRAIN_DIR, { recursive: true })
 }
 
+function firstExistingPath(paths) {
+	return paths.find((candidate) => candidate && fs.existsSync(candidate))
+}
+
+function migrateRepoMemoryIfNeeded() {
+	const repoMemoryPath = path.join(ROOT, "memory", "codex-brain", "memory.json")
+	if (MEMORY_PATH === repoMemoryPath || fs.existsSync(MEMORY_PATH) || !fs.existsSync(repoMemoryPath)) {
+		return
+	}
+	ensureBrainDir()
+	fs.copyFileSync(repoMemoryPath, MEMORY_PATH)
+}
+
 function loadMemory() {
 	ensureBrainDir()
+	migrateRepoMemoryIfNeeded()
 	if (!fs.existsSync(MEMORY_PATH)) {
 		return { version: 1, entries: [] }
 	}
@@ -248,6 +267,11 @@ Coders:
   code-verified <prompt> [--context "..."] [--retries 3]
   code-with-memory <prompt> [--collection code] [--limit 5] [--fast]
 
+Predictive Risk:
+  risk-assess <task> [--action deploy] [--files a,b] [--logs "..."] [--commands "..."] [--no-persist]
+  risk-record-pattern <signature> --description "..." [--severity high] [--pattern-type deploy]
+  risk-stats [--project superroo2]
+
 Examples:
   node scripts/codex-brain.mjs status
   node scripts/codex-brain.mjs retrieve "fix webview blank panel"
@@ -276,6 +300,14 @@ function parseArgs(argv) {
 		}
 	}
 	return { positional, named }
+}
+
+function csvList(value) {
+	if (!value) return []
+	return String(value)
+		.split(/[\n,]/)
+		.map((item) => item.trim())
+		.filter(Boolean)
 }
 
 async function httpJson(url, body = null, timeoutMs = 120000) {
@@ -334,27 +366,63 @@ async function ollamaChat({ model, messages, system, prompt, temperature = 0.2, 
 	return data?.message?.content?.trim() || ""
 }
 
+// ── Embedding Cache (7-day TTL, file-based) ──────────────────────────────────
+
+const EMBED_CACHE_PATH = path.join(GLOBAL_MEMORY_DIR, "embed-cache.json")
+
+function embedCacheLoad() {
+	try { return JSON.parse(fs.readFileSync(EMBED_CACHE_PATH, "utf8")) }
+	catch { return {} }
+}
+
+function embedCacheKey(text) {
+	// Simple djb2 hash for cache key
+	let h = 5381
+	for (let i = 0; i < Math.min(text.length, 2000); i++) h = ((h << 5) + h) ^ text.charCodeAt(i)
+	return (h >>> 0).toString(36)
+}
+
+let _embedCache = null
+function getEmbedCache() { if (!_embedCache) _embedCache = embedCacheLoad(); return _embedCache }
+function saveEmbedCache(cache) {
+	try { fs.writeFileSync(EMBED_CACHE_PATH, JSON.stringify(cache), "utf8") } catch {}
+}
+
 async function ollamaEmbed(text) {
-	const { host } = await findOllamaHost()
 	const input = String(text).slice(0, 8000)
+	const cacheKey = embedCacheKey(input)
+	const cache = getEmbedCache()
+
+	// Check cache (7-day TTL)
+	if (cache[cacheKey]) {
+		const { embedding, createdAt } = cache[cacheKey]
+		const ageDays = (Date.now() - new Date(createdAt).getTime()) / 86400000
+		if (ageDays < 7 && Array.isArray(embedding)) return embedding
+		delete cache[cacheKey]
+	}
+
+	const { host } = await findOllamaHost()
+	let embedding = null
 	try {
-		const data = await httpJson(`${host}/api/embed`, {
-			model: DEFAULTS.embedModel,
-			input,
-		})
-		const embedding = data?.embeddings?.[0] || data?.embedding
-		if (Array.isArray(embedding)) return embedding
-	} catch {
-		// Fall through to legacy endpoint.
+		const data = await httpJson(`${host}/api/embed`, { model: DEFAULTS.embedModel, input })
+		embedding = data?.embeddings?.[0] || data?.embedding
+	} catch {}
+	if (!Array.isArray(embedding)) {
+		const data = await httpJson(`${host}/api/embeddings`, { model: DEFAULTS.embedModel, prompt: input })
+		if (!Array.isArray(data?.embedding)) throw new Error("Ollama did not return an embedding")
+		embedding = data.embedding
 	}
-	const data = await httpJson(`${host}/api/embeddings`, {
-		model: DEFAULTS.embedModel,
-		prompt: input,
-	})
-	if (!Array.isArray(data?.embedding)) {
-		throw new Error("Ollama did not return an embedding")
+
+	// Cache the result
+	cache[cacheKey] = { embedding, createdAt: new Date().toISOString() }
+	// Prune cache > 2000 entries (keep newest)
+	const keys = Object.keys(cache)
+	if (keys.length > 2000) {
+		keys.sort((a, b) => (cache[a].createdAt || "").localeCompare(cache[b].createdAt || ""))
+		keys.slice(0, keys.length - 2000).forEach(k => delete cache[k])
 	}
-	return data.embedding
+	saveEmbedCache(cache)
+	return embedding
 }
 
 function tokenize(text) {
@@ -407,6 +475,59 @@ function bm25Scores(query, entries) {
 	})
 }
 
+// Helpfulness ledger cache — loaded once per process
+let _helpfulnessCache = null
+function getHelpfulnessLedger() {
+	if (_helpfulnessCache) return _helpfulnessCache
+	const ledgerPath = path.join(GLOBAL_MEMORY_DIR, "lesson-helpfulness.jsonl")
+	const ledger = {}
+	try {
+		fs.readFileSync(ledgerPath, "utf8").trim().split("\n").filter(Boolean).forEach(l => {
+			try {
+				const e = JSON.parse(l)
+				if (!ledger[e.lesson_id]) ledger[e.lesson_id] = { sum: 0, count: 0 }
+				ledger[e.lesson_id].sum += e.helpful
+				ledger[e.lesson_id].count++
+			} catch {}
+		})
+	} catch {}
+	_helpfulnessCache = ledger
+	return ledger
+}
+
+function confidenceWeight(entry) {
+	// 1. Confidence score from metadata
+	const conf = entry.confidence || entry.metadata?.confidence || "medium"
+	const confW = conf === "high" ? 1.0 : conf === "medium" ? 0.85 : 0.6
+
+	// 2. Recency decay: lessons degrade after 90 days, floor at 0.4 after 365 days
+	const created = entry.createdAt || entry.date || null
+	let decayW = 1.0
+	if (created) {
+		const ageDays = (Date.now() - new Date(created).getTime()) / 86400000
+		if (ageDays > 90) decayW = Math.max(0.4, 1 - (ageDays - 90) / 365)
+	}
+
+	// 3. Helpfulness ledger boost/penalty (from rate_lesson feedback)
+	const ledger = getHelpfulnessLedger()
+	const rating = ledger[entry.id]
+	let helpfulW = 1.0
+	if (rating && rating.count >= 2) {
+		const avg = rating.sum / rating.count
+		// avg=1.0 (all helpful) → 1.2 boost; avg=0 (all unhelpful) → 0.3 penalty
+		helpfulW = 0.3 + avg * 0.9
+	}
+
+	return confW * decayW * helpfulW
+}
+
+function cosineSim(a, b) {
+	if (!a || !b || a.length !== b.length) return 0
+	let dot = 0, ma = 0, mb = 0
+	for (let i = 0; i < a.length; i++) { dot += a[i]*b[i]; ma += a[i]*a[i]; mb += b[i]*b[i] }
+	return dot / (Math.sqrt(ma) * Math.sqrt(mb) + 1e-10)
+}
+
 function rrfCombine(vectorScores, keywordScores, entries, limit) {
 	const k = 60
 	const orderBy = (scores) => [...entries.keys()].sort((a, b) => scores[b] - scores[a])
@@ -414,16 +535,12 @@ function rrfCombine(vectorScores, keywordScores, entries, limit) {
 	const keywordOrder = orderBy(keywordScores)
 	const vectorRank = new Array(entries.length)
 	const keywordRank = new Array(entries.length)
-	vectorOrder.forEach((index, rank) => {
-		vectorRank[index] = rank
-	})
-	keywordOrder.forEach((index, rank) => {
-		keywordRank[index] = rank
-	})
+	vectorOrder.forEach((index, rank) => { vectorRank[index] = rank })
+	keywordOrder.forEach((index, rank) => { keywordRank[index] = rank })
 	return entries
 		.map((entry, index) => ({
 			...entry,
-			score: 1 / (k + vectorRank[index]) + 1 / (k + keywordRank[index]),
+			score: (1 / (k + vectorRank[index]) + 1 / (k + keywordRank[index])) * confidenceWeight(entry),
 		}))
 		.sort((a, b) => b.score - a.score)
 		.slice(0, limit)
@@ -431,6 +548,18 @@ function rrfCombine(vectorScores, keywordScores, entries, limit) {
 
 async function remember(content, collection = "general", metadata = {}) {
 	const embedding = await ollamaEmbed(content)
+
+	// Semantic dedup: skip if a very similar entry already exists (cosine > 0.88)
+	if (embedding) {
+		const db = loadMemory()
+		const sameCollection = db.entries.filter(e => e.collection === collection && e.embedding)
+		const duplicate = sameCollection.find(e => cosineSim(e.embedding, embedding) > 0.88)
+		if (duplicate) {
+			process.stderr.write(`[remember] Skipping duplicate (similar to ${duplicate.id}, sim>${0.88})\n`)
+			return duplicate.id
+		}
+	}
+
 	const id = `codex-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 	const entry = {
 		id,
@@ -563,13 +692,54 @@ async function runAgent(agent, prompt, options = {}) {
 }
 
 async function retrieveContext(task, collection, limit) {
-	const memories = await recall(task, collection || null, limit)
+	let memories = await recall(task, collection || null, limit)
 	if (!memories.length) return "No relevant memories found."
-	return runAgent(
+
+	// Helpfulness-weighted re-ranking from lesson ledger
+	try {
+		const ledgerPath = path.join(GLOBAL_MEMORY_DIR, "lesson-helpfulness.jsonl")
+		if (fs.existsSync(ledgerPath)) {
+			const ledger = {}
+			fs.readFileSync(ledgerPath, "utf8").trim().split("\n").filter(Boolean).forEach(l => {
+				try { const e = JSON.parse(l); if (!ledger[e.lesson_id]) ledger[e.lesson_id] = {sum:0,count:0}; ledger[e.lesson_id].sum+=e.helpful; ledger[e.lesson_id].count++ } catch {}
+			})
+			memories = memories.map(m => {
+				const r = ledger[m.id]
+				return r && r.count >= 2 ? { ...m, score: (m.score||1)*(0.4+0.6*(r.sum/r.count)) } : m
+			}).sort((a,b) => (b.score||0)-(a.score||0))
+		}
+	} catch {}
+
+	// Cross-project tagging: mark lessons from other projects as battle-tested
+	const currentProject = process.env.PROJECT_ID || path.basename(ROOT)
+	memories = memories.map(m => {
+		const lp = m.project || m.metadata?.project
+		return lp && lp !== currentProject ? {...m, cross_project: true, cross_project_source: lp} : m
+	})
+	const crossCount = memories.filter(m => m.cross_project).length
+	const prefix = crossCount > 0 ? `[${crossCount} cross-project battle-tested lesson${crossCount>1?"s":""} included]\n\n` : ""
+
+	// Persist the retrieved lesson ids (per agent) so record_outcome can
+	// auto-rate them — task success is the helpfulness proxy. Also expose the
+	// ids in the output so callers CAN use rate_lesson explicitly.
+	const retrievedIds = memories.map(m => m.id).filter(Boolean)
+	try {
+		const agentId = process.env.AGENT_ID || currentProject
+		fs.writeFileSync(
+			path.join(GLOBAL_MEMORY_DIR, `last-retrieval-${agentId}.json`),
+			JSON.stringify({ task, agent: agentId, ids: retrievedIds, timestamp: new Date().toISOString() }),
+			"utf8",
+		)
+	} catch {}
+	const idFooter = retrievedIds.length
+		? `\n\n[retrieved-lesson-ids: ${retrievedIds.join(", ")}] — auto-rated on record_outcome; override with rate_lesson(lesson_id, helpful)`
+		: ""
+
+	return prefix + await runAgent(
 		"retriever",
 		`Current task:\n${task}\n\nCandidate memories:\n${formatMemories(memories)}`,
 		{ temperature: 0.1 },
-	)
+	) + idFooter
 }
 
 async function collectContext(task, opts) {
@@ -635,21 +805,97 @@ function syntaxCheckJavaScript(code) {
 	}
 }
 
+function extractFeaturesFromText(text, prompt) {
+	const lower = (text + " " + prompt).toLowerCase()
+	const fileCount = (lower.match(/\.(ts|tsx|js|jsx|mjs|py|go|rs|css|json|md)\b/g) || []).length
+	const complexKw = ["refactor", "architecture", "migration", "redesign", "multi-file",
+		"integration", "module", "service", "pipeline", "system", "implement", "feature", "add"]
+	const criticalKw = ["production", "critical", "security", "auth", "payment", "deploy",
+		"database", "schema", "race condition", "memory leak", "breaking", "urgent"]
+	const complexScore = complexKw.filter(k => lower.includes(k)).length
+	const criticalScore = criticalKw.filter(k => lower.includes(k)).length
+	const lineCount = prompt.split("\n").length
+	const hasCodeBlock = (lower.match(/```/g) || []).length / 2
+	const wordCount = lower.split(/\s+/).length
+	const avgWordLen = lower.replace(/\s+/g, "").length / Math.max(wordCount, 1)
+	return [
+		Math.min(fileCount / 5, 1),            // file count (normalized)
+		Math.min(lineCount / 50, 1),           // line count
+		Math.min(complexScore / 4, 1),         // complexity keywords
+		criticalScore > 0 ? 1 : 0,            // critical flag
+		Math.min(wordCount / 200, 1),          // prompt length
+		Math.min(hasCodeBlock / 3, 1),         // code blocks
+		Math.min(avgWordLen / 8, 1),           // technical vocabulary density
+		0.5,                                    // neutral bias feature
+	]
+}
+
 function smartRoute(prompt, contextStr = "") {
 	const text = (prompt + " " + contextStr).toLowerCase()
-	const fileCount = (text.match(/\.(ts|tsx|js|jsx|mjs|py|go|rs)\b/g) || []).length
-	const complexKw = ["refactor", "architecture", "migration", "redesign", "multi-file",
-		"integration", "module", "service", "pipeline", "system", "implement"]
-	const criticalKw = ["production", "critical", "security", "auth", "payment", "deploy",
-		"database", "schema", "race condition", "memory leak"]
-	const complexScore = complexKw.filter((k) => text.includes(k)).length
-	const criticalScore = criticalKw.filter((k) => text.includes(k)).length
-	const lineCount = prompt.split("\n").length
+	const features = extractFeaturesFromText(text, prompt)
+	const criticalScore = features[3]  // direct critical flag
+	const risk = assessRisk({
+		projectId: PROJECT_ID,
+		task: prompt,
+		prompt,
+		context: contextStr,
+		source: "codex-brain-smart",
+		persist: false,
+	})
+	const riskOrder = { code: 0, code_pro: 1, code_pro_verified: 2 }
+	const applyRisk = (route) => {
+		const riskTool = risk.routeHint || "code"
+		if (riskOrder[riskTool] > riskOrder[route.tool]) {
+			return {
+				...route,
+				tool: riskTool,
+				reason: `${route.reason}; risk=${risk.riskLevel} ${risk.riskScore.toFixed(2)}`,
+				risk,
+			}
+		}
+		return { ...route, risk }
+	}
 
-	if (criticalScore > 0) return { tool: "code_pro_verified", reason: "critical/production keywords", confidence: 0.85 }
-	if (fileCount > 2 || complexScore > 1 || lineCount > 30)
-		return { tool: "code_pro", reason: "multi-file or complex task", confidence: 0.75 }
-	return { tool: "code", reason: "simple task", confidence: 0.80 }
+	// Try ML model for routing if available
+	try {
+		const modelPath = path.join(SUPERROO_HOME, "models", "code-learner.json")
+		if (fs.existsSync(modelPath)) {
+			const model = JSON.parse(fs.readFileSync(modelPath, "utf8"))
+			// Simple linear prediction from model weights (encoder layer 1 → quality head)
+			const encoder = model.encoder
+			if (encoder && encoder.W1 && encoder.W1.length === 8) {
+				// Forward pass: features → encoder → quality score
+				const W1 = encoder.W1, b1 = encoder.b1 || new Array(W1[0].length).fill(0)
+				const hidden = b1.map((bias, j) => {
+					let sum = bias
+					for (let i = 0; i < features.length; i++) sum += features[i] * (W1[i]?.[j] || 0)
+					return Math.max(0, sum)  // ReLU
+				})
+				// Quality head first dense layer gives complexity signal
+				const qHead = model.heads?.quality
+				if (qHead && qHead.W1) {
+					const qScore = qHead.b1.map((b, j) => {
+						let s = b
+						for (let i = 0; i < hidden.length && i < qHead.W1.length; i++) s += hidden[i] * (qHead.W1[i]?.[j] || 0)
+						return 1 / (1 + Math.exp(-s))  // sigmoid
+					})
+					const predictedQuality = qScore[0] || 0.5
+					// High predicted quality need → use pro model; low → fast is fine
+					if (criticalScore > 0 || predictedQuality > 0.8)
+						return applyRisk({ tool: "code_pro_verified", reason: "ML: high complexity + critical", confidence: predictedQuality })
+					if (predictedQuality > 0.55 || features[0] > 0.4 || features[2] > 0.5)
+						return applyRisk({ tool: "code_pro", reason: "ML: medium complexity", confidence: predictedQuality })
+					return applyRisk({ tool: "code", reason: "ML: simple task", confidence: 1 - predictedQuality })
+				}
+			}
+		}
+	} catch { /* fall through to heuristic */ }
+
+	// Fallback heuristic
+	if (criticalScore > 0) return applyRisk({ tool: "code_pro_verified", reason: "critical/production keywords", confidence: 0.85 })
+	if (features[0] > 0.4 || features[2] > 0.5 || features[1] > 0.6)
+		return applyRisk({ tool: "code_pro", reason: "multi-file or complex task", confidence: 0.75 })
+	return applyRisk({ tool: "code", reason: "simple task", confidence: 0.80 })
 }
 
 async function codeVerified(prompt, opts = {}) {
@@ -685,9 +931,13 @@ ${prompt}`
 }
 
 async function seedLessons({ limit = 80, all = false } = {}) {
-	const lessonPath = path.join(ROOT, "memory", "lesson-index.jsonl")
-	if (!fs.existsSync(lessonPath)) {
-		throw new Error("memory/lesson-index.jsonl not found")
+	const lessonPath = firstExistingPath([
+		process.env.SUPERROO_LESSON_INDEX,
+		path.join(ROOT, "memory", "lesson-index.jsonl"),
+		path.join(GLOBAL_MEMORY_DIR, "lesson-index.jsonl"),
+	])
+	if (!lessonPath || !fs.existsSync(lessonPath)) {
+		throw new Error("lesson-index.jsonl not found")
 	}
 	const lines = fs.readFileSync(lessonPath, "utf8").split(/\r?\n/).filter(Boolean)
 	const selected = all ? lines : lines.slice(-limit)
@@ -919,10 +1169,47 @@ async function main() {
 			console.log(await coder(first, { context: formatMemories(memories), model }))
 			break
 		}
+		case "risk-assess": {
+			if (!first) throw new Error("risk-assess requires a task")
+			const assessment = assessRisk({
+				projectId: args.named.project || PROJECT_ID,
+				task: first,
+				prompt: first,
+				context: args.named.context || "",
+				logs: args.named.logs || "",
+				filesChanged: csvList(args.named.files),
+				commands: csvList(args.named.commands),
+				actionType: args.named.action || args.named["action-type"],
+				source: "codex-brain-cli",
+				persist: args.named["no-persist"] !== true,
+			})
+			console.log(formatRiskAssessment(assessment))
+			break
+		}
+		case "risk-record-pattern": {
+			if (!first) throw new Error("risk-record-pattern requires a signature")
+			if (!args.named.description) throw new Error("risk-record-pattern requires --description")
+			const pattern = recordRiskPattern({
+				projectId: args.named.project || PROJECT_ID,
+				signature: first,
+				description: args.named.description,
+				severity: args.named.severity || "medium",
+				patternType: args.named["pattern-type"] || "general",
+				suggestedFix: args.named["suggested-fix"] || "",
+				source: "codex-brain-cli",
+			})
+			console.log(JSON.stringify(pattern, null, 2))
+			break
+		}
+		case "risk-stats": {
+			console.log(JSON.stringify(riskStats(args.named.project || null), null, 2))
+			break
+		}
 		case "smart": {
 			if (!first) throw new Error("smart requires a prompt")
-			const { tool: routedTool, reason, confidence } = smartRoute(first, args.named.context || "")
-			process.stderr.write(`[smart] → ${routedTool} (${reason}, confidence=${confidence?.toFixed(2) ?? "n/a"})\n`)
+			const { tool: routedTool, reason, confidence, risk } = smartRoute(first, args.named.context || "")
+			const riskText = risk ? `${risk.riskLevel}:${risk.riskScore.toFixed(2)}` : "n/a"
+			process.stderr.write(`[smart] -> ${routedTool} (${reason}, confidence=${confidence?.toFixed(2) ?? "n/a"}, risk=${riskText})\n`)
 			if (routedTool === "code_pro_verified") {
 				console.log(await codeVerified(first, { context: args.named.context || "" }))
 			} else if (routedTool === "code_pro") {

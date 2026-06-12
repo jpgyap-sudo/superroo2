@@ -96,6 +96,8 @@ const CODEX_TASK_LOG_PATH =
 const KIMI_TASK_LOG_PATH = process.env.KIMI_TASK_LOG_PATH || path.resolve(process.cwd(), "server/src/memory/kimi.json")
 const CLAUDE_TASK_LOG_PATH =
 	process.env.CLAUDE_TASK_LOG_PATH || path.resolve(process.cwd(), "server/src/memory/claudetask.json")
+const SUPERCONTINUE_TASK_LOG_PATH =
+	process.env.SUPERCONTINUE_TASK_LOG_PATH || path.resolve(process.cwd(), "server/src/memory/supercontinue-task.json")
 const MEMORY_DIR = path.resolve(process.cwd(), "server/src/memory")
 const HEALING_DIR = path.resolve(process.cwd(), "memory")
 const SUPERROO_CONFIG_PATH = path.resolve(os.homedir(), ".superroo", "config.json")
@@ -103,7 +105,7 @@ const LESSONS_LEARNED_PATH = path.resolve(process.cwd(), "memory", "lessons-lear
 const LESSON_INDEX_PATH = path.resolve(process.cwd(), "memory", "lesson-index.jsonl")
 
 // Rate limiting config
-const RATE_LIMIT_WINDOW_MS = Number(process.env.MCP_RATE_LIMIT_WINDOW_MS || "60_000") // 1 minute
+const RATE_LIMIT_WINDOW_MS = Number(process.env.MCP_RATE_LIMIT_WINDOW_MS || "60000") // 1 minute
 const RATE_LIMIT_MAX_CALLS = Number(process.env.MCP_RATE_LIMIT_MAX_CALLS || "120") // 120 calls/minute
 
 // ── MCP Protocol Types ──
@@ -166,6 +168,11 @@ interface KimiTaskLogFile {
 interface ClaudeTaskRecord extends CodexTaskRecord {}
 interface ClaudeTaskLogFile {
 	tasks: ClaudeTaskRecord[]
+}
+
+interface SuperContinueTaskRecord extends CodexTaskRecord {}
+interface SuperContinueTaskLogFile {
+	tasks: SuperContinueTaskRecord[]
 }
 
 // ── Rate Limiter ──
@@ -781,6 +788,59 @@ class McpMemoryServer {
 					properties: {},
 				},
 			},
+			// ── SuperContinue Task Memory Tools ──
+			{
+				name: "supercontinue_task_upsert",
+				description:
+					"Create or update persistent SuperContinue task memory so future sessions can recover recent work.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						id: { type: "string", description: "Existing task ID to update" },
+						title: { type: "string", description: "Short task title" },
+						summary: { type: "string", description: "What happened or what is being done" },
+						status: {
+							type: "string",
+							description: "Task status: active, completed, blocked, or cancelled",
+						},
+						project: { type: "string", description: "Project ID (default: superroo2)" },
+						agent: { type: "string", description: "Agent name (default: SuperContinue)" },
+						filesChanged: { type: "array", items: { type: "string" } },
+						featuresAffected: { type: "array", items: { type: "string" } },
+						notes: { type: "array", items: { type: "string" } },
+					},
+					required: ["title"],
+				},
+			},
+			{
+				name: "supercontinue_task_list",
+				description: "List recent persistent SuperContinue tasks, newest first.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						limit: { type: "number", description: "Maximum number of tasks to return (default: 20)" },
+					},
+				},
+			},
+			{
+				name: "supercontinue_task_get",
+				description: "Get one persistent SuperContinue task by ID.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						id: { type: "string", description: "Task ID" },
+					},
+					required: ["id"],
+				},
+			},
+			{
+				name: "supercontinue_task_get_active",
+				description: "Get the current active persistent SuperContinue task, if one exists.",
+				inputSchema: {
+					type: "object",
+					properties: {},
+				},
+			},
 			// ── Central Brain v2 Tools (pgvector memory, scores, events, approvals) ──
 			{
 				name: "brain_search_memory",
@@ -1290,6 +1350,12 @@ class McpMemoryServer {
 				description: "Persistent Kimi task history",
 				mimeType: "application/json",
 			},
+			{
+				uri: "memory://supercontinue/tasks",
+				name: "SuperContinue Task Memory",
+				description: "Persistent SuperContinue task history",
+				mimeType: "application/json",
+			},
 		]
 	}
 
@@ -1775,6 +1841,37 @@ class McpMemoryServer {
 				return { success: true, task: await this._getActiveClaudeTask(), source: "claude_task_log" }
 			}
 
+			// ── SuperContinue Task Memory Tools ──
+			case "supercontinue_task_upsert": {
+				return await this._upsertSuperContinueTask({
+					id: args?.id || undefined,
+					title: args?.title || "",
+					summary: args?.summary || "",
+					status: args?.status || "active",
+					project,
+					agent: args?.agent || "SuperContinue",
+					filesChanged: args?.filesChanged || [],
+					featuresAffected: args?.featuresAffected || [],
+					notes: args?.notes || [],
+				})
+			}
+
+			case "supercontinue_task_list": {
+				return { success: true, tasks: await this._listSuperContinueTasks(limit), source: "supercontinue_task_log" }
+			}
+
+			case "supercontinue_task_get": {
+				return {
+					success: true,
+					task: await this._getSuperContinueTask((args?.id as string) || ""),
+					source: "supercontinue_task_log",
+				}
+			}
+
+			case "supercontinue_task_get_active": {
+				return { success: true, task: await this._getActiveSuperContinueTask(), source: "supercontinue_task_log" }
+			}
+
 			// ── Central Brain v2 Tools (pgvector memory, scores, events, approvals) ──
 			case "brain_search_memory": {
 				const searchQuery = (args?.query as string) || ""
@@ -2226,6 +2323,9 @@ class McpMemoryServer {
 			case "memory://claude/tasks":
 				return { success: true, tasks: await this._listClaudeTasks(20), source: "claude_task_log" }
 
+			case "memory://supercontinue/tasks":
+				return { success: true, tasks: await this._listSuperContinueTasks(20), source: "supercontinue_task_log" }
+
 			default:
 				// Try project-specific URIs: memory://{project}/context
 				const match = uri.match(/^memory:\/\/([^/]+)\/(.+)$/)
@@ -2404,6 +2504,17 @@ class McpMemoryServer {
 			case "get_bugs": {
 				const bugs = await this._readLocalBugs(limit)
 				return { success: true, bugs, source: "local_json_fallback" }
+			}
+
+			case "supercontinue_task_upsert": {
+				const goal = (params.goal as string) || query || "Untitled task"
+				return await this._upsertSuperContinueTask({
+					title: goal.slice(0, 120),
+					summary: goal,
+					status: "active",
+					project,
+					agent: params.agent || "SuperContinue",
+				})
 			}
 
 			default:
@@ -3017,6 +3128,79 @@ class McpMemoryServer {
 
 	private async _getActiveClaudeTask(): Promise<ClaudeTaskRecord | null> {
 		const data = await this._readClaudeTaskLog()
+		return data.tasks.find((task) => task.status === "active") || null
+	}
+
+	// ── SuperContinue Task Log Helpers ──
+
+	private async _readSuperContinueTaskLog(): Promise<SuperContinueTaskLogFile> {
+		try {
+			const raw = await fs.readFile(SUPERCONTINUE_TASK_LOG_PATH, "utf8")
+			const parsed = JSON.parse(raw) as Partial<SuperContinueTaskLogFile>
+			return { tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [] }
+		} catch (err) {
+			if (isNodeError(err) && err.code === "ENOENT") {
+				return { tasks: [] }
+			}
+			throw err
+		}
+	}
+
+	private async _writeSuperContinueTaskLog(data: SuperContinueTaskLogFile): Promise<void> {
+		await fs.mkdir(path.dirname(SUPERCONTINUE_TASK_LOG_PATH), { recursive: true })
+		const tempPath = `${SUPERCONTINUE_TASK_LOG_PATH}.tmp`
+		await fs.writeFile(tempPath, JSON.stringify(data, null, 2), "utf8")
+		await fs.rename(tempPath, SUPERCONTINUE_TASK_LOG_PATH)
+	}
+
+	private async _upsertSuperContinueTask(input: Record<string, unknown>): Promise<unknown> {
+		const now = new Date().toISOString()
+		const data = await this._readSuperContinueTaskLog()
+		const requestedId = typeof input.id === "string" ? input.id : undefined
+		const existing = requestedId ? data.tasks.find((task) => task.id === requestedId) : undefined
+		const status = typeof input.status === "string" && input.status ? input.status : existing?.status || "active"
+		const task: SuperContinueTaskRecord = {
+			id: existing?.id || requestedId || `sc_task_${crypto.randomUUID()}`,
+			title: typeof input.title === "string" && input.title ? input.title : existing?.title || "Untitled task",
+			summary: typeof input.summary === "string" ? input.summary : existing?.summary || "",
+			status,
+			project:
+				typeof input.project === "string" && input.project ? input.project : existing?.project || "superroo2",
+			agent: typeof input.agent === "string" && input.agent ? input.agent : existing?.agent || "SuperContinue",
+			filesChanged: Array.isArray(input.filesChanged)
+				? (input.filesChanged as string[])
+				: existing?.filesChanged || [],
+			featuresAffected: Array.isArray(input.featuresAffected)
+				? (input.featuresAffected as string[])
+				: existing?.featuresAffected || [],
+			notes: Array.isArray(input.notes) ? (input.notes as string[]) : existing?.notes || [],
+			startedAt: existing?.startedAt || now,
+			updatedAt: now,
+			completedAt: ["completed", "blocked", "cancelled"].includes(status) ? now : existing?.completedAt || null,
+		}
+
+		if (existing) {
+			Object.assign(existing, task)
+		} else {
+			data.tasks.unshift(task)
+		}
+		data.tasks.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+		await this._writeSuperContinueTaskLog({ tasks: data.tasks.slice(0, 500) })
+		return { success: true, task, source: "supercontinue_task_log" }
+	}
+
+	private async _listSuperContinueTasks(limit: number): Promise<SuperContinueTaskRecord[]> {
+		const data = await this._readSuperContinueTaskLog()
+		return data.tasks.slice(0, Number(limit))
+	}
+
+	private async _getSuperContinueTask(id: string): Promise<SuperContinueTaskRecord | null> {
+		const data = await this._readSuperContinueTaskLog()
+		return data.tasks.find((task) => task.id === id) || null
+	}
+
+	private async _getActiveSuperContinueTask(): Promise<SuperContinueTaskRecord | null> {
+		const data = await this._readSuperContinueTaskLog()
 		return data.tasks.find((task) => task.status === "active") || null
 	}
 

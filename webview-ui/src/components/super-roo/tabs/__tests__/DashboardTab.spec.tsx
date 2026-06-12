@@ -7,18 +7,28 @@
 
 import React from "react"
 import { render, screen } from "@/utils/test-utils"
-import { describe, it, expect, vi } from "vitest"
+import { describe, it, expect, vi, beforeEach } from "vitest"
+import userEvent from "@testing-library/user-event"
 
 import { DashboardTab } from "../DashboardTab"
 import type { SrDashboardSnapshot } from "../../types"
 
-// ── Mock SrContext ──────────────────────────────────────────────────────────
+// ── Mocks ──────────────────────────────────────────────────────────────────
 
 const mockUseSr = vi.fn()
+const mockPostMessage = vi.fn()
 
 vi.mock("../../hooks/SrContext", () => ({
 	useSr: () => mockUseSr(),
 }))
+
+vi.mock("@/utils/vscode", () => ({
+	vscode: { postMessage: (...args: any[]) => mockPostMessage(...args) },
+}))
+
+beforeEach(() => {
+	mockPostMessage.mockClear()
+})
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -135,6 +145,19 @@ describe("DashboardTab", () => {
 		expect(screen.getByText("Run unit tests")).toBeDefined()
 	})
 
+	it("should navigate to task when a recent task is clicked", async () => {
+		const user = userEvent.setup()
+		mockUseSr.mockReturnValue({ snapshot: makeSnapshot(), mockMode: false })
+		render(<DashboardTab />)
+
+		await user.click(screen.getByText("Fix login bug"))
+
+		expect(mockPostMessage).toHaveBeenCalledWith({
+			type: "showTaskWithId",
+			text: "t1",
+		})
+	})
+
 	it("should show empty state when no tasks", () => {
 		mockUseSr.mockReturnValue({
 			snapshot: makeSnapshot({ recentTasks: [] }),
@@ -154,5 +177,51 @@ describe("DashboardTab", () => {
 		mockUseSr.mockReturnValue({ snapshot: makeSnapshot(), mockMode: false })
 		render(<DashboardTab />)
 		expect(screen.queryByText(/Showing mock data/)).toBeNull()
+	})
+
+	it("should show ML Sync status when online", () => {
+		mockUseSr.mockReturnValue({
+			snapshot: makeSnapshot({
+				syncStatus: {
+					isOnline: true,
+					degradedMode: false,
+					degradationReason: null,
+					pendingObservations: 5,
+					lastUploadAt: Date.now() - 60_000,
+					lastDownloadAt: Date.now() - 120_000,
+					lastError: null,
+				},
+			}),
+			mockMode: false,
+		})
+		render(<DashboardTab />)
+		expect(screen.getByText("ML Sync")).toBeDefined()
+		expect(screen.getByText("Online")).toBeDefined()
+	})
+
+	it("should show ML Sync status when offline", () => {
+		mockUseSr.mockReturnValue({
+			snapshot: makeSnapshot({
+				syncStatus: {
+					isOnline: false,
+					degradedMode: true,
+					degradationReason: "API health endpoint unreachable",
+					pendingObservations: 10,
+					lastUploadAt: null,
+					lastDownloadAt: null,
+					lastError: "Connection refused",
+				},
+			}),
+			mockMode: false,
+		})
+		render(<DashboardTab />)
+		expect(screen.getByText("ML Sync")).toBeDefined()
+		expect(screen.getByText("Offline")).toBeDefined()
+	})
+
+	it("should not show ML Sync card when syncStatus is undefined", () => {
+		mockUseSr.mockReturnValue({ snapshot: makeSnapshot(), mockMode: false })
+		render(<DashboardTab />)
+		expect(screen.queryByText("ML Sync")).toBeNull()
 	})
 })

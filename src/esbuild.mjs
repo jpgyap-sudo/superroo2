@@ -5,7 +5,7 @@ import { fileURLToPath } from "url"
 import process from "node:process"
 import * as console from "node:console"
 
-import { copyPaths, copyWasms, copyLocales, setupLocaleWatcher } from "@superroo/build"
+import { copyPaths, copyWasms, copyLocales, setupLocaleWatcher, copyDir, rmDir } from "@superroo/build"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -67,17 +67,36 @@ async function main() {
 				build.onEnd(() => {
 					copyPaths(
 						[
-							["../README.md", "README.md"],
-							["../CHANGELOG.md", "CHANGELOG.md"],
-							["../LICENSE", "LICENSE"],
-							["../.env", ".env", { optional: true }],
+							["../README.md", "dist/README.md"],
+							["../CHANGELOG.md", "dist/CHANGELOG.md"],
+							["../LICENSE", "dist/LICENSE"],
+							["../.env", "dist/.env", { optional: true }],
 							["super-roo/config", "dist/config"],
-							["node_modules/vscode-material-icons/generated", "assets/vscode-material-icons"],
-							["../webview-ui/audio", "webview-ui/audio"],
+							["node_modules/vscode-material-icons/generated", "dist/assets/vscode-material-icons"],
+							["assets/codicons", "dist/assets/codicons"],
+							["assets/images", "dist/assets/images"],
+							["../webview-ui/audio", "dist/webview-ui/audio"],
 						],
 						srcDir,
 						buildDir,
 					)
+
+					const webviewBuildSrc = path.join(srcDir, "webview-ui", "build")
+					const webviewBuildDst = path.join(distDir, "webview-ui", "build")
+
+					if (fs.existsSync(webviewBuildSrc)) {
+						console.log(`[copyFiles] Copying webview build from ${webviewBuildSrc} to ${webviewBuildDst}`)
+
+						if (fs.existsSync(webviewBuildDst)) {
+							rmDir(webviewBuildDst)
+						}
+
+						fs.mkdirSync(webviewBuildDst, { recursive: true })
+						const count = copyDir(webviewBuildSrc, webviewBuildDst, 0)
+						console.log(`[copyFiles] Copied ${count} webview build files`)
+					} else {
+						console.log(`[copyFiles] Optional webview build not found, skipping: ${webviewBuildSrc}`)
+					}
 				})
 			},
 		},

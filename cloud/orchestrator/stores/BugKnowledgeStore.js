@@ -212,6 +212,10 @@ class BugKnowledgeStore {
 		return this.adapter.getLessonCountByProject()
 	}
 
+	async getAllLessons(options = {}) {
+		return this.adapter.getAllLessons(options)
+	}
+
 	/**
 	 * Check if the knowledge store is healthy.
 	 *

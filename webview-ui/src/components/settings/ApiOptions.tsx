@@ -94,6 +94,7 @@ import {
 	Fireworks,
 	VercelAiGateway,
 	MiniMax,
+	SuperContinue,
 } from "./providers"
 
 import { MODELS_BY_PROVIDER, PROVIDERS } from "./constants"
@@ -238,6 +239,8 @@ const ApiOptions = ({
 				vscode.postMessage({ type: "requestOllamaModels" })
 			} else if (selectedProvider === "lmstudio") {
 				vscode.postMessage({ type: "requestLmStudioModels" })
+			} else if (selectedProvider === "supercontinue") {
+				vscode.postMessage({ type: "requestOllamaModels" })
 			} else if (selectedProvider === "vscode-lm") {
 				vscode.postMessage({ type: "requestVsCodeLmModels" })
 			} else if (selectedProvider === "litellm" || selectedProvider === "roo" || selectedProvider === "poe") {
@@ -361,12 +364,13 @@ const ApiOptions = ({
 				},
 				fireworks: { field: "apiModelId", default: fireworksDefaultModelId },
 				poe: { field: "apiModelId", default: poeDefaultModelId },
-				roo: { field: "apiModelId", default: rooDefaultModelId },
-				"vercel-ai-gateway": { field: "vercelAiGatewayModelId", default: vercelAiGatewayDefaultModelId },
-				openai: { field: "openAiModelId" },
-				ollama: { field: "ollamaModelId" },
-				lmstudio: { field: "lmStudioModelId" },
-			}
+roo: { field: "apiModelId", default: rooDefaultModelId },
+		"vercel-ai-gateway": { field: "vercelAiGatewayModelId", default: vercelAiGatewayDefaultModelId },
+		openai: { field: "openAiModelId" },
+		ollama: { field: "ollamaModelId" },
+		lmstudio: { field: "lmStudioModelId" },
+		supercontinue: { field: "ollamaModelId" },
+	}
 
 			const config = PROVIDER_MODEL_CONFIG[value]
 			if (config) {
@@ -660,6 +664,13 @@ const ApiOptions = ({
 
 					{selectedProvider === "ollama" && (
 						<Ollama
+							apiConfiguration={apiConfiguration}
+							setApiConfigurationField={setApiConfigurationField}
+						/>
+					)}
+
+					{selectedProvider === "supercontinue" && (
+						<SuperContinue
 							apiConfiguration={apiConfiguration}
 							setApiConfigurationField={setApiConfigurationField}
 						/>

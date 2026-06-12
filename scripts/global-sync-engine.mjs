@@ -237,6 +237,30 @@ const EXTENSION_TARGETS = {
       "mcp_settings.json",
     ),
   },
+  "task-agent": {
+    tasks: path.join(SUPERROO_HOME, "tasks", "global-tasks.json"),
+    skills: path.join(SUPERROO_HOME, "skills", "task-agent"),
+    resources: path.join(SUPERROO_HOME, "resources", "task-agent.md"),
+    mcpConfig: path.join(SUPERROO_HOME, "mcp", "codex-brain.json"),
+  },
+}
+
+const EXTENSION_AGENT_ALIASES = {
+  codex: new Set(["codex"]),
+  claude: new Set(["claude", "claude-code"]),
+  "kilo-code": new Set(["kilo-code", "kilo"]),
+  "kilo-legacy": new Set(["kilo-legacy"]),
+  blackbox: new Set(["blackbox"]),
+  "superroo-vscode": new Set(["superroo-vscode", "superroo"]),
+  "roo-cline": new Set(["roo-cline", "roo"]),
+  "task-agent": new Set(["task-agent"]),
+}
+
+function taskBelongsToExtension(task, extId) {
+  const aliases = EXTENSION_AGENT_ALIASES[extId]
+  if (!aliases) return true
+  const agent = String(task.agent || task.owner || "").toLowerCase()
+  return aliases.has(agent)
 }
 
 // ── CLI args ──────────────────────────────────────────────────────────────────
@@ -417,7 +441,7 @@ function detectTasksGap(extId, targets, canonical) {
   const gaps = []
   if (!targets.tasks) return gaps
 
-  const extTasks = loadJson(targets.tasks, { tasks: [] }).tasks || []
+  const extTasks = allTasksFromRegistry(loadJson(targets.tasks, { tasks: [] }))
   if (extTasks.length === 0 && canonical.tasks.total > 0) {
     gaps.push({
       domain: "tasks",
@@ -429,7 +453,14 @@ function detectTasksGap(extId, targets, canonical) {
     })
   }
 
-  const recentUpdate = extTasks.reduce(
+  const activeTasks = extTasks
+    .filter((task) => taskBelongsToExtension(task, extId))
+    .filter((task) =>
+      ["active", "in_progress", "running", "pending"].includes(
+        String(task.status || "").toLowerCase(),
+      ),
+    )
+  const recentUpdate = activeTasks.reduce(
     (latest, t) => {
       const ts = t.updatedAt || t.startedAt || ""
       return ts > latest ? ts : latest
@@ -571,7 +602,26 @@ function detectAllGaps(extId) {
   if (!targets) return []
 
   const canonical = getCanonicalState()
-  const allGaps = [
+  const allGaps = []
+
+  // Task Agent is read-only — only check skills/resources for its own skill
+  if (extId === "task-agent") {
+    // Check if task-agent skill exists (either as directory with SKILL.md or as file)
+    const hasSkillDir = exists(path.join(targets.skills, "SKILL.md"))
+    const hasSkillFile = exists(path.join(SUPERROO_HOME, "skills", "task-agent.md"))
+    if (!hasSkillDir && !hasSkillFile && canonical.skills.total > 0) {
+      allGaps.push({
+        domain: "skills",
+        extId,
+        type: "missing_own_skill",
+        action: "create_shims",
+        safe: true,
+      })
+    }
+    return allGaps
+  }
+
+  allGaps.push(
     ...detectLessonsGap(extId, targets, canonical),
     ...detectTasksGap(extId, targets, canonical),
     ...detectSkillsGap(extId, targets, canonical),
@@ -579,7 +629,7 @@ function detectAllGaps(extId) {
     ...detectRiskGap(extId, targets, canonical),
     ...detectContextGap(extId, targets, canonical),
     ...detectConfigGap(extId, targets, canonical),
-  ]
+  )
 
   return allGaps
 }

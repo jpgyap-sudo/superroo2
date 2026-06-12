@@ -4,7 +4,7 @@ import { execSync } from "child_process"
 
 import { ViewsContainer, Views, Menus, Configuration, Keybindings, contributesSchema } from "./types.js"
 
-function copyDir(srcDir: string, dstDir: string, count: number): number {
+export function copyDir(srcDir: string, dstDir: string, count: number): number {
 	const entries = fs.readdirSync(srcDir, { withFileTypes: true })
 
 	for (const entry of entries) {
@@ -23,7 +23,7 @@ function copyDir(srcDir: string, dstDir: string, count: number): number {
 	return count
 }
 
-function rmDir(dirPath: string, maxRetries: number = 5): void {
+export function rmDir(dirPath: string, maxRetries: number = 5): void {
 	for (let attempt = 1; attempt <= maxRetries; attempt++) {
 		try {
 			fs.rmSync(dirPath, { recursive: true, force: true })

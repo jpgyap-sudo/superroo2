@@ -375,8 +375,8 @@ describe("Cross-Phase Integration — End-to-End Wiring", () => {
 				name: "Ollama",
 				local: true,
 				apiBaseUrl: "http://127.0.0.1:11434/v1",
-				defaultModel: "qwen2.5:0.5b",
-				models: [{ id: "qwen2.5:0.5b", name: "Qwen 2.5 0.5B" }],
+				defaultModel: "hermes3",
+				models: [{ id: "hermes3", name: "Qwen 2.5 0.5B" }],
 				capabilities: ["chat"],
 			},
 		]

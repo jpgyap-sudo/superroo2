@@ -100,7 +100,10 @@ export class ModelUsageTracker {
 		private readonly events: EventLog,
 		memoryDir?: string,
 	) {
-		this.logDir = memoryDir || path.resolve(process.cwd(), "server/src/memory")
+		this.logDir = memoryDir
+			|| process.env.SUPERROO_PRODUCT_MEMORY_DIR
+			|| (process.env.SUPERROO_HOME ? `${process.env.SUPERROO_HOME}/product-memory` : null)
+			|| path.join(require("os").homedir(), ".superroo", "product-memory")
 		this.usageLogPath = path.join(this.logDir, USAGE_LOG_FILE)
 		this.taskSummaryPath = path.join(this.logDir, TASK_SUMMARY_FILE)
 	}

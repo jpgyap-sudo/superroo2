@@ -1,6 +1,86 @@
 import * as path from "path"
+import * as fs from "fs/promises"
 import { parseSourceCodeDefinitionsForFile } from "../../services/tree-sitter"
 import { RooIgnoreController } from "../ignore/RooIgnoreController"
+
+const FOLDED_FILE_CONTEXT_CACHE_TTL_MS = 5 * 60 * 1000
+const FOLDED_FILE_CONTEXT_CACHE_MAX_SIZE = 200
+
+type CachedFoldedFileContext = {
+	result: FoldedFileContextResult
+	cachedAt: number
+}
+
+// LRU cache with size limit
+const foldedFileContextCache = new Map<string, string>()
+const foldedFileContextAccessOrder = new Map<string, number>() // Track access time for LRU eviction
+let foldedFileContextAccessCounter = 0
+
+function evictIfNecessary(): void {
+	if (foldedFileContextCache.size >= FOLDED_FILE_CONTEXT_CACHE_MAX_SIZE) {
+		// Find the least recently used entry
+		let oldestKey: string | undefined
+		let oldestTime = Infinity
+		for (const [key, accessTime] of foldedFileContextAccessOrder) {
+			if (accessTime < oldestTime) {
+				oldestTime = accessTime
+				oldestKey = key
+			}
+		}
+		if (oldestKey) {
+			foldedFileContextCache.delete(oldestKey)
+			foldedFileContextAccessOrder.delete(oldestKey)
+		}
+	}
+}
+
+export function invalidateFoldedFileContextCache(filePath?: string): void {
+	if (filePath) {
+		// Remove all cache entries for this file (any mtime)
+		for (const key of foldedFileContextCache.keys()) {
+			if (key.startsWith(`${filePath}:`)) {
+				foldedFileContextCache.delete(key)
+				foldedFileContextAccessOrder.delete(key)
+			}
+		}
+	} else {
+		foldedFileContextCache.clear()
+		foldedFileContextAccessOrder.clear()
+	}
+}
+
+async function getCachedFoldedFileContext(
+	absolutePath: string,
+	rooIgnoreController?: RooIgnoreController,
+): Promise<string | null> {
+	try {
+		const stat = await fs.stat(absolutePath)
+		const cacheKey = `${absolutePath}:${stat.mtimeMs}`
+		const cached = foldedFileContextCache.get(cacheKey)
+
+		if (cached) {
+			// Update access time for LRU
+			foldedFileContextAccessOrder.set(cacheKey, ++foldedFileContextAccessCounter)
+			return cached
+		}
+
+		// Evict oldest entry if cache is full
+		evictIfNecessary()
+
+		const result = await parseSourceCodeDefinitionsForFile(absolutePath, rooIgnoreController)
+		if (!result || isTreeSitterErrorString(result)) {
+			foldedFileContextCache.set(cacheKey, "")
+			foldedFileContextAccessOrder.set(cacheKey, ++foldedFileContextAccessCounter)
+			return ""
+		}
+
+		foldedFileContextCache.set(cacheKey, result)
+		foldedFileContextAccessOrder.set(cacheKey, ++foldedFileContextAccessCounter)
+		return result
+	} catch {
+		return null
+	}
+}
 
 /**
  * Checks if a definitions string is actually an error message from tree-sitter
@@ -95,60 +175,51 @@ export async function generateFoldedFileContext(
 	let currentCharCount = 0
 	const failedFiles: string[] = []
 
-	for (let i = 0; i < filePaths.length; i++) {
-		const filePath = filePaths[i]
-		// Resolve to absolute path for tree-sitter
+	const parsePromises = filePaths.map(async (filePath, i) => {
 		const absolutePath = path.isAbsolute(filePath) ? filePath : path.resolve(cwd, filePath)
+		const cached = await getCachedFoldedFileContext(absolutePath, rooIgnoreController)
+		return { filePath, absolutePath, cached, index: i }
+	})
 
-		try {
-			// Get the folded definitions using tree-sitter
-			const definitions = await parseSourceCodeDefinitionsForFile(absolutePath, rooIgnoreController)
+	const parsed = await Promise.all(parsePromises)
 
-			if (!definitions || isTreeSitterErrorString(definitions)) {
-				// File type not supported, no definitions found, or error accessing file
-				result.filesSkipped++
-				continue
-			}
+	for (const item of parsed) {
+		const { filePath, cached, index } = item
 
-			// Wrap each file in its own <system-reminder> block
-			const sectionContent = `<system-reminder>
+		if (!cached) {
+			result.filesSkipped++
+			failedFiles.push(filePath)
+			continue
+		}
+
+		const definitions = cached
+		const sectionContent = `<system-reminder>
 ## File Context: ${filePath}
 ${definitions}
 </system-reminder>`
 
-			// Check if adding this file would exceed the character limit
-			if (currentCharCount + sectionContent.length > maxCharacters) {
-				// Would exceed limit - check if we can fit at least a truncated version
-				const remainingChars = maxCharacters - currentCharCount
-				if (remainingChars < 200) {
-					// Not enough room for meaningful content, stop processing all remaining files
-					result.filesSkipped += filePaths.length - i
-					break
-				}
-
-				// Truncate the definitions to fit within the system-reminder block
-				const truncatedDefinitions = definitions.substring(0, remainingChars - 100) + "\n... (truncated)"
-				const truncatedContent = `<system-reminder>
-## File Context: ${filePath}
-${truncatedDefinitions}
-</system-reminder>`
-				foldedSections.push(truncatedContent)
-				currentCharCount += truncatedContent.length
-				result.filesProcessed++
-
-				// Stop processing more files since we've hit the limit
-				result.filesSkipped += filePaths.length - result.filesProcessed - result.filesSkipped
+		if (currentCharCount + sectionContent.length > maxCharacters) {
+			const remainingChars = maxCharacters - currentCharCount
+			if (remainingChars < 200) {
+				result.filesSkipped += filePaths.length - index
 				break
 			}
 
-			foldedSections.push(sectionContent)
-			currentCharCount += sectionContent.length
+			const truncatedDefinitions = definitions.substring(0, remainingChars - 100) + "\n... (truncated)"
+			const truncatedContent = `<system-reminder>
+## File Context: ${filePath}
+${truncatedDefinitions}
+</system-reminder>`
+			foldedSections.push(truncatedContent)
+			currentCharCount += truncatedContent.length
 			result.filesProcessed++
-		} catch (error) {
-			// Collect failed files for batch logging to reduce noise
-			failedFiles.push(filePath)
-			result.filesSkipped++
+			result.filesSkipped += filePaths.length - result.filesProcessed - result.filesSkipped
+			break
 		}
+
+		foldedSections.push(sectionContent)
+		currentCharCount += sectionContent.length
+		result.filesProcessed++
 	}
 
 	// Log failed files as a single batch summary instead of per-file errors

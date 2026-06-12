@@ -15,6 +15,7 @@ import pWaitFor from "p-wait-for"
 import { serializeError } from "serialize-error"
 import { Package } from "../../shared/package"
 import { formatToolInvocation } from "../tools/helpers/toolResultFormatting"
+import { getMessagesSinceLastSummary } from "../condense"
 
 import {
 	type TaskLike,
@@ -1607,6 +1608,19 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			const provider = this.providerRef.deref()
 
 			if (provider) {
+				// Check if images are present and current model doesn't support them
+				// Route to vision tools instead of failing
+				const modelSupportsImages = this.api.getModel().info.supportsImages ?? false
+				if (images.length > 0 && !modelSupportsImages) {
+					// Use MCP vision tools to analyze images
+					const visionResults = await this.analyzeImagesWithMcp(images, text)
+					if (visionResults) {
+						// Send the vision analysis results as a message instead
+						this.handleWebviewAskResponse("messageResponse", visionResults, [])
+						return
+					}
+				}
+
 				if (mode) {
 					await provider.setMode(mode)
 				}
@@ -1634,6 +1648,96 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		} catch (error) {
 			console.error("[Task#submitUserMessage] Failed to submit user message:", error)
 		}
+	}
+
+	/**
+	 * Analyzes images using MCP vision tools when the current model doesn't support images.
+	 * Returns the analysis results as text, or null if MCP vision is unavailable.
+	 */
+	private async analyzeImagesWithMcp(images: string[], text?: string): Promise<string | null> {
+		try {
+			const mcpHub = this.providerRef.deref()?.getMcpHub()
+			if (!mcpHub) {
+				return null
+			}
+
+			// Find a vision-capable MCP server and tool
+			// The ollama MCP server has ollama_vision_data tool
+			const analysisResults = []
+			for (const imageData of images) {
+				const base64Data = this.normalizeImageDataForVision(imageData)
+
+				// Try to call the ollama_vision_data tool on the ollama server
+				try {
+					const result = await mcpHub.callTool("ollama", "ollama_vision_data", {
+						image_base64: base64Data,
+						prompt: text || "Analyze this image and extract all text, UI elements, and key information.",
+					})
+					const analysis = this.extractMcpVisionText(result)
+					if (analysis) {
+						analysisResults.push(analysis)
+					}
+				} catch (toolError) {
+					// If ollama server not available, try central-brain
+					try {
+						const result = await mcpHub.callTool("central-brain", "brain_analyze_image", {
+							image_base64: base64Data,
+							prompt: text || "Analyze this image and extract all text, UI elements, and key information.",
+						})
+						const analysis = this.extractMcpVisionText(result)
+						if (analysis) {
+							analysisResults.push(analysis)
+						}
+					} catch (brainError) {
+						console.error("[Task#analyzeImagesWithMcp] Both MCP vision tools failed:", toolError, brainError)
+					}
+				}
+			}
+
+			if (analysisResults.length > 0) {
+				return `## Image Analysis Results\n\n${analysisResults.join("\n\n")}`
+			}
+			return null
+		} catch (error) {
+			console.error("[Task#analyzeImagesWithMcp] Failed to analyze images:", error)
+			return null
+		}
+	}
+
+	private normalizeImageDataForVision(imageData: string): string {
+		const trimmed = imageData.trim()
+		const dataUrlMatch = trimmed.match(/^data:image\/[\w.+-]+;base64,(.+)$/i)
+		return dataUrlMatch?.[1] ?? trimmed
+	}
+
+	private extractMcpVisionText(result: unknown): string | null {
+		if (!result) {
+			return null
+		}
+
+		const content = (result as { content?: unknown }).content
+		if (typeof content === "string") {
+			return content.trim() || null
+		}
+
+		if (Array.isArray(content)) {
+			const text = content
+				.map((item) => {
+					if (typeof item === "string") {
+						return item
+					}
+					if (item && typeof item === "object" && typeof (item as { text?: unknown }).text === "string") {
+						return (item as { text: string }).text
+					}
+					return ""
+				})
+				.filter(Boolean)
+				.join("\n")
+				.trim()
+			return text || null
+		}
+
+		return null
 	}
 
 	async handleTerminalOperation(terminalOperation: "continue" | "abort") {
@@ -1699,7 +1803,9 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				: {}),
 		}
 		// Generate environment details to include in the condensed summary
-		const environmentDetails = await getEnvironmentDetails(this, true)
+		// Skip workspace file listing and terminal wait for manual condensing - the summary preserves
+		// task progress without needing a fresh workspace enumeration or terminal output.
+		const environmentDetails = await getEnvironmentDetails(this, false, true)
 
 		const filesReadByRoo = await this.getFilesReadByRooSafely("condenseContext")
 
@@ -1712,7 +1818,8 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			errorDetails,
 			condenseId,
 		} = await summarizeConversation({
-			messages: this.apiConversationHistory,
+			messages: getMessagesSinceLastSummary(this.apiConversationHistory),
+			allMessages: this.apiConversationHistory,
 			apiHandler: this.api,
 			systemPrompt,
 			taskId: this.taskId,
@@ -2439,7 +2546,9 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 		// Add environment details to the existing last user message (which contains the tool_result)
 		// This avoids creating a new user message which would cause consecutive user messages
-		const environmentDetails = await getEnvironmentDetails(this, true)
+		// Skip workspace file listing and terminal wait for resume - the persisted task state already contains
+		// sufficient context without needing a fresh workspace enumeration or terminal output.
+		const environmentDetails = await getEnvironmentDetails(this, false, true)
 		let lastUserMsgIndex = -1
 		for (let i = this.apiConversationHistory.length - 1; i >= 0; i--) {
 			if (this.apiConversationHistory[i].role === "user") {
@@ -2879,6 +2988,12 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 									)
 								}
 								await this.say("reasoning", formattedReasoning, undefined, true)
+								break
+							}
+							case "thinking_complete": {
+								// Anthropic extended thinking completion signal.
+								// The signature is preserved in the assistant message content
+								// by addToApiConversationHistory() after streaming ends.
 								break
 							}
 							case "usage":
@@ -3877,10 +3992,16 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		// Get the current profile ID using the helper method
 		const currentProfileId = this.getCurrentProfileId(state)
 
+		// Use estimated token count since contextTokens is stale and may
+		// undercount the actual conversation size that caused the error.
+		const estimatedTokens = await this.estimateConversationTokenCount()
+		const effectiveContextTokens = Math.max(contextTokens || 0, estimatedTokens)
+
 		// Log the context window error for debugging
 		console.warn(
 			`[Task#${this.taskId}] Context window exceeded for model ${this.api.getModel().id}. ` +
-				`Current tokens: ${contextTokens}, Context window: ${contextWindow}. ` +
+				`Stale tokens: ${contextTokens}, Estimated: ${estimatedTokens}, Effective: ${effectiveContextTokens}. ` +
+				`Context window: ${contextWindow}. ` +
 				`Forcing truncation to ${FORCED_CONTEXT_REDUCTION_PERCENT}% of current context.`,
 		)
 		// Send condenseTaskContextStarted to show in-progress indicator
@@ -3919,12 +4040,14 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 		try {
 			// Generate environment details to include in the condensed summary
-			const environmentDetails = await getEnvironmentDetails(this, true)
+			// Skip workspace file listing and terminal wait for forced truncation (auto condense) -
+			// avoids expensive ripgrep scans and terminal waits during context management.
+			const environmentDetails = await getEnvironmentDetails(this, false, true)
 
 			// Force aggressive truncation by keeping only 75% of the conversation history
 			const truncateResult = await manageContext({
 				messages: this.apiConversationHistory,
-				totalTokens: contextTokens || 0,
+				totalTokens: effectiveContextTokens,
 				maxTokens,
 				contextWindow,
 				apiHandler: this.api,
@@ -4018,6 +4141,65 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		}
 	}
 
+	/**
+	 * Roughly estimates the current conversation token count by measuring
+	 * the serialized API conversation history. This catches growth that
+	 * occurs between API requests (tool results, user messages appended)
+	 * which is NOT reflected in the stale contextTokens from getTokenUsage().
+	 *
+	 * Uses a conservative ~4:1 character-to-token heuristic which is standard
+	 * for English text. For conversations near the context window limit, even
+	 * a rough estimate is far more accurate than relying on the previous API
+	 * response's token count, which can be off by 100K+ tokens.
+	 */
+	private async estimateConversationTokenCount(): Promise<number> {
+		// Use apiConversationHistory directly (not filtered through getEffectiveApiHistory)
+		// because condensed messages still consume space in the actual conversation.
+		// Slightly overcounting is SAFER than undercounting.
+		const history = this.apiConversationHistory
+		// If there's no conversation history, there's nothing to estimate.
+		// The stale contextTokens value (0 or last API response) is sufficient.
+		if (!history || history.length === 0) {
+			return 0
+		}
+		const systemPrompt = await this.getSystemPrompt()
+		let totalChars = systemPrompt.length
+
+		for (const msg of history) {
+			const content = msg.content
+			if (Array.isArray(content)) {
+				for (const block of content) {
+					if (block.type === "text") {
+						totalChars += (block as any).text?.length ?? 0
+					} else if (block.type === "tool_use") {
+						const tb = block as any
+						totalChars += tb.name?.length ?? 0
+						totalChars += tb.input ? JSON.stringify(tb.input).length : 0
+					} else if (block.type === "tool_result") {
+						const tr = block as any
+						if (Array.isArray(tr.content)) {
+							for (const sub of tr.content) {
+								totalChars += (sub as any).text?.length ?? 0
+							}
+						} else if (typeof tr.content === "string") {
+							totalChars += tr.content.length
+						}
+					} else {
+						// Fallback: stringify unknown block types
+						totalChars += JSON.stringify(block).length
+					}
+				}
+			} else if (typeof content === "string") {
+				totalChars += content.length
+			}
+		}
+
+		// ~4 characters per token is a standard conservative heuristic for English text.
+		// JSON structure overhead (keys, braces, quotes) adds ~10-20% more chars,
+		// so dividing by 4 gives a slight overestimate — which is the safe direction.
+		return Math.ceil(totalChars / 4)
+	}
+
 	public async *attemptApiRequest(
 		retryAttempt: number = 0,
 		options: { skipProviderRateLimit?: boolean } = {},
@@ -4031,6 +4213,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			mode,
 			autoCondenseContext = true,
 			autoCondenseContextPercent = 100,
+			condenseAutocomplete = true,
 			profileThresholds = {},
 		} = state ?? {}
 
@@ -4053,7 +4236,16 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		const systemPrompt = await this.getSystemPrompt()
 		const { contextTokens } = this.getTokenUsage()
 
-		if (contextTokens) {
+		// contextTokens from getTokenUsage() is STALE — it reflects the last
+		// successful API response's token count, NOT the current conversation.
+		// Between API calls, tool results and user messages accumulate in
+		// apiConversationHistory, potentially adding 100K+ uncounted tokens.
+		// We estimate the actual size and use the max to ensure context
+		// management runs when needed, preventing Poolside 400 errors.
+		const estimatedTokens = await this.estimateConversationTokenCount()
+		const effectiveContextTokens = Math.max(contextTokens || 0, estimatedTokens)
+
+		if (effectiveContextTokens) {
 			const modelInfo = this.api.getModel().info
 
 			const maxTokens = getModelMaxOutputTokens({
@@ -4079,7 +4271,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			}
 
 			const contextManagementWillRun = willManageContext({
-				totalTokens: contextTokens,
+				totalTokens: effectiveContextTokens,
 				contextWindow,
 				maxTokens,
 				autoCondenseContext,
@@ -4096,6 +4288,20 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				await this.providerRef
 					.deref()
 					?.postMessageToWebview({ type: "condenseTaskContextStarted", text: this.taskId })
+			}
+
+			// Notify frontend whether condense autocomplete is enabled for this operation
+			await this.providerRef
+				.deref()
+				?.postMessageToWebview({
+					type: "condenseAutocompleteState",
+					text: this.taskId,
+					enabled: contextManagementWillRun && autoCondenseContext && condenseAutocomplete,
+				})
+
+			// Capture telemetry for condense autocomplete availability
+			if (contextManagementWillRun && autoCondenseContext && condenseAutocomplete) {
+				this.telemetryService?.captureCondenseAutocompleteShown(this.taskId, 0)
 			}
 
 			// Build tools for condensing metadata (same tools used for normal API calls)
@@ -4132,12 +4338,13 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 					: {}),
 			}
 
-			// Only generate environment details when context management will actually run.
-			// getEnvironmentDetails(this, true) triggers a recursive workspace listing which
-			// adds overhead - avoid this for the common case where context is below threshold.
-			const contextMgmtEnvironmentDetails = contextManagementWillRun
-				? await getEnvironmentDetails(this, true)
-				: undefined
+		// Only generate environment details when context management will actually run.
+		// Skip workspace file listing and terminal wait for automatic condensing to avoid
+		// expensive ripgrep scans and terminal waits during context management.
+		// The summary preserves task progress without needing a fresh workspace enumeration.
+		const contextMgmtEnvironmentDetails = contextManagementWillRun
+			? await getEnvironmentDetails(this, false, true)
+			: undefined
 
 			// Get files read by Roo for code folding - only when context management will run
 			const contextMgmtFilesReadByRoo =
@@ -4148,7 +4355,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			try {
 				const truncateResult = await manageContext({
 					messages: this.apiConversationHistory,
-					totalTokens: contextTokens,
+					totalTokens: effectiveContextTokens,
 					maxTokens,
 					contextWindow,
 					apiHandler: this.api,

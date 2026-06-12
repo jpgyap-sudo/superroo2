@@ -94,7 +94,7 @@ curl -X POST https://dev.abcx124.xyz/api/brain/mcp \
     └──────┬──────┘    └──────┬──────┘    └──────┬──────┘
            │                  │                  │
     ┌──────▼──────┐    ┌──────▼──────┐           │
-    │ pgvector    │    │ qwen2.5:0.5b│           │
+    │ pgvector    │    │ hermes3│           │
     │ PostgreSQL  │    │ nomic-embed │           │
     │ (RAG Store) │    │ (Embeddings)│           │
     └─────────────┘    └─────────────┘           │
@@ -537,7 +537,7 @@ Handles cheap, repetitive tasks locally:
 
 | Model              | Purpose                            |
 | ------------------ | ---------------------------------- |
-| `qwen2.5:0.5b`     | Ultra-cheap chat and summarization |
+| `hermes3`     | Ultra-cheap chat and summarization |
 | `qwen2.5:1.5b`     | Fallback deeper summarization      |
 | `nomic-embed-text` | Text embeddings (768 dimensions)   |
 

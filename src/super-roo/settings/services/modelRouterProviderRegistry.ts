@@ -19,6 +19,7 @@ const CAPABILITY_MAP: Record<string, ModelCapability[]> = {
 	kimi: ["chat", "vision", "research"],
 	openrouter: ["chat", "vision", "function-calling"],
 	groq: ["chat", "fast"],
+	ollama: ["chat", "fast", "offline", "condense_autocomplete"],
 }
 
 // ── In-memory provider status store ─────────────────────────────────────────
@@ -39,6 +40,7 @@ const providerStatusStore: Record<string, ProviderStatusEntry> = {
 	kimi: { status: "tested", maskedKey: "sk-...kimi" },
 	openrouter: { status: "untested" },
 	groq: { status: "untested" },
+	ollama: { status: "untested", maskedKey: "local" },
 }
 
 // ── Public API ──────────────────────────────────────────────────────────────

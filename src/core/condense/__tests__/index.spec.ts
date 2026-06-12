@@ -1,6 +1,6 @@
 // npx vitest core/condense/__tests__/index.spec.ts
 
-import type { Mock } from "vitest"
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi, type Mock } from "vitest"
 
 import { Anthropic } from "@anthropic-ai/sdk"
 import { TelemetryService } from "@superroo/telemetry"
@@ -19,6 +19,7 @@ import {
 	toolResultToText,
 	convertToolBlocksToText,
 	transformMessagesForCondensing,
+	isPureToolOutput,
 } from "../index"
 
 vi.mock("../../../api/transform/image-cleaning", () => ({
@@ -32,6 +33,17 @@ vi.mock("@superroo/telemetry", () => ({
 		},
 	},
 }))
+
+// Prevent Ollama fallback from hanging tests when primary summary is empty.
+const originalFetch = globalThis.fetch
+beforeAll(() => {
+	globalThis.fetch = async () => {
+		throw new Error("Ollama fallback not available in tests")
+	}
+})
+afterAll(() => {
+	globalThis.fetch = originalFetch
+})
 
 const taskId = "test-task-id"
 
@@ -102,6 +114,62 @@ Line 2
 		const result = extractCommandBlocks(message)
 		expect(result).toContain('name="test"')
 		expect(result).toContain('attr1="value1"')
+	})
+})
+
+describe("isPureToolOutput", () => {
+	it("should return false for string content", () => {
+		const message: ApiMessage = {
+			role: "user",
+			content: "Just regular text",
+		}
+		expect(isPureToolOutput(message)).toBe(false)
+	})
+
+	it("should return true for messages with only tool_use blocks", () => {
+		const message: ApiMessage = {
+			role: "assistant",
+			content: [{ type: "tool_use", id: "tool-1", name: "read_file", input: { path: "test.ts" } }],
+		}
+		expect(isPureToolOutput(message)).toBe(true)
+	})
+
+	it("should return true for messages with only tool_result blocks", () => {
+		const message: ApiMessage = {
+			role: "user",
+			content: [{ type: "tool_result", tool_use_id: "tool-1", content: "file contents" }],
+		}
+		expect(isPureToolOutput(message)).toBe(true)
+	})
+
+	it("should return true for messages with mixed tool_use and tool_result blocks", () => {
+		const message: ApiMessage = {
+			role: "user",
+			content: [
+				{ type: "tool_use", id: "tool-1", name: "read_file", input: { path: "test.ts" } },
+				{ type: "tool_result", tool_use_id: "tool-1", content: "file contents" },
+			],
+		}
+		expect(isPureToolOutput(message)).toBe(true)
+	})
+
+	it("should return false for messages with text and tool blocks mixed", () => {
+		const message: ApiMessage = {
+			role: "user",
+			content: [
+				{ type: "text", text: "Here's what I found:" },
+				{ type: "tool_result", tool_use_id: "tool-1", content: "file contents" },
+			],
+		}
+		expect(isPureToolOutput(message)).toBe(false)
+	})
+
+	it("should return true for messages with only image blocks", () => {
+		const message: ApiMessage = {
+			role: "user",
+			content: [{ type: "image", source: { type: "base64", data: "abc", media_type: "image/png" } }],
+		}
+		expect(isPureToolOutput(message)).toBe(true)
 	})
 })
 
@@ -680,6 +748,7 @@ describe("summarizeConversation", () => {
 	beforeEach(() => {
 		// Reset mocks
 		vi.clearAllMocks()
+		vi.unstubAllGlobals()
 
 		// Setup mock stream with usage information
 		mockStream = (async function* () {
@@ -706,6 +775,10 @@ describe("summarizeConversation", () => {
 				},
 			}),
 		} as unknown as ApiHandler
+	})
+
+	afterEach(() => {
+		vi.unstubAllGlobals()
 	})
 
 	// Default system prompt for tests
@@ -783,6 +856,51 @@ describe("summarizeConversation", () => {
 		// newContextTokens = countTokens(systemPrompt + summaryMessage) - counts actual content, not outputTokens
 		expect(result.newContextTokens).toBe(100) // countTokens mock returns 100
 		expect(result.error).toBeUndefined()
+	})
+
+	it("should rescue context overflow failures with local Ollama Phi summarization", async () => {
+		const overflowError = Object.assign(new Error("Session too large to compact"), {
+			name: "ContextOverflowError",
+			data: {
+				message: "Session too large to compact - context exceeds model limit even after stripping media",
+			},
+		})
+		mockApiHandler.createMessage = vi.fn().mockImplementation(() => {
+			throw overflowError
+		}) as any
+
+		const fetchMock = vi.fn().mockResolvedValue({
+			ok: true,
+			json: vi.fn().mockResolvedValue({ response: "Local Phi rescue summary" }),
+		})
+		vi.stubGlobal("fetch", fetchMock)
+
+		const messages: ApiMessage[] = [
+			{ role: "user", content: "Initial task", ts: 1 },
+			{ role: "assistant", content: "Large assistant response", ts: 2 },
+			{ role: "user", content: "Continue", ts: 3 },
+		]
+
+		const result = await summarizeConversation({
+			messages,
+			apiHandler: mockApiHandler,
+			systemPrompt: defaultSystemPrompt,
+			taskId,
+			isAutomaticTrigger: true,
+		})
+
+		expect(result.error).toBeUndefined()
+		expect(result.summary).toContain("COMPACT_BRIEF_READY: true")
+		expect(result.summary).toContain("Local Phi rescue summary")
+		expect(result.messages).toHaveLength(messages.length + 1)
+		expect(result.messages.at(-1)?.isSummary).toBe(true)
+		expect(fetchMock).toHaveBeenCalledWith(
+			expect.stringContaining("/api/generate"),
+			expect.objectContaining({
+				method: "POST",
+				body: expect.stringContaining('"model":"phi4:latest"'),
+			}),
+		)
 	})
 
 	it("should preserve command blocks from first message in summary", async () => {

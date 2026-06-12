@@ -43,6 +43,7 @@ type ContextManagementSettingsProps = HTMLAttributes<HTMLDivElement> & {
 	maxGitStatusFiles?: number
 	customSupportPrompts: Record<string, string | undefined>
 	setCustomSupportPrompts: (prompts: Record<string, string | undefined>) => void
+	condenseAutocomplete?: boolean
 	setCachedStateField: SetCachedStateField<
 		| "autoCondenseContext"
 		| "autoCondenseContextPercent"
@@ -59,6 +60,7 @@ type ContextManagementSettingsProps = HTMLAttributes<HTMLDivElement> & {
 		| "includeCurrentTime"
 		| "includeCurrentCost"
 		| "maxGitStatusFiles"
+		| "condenseAutocomplete"
 	>
 }
 
@@ -82,6 +84,7 @@ export const ContextManagementSettings = ({
 	maxGitStatusFiles,
 	customSupportPrompts,
 	setCustomSupportPrompts,
+	condenseAutocomplete = true,
 	className,
 	...props
 }: ContextManagementSettingsProps) => {
@@ -482,6 +485,26 @@ export const ContextManagementSettings = ({
 						<span className="font-medium">{t("settings:contextManagement.autoCondenseContext.name")}</span>
 					</VSCodeCheckbox>
 				</SearchableSetting>
+
+				{/* Condense Autocomplete */}
+				<SearchableSetting
+					settingId="condense-autocomplete"
+					section="contextManagement"
+					label={t("settings:contextManagement.condenseAutocomplete.name") || "Condense Autocomplete"}>
+					<VSCodeCheckbox
+						checked={condenseAutocomplete}
+						onChange={(e: any) => setCachedStateField("condenseAutocomplete", e.target.checked)}
+						data-testid="condense-autocomplete-checkbox">
+						<span className="font-medium">
+							{t("settings:contextManagement.condenseAutocomplete.name") || "Condense Autocomplete"}
+						</span>
+					</VSCodeCheckbox>
+					<div className="text-vscode-descriptionForeground text-sm mt-1 mb-3">
+						{t("settings:contextManagement.condenseAutocomplete.description") ||
+							"Enable inline autocomplete suggestions during context condensation using a local model."}
+					</div>
+				</SearchableSetting>
+
 				{autoCondenseContext && (
 					<div className="flex flex-col gap-3 pl-3 border-l-2 border-vscode-button-background">
 						<div className="flex items-center gap-4 font-bold">

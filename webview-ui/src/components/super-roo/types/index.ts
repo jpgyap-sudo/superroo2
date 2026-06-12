@@ -116,6 +116,21 @@ export interface SrDashboardSnapshot {
 	agents: Array<{ name: string; description: string; ready: boolean }>
 	recentTasks: SrTask[]
 	recentEvents: SrEvent[]
+	syncStatus?: SyncStatus
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// ML Sync status types for dashboard display
+// ──────────────────────────────────────────────────────────────────────────────
+
+export interface SyncStatus {
+	isOnline: boolean
+	degradedMode: boolean
+	degradationReason: string | null
+	pendingObservations: number
+	lastUploadAt: number | null
+	lastDownloadAt: number | null
+	lastError: string | null
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

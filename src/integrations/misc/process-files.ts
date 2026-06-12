@@ -1,6 +1,7 @@
 import * as vscode from "vscode"
 import fs from "fs/promises"
 import * as path from "path"
+import { extractTextFromFile } from "./extract-text"
 
 export interface FileAttachment {
 	name: string
@@ -63,6 +64,9 @@ const TEXT_EXTENSIONS = new Set([
 	".log",
 ])
 
+// Binary formats whose text can be extracted server-side for LLM context
+const EXTRACTABLE_BINARY_EXTENSIONS = new Set([".pdf", ".docx", ".xlsx", ".ipynb"])
+
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg", ".ico"])
 
 function getMimeType(filePath: string): string {
@@ -85,6 +89,12 @@ function getMimeType(filePath: string): string {
 			return "image/x-icon"
 		case ".pdf":
 			return "application/pdf"
+		case ".docx":
+			return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+		case ".xlsx":
+			return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+		case ".ipynb":
+			return "application/x-ipynb+json"
 		case ".zip":
 			return "application/zip"
 		case ".txt":
@@ -123,6 +133,11 @@ function isImageFile(filePath: string): boolean {
 	return IMAGE_EXTENSIONS.has(ext)
 }
 
+function isExtractableBinary(filePath: string): boolean {
+	const ext = path.extname(filePath).toLowerCase()
+	return EXTRACTABLE_BINARY_EXTENSIONS.has(ext)
+}
+
 export async function selectFiles(): Promise<FileAttachment[]> {
 	const options: vscode.OpenDialogOptions = {
 		canSelectMany: true,
@@ -135,6 +150,9 @@ export async function selectFiles(): Promise<FileAttachment[]> {
 				"webp",
 				"gif",
 				"pdf",
+				"docx",
+				"xlsx",
+				"ipynb",
 				"zip",
 				"txt",
 				"md",
@@ -175,7 +193,7 @@ export async function selectFiles(): Promise<FileAttachment[]> {
 				"log",
 			],
 			Images: ["png", "jpg", "jpeg", "webp", "gif", "bmp", "svg", "ico"],
-			Documents: ["pdf", "txt", "md", "csv"],
+			Documents: ["pdf", "docx", "xlsx", "txt", "md", "csv", "ipynb"],
 			Code: [
 				"json",
 				"js",
@@ -221,15 +239,28 @@ export async function selectFiles(): Promise<FileAttachment[]> {
 			const mimeType = getMimeType(filePath)
 			const isText = isTextFile(filePath)
 			const isImage = isImageFile(filePath)
+			const isExtractable = isExtractableBinary(filePath)
 
 			let content: string
+			let resolvedIsText = isText
+
 			if (isText) {
 				content = buffer.toString("utf-8")
 			} else if (isImage) {
 				const base64 = buffer.toString("base64")
 				content = `data:${mimeType};base64,${base64}`
+			} else if (isExtractable) {
+				// Extract readable text from PDF, DOCX, XLSX, IPYNB so the LLM can read it
+				try {
+					content = await extractTextFromFile(filePath)
+					resolvedIsText = true
+				} catch {
+					// Fall back to base64 if extraction fails
+					content = buffer.toString("base64")
+					resolvedIsText = false
+				}
 			} else {
-				// For binary files (PDF, ZIP, etc.), encode as base64
+				// For other binary files (ZIP, etc.), encode as base64
 				content = buffer.toString("base64")
 			}
 
@@ -238,7 +269,7 @@ export async function selectFiles(): Promise<FileAttachment[]> {
 				type: mimeType,
 				size: buffer.length,
 				content,
-				isText,
+				isText: resolvedIsText,
 			} satisfies FileAttachment
 		}),
 	)

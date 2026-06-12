@@ -286,6 +286,22 @@ function getSelectedModel({
 				info: adjustedInfo || undefined,
 			}
 		}
+		case "supercontinue": {
+			const id = apiConfiguration.ollamaModelId ?? ""
+			const info = ollamaModels && ollamaModels[apiConfiguration.ollamaModelId!]
+
+			const adjustedInfo =
+				info?.contextWindow &&
+				apiConfiguration?.ollamaNumCtx &&
+				apiConfiguration.ollamaNumCtx < info.contextWindow
+					? { ...info, contextWindow: apiConfiguration.ollamaNumCtx }
+					: info
+
+			return {
+				id,
+				info: adjustedInfo || undefined,
+			}
+		}
 		case "lmstudio": {
 			const id = apiConfiguration.lmStudioModelId ?? ""
 			const modelInfo = lmStudioModels && lmStudioModels[apiConfiguration.lmStudioModelId!]
@@ -344,7 +360,7 @@ function getSelectedModel({
 		// case "anthropic":
 		// case "fake-ai":
 		default: {
-			provider satisfies "anthropic" | "gemini-cli" | "fake-ai"
+			provider satisfies "anthropic" | "gemini-cli" | "fake-ai" | "supercontinue"
 			const id = apiConfiguration.apiModelId ?? defaultModelId
 			const baseInfo = anthropicModels[id as keyof typeof anthropicModels]
 

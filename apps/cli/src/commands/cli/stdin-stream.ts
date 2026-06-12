@@ -6,6 +6,7 @@ import {
 	type RooCliCommandName,
 	type RooCliInputCommand,
 	type RooCliStartCommand,
+	type RooCliQuestionCommand,
 } from "@superroo/types"
 
 import { isRecord } from "@/lib/utils/guards.js"
@@ -14,6 +15,7 @@ import { isCancellationLikeError, isExpectedControlFlowError, isNoActiveTaskLike
 
 import type { ExtensionHost } from "@/agent/index.js"
 import type { JsonEventEmitter } from "@/agent/json-event-emitter.js"
+import { AgentBus } from "../../../../../src/super-roo/parallel/AgentBus.js"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -120,6 +122,20 @@ export function parseStdinStreamCommand(line: string, lineNumber: number): Stdin
 			requestId,
 			prompt: promptRaw,
 			...(images !== undefined ? { images } : {}),
+		}
+	}
+
+	if (command === "question") {
+		const promptRaw = parsed.prompt
+
+		if (typeof promptRaw !== "string" || promptRaw.trim().length === 0) {
+			throw new Error(`stdin command line ${lineNumber}: "${command}" requires non-empty string "prompt"`)
+		}
+
+		return {
+			command,
+			requestId,
+			prompt: promptRaw,
 		}
 	}
 
@@ -231,6 +247,7 @@ export interface StdinStreamModeOptions {
 	host: ExtensionHost
 	jsonEmitter: JsonEventEmitter
 	setStreamRequestId: (id: string | undefined) => void
+	agentBus?: AgentBus
 }
 
 const RESUME_ASKS = new Set(["resume_task", "resume_completed_task"])
@@ -339,7 +356,8 @@ async function waitForTaskProgressAfterStdinClosed(
 	}
 }
 
-export async function runStdinStreamMode({ host, jsonEmitter, setStreamRequestId }: StdinStreamModeOptions) {
+export async function runStdinStreamMode(options: StdinStreamModeOptions & { agentBus?: AgentBus }) {
+	const { host, jsonEmitter, setStreamRequestId, agentBus } = options
 	let hasReceivedStdinCommand = false
 	let shouldShutdown = false
 	let activeTaskPromise: Promise<void> | null = null
@@ -902,7 +920,7 @@ export async function runStdinStreamMode({ host, jsonEmitter, setStreamRequestId
 					break
 				}
 
-				case "ping":
+case "ping":
 					jsonEmitter.emitControl({
 						subtype: "ack",
 						requestId: stdinCommand.requestId,
@@ -944,6 +962,85 @@ export async function runStdinStreamMode({ host, jsonEmitter, setStreamRequestId
 					})
 					shouldShutdown = true
 					break
+
+				case "question": {
+					// Handle questions in parallel - Hermes can respond while main task runs
+					const questionPrompt = stdinCommand.prompt
+
+					jsonEmitter.emitControl({
+						subtype: "ack",
+						requestId: stdinCommand.requestId,
+						command: "question",
+						taskId: latestTaskId,
+						content: "question received",
+						code: "accepted",
+						success: true,
+					})
+
+					// If we have an AgentBus, route to Hermes agent for parallel handling
+					if (options.agentBus) {
+						try {
+							// Send question to Hermes via AgentBus
+							const response = await options.agentBus.request(
+								"cli",
+								"hermes",
+								"question",
+								{ question: questionPrompt, taskId: latestTaskId },
+								30000 // 30 second timeout
+							)
+
+							if (response) {
+								const payload = response.payload as { answer?: string; sources?: string[] }
+								jsonEmitter.emitControl({
+									subtype: "done",
+									requestId: stdinCommand.requestId,
+									command: "question",
+									taskId: latestTaskId,
+									content: payload?.answer ?? "No answer received",
+									code: "answered",
+									success: true,
+								})
+							} else {
+								jsonEmitter.emitControl({
+									subtype: "done",
+									requestId: stdinCommand.requestId,
+									command: "question",
+									taskId: latestTaskId,
+									content: "Hermes agent not available",
+									code: "no_agent",
+									success: false,
+								})
+							}
+						} catch (error) {
+							const message = error instanceof Error ? error.message : String(error)
+							jsonEmitter.emitControl({
+								subtype: "error",
+								requestId: stdinCommand.requestId,
+								command: "question",
+								taskId: latestTaskId,
+								content: message,
+								code: "question_error",
+								success: false,
+							})
+						}
+					} else {
+						// No AgentBus - queue as a message to the main task
+						host.sendToExtension({
+							type: "queueMessage",
+							text: questionPrompt,
+						})
+						jsonEmitter.emitControl({
+							subtype: "done",
+							requestId: stdinCommand.requestId,
+							command: "question",
+							taskId: latestTaskId,
+							content: "question queued to main task",
+							code: "queued",
+							success: true,
+						})
+					}
+					break
+				}
 			}
 
 			if (shouldShutdown) {

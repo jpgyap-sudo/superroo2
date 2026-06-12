@@ -36,6 +36,7 @@ import {
 	BasetenHandler,
 } from "./providers"
 import { NativeOllamaHandler } from "./providers/native-ollama"
+import { SuperContinueHandler } from "./providers/supercontinue"
 
 export interface SingleCompletionHandler {
 	completePrompt(prompt: string): Promise<string>
@@ -179,6 +180,8 @@ export function buildApiHandler(configuration: ProviderSettings): ApiHandler {
 			return new BasetenHandler(options)
 		case "poe":
 			return new PoeHandler(options)
+		case "supercontinue":
+			return new SuperContinueHandler(options)
 		default:
 			return new AnthropicHandler(options)
 	}

@@ -1,4 +1,5 @@
 import { APIError } from "openai"
+import { describe, expect, it } from "vitest"
 
 import { checkContextWindowExceededError } from "../context-error-handling"
 
@@ -75,6 +76,53 @@ describe("checkContextWindowExceededError", () => {
 					status: 400,
 				},
 				message: "Too many tokens in the request",
+			}
+
+			expect(checkContextWindowExceededError(error)).toBe(true)
+		})
+
+		it("should detect Poolside input length errors nested in Kilo APIError data", () => {
+			const error = {
+				name: "APIError",
+				data: {
+					message: "[Poolside] Input length 281598 exceeds the maximum allowed input length of 262112 tokens.",
+					statusCode: 400,
+					responseBody: JSON.stringify({
+						error: {
+							message: "Provider returned error",
+							code: 400,
+							metadata: {
+								raw: JSON.stringify({
+									error: {
+										code: 400,
+										message:
+											"Input length 281598 exceeds the maximum allowed input length of 262112 tokens.",
+										type: "Bad Request",
+									},
+								}),
+								provider_name: "Poolside",
+							},
+						},
+					}),
+				},
+			}
+
+			expect(checkContextWindowExceededError(error)).toBe(true)
+		})
+
+		it("should detect OpenRouter provider raw input length errors in responseBody", () => {
+			const error = {
+				status: 400,
+				message: "Provider returned error",
+				responseBody: JSON.stringify({
+					error: {
+						message: "Provider returned error",
+						code: 400,
+						metadata: {
+							raw: '{ "error": { "message": "Input length 281598 exceeds the maximum allowed input length of 262112 tokens." } }',
+						},
+					},
+				}),
 			}
 
 			expect(checkContextWindowExceededError(error)).toBe(true)

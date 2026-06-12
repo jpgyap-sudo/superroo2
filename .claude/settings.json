@@ -1,24 +1,44 @@
 {
-	"permissions": {
-		"allow": [
-			"Bash(ssh *)",
-			"Bash(git add *)",
-			"Bash(git push *)",
-			"Bash(git commit *)",
-			"Bash(git checkout *)",
-			"Bash(git fetch *)",
-			"Bash(git merge *)",
-			"Bash(curl *)",
-			"Bash(scp *)",
-			"Bash(mkdir *)",
-			"Bash(rsync *)",
-			"mcp__claude_ai_Vercel__deploy_to_vercel",
-			"mcp__claude_ai_Vercel__list_deployments",
-			"mcp__claude_ai_Vercel__get_project",
-			"mcp__claude_ai_Vercel__list_projects",
-			"mcp__claude_ai_Vercel__get_deployment",
-			"mcp__claude_ai_Vercel__get_deployment_build_logs",
-			"mcp__claude_ai_Vercel__get_runtime_logs"
-		]
-	}
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node C:/Users/user/.superroo/scripts/post-session-sync.mjs",
+            "timeout": 90,
+            "async": true,
+            "statusMessage": "Syncing lessons to Central Brain..."
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(ssh *)",
+      "Bash(git add *)",
+      "Bash(git push *)",
+      "Bash(git commit *)",
+      "Bash(git checkout *)",
+      "Bash(git fetch *)",
+      "Bash(git merge *)",
+      "Bash(curl *)",
+      "Bash(scp *)",
+      "Bash(mkdir *)",
+      "Bash(rsync *)",
+      "mcp__claude_ai_Vercel__deploy_to_vercel",
+      "mcp__claude_ai_Vercel__list_deployments",
+      "mcp__claude_ai_Vercel__get_project",
+      "mcp__claude_ai_Vercel__list_projects",
+      "mcp__claude_ai_Vercel__get_deployment",
+      "mcp__claude_ai_Vercel__get_deployment_build_logs",
+      "mcp__claude_ai_Vercel__get_runtime_logs"
+    ]
+  },
+  "env": {
+    "PROJECT_ROOT": "C:\\Users\\user\\Documents\\superroo2",
+    "PROJECT_ID": "superroo2"
+  }
 }

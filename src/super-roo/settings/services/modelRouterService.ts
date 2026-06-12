@@ -69,6 +69,8 @@ let routes: ModelRoute[] = [
 	),
 	// Fast fix → V4 Flash (quick, simple fixes)
 	route("fast_fix", "deepseek", "deepseek-chat-v4-flash", "groq", "llama-3.3-70b-versatile", "openai", "gpt-4o"),
+	// Condense autocomplete → local Ollama first (offline-capable, fast), then cloud fallback
+	route("condense_autocomplete", "ollama", "qwen2.5-coder:1.5b", "deepseek", "deepseek-chat-v4-flash", "groq", "llama-3.3-70b-versatile"),
 ]
 
 let fallbackRules: FallbackRules = {
@@ -182,7 +184,7 @@ export async function testRoute(taskType: TaskRouteType) {
 	}
 }
 
-async function selectUsableModel(route: ModelRoute) {
+export async function selectUsableModel(route: ModelRoute) {
 	const candidates = [
 		[route.primaryProvider, route.primaryModel],
 		[route.fallbackProvider1, route.fallbackModel1],
@@ -192,8 +194,20 @@ async function selectUsableModel(route: ModelRoute) {
 	for (const [providerId, modelId] of candidates) {
 		const { provider, model } = await getAvailableProviderModel(providerId, modelId)
 		if (!provider || !model) continue
-		if (provider.status === "tested") return { ok: true, providerId, modelId }
+		
+		// Check if provider is available and model supports the required capabilities
+		if (provider.status === "tested") {
+			// For condense_autocomplete, ensure the model supports the capability
+			if (route.taskType === "condense_autocomplete" && !model.capabilities.includes("condense_autocomplete")) {
+				continue
+			}
+			return { ok: true, providerId, modelId }
+		}
 		if (!safetyRules.blockUntestedProviders && provider.status !== "missing_key") {
+			// For condense_autocomplete, ensure the model supports the capability
+			if (route.taskType === "condense_autocomplete" && !model.capabilities.includes("condense_autocomplete")) {
+				continue
+			}
 			return { ok: true, providerId, modelId }
 		}
 	}
@@ -257,3 +271,12 @@ export function recordUsage(metric: Omit<RouteUsageMetric, "id" | "createdAt">) 
 export function getRecentUsage(limit = 50) {
 	return usageMetrics.slice(-limit)
 }
+
+// ── Condense Autocomplete ─────────────────────────────────────────────────────
+
+export { generateAutocomplete, isAutocompleteAvailable } from "./condenseAutocompleteService"
+export type {
+	CondenseAutocompleteRequest,
+	CondenseAutocompleteResponse,
+	CondenseAutocompleteError,
+} from "./condenseAutocompleteService"

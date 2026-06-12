@@ -97,8 +97,8 @@ module.exports = {
 				SMTP_FROM: process.env.SMTP_FROM || "",
 				// Ollama (Local AI) — FREE, runs on VPS
 				OLLAMA_BASE_URL: "http://127.0.0.1:11434",
-				OLLAMA_CHAT_MODEL: "qwen2.5:0.5b",
-				OLLAMA_SUMMARY_MODEL: "qwen2.5:0.5b",
+				OLLAMA_CHAT_MODEL: "hermes3",
+				OLLAMA_SUMMARY_MODEL: "hermes3",
 				OLLAMA_EMBED_MODEL: "nomic-embed-text",
 				OLLAMA_NUM_CTX: 2048,
 				OLLAMA_TIMEOUT_MS: 120000,
@@ -156,7 +156,7 @@ module.exports = {
 				WORKER_HEALTH_CHECK_INTERVAL_MS: "30000",
 				SUPERROO_VAULT_KEY: process.env.SUPERROO_VAULT_KEY || readEnvValue("SUPERROO_VAULT_KEY"),
 				OLLAMA_BASE_URL: "http://127.0.0.1:11434",
-				OLLAMA_CHAT_MODEL: "qwen2.5:0.5b",
+				OLLAMA_CHAT_MODEL: "hermes3",
 				// Central Brain (BrainClient lesson recall in agentRunners)
 				CENTRAL_BRAIN_URL: "http://127.0.0.1:3417",
 				// Telegram notification config

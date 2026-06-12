@@ -66,8 +66,11 @@ export class AgentBus {
 	private agentsOnline: Set<string> = new Set()
 	private messageCounter = 0
 	private deliveredCount = 0
+	private events: EventLog | null
 
-	constructor(private readonly events: EventLog) {}
+	constructor(events?: EventLog) {
+		this.events = events ?? null
+	}
 
 	// ── Agent lifecycle ───────────────────────────────────────────────────
 
@@ -76,7 +79,7 @@ export class AgentBus {
 	 */
 	registerAgent(agentName: string): void {
 		this.agentsOnline.add(agentName)
-		this.events.info("agentbus.agent_online", `Agent '${agentName}' registered on bus`, {
+		this.events?.info("agentbus.agent_online", `Agent '${agentName}' registered on bus`, {
 			data: { agentName, onlineCount: this.agentsOnline.size },
 		})
 	}
@@ -93,7 +96,7 @@ export class AgentBus {
 				subs.filter((s) => s.agentName !== agentName),
 			)
 		}
-		this.events.info("agentbus.agent_offline", `Agent '${agentName}' unregistered from bus`, {
+		this.events?.info("agentbus.agent_offline", `Agent '${agentName}' unregistered from bus`, {
 			data: { agentName, onlineCount: this.agentsOnline.size },
 		})
 	}
@@ -126,7 +129,7 @@ export class AgentBus {
 			timestamp: Date.now(),
 		}
 
-		this.events.debug("agentbus.send", `Message ${id}: ${message.from} → ${message.to} (${message.type})`, {
+		this.events?.debug("agentbus.send", `Message ${id}: ${message.from} → ${message.to} (${message.type})`, {
 			data: {
 				from: message.from,
 				to: message.to,
@@ -138,7 +141,7 @@ export class AgentBus {
 		// Check if target agent is online
 		if (!this.agentsOnline.has(message.to)) {
 			this.pendingMessages.push(fullMessage)
-			this.events.warn("agentbus.offline", `Agent '${message.to}' offline, message ${id} queued`, {
+			this.events?.warn("agentbus.offline", `Agent '${message.to}' offline, message ${id} queued`, {
 				data: { messageId: id, from: message.from, to: message.to },
 			})
 			return id
@@ -238,7 +241,7 @@ export class AgentBus {
 		existing.push(sub)
 		this.subscriptions.set(messageType, existing)
 
-		this.events.debug("agentbus.subscribe", `Agent '${agentName}' subscribed to '${messageType}'`)
+		this.events?.debug("agentbus.subscribe", `Agent '${agentName}' subscribed to '${messageType}'`)
 
 		return () => {
 			this.unsubscribe(agentName, messageType, handler)
@@ -283,7 +286,7 @@ export class AgentBus {
 				}
 			} catch (err) {
 				const msg = err instanceof Error ? err.message : String(err)
-				this.events.error(
+				this.events?.error(
 					"agentbus.delivery_error",
 					`Failed to deliver ${message.id} to ${sub.agentName}: ${msg}`,
 					{
@@ -293,7 +296,7 @@ export class AgentBus {
 			}
 		}
 
-		this.events.debug(
+		this.events?.debug(
 			"agentbus.delivered",
 			`Message ${message.id} delivered to ${allHandlers.length} subscribers`,
 			{

@@ -135,6 +135,26 @@ export class TelemetryService {
 		})
 	}
 
+	public captureCondenseAutocompleteShown(taskId: string, latencyMs: number): void {
+		this.captureEvent(TelemetryEventName.CONDENSE_AUTOCOMPLETE_SHOWN, {
+			taskId,
+			latencyMs,
+		})
+	}
+
+	public captureCondenseAutocompleteAccepted(taskId: string, latencyMs: number): void {
+		this.captureEvent(TelemetryEventName.CONDENSE_AUTOCOMPLETE_ACCEPTED, {
+			taskId,
+			latencyMs,
+		})
+	}
+
+	public captureCondenseAutocompleteDismissed(taskId: string): void {
+		this.captureEvent(TelemetryEventName.CONDENSE_AUTOCOMPLETE_DISMISSED, {
+			taskId,
+		})
+	}
+
 	public captureSlidingWindowTruncation(taskId: string): void {
 		this.captureEvent(TelemetryEventName.SLIDING_WINDOW_TRUNCATION, { taskId })
 	}

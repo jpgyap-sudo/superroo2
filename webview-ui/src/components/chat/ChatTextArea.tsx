@@ -11,6 +11,9 @@ import {
 	Square,
 	Paperclip,
 	FileText,
+	FileImage,
+	FileCode,
+	File,
 	Bot,
 	User,
 } from "lucide-react"
@@ -45,6 +48,7 @@ import ContextMenu from "./ContextMenu"
 import { IndexingStatusBadge } from "./IndexingStatusBadge"
 import { usePromptHistory } from "./hooks/usePromptHistory"
 import { CloudAccountSwitcher } from "../cloud/CloudAccountSwitcher"
+import { AutocompleteSuggestion } from "./AutocompleteSuggestion"
 
 interface ChatTextAreaProps {
 	inputValue: string
@@ -74,6 +78,12 @@ interface ChatTextAreaProps {
 	isStreaming?: boolean
 	onStop?: () => void
 	onEnqueueMessage?: () => void
+	// Condense autocomplete props
+	autocompleteSuggestion?: string
+	autocompleteLoading?: boolean
+	onAcceptAutocomplete?: () => void
+	onDismissAutocomplete?: () => void
+	isCondensing?: boolean
 }
 
 export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
@@ -103,6 +113,11 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 			isStreaming = false,
 			onStop,
 			onEnqueueMessage,
+			autocompleteSuggestion,
+			autocompleteLoading = false,
+			onAcceptAutocomplete,
+			onDismissAutocomplete,
+			isCondensing = false,
 		},
 		ref,
 	) => {
@@ -909,56 +924,71 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 				e.preventDefault()
 				setIsDraggingOver(false)
 
-				const textFieldList = e.dataTransfer.getData("text")
-				const textUriList = e.dataTransfer.getData("application/vnd.code.uri-list")
-				// When textFieldList is empty, it may attempt to use textUriList obtained from drag-and-drop tabs; if not empty, it will use textFieldList.
-				const text = textFieldList || textUriList
-				if (text) {
-					// Split text on newlines to handle multiple files
-					const lines = text.split(/\r?\n/).filter((line) => line.trim() !== "")
+				const files = Array.from(e.dataTransfer.files)
 
-					if (lines.length > 0) {
-						// Process each line as a separate file path
-						let newValue = inputValue.slice(0, cursorPosition)
-						let totalLength = 0
+				// Prefer actual file objects over text data — external OS drops populate
+				// dataTransfer.files; VS Code tab drags populate only text/URI fields.
+				if (files.length === 0) {
+					const textFieldList = e.dataTransfer.getData("text")
+					const textUriList = e.dataTransfer.getData("application/vnd.code.uri-list")
+					// When textFieldList is empty, it may attempt to use textUriList obtained from drag-and-drop tabs; if not empty, it will use textFieldList.
+					const text = textFieldList || textUriList
+					if (text) {
+						// Split text on newlines to handle multiple files
+						const lines = text.split(/\r?\n/).filter((line) => line.trim() !== "")
 
-						// Using a standard for loop instead of forEach for potential performance gains.
-						for (let i = 0; i < lines.length; i++) {
-							const line = lines[i]
-							// Convert each path to a mention-friendly format
-							const mentionText = convertToMentionPath(line, cwd)
-							newValue += mentionText
-							totalLength += mentionText.length
+						if (lines.length > 0) {
+							// Process each line as a separate file path
+							let newValue = inputValue.slice(0, cursorPosition)
+							let totalLength = 0
 
-							// Add space after each mention except the last one
-							if (i < lines.length - 1) {
-								newValue += " "
-								totalLength += 1
+							// Using a standard for loop instead of forEach for potential performance gains.
+							for (let i = 0; i < lines.length; i++) {
+								const line = lines[i]
+								// Convert each path to a mention-friendly format
+								const mentionText = convertToMentionPath(line, cwd)
+								newValue += mentionText
+								totalLength += mentionText.length
+
+								// Add space after each mention except the last one
+								if (i < lines.length - 1) {
+									newValue += " "
+									totalLength += 1
+								}
 							}
+
+							// Add space after the last mention and append the rest of the input
+							newValue += " " + inputValue.slice(cursorPosition)
+							totalLength += 1
+
+							setInputValue(newValue)
+							const newCursorPosition = cursorPosition + totalLength
+							setCursorPosition(newCursorPosition)
+							setIntendedCursorPosition(newCursorPosition)
 						}
-
-						// Add space after the last mention and append the rest of the input
-						newValue += " " + inputValue.slice(cursorPosition)
-						totalLength += 1
-
-						setInputValue(newValue)
-						const newCursorPosition = cursorPosition + totalLength
-						setCursorPosition(newCursorPosition)
-						setIntendedCursorPosition(newCursorPosition)
 					}
-
 					return
 				}
 
-				const files = Array.from(e.dataTransfer.files)
-
 				if (files.length > 0) {
-					const acceptedTypes = ["png", "jpeg", "jpg", "webp", "gif", "bmp", "svg+xml"]
+					const acceptedImageSubtypes = ["png", "jpeg", "jpg", "webp", "gif", "bmp", "svg+xml"]
 
 					const imageFiles = files.filter((file) => {
 						const [type, subtype] = file.type.split("/")
-						return type === "image" && acceptedTypes.includes(subtype)
+						return type === "image" && acceptedImageSubtypes.includes(subtype)
 					})
+
+					// Read non-image files as text when they appear to be text-readable
+					const textReadableMimePrefixes = ["text/", "application/json", "application/javascript", "application/xml", "application/yaml"]
+					const nonImageFiles = files.filter((file) => {
+						const [type] = file.type.split("/")
+						return type !== "image"
+					})
+					const textFiles = nonImageFiles.filter(
+						(file) =>
+							textReadableMimePrefixes.some((prefix) => file.type.startsWith(prefix)) ||
+							file.type === "", // Files with unknown MIME type (e.g. .md, .ts) — try as text
+					)
 
 					if (!shouldDisableImages && imageFiles.length > 0) {
 						const imagePromises = imageFiles.map((file) => {
@@ -994,6 +1024,34 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 							console.warn(t("chat:noValidImages"))
 						}
 					}
+
+					if (textFiles.length > 0 && setSelectedFiles) {
+						const textPromises = textFiles.map((file) => {
+							return new Promise<FileAttachment | null>((resolve) => {
+								const reader = new FileReader()
+								reader.onloadend = () => {
+									if (reader.error || typeof reader.result !== "string") {
+										resolve(null)
+										return
+									}
+									resolve({
+										name: file.name,
+										type: file.type || "text/plain",
+										size: file.size,
+										content: reader.result,
+										isText: true,
+									})
+								}
+								reader.readAsText(file)
+							})
+						})
+
+						const droppedFiles = await Promise.all(textPromises)
+						const validDroppedFiles = droppedFiles.filter((f): f is FileAttachment => f !== null)
+						if (validDroppedFiles.length > 0) {
+							setSelectedFiles((prev) => [...prev, ...validDroppedFiles].slice(0, 10))
+						}
+					}
 				}
 			},
 			[
@@ -1005,6 +1063,7 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 				setIntendedCursorPosition,
 				shouldDisableImages,
 				setSelectedImages,
+				setSelectedFiles,
 				t,
 			],
 		)
@@ -1063,12 +1122,13 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 						className={cn("chat-text-area", !isEditMode && "relative", "flex", "flex-col", "outline-none")}
 						onDrop={handleDrop}
 						onDragOver={(e) => {
-							// Only allowed to drop images/files on shift key pressed.
-							if (!e.shiftKey) {
+							const hasExternalFiles = e.dataTransfer.types.includes("Files")
+							// External OS file drops always accepted; VS Code tab drags require
+							// Shift to avoid conflicting with the @mention path-insertion path.
+							if (!hasExternalFiles && !e.shiftKey) {
 								setIsDraggingOver(false)
 								return
 							}
-
 							e.preventDefault()
 							setIsDraggingOver(true)
 							e.dataTransfer.dropEffect = "copy"
@@ -1227,6 +1287,23 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 								)}
 								onScroll={() => updateHighlights()}
 							/>
+							{autocompleteSuggestion && (
+								<AutocompleteSuggestion
+									suggestion={autocompleteSuggestion}
+									loading={autocompleteLoading}
+									available={!!autocompleteSuggestion}
+									onAccept={() => {
+										if (onAcceptAutocomplete) {
+											onAcceptAutocomplete()
+										}
+									}}
+									onDismiss={() => {
+										if (onDismissAutocomplete) {
+											onDismissAutocomplete()
+										}
+									}}
+								/>
+							)}
 						</div>
 
 						<div className="flex items-center justify-between gap-1 px-0.5">
@@ -1398,20 +1475,61 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 
 				{selectedFiles.length > 0 && setSelectedFiles && (
 					<div className="flex flex-wrap gap-1 px-4 pb-1" style={{ zIndex: 2 }}>
-						{selectedFiles.map((file, index) => (
-							<div
-								key={index}
-								className="flex items-center gap-1 px-2 py-0.5 rounded bg-vscode-button-secondaryBackground text-vscode-button-secondaryForeground text-xs">
-								<FileText className="w-3 h-3" />
-								<span className="truncate max-w-[150px]">{file.name}</span>
-								<button
-									onClick={() => setSelectedFiles((prev) => prev.filter((_, i) => i !== index))}
-									className="ml-1 hover:text-vscode-errorForeground"
-									aria-label={t("chat:removeFile")}>
-									<X className="w-3 h-3" />
-								</button>
-							</div>
-						))}
+						{selectedFiles.map((file, index) => {
+							const isImageFile = file.type.startsWith("image/")
+							const isPdf = file.type === "application/pdf"
+							const isDoc =
+								file.type ===
+									"application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+								file.type === "application/msword"
+							const isSheet =
+								file.type ===
+								"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+							const isCode =
+								file.type.startsWith("text/") ||
+								file.type === "application/json" ||
+								file.type === "application/javascript" ||
+								file.type === "application/typescript"
+
+							let FileIcon = FileText
+							if (isImageFile) FileIcon = FileImage
+							else if (isCode && !isPdf && !isDoc && !isSheet) FileIcon = FileCode
+							else if (!isPdf && !isDoc && !isSheet) FileIcon = File
+
+							let label = ""
+							if (isPdf) label = "PDF"
+							else if (isDoc) label = "DOCX"
+							else if (isSheet) label = "XLSX"
+
+							return (
+								<div
+									key={index}
+									className="flex items-center gap-1 px-2 py-0.5 rounded bg-vscode-button-secondaryBackground text-vscode-button-secondaryForeground text-xs max-w-[200px]"
+									title={`${file.name} (${(file.size / 1024).toFixed(1)} KB)`}>
+									{isImageFile && file.content.startsWith("data:image/") ? (
+										<img
+											src={file.content}
+											alt={file.name}
+											className="w-4 h-4 object-cover rounded"
+										/>
+									) : (
+										<FileIcon className="w-3 h-3 flex-shrink-0" />
+									)}
+									{label && (
+										<span className="opacity-60 font-medium">{label}</span>
+									)}
+									<span className="truncate">{file.name}</span>
+									<button
+										onClick={() =>
+											setSelectedFiles((prev) => prev.filter((_, i) => i !== index))
+										}
+										className="ml-1 flex-shrink-0 hover:text-vscode-errorForeground"
+										aria-label={t("chat:removeFile")}>
+										<X className="w-3 h-3" />
+									</button>
+								</div>
+							)
+						})}
 					</div>
 				)}
 

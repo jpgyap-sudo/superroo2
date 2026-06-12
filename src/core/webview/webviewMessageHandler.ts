@@ -54,6 +54,7 @@ import { openFile } from "../../integrations/misc/open-file"
 import { openImage, saveImage } from "../../integrations/misc/image-handler"
 import { getImagesFromClipboard, selectImages } from "../../integrations/misc/process-images"
 import { selectFiles } from "../../integrations/misc/process-files"
+import type { FileAttachment } from "@superroo/types"
 import { getTheme } from "../../integrations/theme/getTheme"
 import { searchWorkspaceFiles } from "../../services/search/file-search"
 import { fileExistsAtPath } from "../../utils/fs"
@@ -213,6 +214,288 @@ async function handleSuperRooMessage(provider: ClineProvider, message: Record<st
 			break
 		}
 
+		// ── Helpers ────────────────────────────────────────────────────────
+
+		/** Build and send the dashboard snapshot from real provider data. */
+		async function postDashboardSnapshot() {
+			const running = provider.getCurrentTask() !== undefined
+			const recentTaskIds = provider.getRecentTasks()
+			const recentTasks = recentTaskIds
+				.slice(0, 20)
+				.map((id) => {
+					const item = provider.taskHistoryStore.get(id)
+					if (!item) return null
+					return {
+						id: item.id,
+						agent: "roo",
+						goal: item.task,
+						priority: "normal" as const,
+						status: (() => {
+							if (item.status === "active" || item.status === "delegated") return "running" as const
+							if (item.status === "completed") return "succeeded" as const
+							return "pending" as const
+						})(),
+						createdAt: item.ts,
+						updatedAt: item.ts,
+						attempts: 1,
+						resultSummary: item.completionResultSummary,
+						parentTaskId: item.parentTaskId,
+					}
+				})
+				.filter((t): t is NonNullable<typeof t> => t !== null)
+
+			const syncStatus = (provider.getSyncStatus as (() => unknown) | undefined)?.() ?? null
+
+			await provider.postMessageToWebview({
+				type: "superRoo:dashboard",
+				snapshot: {
+					mode: provider.superRooSafetyMode,
+					selfImprove: provider.superRooSelfImprove,
+					running,
+					queue: {
+						pending: 0,
+						running: running ? 1 : 0,
+						succeeded24h: 0,
+						failed24h: 0,
+						blocked24h: 0,
+					},
+					agents: [],
+					recentTasks,
+					recentEvents: [],
+					syncStatus,
+				},
+			} as unknown as import("@superroo/types").ExtensionMessage)
+		}
+
+		// ── SuperRoo Dashboard data requests ─────────────────────────────
+		case "superRoo:getDashboard": {
+			await postDashboardSnapshot()
+			break
+		}
+
+		// ── SafetyMode ─────────────────────────────────────────────────────
+
+		case "superRoo:setMode": {
+			const newMode = message.mode as string
+			const VALID_MODES = new Set(["OFF", "SAFE", "AUTO", "FULL_AUTONOMOUS"])
+			if (!VALID_MODES.has(newMode)) {
+				await provider.postMessageToWebview({
+					type: "superRoo:error",
+					message: `Invalid SafetyMode "${newMode}". Must be one of: OFF, SAFE, AUTO, FULL_AUTONOMOUS`,
+				} as unknown as import("@superroo/types").ExtensionMessage)
+				break
+			}
+
+			provider.superRooSafetyMode = newMode
+			provider.log(`[superRoo] SafetyMode changed to ${newMode}`)
+
+			// When FULL_AUTONOMOUS is enabled, auto-enable all auto-approvals
+			if (newMode === "FULL_AUTONOMOUS") {
+				await provider.contextProxy.setValue("alwaysAllowReadOnly", true)
+				await provider.contextProxy.setValue("alwaysAllowWrite", true)
+				await provider.contextProxy.setValue("alwaysAllowExecute", true)
+				await provider.contextProxy.setValue("alwaysAllowMcp", true)
+				await provider.contextProxy.setValue("alwaysAllowModeSwitch", true)
+				await provider.contextProxy.setValue("alwaysAllowSubtasks", true)
+				await provider.contextProxy.setValue("alwaysAllowFollowupQuestions", true)
+				await provider.contextProxy.setValue("autoApprovalEnabled", true)
+				await provider.contextProxy.setValue("alwaysAllowReadOnlyOutsideWorkspace", true)
+				await provider.contextProxy.setValue("alwaysAllowWriteOutsideWorkspace", true)
+				await provider.contextProxy.setValue("alwaysAllowWriteProtected", true)
+				provider.log("[superRoo] FULL_AUTONOMOUS: all auto-approvals enabled")
+			}
+
+			// Respond with updated settings so the UI can react
+			await provider.postMessageToWebview({
+				type: "superRoo:settings",
+				mode: newMode as "OFF" | "SAFE" | "AUTO" | "FULL_AUTONOMOUS",
+				selfImprove: provider.superRooSelfImprove,
+			} as unknown as import("@superroo/types").ExtensionMessage)
+			break
+		}
+
+		case "superRoo:setSelfImprove": {
+			const enabled = Boolean(message.enabled)
+			provider.superRooSelfImprove = enabled
+			provider.log(`[superRoo] Self-improve mode set to ${enabled}`)
+
+			await provider.postMessageToWebview({
+				type: "superRoo:settings",
+				mode: provider.superRooSafetyMode as "OFF" | "SAFE" | "AUTO" | "FULL_AUTONOMOUS",
+				selfImprove: enabled,
+			} as unknown as import("@superroo/types").ExtensionMessage)
+			break
+		}
+
+		// ── Task lifecycle ─────────────────────────────────────────────────
+
+		case "superRoo:enqueueGoal": {
+			const goal = message.goal as string | undefined
+			if (!goal?.trim()) {
+				await provider.postMessageToWebview({
+					type: "superRoo:error",
+					message: "Cannot enqueue a task with an empty goal.",
+				} as unknown as import("@superroo/types").ExtensionMessage)
+				break
+			}
+
+			provider.log(`[superRoo] Enqueuing task: "${goal.slice(0, 80)}..."`)
+			try {
+				await provider.createTask(goal)
+				await postDashboardSnapshot()
+			} catch (error) {
+				provider.log(`[superRoo] Failed to create task: ${error instanceof Error ? error.message : String(error)}`)
+				await provider.postMessageToWebview({
+					type: "superRoo:error",
+					message: error instanceof Error ? error.message : "Failed to create task",
+				} as unknown as import("@superroo/types").ExtensionMessage)
+			}
+			break
+		}
+
+		case "superRoo:cancelTask": {
+			provider.log("[superRoo] Cancelling current task")
+			try {
+				await provider.cancelTask()
+				await postDashboardSnapshot()
+			} catch (error) {
+				provider.log(`[superRoo] Cancel error: ${error instanceof Error ? error.message : String(error)}`)
+			}
+			break
+		}
+
+		case "superRoo:retryTask": {
+			const taskId = message.taskId as string | undefined
+			if (!taskId) {
+				await provider.postMessageToWebview({
+					type: "superRoo:error",
+					message: "retryTask requires a taskId.",
+				} as unknown as import("@superroo/types").ExtensionMessage)
+				break
+			}
+			provider.log(`[superRoo] Retrying task: ${taskId}`)
+			try {
+				await provider.showTaskWithId(taskId)
+				await postDashboardSnapshot()
+			} catch (error) {
+				provider.log(`[superRoo] Retry error: ${error instanceof Error ? error.message : String(error)}`)
+				await provider.postMessageToWebview({
+					type: "superRoo:error",
+					message: error instanceof Error ? error.message : "Failed to retry task",
+				} as unknown as import("@superroo/types").ExtensionMessage)
+			}
+			break
+		}
+
+		// ── Settings / Config ──────────────────────────────────────────────
+
+		case "superRoo:getFullSettings": {
+			try {
+				const values = provider.getValues()
+				// Extract auto-approval and SuperRoo-related settings
+				const settings: Record<string, unknown> = {
+					superRooSafetyMode: provider.superRooSafetyMode,
+					superRooSelfImprove: provider.superRooSelfImprove,
+					alwaysAllowReadOnly: values.alwaysAllowReadOnly ?? false,
+					alwaysAllowWrite: values.alwaysAllowWrite ?? false,
+					alwaysAllowExecute: values.alwaysAllowExecute ?? false,
+					alwaysAllowMcp: values.alwaysAllowMcp ?? false,
+					alwaysAllowModeSwitch: values.alwaysAllowModeSwitch ?? false,
+					alwaysAllowSubtasks: values.alwaysAllowSubtasks ?? false,
+					alwaysAllowFollowupQuestions: values.alwaysAllowFollowupQuestions ?? false,
+					autoApprovalEnabled: values.autoApprovalEnabled ?? false,
+					allowedCommands: values.allowedCommands ?? [],
+					deniedCommands: values.deniedCommands ?? [],
+					allowedMaxRequests: values.allowedMaxRequests,
+					allowedMaxCost: values.allowedMaxCost,
+				}
+				await provider.postMessageToWebview({
+					type: "superRoo:fullSettings",
+					settings,
+				} as unknown as import("@superroo/types").ExtensionMessage)
+			} catch (error) {
+				provider.log(`[superRoo] getFullSettings error: ${error instanceof Error ? error.message : String(error)}`)
+				await provider.postMessageToWebview({
+					type: "superRoo:fullSettings",
+					settings: {},
+				} as unknown as import("@superroo/types").ExtensionMessage)
+			}
+			break
+		}
+
+		case "superRoo:saveFullSettings": {
+			const settings = message.settings as Record<string, unknown> | undefined
+			if (settings) {
+				for (const [key, value] of Object.entries(settings)) {
+					// Intercept session-only props — they live on the provider, not global state
+					if (key === "superRooSafetyMode") {
+						provider.superRooSafetyMode = String(value)
+						continue
+					}
+					if (key === "superRooSelfImprove") {
+						provider.superRooSelfImprove = Boolean(value)
+						continue
+					}
+					try {
+						await provider.contextProxy.setValue(key as any, value as any)
+					} catch {
+						provider.log(`[superRoo] Failed to save setting: ${key}`)
+					}
+				}
+				provider.log("[superRoo] Full settings saved")
+			}
+			break
+		}
+
+		// ── Settings (basic) ──────────────────────────────────────────────
+		case "superRoo:getSettings": {
+			// Alias for getFullSettings — returns the same payload.
+			// Fall through to getFullSettings handler by re-dispatching.
+			await provider.postMessageToWebview({
+				type: "superRoo:settings",
+				mode: provider.superRooSafetyMode as "OFF" | "SAFE" | "AUTO" | "FULL_AUTONOMOUS",
+				selfImprove: provider.superRooSelfImprove,
+			} as unknown as import("@superroo/types").ExtensionMessage)
+			break
+		}
+
+		// ── Routes ────────────────────────────────────────────────────────
+		case "superRoo:saveRoutes": {
+			const routes = message.routes as Array<{ agent: string; primary: string; fallbacks: string[] }> | undefined
+			provider.log(`[superRoo] saveRoutes called with ${routes?.length ?? 0} routes`)
+			// TODO: persist routes to provider / orchestrator when route storage is wired
+			await provider.postMessageToWebview({
+				type: "superRoo:routes",
+				routes: (routes ?? []).map((r) => ({
+					agent: r.agent,
+					definition: { primary: r.primary, fallbacks: r.fallbacks },
+					enabled: true,
+				})),
+			} as unknown as import("@superroo/types").ExtensionMessage)
+			break
+		}
+
+		// ── Stubs ──────────────────────────────────────────────────────────
+
+		case "superRoo:getFeatures":
+		case "superRoo:getBugs":
+		case "superRoo:getEvents":
+		case "superRoo:getTasks":
+		case "superRoo:getProviders":
+		case "superRoo:getRoutes": {
+			// TODO: wire these to real backend services when available.
+			const fallback: Record<string, unknown> = {
+				"superRoo:getFeatures": { type: "superRoo:features", features: [] },
+				"superRoo:getBugs": { type: "superRoo:bugs", bugs: [] },
+				"superRoo:getEvents": { type: "superRoo:events", events: [] },
+				"superRoo:getTasks": { type: "superRoo:tasks", tasks: [] },
+				"superRoo:getProviders": { type: "superRoo:providers", providers: [] },
+				"superRoo:getRoutes": { type: "superRoo:routes", routes: [] },
+			}
+			await provider.postMessageToWebview(fallback[type] as any)
+			break
+		}
+
 		default:
 			provider.log(`[superRoo] Unhandled message type: ${type}`)
 	}
@@ -322,7 +605,7 @@ export const webviewMessageHandler = async (
 	 * Appends file attachment info to message text so the LLM is aware of non-text attachments.
 	 * Text files and images are already embedded by the frontend; this handles PDF/ZIP/etc.
 	 */
-	const enrichTextWithFiles = (text: string, files?: any[]): string => {
+	const enrichTextWithFiles = (text: string, files?: FileAttachment[]): string => {
 		if (!files || files.length === 0) return text
 		const nonTextFiles = files.filter((f) => f && !f.isText && !f.type?.startsWith("image/"))
 		if (nonTextFiles.length === 0) return text
@@ -683,18 +966,25 @@ export const webviewMessageHandler = async (
 		return
 	}
 
-	switch (message.type) {
+switch (message.type) {
 		case "webviewDidLaunch":
 			// Hydration must not depend on optional launch-time setup succeeding.
 			// If custom mode loading fails, still send the core state so the UI can render.
+			provider.log("[webviewDidLaunch] Received webviewDidLaunch message, sending state to webview")
 			try {
 				const customModes = await provider.customModesManager.getCustomModes()
 				await updateGlobalState("customModes", customModes)
+				provider.log(`[webviewDidLaunch] Loaded ${customModes.length} custom modes`)
 			} catch (error) {
-				console.error("Failed to load custom modes during webview launch:", error)
+				provider.log(`[webviewDidLaunch] Failed to load custom modes: ${error instanceof Error ? error.message : String(error)}`)
 			}
 
-			await provider.postStateToWebview()
+			try {
+				await provider.postStateToWebview()
+				provider.log("[webviewDidLaunch] State sent to webview successfully")
+			} catch (error) {
+				provider.log(`[webviewDidLaunch] Failed to send state: ${error instanceof Error ? error.message : String(error)}`)
+			}
 			provider.workspaceTracker?.initializeFilePaths() // Don't await.
 
 			getTheme().then((theme) => provider.postMessageToWebview({ type: "theme", text: JSON.stringify(theme) }))
@@ -1890,10 +2180,24 @@ export const webviewMessageHandler = async (
 			await provider.postStateToWebview()
 			break
 
-		case "autoApprovalEnabled":
-			await updateGlobalState("autoApprovalEnabled", message.bool ?? false)
+		case "autoApprovalEnabled": {
+			const boolValue = message.bool ?? false
+			await (provider as any).setValues({
+				autoApprovalEnabled: boolValue,
+				alwaysAllowReadOnly: boolValue,
+				alwaysAllowReadOnlyOutsideWorkspace: boolValue,
+				alwaysAllowWrite: boolValue,
+				alwaysAllowWriteOutsideWorkspace: boolValue,
+				alwaysAllowWriteProtected: boolValue,
+				alwaysAllowExecute: boolValue,
+				alwaysAllowMcp: boolValue,
+				alwaysAllowModeSwitch: boolValue,
+				alwaysAllowSubtasks: boolValue,
+				alwaysAllowFollowupQuestions: boolValue,
+			})
 			await provider.postStateToWebview()
 			break
+		}
 		case "enhancePrompt":
 			if (message.text) {
 				try {

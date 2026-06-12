@@ -8,9 +8,11 @@
 import { Router, type Request, type Response } from "express"
 import {
 	deleteRoute,
+	generateAutocomplete,
 	getFallbackRules,
 	getSafetyRules,
 	getUsageSummary,
+	isAutocompleteAvailable,
 	listProviders,
 	listRoutes,
 	setFallbackRules,
@@ -141,6 +143,29 @@ export function createModelRouterRouter(): Router {
 	 */
 	router.patch("/safety-rules", (req: Request, res: Response) => {
 		res.json({ safetyRules: setSafetyRules(req.body) })
+	})
+
+	/**
+	 * POST /condense-autocomplete/generate — Generate autocomplete for condensed message.
+	 */
+	router.post("/condense-autocomplete/generate", async (req: Request, res: Response, next) => {
+		try {
+			const result = await generateAutocomplete(req.body)
+			res.json(result)
+		} catch (error) {
+			next(error)
+		}
+	})
+
+	/**
+	 * GET /condense-autocomplete/available — Check if autocomplete is available.
+	 */
+	router.get("/condense-autocomplete/available", async (_req: Request, res: Response, next) => {
+		try {
+			res.json({ available: await isAutocompleteAvailable() })
+		} catch (error) {
+			next(error)
+		}
 	})
 
 	return router

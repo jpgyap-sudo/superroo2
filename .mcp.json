@@ -1,20 +1,144 @@
 {
   "mcpServers": {
-    "ollama": {
+    "codex-brain": {
       "command": "node",
-      "args": ["scripts/ollama-mcp.mjs"],
+      "args": [
+        "C:/Users/user/Documents/superroo2/scripts/codex-brain-mcp.mjs"
+      ],
       "env": {
-        "OLLAMA_URL": "http://127.0.0.1:11434",
-        "OLLAMA_MODEL": "hermes3",
-        "OLLAMA_EMBED_MODEL": "nomic-embed-text"
+        "SUPERROO_HOME": "C:/Users/user/.superroo",
+        "SUPERROO_MEMORY_DIR": "C:/Users/user/.superroo/memory",
+        "MEMORY_DIR": "C:/Users/user/.superroo/memory",
+        "SUPERROO_PRODUCT_MEMORY_DIR": "C:/Users/user/.superroo/product-memory",
+        "SUPERROO_SKILLS_DIR": "C:/Users/user/.superroo/skills",
+        "SUPERROO_RESOURCES_DIR": "C:/Users/user/.superroo/resources",
+        "SUPERROO_GLOBAL_SKILLS_AGENT": "C:/Users/user/.superroo/agents/global-skills-agent.md",
+        "SUPERROO_EXTENSION_ECOSYSTEM": "C:/Users/user/.superroo/resources/coding-extension-ecosystem.md",
+        "SUPERROO_VPS_IP": "100.64.175.88",
+        "SUPERROO_VPS_MCP_URL": "http://127.0.0.1:13419/mcp",
+        "SUPERROO_VPS_API_URL": "http://100.64.175.88:8787/api",
+        "SUPERROO_TUNNEL_OLLAMA_PORT": "11435",
+        "SUPERROO_TUNNEL_MCP_PORT": "13419",
+        "SUPERROO_TUNNEL_DB_PORT": "15432",
+        "SUPERROO_TUNNEL_API_PORT": "18787",
+        "SUPERROO_API_URL": "https://dev.abcx124.xyz/api",
+        "SUPERROO_MCP_FALLBACK_MODE": "local-first-vps",
+        "PROJECT_ROOT": "C:/Users/user/Documents/superroo2",
+        "CODEX_BRAIN_SCRIPT": "C:/Users/user/Documents/superroo2/scripts/codex-brain.mjs",
+        "BRAIN_OUTCOMES_PATH": "C:/Users/user/brain/data/ml-outcomes.json",
+        "CODEX_BRAIN_MEMORY_DIR": "C:/Users/user/.superroo/memory/codex-brain",
+        "GLOBAL_TASK_REGISTRY": "C:/Users/user/.superroo/tasks/global-tasks.json",
+        "SUPERROO_RISK_DIR": "C:/Users/user/.superroo/memory/predictive-risk",
+        "OLLAMA_HOST": "http://127.0.0.1:11434",
+        "OLLAMA_FALLBACK_URL": "http://127.0.0.1:11435",
+        "CODEX_BRAIN_HERMES_MODEL": "hermes3:latest",
+        "CODEX_BRAIN_EMBED_MODEL": "nomic-embed-text",
+        "CODEX_BRAIN_FAST_CODER_MODEL": "qwen2.5-coder:7b",
+        "CODEX_BRAIN_PRO_CODER_MODEL": "qwen3:14b",
+        "OLLAMA_MAX_PARALLEL": "4",
+        "OLLAMA_NUM_PARALLEL": "4",
+        "OLLAMA_KEEP_ALIVE": "10m",
+        "AGENT_ID": "repo-superroo2",
+        "PROJECT_ID": "superroo2"
       }
     },
     "central-brain": {
       "command": "node",
-      "args": ["scripts/central-brain-mcp.mjs"],
+      "args": [
+        "C:/Users/user/Documents/superroo2/scripts/central-brain-mcp.mjs"
+      ],
       "env": {
-        "PROJECT_ID": "kilo-code",
-        "DATABASE_URL": "postgresql://superroo:superroo@localhost:5432/superroo_brain"
+        "SUPERROO_HOME": "C:/Users/user/.superroo",
+        "SUPERROO_MEMORY_DIR": "C:/Users/user/.superroo/memory",
+        "MEMORY_DIR": "C:/Users/user/.superroo/memory",
+        "SUPERROO_PRODUCT_MEMORY_DIR": "C:/Users/user/.superroo/product-memory",
+        "SUPERROO_SKILLS_DIR": "C:/Users/user/.superroo/skills",
+        "SUPERROO_RESOURCES_DIR": "C:/Users/user/.superroo/resources",
+        "SUPERROO_GLOBAL_SKILLS_AGENT": "C:/Users/user/.superroo/agents/global-skills-agent.md",
+        "SUPERROO_EXTENSION_ECOSYSTEM": "C:/Users/user/.superroo/resources/coding-extension-ecosystem.md",
+        "SUPERROO_VPS_IP": "100.64.175.88",
+        "SUPERROO_VPS_MCP_URL": "http://127.0.0.1:13419/mcp",
+        "SUPERROO_VPS_API_URL": "http://100.64.175.88:8787/api",
+        "SUPERROO_TUNNEL_OLLAMA_PORT": "11435",
+        "SUPERROO_TUNNEL_MCP_PORT": "13419",
+        "SUPERROO_TUNNEL_DB_PORT": "15432",
+        "SUPERROO_TUNNEL_API_PORT": "18787",
+        "SUPERROO_API_URL": "https://dev.abcx124.xyz/api",
+        "SUPERROO_MCP_FALLBACK_MODE": "local-first-vps",
+        "PROJECT_ID": "superroo2",
+        "DATABASE_URLS": "postgresql://superroo:superroo@localhost:5432/superroo_brain,postgresql://superroo:superroo@localhost:15432/superroo_brain",
+        "DATABASE_URL": "postgresql://superroo:superroo@localhost:5432/superroo_brain",
+        "DATABASE_FALLBACK_URL": "postgresql://superroo:superroo@localhost:15432/superroo_brain",
+        "OLLAMA_URL": "http://127.0.0.1:11434",
+        "OLLAMA_FALLBACK_URL": "http://127.0.0.1:11435",
+        "OLLAMA_MAX_PARALLEL": "4",
+        "OLLAMA_NUM_PARALLEL": "4",
+        "OLLAMA_KEEP_ALIVE": "10m"
+      }
+    },
+    "local-brain": {
+      "command": "node",
+      "args": [
+        "C:/Users/user/brain/src/server.js"
+      ],
+      "env": {
+        "SUPERROO_HOME": "C:/Users/user/.superroo",
+        "SUPERROO_MEMORY_DIR": "C:/Users/user/.superroo/memory",
+        "MEMORY_DIR": "C:/Users/user/.superroo/memory",
+        "SUPERROO_PRODUCT_MEMORY_DIR": "C:/Users/user/.superroo/product-memory",
+        "SUPERROO_SKILLS_DIR": "C:/Users/user/.superroo/skills",
+        "SUPERROO_RESOURCES_DIR": "C:/Users/user/.superroo/resources",
+        "SUPERROO_GLOBAL_SKILLS_AGENT": "C:/Users/user/.superroo/agents/global-skills-agent.md",
+        "SUPERROO_EXTENSION_ECOSYSTEM": "C:/Users/user/.superroo/resources/coding-extension-ecosystem.md",
+        "SUPERROO_VPS_IP": "100.64.175.88",
+        "SUPERROO_VPS_MCP_URL": "http://127.0.0.1:13419/mcp",
+        "SUPERROO_VPS_API_URL": "http://100.64.175.88:8787/api",
+        "SUPERROO_TUNNEL_OLLAMA_PORT": "11435",
+        "SUPERROO_TUNNEL_MCP_PORT": "13419",
+        "SUPERROO_TUNNEL_DB_PORT": "15432",
+        "SUPERROO_TUNNEL_API_PORT": "18787",
+        "SUPERROO_API_URL": "https://dev.abcx124.xyz/api",
+        "SUPERROO_MCP_FALLBACK_MODE": "local-first-vps",
+        "PROJECT_ROOT": "C:/Users/user/Documents/superroo2",
+        "PROJECT_ID": "superroo2",
+        "AGENT_ID": "repo-superroo2",
+        "OLLAMA_HOST": "http://127.0.0.1:11434",
+        "OLLAMA_FALLBACK_URL": "http://127.0.0.1:11435",
+        "BRAIN_MEMORY_DIR": "C:/Users/user/.superroo/memory/brain-mcp",
+        "BRAIN_OUTCOMES_PATH": "C:/Users/user/brain/data/ml-outcomes.json",
+        "GLOBAL_TASK_REGISTRY": "C:/Users/user/.superroo/tasks/global-tasks.json"
+      }
+    },
+    "ollama": {
+      "command": "node",
+      "args": [
+        "C:/Users/user/Documents/superroo2/scripts/ollama-mcp.mjs"
+      ],
+      "env": {
+        "SUPERROO_HOME": "C:/Users/user/.superroo",
+        "SUPERROO_MEMORY_DIR": "C:/Users/user/.superroo/memory",
+        "MEMORY_DIR": "C:/Users/user/.superroo/memory",
+        "SUPERROO_PRODUCT_MEMORY_DIR": "C:/Users/user/.superroo/product-memory",
+        "SUPERROO_SKILLS_DIR": "C:/Users/user/.superroo/skills",
+        "SUPERROO_RESOURCES_DIR": "C:/Users/user/.superroo/resources",
+        "SUPERROO_GLOBAL_SKILLS_AGENT": "C:/Users/user/.superroo/agents/global-skills-agent.md",
+        "SUPERROO_EXTENSION_ECOSYSTEM": "C:/Users/user/.superroo/resources/coding-extension-ecosystem.md",
+        "SUPERROO_VPS_IP": "100.64.175.88",
+        "SUPERROO_VPS_MCP_URL": "http://127.0.0.1:13419/mcp",
+        "SUPERROO_VPS_API_URL": "http://100.64.175.88:8787/api",
+        "SUPERROO_TUNNEL_OLLAMA_PORT": "11435",
+        "SUPERROO_TUNNEL_MCP_PORT": "13419",
+        "SUPERROO_TUNNEL_DB_PORT": "15432",
+        "SUPERROO_TUNNEL_API_PORT": "18787",
+        "SUPERROO_API_URL": "https://dev.abcx124.xyz/api",
+        "SUPERROO_MCP_FALLBACK_MODE": "local-first-vps",
+        "OLLAMA_URL": "http://127.0.0.1:11434",
+        "OLLAMA_FALLBACK_URL": "http://127.0.0.1:11435",
+        "OLLAMA_MODEL": "hermes3:latest",
+        "OLLAMA_EMBED_MODEL": "nomic-embed-text",
+        "OLLAMA_MAX_PARALLEL": "4",
+        "OLLAMA_NUM_PARALLEL": "4",
+        "OLLAMA_KEEP_ALIVE": "10m"
       }
     }
   }

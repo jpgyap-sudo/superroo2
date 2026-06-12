@@ -627,4 +627,10 @@ export interface OrchestratorConfig {
 	crawlerIntervalMs?: number
 	/** Max sources to track. Default 50. */
 	crawlerMaxSources?: number
+
+	// ── Phase 8: ML Sync ──
+	/** Cloud API base URL for ML model sync (e.g., "http://100.64.175.88:8787"). */
+	cloudApiBaseUrl?: string
+	/** Auth token for cloud API. */
+	cloudAuthToken?: string
 }

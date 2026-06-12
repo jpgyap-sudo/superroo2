@@ -255,7 +255,7 @@ function loadMdLessons() {
 
 async function connectDb() {
   const { default: pg } = await import("pg")
-  const pool = new pg.default.Pool({
+  const pool = new pg.Pool({
     connectionString: CONFIG.pgConnectionString,
     max: 5,
   })

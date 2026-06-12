@@ -17,6 +17,26 @@ Use this skill when faced with a complex problem that cannot be solved in a sing
 
 ## Workflow
 
+### Phase-by-Phase Flowchart
+
+```text
+[Problem Definition]
+        |
+[Information Gathering]
+        |
+[Hypothesis Formation]
+        |
+[Solution Design]
+        |
+[Implementation]
+        |
+[Systemic Improvement]
+```
+
+This skill is persistently stored in `.roo/skills/phase-breakdown/SKILL.md` so it can be reused by all SuperRoo extensions and agents when work is complex, new, or uncertain.
+
+This document is now accessible to the cloud Phase Breakdown Monitor Agent at `cloud/agents/phase-breakdown-monitor-agent`.
+
 ### Phase 0: Problem Definition
 
 Before any implementation, define the problem clearly:
@@ -83,6 +103,14 @@ Prevent the same class of problems:
 4. **Update runbooks** — Would a deployment checklist or troubleshooting guide help?
 
 **Exit criterion**: At least one systemic improvement is in place.
+
+## Next Steps and Recommendations
+
+1. If you are planning a new feature or app, start with Phase 0 and confirm the scope before writing code.
+2. If you are debugging, gather logs and reproduce the failure before moving to Phase 4.
+3. Use the phase plan to identify the smallest safe fix, then add regression tests as part of implementation.
+4. After the fix, apply systemic improvement: monitoring, docs, and test coverage.
+5. If the problem remains unclear, revisit Phase 2 and refine your hypotheses before proceeding.
 
 ## When to Use This Skill
 

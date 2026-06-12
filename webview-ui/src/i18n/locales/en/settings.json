@@ -533,6 +533,10 @@
 			"description": "Ollama allows you to run models locally on your computer. For instructions on how to get started, see their quickstart guide.",
 			"warning": "Note: SuperRoo uses complex prompts and works best with Claude models. Less capable models may not work as expected."
 		},
+		"supercontinue": {
+			"description": "SuperContinue is a pure local Ollama coding agent with ML enhancements and lesson learning. All models run locally with no cloud connections.",
+			"warning": "Note: Uses hermes3:latest for planning, phi4:latest for architecture, and qwen2.5-coder for coding."
+		},
 		"roo": {
 			"authenticatedMessage": "Securely authenticated through your SuperRoo Cloud account.",
 			"connectButton": "Connect to SuperRoo Cloud"
@@ -664,6 +668,10 @@
 		"autoCondenseContext": {
 			"name": "Automatically trigger intelligent context condensing",
 			"description": "When enabled, Roo will automatically condense the context when the threshold is reached. When disabled, you can still manually trigger context condensing."
+		},
+		"condenseAutocomplete": {
+			"name": "Condense Autocomplete",
+			"description": "Enable inline autocomplete suggestions during context condensation using a local model."
 		},
 		"openTabs": {
 			"label": "Open tabs context limit",

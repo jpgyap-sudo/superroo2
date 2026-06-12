@@ -56,7 +56,7 @@ function latestTimestamp(entries, fields = ["updatedAt", "createdAt", "syncedAt"
 
 async function checkVpsHealth() {
 	try {
-		const res = await fetch(`${API_URL}/health`, { signal: AbortSignal.timeout(3000) })
+		const res = await fetch(`${API_URL}/health`, { signal: AbortSignal.timeout(7000) })
 		return { status: res.ok ? "healthy" : "unhealthy", statusCode: res.status }
 	} catch {
 		return { status: "unreachable", error: "connection failed" }

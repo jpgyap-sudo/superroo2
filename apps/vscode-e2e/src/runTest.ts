@@ -2,7 +2,7 @@ import * as path from "path"
 import * as os from "os"
 import * as fs from "fs/promises"
 
-import { runTests } from "@vscode/test-electron"
+import { downloadAndUnzipVSCode, runTests } from "@vscode/test-electron"
 
 async function main() {
 	try {
@@ -16,6 +16,12 @@ async function main() {
 
 		// Create a temporary workspace folder for tests
 		const testWorkspace = await fs.mkdtemp(path.join(os.tmpdir(), "roo-test-workspace-"))
+		const version = process.env.VSCODE_VERSION || "1.101.2"
+		const vscodeExecutablePath = await downloadAndUnzipVSCode({ version })
+		const vscodeCliPath =
+			process.platform === "win32"
+				? path.join(path.dirname(vscodeExecutablePath), "bin", "code.cmd")
+				: vscodeExecutablePath
 
 		// Get test filter from command line arguments or environment variable
 		// Usage examples:
@@ -34,11 +40,12 @@ async function main() {
 
 		// Download VS Code, unzip it and run the integration test
 		await runTests({
+			vscodeExecutablePath: vscodeCliPath,
 			extensionDevelopmentPath,
 			extensionTestsPath,
 			launchArgs: [testWorkspace],
 			extensionTestsEnv,
-			version: process.env.VSCODE_VERSION || "1.101.2",
+			version,
 		})
 
 		// Clean up the temporary workspace

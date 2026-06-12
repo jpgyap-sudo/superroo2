@@ -33,6 +33,7 @@ export const DEFAULT_AGENT_ROUTES: AgentRoute[] = [
 		fallbacks: [
 			{ provider: "openai", model: "gpt-4o" },
 			{ provider: "anthropic", model: "claude-sonnet-4-20250514" },
+			{ provider: "ollama", model: "llama3" },
 		],
 	},
 	{
@@ -41,6 +42,7 @@ export const DEFAULT_AGENT_ROUTES: AgentRoute[] = [
 		fallbacks: [
 			{ provider: "anthropic", model: "claude-sonnet-4-20250514" },
 			{ provider: "openai", model: "gpt-4o" },
+			{ provider: "ollama", model: "llama3" },
 		],
 	},
 	{
@@ -49,6 +51,7 @@ export const DEFAULT_AGENT_ROUTES: AgentRoute[] = [
 		fallbacks: [
 			{ provider: "anthropic", model: "claude-sonnet-4-20250514" },
 			{ provider: "openai", model: "gpt-4o" },
+			{ provider: "ollama", model: "llama3" },
 		],
 	},
 	{
@@ -57,6 +60,7 @@ export const DEFAULT_AGENT_ROUTES: AgentRoute[] = [
 		fallbacks: [
 			{ provider: "groq", model: "llama-3.3-70b-versatile" },
 			{ provider: "openai", model: "gpt-4o-mini" },
+			{ provider: "ollama", model: "llama3" },
 		],
 	},
 	{
@@ -65,6 +69,7 @@ export const DEFAULT_AGENT_ROUTES: AgentRoute[] = [
 		fallbacks: [
 			{ provider: "groq", model: "llama-3.3-70b-versatile" },
 			{ provider: "openai", model: "gpt-4o-mini" },
+			{ provider: "ollama", model: "llama3" },
 		],
 	},
 	{
@@ -73,6 +78,7 @@ export const DEFAULT_AGENT_ROUTES: AgentRoute[] = [
 		fallbacks: [
 			{ provider: "groq", model: "llama-3.3-70b-versatile" },
 			{ provider: "openai", model: "gpt-4o-mini" },
+			{ provider: "ollama", model: "llama3" },
 		],
 	},
 ]

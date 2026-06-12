@@ -1,0 +1,68 @@
+﻿# Kilo Code Global Workflow
+
+## Mandatory Entry Point
+
+All Kilo Code work starts with the `thinker` agent.
+
+No agent may code, edit files, run implementation commands, commit, deploy, or perform autonomous actions unless the request includes a Thinker handoff.
+
+## Required Handoff Marker
+
+Delegated work must include:
+
+```text
+Delegated-By: thinker
+```
+
+## Agent Flow
+
+```text
+User request
+  -> thinker
+  -> predictive risk preflight (codex-brain risk_assess)
+  -> architect, coder, advanced-coder, autonomous-coder, crawler, summarizer, or alternative
+  -> verification
+  -> lesson storage when coding work completed
+```
+
+## Predictive Risk Preflight
+
+The Thinker must call Codex Brain MCP `risk_assess` before delegating coding, config changes, deploys, deletes, restarts, database migrations, or other project-changing work.
+
+High or critical risk means delegate to a verified/pro route, require a concrete verification plan, and record any new failure pattern with `risk_record_pattern`.
+
+## Context Budget Guard
+
+Before any request is sent to a cloud/provider model, the Thinker must estimate whether the loaded files, terminal output, active editor buffers, and retrieved memory could exceed the target model context window.
+
+Hard rules:
+
+- Provider limits are hard caps. Do not try to exceed them with config.
+- For Poolside/OpenRouter routes, keep input below 240k tokens even when the advertised cap is higher.
+- If raw context is large, delegate to `summarizer` first and pass a compact brief instead of raw logs or full Bash output.
+- Never paste full terminal transcripts, generated files, dependency folders, lockfiles, build artifacts, or massive readonly buffers into a model request.
+- Prefer file paths, grep hits, line references, and short excerpts over full-file dumps.
+- If more detail is needed, request it in batches by subsystem or file group.
+
+## Direct Invocation Behavior
+
+If any non-Thinker agent receives a direct coding or project-changing request, it must stop and ask the user to invoke the Thinker agent first.
+
+## SuperRoo Extension Fix Log
+
+When working on the SuperRoo VS Code extension webview issue, all agents MUST:
+
+1. **Before starting:** Read `docs/logs/superroo-extension-fixes.md` to see what other agents already tried.
+2. **After attempting a fix:** Append a new entry with date, agent/model, files changed, what was changed, why, what was tested, result, and next steps.
+3. **Do NOT delete or overwrite** previous entries. Only append.
+
+## Why
+
+The Thinker loads project rules, checks context, chooses the right agent, and prevents agents from coding without shared memory or a scoped plan.
+## Persistent Global Context Overflow Rule
+
+For all Kilo tasks, run context-summarizer before thinker whenever the session is oversized, near limit, media/tool-heavy, or reports ContextOverflowError / Session too large to compact / context exceeds model limit.
+
+Canonical skill: C:/Users/user/.superroo/skills/context-overflow-rescue/SKILL.md
+Canonical resource: C:/Users/user/.superroo/resources/context-overflow-rescue.md
+Flow: Context Summarizer -> Thinker -> Architect -> Coder -> Reviewer

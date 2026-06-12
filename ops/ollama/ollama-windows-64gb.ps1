@@ -3,7 +3,7 @@
 #
 # With 64GB RAM you can load ALL models simultaneously:
 #   hermes3       4.3 GB
-#   qwen2.5-coder:14b  8.4 GB
+#   qwen3:14b  8.4 GB
 #   qwen2.5-coder:7b   4.4 GB
 #   phi4          8.4 GB
 #   nomic-embed-text   0.3 GB
@@ -56,6 +56,6 @@ Write-Host ""
 Write-Host "Expected performance on 64GB RAM:" -ForegroundColor Cyan
 Write-Host "  hermes3 8B:          ~1-2s first token" -ForegroundColor White
 Write-Host "  qwen2.5-coder:7b:    ~0.5-1s first token" -ForegroundColor White
-Write-Host "  qwen2.5-coder:14b:   ~1-3s first token" -ForegroundColor White
+Write-Host "  qwen3:14b:   ~1-3s first token" -ForegroundColor White
 Write-Host "  nomic-embed-text:    ~50ms per embed" -ForegroundColor White
 Write-Host "  (all subsequent calls: near-instant, models warm in RAM)" -ForegroundColor White

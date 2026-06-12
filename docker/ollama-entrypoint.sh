@@ -9,7 +9,19 @@
 # /dev/tcp check (via ash's built-in) to wait for the server to be ready.
 # =============================================================================
 
-echo "[ollama-entrypoint] Starting Ollama server..."
+echo "[ollama-entrypoint] Starting Ollama server with optimized settings..."
+# Optimized settings for 64GB RAM system with 6GB GPU
+# High RAM allows large context and batch sizes
+# Limited GPU VRAM (6GB) requires careful model selection
+export OLLAMA_NUM_THREADS="${OLLAMA_NUM_THREADS:-16}"
+export OLLAMA_MAX_LOADED_MODELS="${OLLAMA_MAX_LOADED_MODELS:-2}"
+export OLLAMA_CONTEXT_LENGTH="${OLLAMA_CONTEXT_LENGTH:-65536}"
+export OLLAMA_FLASH_ATTENTION="${OLLAMA_FLASH_ATTENTION:-1}"
+export OLLAMA_KV_CACHE_QUANTIZATION="${OLLAMA_KV_CACHE_QUANTIZATION:-8bit}"
+export OLLAMA_GPU="${OLLAMA_GPU:-0}"
+export OLLAMA_BATCH_SIZE="${OLLAMA_BATCH_SIZE:-512}"
+export OLLAMA_KEEP_ALIVE="${OLLAMA_KEEP_ALIVE:--1}"
+
 ollama serve &
 OLLAMA_PID=$!
 

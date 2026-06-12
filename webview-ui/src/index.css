@@ -459,11 +459,25 @@ input[cmdk-input]:focus {
 }
 
 /*
- * Use geometric precision for codicons to avoid blurriness 
+ * Add a way to hide scrollbars.
  */
 
-.codicon[class*="codicon-"] {
-	text-rendering: geometricPrecision !important;
+.scrollbar-hide {
+	-ms-overflow-style: none; /* IE and Edge */
+	scrollbar-width: none; /* Firefox */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+	display: none; /* Chrome, Safari and Opera */
+}
+
+/*
+ * Hidden utility class for hiding elements (used by ChatView when isHidden=true)
+ * This is needed because Tailwind v4 doesn't generate .hidden by default
+ */
+
+.hidden {
+	display: none;
 }
 
 /**

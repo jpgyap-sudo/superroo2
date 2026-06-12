@@ -47,8 +47,8 @@ export class OllamaClient {
 			"http://127.0.0.1:11434"
 		).replace(/\/$/, "")
 		this.defaultModel =
-			options.defaultModel || process.env.OLLAMA_SUMMARY_MODEL || process.env.OLLAMA_MODEL || "qwen2.5:0.5b"
-		this.fallbackModel = options.fallbackModel || process.env.OLLAMA_FALLBACK_MODEL || "qwen2.5:1.5b"
+			options.defaultModel || process.env.OLLAMA_SUMMARY_MODEL || process.env.OLLAMA_MODEL || "hermes3"
+		this.fallbackModel = options.fallbackModel || process.env.OLLAMA_FALLBACK_MODEL || "qwen3:14b"
 		this.timeoutMs = Number(options.timeoutMs || process.env.OLLAMA_TIMEOUT_MS || 120000)
 		this.temperature = Number(options.temperature ?? process.env.OLLAMA_TEMPERATURE ?? 0.1)
 		this.numCtx = Number(options.numCtx || process.env.OLLAMA_NUM_CTX || 8192)

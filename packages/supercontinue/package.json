@@ -1,0 +1,64 @@
+{
+  "name": "@superroo/supercontinue",
+  "version": "1.0.0",
+  "description": "SuperContinue - Pure local Ollama coding agent with ML integration, lesson learning, and autonomous capabilities",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.mts"
+    },
+    "./brain": {
+      "import": "./dist/brain.mjs",
+      "require": "./dist/brain.js",
+      "types": "./dist/brain.d.mts"
+    },
+    "./router": {
+      "import": "./dist/router.mjs",
+      "require": "./dist/router.js",
+      "types": "./dist/router.d.mts"
+    },
+    "./temperature": {
+      "import": "./dist/temperature.mjs",
+      "require": "./dist/temperature.js",
+      "types": "./dist/temperature.d.mts"
+    },
+    "./ensemble": {
+      "import": "./dist/ensemble.mjs",
+      "require": "./dist/ensemble.js",
+      "types": "./dist/ensemble.d.mts"
+    },
+    "./cache": {
+      "import": "./dist/cache.mjs",
+      "require": "./dist/cache.js",
+      "types": "./dist/cache.d.mts"
+    },
+    "./prompter": {
+      "import": "./dist/prompter.mjs",
+      "require": "./dist/prompter.js",
+      "types": "./dist/prompter.d.mts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "tsup --watch",
+    "build": "tsup",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "ollama": "^0.5.0",
+    "yaml": "^2.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
+  },
+  "license": "MIT",
+  "private": true
+}

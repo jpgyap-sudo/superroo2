@@ -97,6 +97,11 @@ export default defineConfig(({ mode }) => {
 					__dirname,
 					"../node_modules/.pnpm/vscode-jsonrpc@8.2.0/node_modules/vscode-jsonrpc",
 				),
+				// Ensure the webview always uses React 18.3.1 from webview-ui/node_modules,
+				// regardless of what other workspace packages (e.g. apps/cli -> @inkjs/ui -> ink)
+				// may pull into the monorepo pnpm store.
+				"react": resolve(__dirname, "./node_modules/react"),
+				"react-dom": resolve(__dirname, "./node_modules/react-dom"),
 			},
 		},
 		build: {
@@ -109,11 +114,11 @@ export default defineConfig(({ mode }) => {
 			minify: mode === "production" ? "esbuild" : false,
 			// Use a single combined CSS bundle so all webviews share styles
 			cssCodeSplit: false,
-			rollupOptions: {
-				// Externalize vscode module - it's imported by file-search.ts which is
-				// dynamically imported by roo-config/index.ts, but should never be bundled
-				// in the webview since it's not available in the browser context
-				external: ["vscode"],
+				rollupOptions: {
+				// Externalize vscode module and Node.js built-ins — not available in
+				// the browser. posthog-js is browser-safe and MUST stay bundled;
+				// externalizing it emits bare imports that blank the whole webview.
+				external: ["vscode", "module"],
 				input: {
 					index: resolve(__dirname, "index.html"),
 				},
@@ -143,30 +148,7 @@ export default defineConfig(({ mode }) => {
 						}
 						return "assets/[name][extname]"
 					},
-					manualChunks: (id, { getModuleInfo }) => {
-						// Consolidate all mermaid code and its direct large dependencies (like dagre)
-						// into a single chunk. The 'channel.js' error often points to dagre.
-						if (
-							id.includes("node_modules/mermaid") ||
-							id.includes("node_modules/dagre") || // dagre is a common dep for graph layout
-							id.includes("node_modules/cytoscape") // another potential graph lib
-							// Add other known large mermaid dependencies if identified
-						) {
-							return "mermaid-bundle"
-						}
-
-						// Check if the module is part of any explicitly defined mermaid-related dynamic import
-						// This is a more advanced check if simple path matching isn't enough.
-						const moduleInfo = getModuleInfo(id)
-						if (moduleInfo?.importers.some((importer) => importer.includes("node_modules/mermaid"))) {
-							return "mermaid-bundle"
-						}
-						if (
-							moduleInfo?.dynamicImporters.some((importer) => importer.includes("node_modules/mermaid"))
-						) {
-							return "mermaid-bundle"
-						}
-					},
+				manualChunks: undefined,
 				},
 			},
 		},

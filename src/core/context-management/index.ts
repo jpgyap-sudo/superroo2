@@ -4,7 +4,7 @@ import crypto from "crypto"
 import { TelemetryService } from "@superroo/telemetry"
 
 import { ApiHandler, ApiHandlerCreateMessageMetadata } from "../../api"
-import { MAX_CONDENSE_THRESHOLD, MIN_CONDENSE_THRESHOLD, summarizeConversation, SummarizeResponse } from "../condense"
+import { MAX_CONDENSE_THRESHOLD, MIN_CONDENSE_THRESHOLD, summarizeConversation, SummarizeResponse, getMessagesSinceLastSummary } from "../condense"
 import { ApiMessage } from "../task-persistence/apiMessages"
 import { ANTHROPIC_DEFAULT_MAX_TOKENS } from "@superroo/types"
 import { RooIgnoreController } from "../ignore/RooIgnoreController"
@@ -266,12 +266,21 @@ export async function manageContext({
 	let error: string | undefined
 	let errorDetails: string | undefined
 	let cost = 0
+
+	// Guard against empty message arrays — no context to manage
+	if (messages.length === 0) {
+		return { messages, summary: "", cost: 0, error: undefined, prevContextTokens: 0 }
+	}
+
 	// Calculate the maximum tokens reserved for response
 	const reservedTokens = maxTokens || ANTHROPIC_DEFAULT_MAX_TOKENS
 
 	// Estimate tokens for the last message (which is always a user message)
 	const lastMessage = messages[messages.length - 1]
-	const lastMessageContent = lastMessage.content
+	const lastMessageContent = lastMessage?.content
+	if (!lastMessageContent) {
+		return { messages, summary: "", cost: 0, error: undefined, prevContextTokens: 0 }
+	}
 	const lastMessageTokens = Array.isArray(lastMessageContent)
 		? await estimateTokenCount(lastMessageContent, apiHandler)
 		: await estimateTokenCount([{ type: "text", text: lastMessageContent as string }], apiHandler)
@@ -308,7 +317,8 @@ export async function manageContext({
 		if (contextPercent >= effectiveThreshold || prevContextTokens > allowedTokens) {
 			// Attempt to intelligently condense the context
 			const result = await summarizeConversation({
-				messages,
+				messages: getMessagesSinceLastSummary(messages),
+				allMessages: messages,
 				apiHandler,
 				systemPrompt,
 				taskId,

@@ -123,6 +123,7 @@ const App = () => {
 	const onMessage = useCallback(
 		(e: MessageEvent) => {
 			const message: ExtensionMessage = e.data
+			console.debug("[App.onMessage] Received message:", message.type, message)
 
 			if (message.type === "action" && message.action) {
 				// Handle switchTab action with tab parameter
@@ -174,6 +175,16 @@ const App = () => {
 
 	useEvent("message", onMessage)
 
+	// Fallback: also set up window event listener directly to ensure messages are received
+	useEffect(() => {
+		console.debug("[App] Setting up fallback message listener")
+		const fallbackHandler = (e: MessageEvent) => {
+			console.debug("[App.fallbackHandler] Received message via window listener:", e.data?.type)
+		}
+		window.addEventListener("message", fallbackHandler)
+		return () => window.removeEventListener("message", fallbackHandler)
+	}, [])
+
 	useEffect(() => {
 		if (shouldShowAnnouncement && tab === "chat") {
 			setShowAnnouncement(true)
@@ -187,12 +198,19 @@ const App = () => {
 		}
 	}, [telemetrySetting, telemetryKey, machineId, didHydrateState])
 
+	// Debug logging for webview hydration
+	useEffect(() => {
+		console.debug("[App] didHydrateState:", didHydrateState, "showWelcome:", showWelcome)
+	}, [didHydrateState, showWelcome])
+
 	// Tell the extension that we are ready to receive messages. If the renderer
 	// restarts and the first handshake is missed, retry until state arrives.
 	useEffect(() => {
+		console.debug("[App] Sending webviewDidLaunch message")
 		vscode.postMessage({ type: "webviewDidLaunch" })
 
 		if (didHydrateState) {
+			console.debug("[App] State already hydrated, skipping retry")
 			return
 		}
 
@@ -200,6 +218,7 @@ const App = () => {
 		const maxAttempts = 30 // 60 seconds max
 		const retryInterval = window.setInterval(() => {
 			attempts++
+			console.debug(`[App] Retry attempt ${attempts}/${maxAttempts} for webviewDidLaunch`)
 			if (attempts > maxAttempts) {
 				window.clearInterval(retryInterval)
 				console.error("[webview] Extension host did not respond after 60s. Webview may be disconnected.")

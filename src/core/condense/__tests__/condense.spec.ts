@@ -1,5 +1,6 @@
 // npx vitest src/core/condense/__tests__/condense.spec.ts
 
+import { afterAll, beforeAll } from "vitest"
 import { Anthropic } from "@anthropic-ai/sdk"
 import type { ModelInfo } from "@superroo/types"
 import { TelemetryService } from "@superroo/telemetry"
@@ -12,6 +13,17 @@ import {
 	getEffectiveApiHistory,
 	extractCommandBlocks,
 } from "../index"
+
+// Prevent Ollama phi4 fallback from hanging tests when primary summary is empty.
+const originalFetch = globalThis.fetch
+beforeAll(() => {
+	globalThis.fetch = async () => {
+		throw new Error("Ollama fallback not available in tests")
+	}
+})
+afterAll(() => {
+	globalThis.fetch = originalFetch
+})
 
 // Create a mock ApiHandler for testing
 class MockApiHandler extends BaseProvider {

@@ -1,0 +1,23 @@
+{
+  "id": "security-agent",
+  "name": "Security Agent",
+  "category": "security",
+  "description": "Global cross-extension malware/security scanner using local ClamAV Docker on VPS.",
+  "version": "1.0.0",
+  "enabled": true,
+  "modelPolicy": { "preferred": "gpt-5.5", "fallbacks": ["claude-sonnet"], "maxTokens": 4000 },
+  "skills": ["skills/clamav-scan-local-docker.md"],
+  "workflows": ["workflows/clamav-scan-request.md"],
+  "resources": ["resources/clamav-scan-policy.md"],
+  "memory": { "enabled": true, "scope": "project" },
+  "outputs": "outputs/",
+  "safety": {
+    "requiresApproval": false,
+    "canEditFiles": false,
+    "canPublish": false,
+    "canDeploy": false,
+    "blockedCommands": ["rm -rf /", ".env", "/etc/shadow"],
+    "approvalTriggers": ["delete", "deploy"]
+  },
+  "runtime": { "sandbox": true, "timeoutSeconds": 1800, "maxRetries": 1 }
+}

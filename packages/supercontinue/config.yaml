@@ -1,0 +1,61 @@
+name: SuperContinue Local Ollama
+version: 1.0.0
+schema: v1
+
+models:
+  - name: hermes3-planner
+    provider: ollama
+    model: hermes3:latest
+    apiBase: http://localhost:11434
+    roles:
+      - chat
+    contextLength: 32768
+    temperature: 0.3
+
+  - name: phi4-architect
+    provider: ollama
+    model: phi4:latest
+    apiBase: http://localhost:11434
+    roles:
+      - chat
+    contextLength: 32768
+    temperature: 0.2
+
+  - name: qwen2.5-coder-7b
+    provider: ollama
+    model: qwen2.5-coder:7b
+    apiBase: http://localhost:11434
+    roles:
+      - autocomplete
+      - chat
+      - edit
+    contextLength: 32768
+    temperature: 0.0
+    topP: 0.95
+    # FIM tokens for fill-in-middle completion
+    promptTemplates:
+      autocomplete:
+        prefix: "<|fim_prefix|>"
+        suffix: "<|fim_suffix|>"
+        middle: "<|fim_middle|>"
+
+  - name: qwen2.5-coder-14b
+    provider: ollama
+    model: qwen2.5-coder:14b
+    apiBase: http://localhost:11434
+    roles:
+      - chat
+      - edit
+    contextLength: 32768
+    temperature: 0.2
+
+  - name: nomic-embed
+    provider: ollama
+    model: nomic-embed-text:latest
+    apiBase: http://localhost:11434
+    roles:
+      - embed
+
+# Disable all cloud features - SuperContinue is PURE LOCAL
+disableTelemetry: true
+allowRemoteConfig: false

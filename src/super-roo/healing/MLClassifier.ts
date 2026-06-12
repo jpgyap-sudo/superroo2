@@ -361,6 +361,13 @@ export class MLClassifier {
 	}
 
 	/**
+	 * Get all training examples (GAP #5 — exposed for InfiniteImprovementLoop integration).
+	 */
+	getTrainingExamples(): TrainingExample[] {
+		return [...this.trainingExamples]
+	}
+
+	/**
 	 * Number of training examples accumulated.
 	 */
 	getExampleCount(): number {
@@ -396,6 +403,7 @@ export class MLClassifier {
 	getNetwork(): NeuralNetwork | null {
 		return this.network
 	}
+
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

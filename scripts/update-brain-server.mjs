@@ -160,18 +160,18 @@ server.tool('code',
 );
 
 server.tool('code_pro',
-  'qwen2.5-coder:14b — heavy coder for complex multi-file work. Best results when given collect_context output as context.',
+  'qwen3:14b — heavy coder for complex multi-file work. Best results when given collect_context output as context.',
   { prompt: z.string(), context: z.string().optional() },
   async ({ prompt, context }) => {
     try {
       const full = context ? 'Context:\\n' + context + '\\n\\n---\\n\\n' + prompt : prompt;
-      return { content: [{ type: 'text', text: await askCoder(full, 'qwen2.5-coder:14b') }] };
+      return { content: [{ type: 'text', text: await askCoder(full, 'qwen3:14b') }] };
     } catch (e) { return { content: [{ type: 'text', text: 'Error: ' + e.message }], isError: true }; }
   }
 );
 
 server.tool('code_with_memory',
-  'qwen2.5-coder:14b + automatic RAG memory injection. Best for project-aware tasks that should follow existing patterns.',
+  'qwen3:14b + automatic RAG memory injection. Best for project-aware tasks that should follow existing patterns.',
   {
     prompt: z.string(),
     collection: z.string().optional(),
@@ -181,7 +181,7 @@ server.tool('code_with_memory',
   async ({ prompt, collection, memory_limit = 5, fast = false }) => {
     try {
       const memories = await recall(prompt, collection || 'code', memory_limit);
-      const model = fast ? 'qwen2.5-coder:7b' : 'qwen2.5-coder:14b';
+      const model = fast ? 'qwen2.5-coder:7b' : 'qwen3:14b';
       const response = await askCoder(prompt, model, null, memories);
       return { content: [{ type: 'text', text: response + (memories.length ? '\\n\\n*[' + memories.length + ' memories injected]*' : '') }] };
     } catch (e) { return { content: [{ type: 'text', text: 'Error: ' + e.message }], isError: true }; }
@@ -194,7 +194,7 @@ server.tool('warmup',
   'Pre-warm all Ollama models into RAM. Run at session start for zero cold-start latency. With 64GB RAM all models stay loaded simultaneously.',
   {},
   async () => {
-    const models = ['hermes3', 'qwen2.5-coder:7b', 'qwen2.5-coder:14b', 'nomic-embed-text'];
+    const models = ['hermes3', 'qwen2.5-coder:7b', 'qwen3:14b', 'nomic-embed-text'];
     const results = [];
     for (const model of models) {
       try {

@@ -15,7 +15,7 @@ const KEEP_ALIVE = "24h"
 const MODELS = [
   { name: "hermes3",              role: "Researcher / Analyst / Memory Retriever" },
   { name: "qwen2.5-coder:7b",    role: "Fast coder (1-3s)" },
-  { name: "qwen2.5-coder:14b",   role: "Heavy coder (3-8s)" },
+  { name: "qwen3:14b",           role: "Heavy coder (3-8s)" },
   { name: "phi4",                 role: "Deep reasoning / architecture" },
   { name: "nomic-embed-text",     role: "Embeddings for RAG" },
 ]
@@ -91,7 +91,7 @@ async function main() {
   console.log("Expected response times:")
   console.log("  hermes3:           1-2s first token")
   console.log("  qwen2.5-coder:7b:  0.5-1s first token")
-  console.log("  qwen2.5-coder:14b: 1-3s first token")
+  console.log("  qwen3:14b:         1-3s first token")
   console.log("  nomic-embed-text:  ~50ms per embed")
   console.log("")
   console.log("brain_status() in Claude to verify all tools ready.")

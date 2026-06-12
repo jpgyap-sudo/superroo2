@@ -367,6 +367,40 @@ class PgVectorAdapter extends VectorStoreAdapter {
 		}
 	}
 
+	async getAllLessons(options = {}) {
+		const limit = Math.min(options.limit || 100, 500)
+		const offset = options.offset || 0
+		const project = options.project || null
+		const client = await this._getClient()
+		try {
+			const where = project ? `WHERE project = $3` : ''
+			const params = project ? [limit, offset, project] : [limit, offset]
+			const result = await client.query(
+				`SELECT id, lesson_type, topic, content, source_task_id, project, metadata, created_at
+				 FROM ollama_lessons
+				 ${where}
+				 ORDER BY created_at ASC
+				 LIMIT $1 OFFSET $2`,
+				params,
+			)
+			const countResult = await client.query(
+				project ? `SELECT COUNT(*)::int AS total FROM ollama_lessons WHERE project = $1` : `SELECT COUNT(*)::int AS total FROM ollama_lessons`,
+				project ? [project] : [],
+			)
+			return {
+				rows: result.rows,
+				total: parseInt(countResult.rows[0]?.total || '0', 10),
+				offset,
+				limit,
+			}
+		} catch (err) {
+			console.error(`[PgVectorAdapter] getAllLessons failed: ${err.message}`)
+			return { rows: [], total: 0, offset, limit }
+		} finally {
+			client.release()
+		}
+	}
+
 	async getLessonCountByProject() {
 		const client = await this._getClient()
 		try {

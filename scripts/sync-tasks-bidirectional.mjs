@@ -35,6 +35,8 @@ const KILO_LEGACY_TASKS =
 const BLACKBOX_TASKS =
 	process.env.BLACKBOX_TASKS_PATH ||
 	path.join(HOME, "Documents", ".blackbox", "tasks.json")
+const COPILOT_TASKS =
+	process.env.COPILOT_TASKS_PATH || path.join(ROOT, ".github", "copilot-tasks.json")
 
 const args = process.argv.slice(2)
 const STATUS_ONLY = args.includes("--status")
@@ -45,11 +47,12 @@ const LOCK_FILE = path.join(SUPERROO_HOME, "sync-lock.json")
 const DEBOUNCE_MS = 500
 
 const EXTENSIONS = [
-	{ file: CODEX_TASKS, agent: "codex" },
-	{ file: CLAUDE_TASKS, agent: "claude" },
-	{ file: KILO_TASKS, agent: "kilo-code" },
-	{ file: KILO_LEGACY_TASKS, agent: "kilo-legacy" },
-	{ file: BLACKBOX_TASKS, agent: "blackbox" },
+  { file: CODEX_TASKS, agent: "codex" },
+  { file: CLAUDE_TASKS, agent: "claude" },
+  { file: KILO_TASKS, agent: "kilo-code" },
+  { file: KILO_LEGACY_TASKS, agent: "kilo-legacy" },
+  { file: BLACKBOX_TASKS, agent: "blackbox" },
+  { file: COPILOT_TASKS, agent: "copilot" },
 ]
 
 function log(msg) {

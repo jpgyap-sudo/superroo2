@@ -46,8 +46,8 @@ Add to your `.env`:
 
 ```bash
 OLLAMA_BASE_URL=http://127.0.0.1:11434
-OLLAMA_MODEL=qwen2.5:0.5b
-OLLAMA_SUMMARY_MODEL=qwen2.5:0.5b
+OLLAMA_MODEL=hermes3
+OLLAMA_SUMMARY_MODEL=hermes3
 OLLAMA_FALLBACK_MODEL=qwen2.5:1.5b
 OLLAMA_TIMEOUT_MS=120000
 OLLAMA_TEMPERATURE=0.1
@@ -59,7 +59,7 @@ SUPERRROO_USE_OLLAMA_SUMMARIZER=true
 Recommended weak VPS model:
 
 ```bash
-OLLAMA_SUMMARY_MODEL=qwen2.5:0.5b
+OLLAMA_SUMMARY_MODEL=hermes3
 ```
 
 Recommended fallback model:

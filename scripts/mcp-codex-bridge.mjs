@@ -366,14 +366,14 @@ function callOllama(endpoint, body) {
  * with the 0.5B model.
  */
 function handleOllamaSummarize(args) {
-	console.warn("⚠️  [DEPRECATED] ollama summarize uses qwen2.5:0.5b for summarization — quality is poor.")
+	console.warn("⚠️  [DEPRECATED] ollama summarize uses hermes3 for summarization — quality is poor.")
 	console.warn("   Use DeepSeek API instead: node scripts/ollama-summarize-lesson.mjs")
 	console.warn("   Or call build-agent-context.mjs which uses DeepSeek for context compression.\n")
 
 	const text = args.positional[0]
 	if (!text) throw new Error("Usage: ollama summarize <text> [--model <model>]")
 
-	const model = args.named.model || "qwen2.5:0.5b"
+	const model = args.named.model || "hermes3"
 	const prompt = `Summarize the following text concisely while preserving key information:\n\n${text}`
 
 	const result = callOllama("/api/generate", {
@@ -405,7 +405,7 @@ function handleOllamaChat(args) {
 	const message = args.positional[0]
 	if (!message) throw new Error("Usage: ollama chat <message> [--system <system>] [--model <model>]")
 
-	const model = args.named.model || "qwen2.5:0.5b"
+	const model = args.named.model || "hermes3"
 	const messages = []
 	if (args.named.system) {
 		messages.push({ role: "system", content: args.named.system })

@@ -42,9 +42,14 @@ export const parseOllamaModel = (rawModel: OllamaModelInfoResponse): ModelInfo |
 	const contextWindow =
 		contextKey && typeof rawModel.model_info[contextKey] === "number" ? rawModel.model_info[contextKey] : undefined
 
-	// Filter out models that don't support tools. Models without tool capability won't work.
-	const supportsTools = rawModel.capabilities?.includes("tools") ?? false
-	if (!supportsTools) {
+	// Check capabilities
+	const capabilities = rawModel.capabilities ?? []
+	const supportsTools = capabilities.includes("tools")
+	const supportsVision = capabilities.includes("vision")
+
+	// Include models that support tools OR vision (for vision-only models like llava:7b)
+	// Vision-only models can be used via MCP tools for image analysis
+	if (!supportsTools && !supportsVision) {
 		return null
 	}
 
@@ -52,7 +57,7 @@ export const parseOllamaModel = (rawModel: OllamaModelInfoResponse): ModelInfo |
 		description: `Family: ${rawModel.details.family}, Context: ${contextWindow}, Size: ${rawModel.details.parameter_size}`,
 		contextWindow: contextWindow || ollamaDefaultModelInfo.contextWindow,
 		supportsPromptCache: true,
-		supportsImages: rawModel.capabilities?.includes("vision"),
+		supportsImages: supportsVision,
 		maxTokens: contextWindow || ollamaDefaultModelInfo.contextWindow,
 	})
 

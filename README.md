@@ -368,7 +368,7 @@ Kilo Code uses a four-layer thinking process with explicit agent roles:
 ```
 Thinker Agent → Architect Agent → Coder Agent → Reviewer Agent
      ↓              ↓              ↓              ↓
- Auto Free      hermes3:latest   qwen2.5-coder:7b   kilo-auto/free
+ qwen3:14b      qwen3:14b        qwen2.5-coder:7b   qwen3:14b
  (planning)    (design)         (implementation)   (review)
 ```
 
@@ -377,10 +377,10 @@ Thinker Agent → Architect Agent → Coder Agent → Reviewer Agent
 | Model                     | Size  | Best For                                |
 | ------------------------- | ----- | --------------------------------------- |
 | `qwen2.5-coder:7b`        | 4.7GB | General coding tasks (default)          |
-| `qwen2.5-coder:14b`       | 9.0GB | Complex coding tasks                    |
+| `qwen3:14b`               | 8.9GB | Complex coding tasks                    |
 | `phi4:latest`             | 9.1GB | Reasoning-heavy tasks, debugging        |
 | `nomic-embed-text:latest` | 274MB | Embeddings for semantic search          |
-| `kilo-auto/free`          | API   | Smart model routing for planning/review |
+| `qwen3:14b`               | 8.9GB | Local planning/review model |
 
 ### Central Brain MCP
 
@@ -398,6 +398,16 @@ docker compose up -d postgres
 # Run MCP server
 node scripts/central-brain-mcp.mjs
 ```
+
+### Kilo Code Extension (VS Code)
+
+The `bin/superroo-3.54.8.vsix` package contains the **Kilo Code** VS Code extension with vision integration:
+
+- **Vision Integration**: Paste images directly in chat — automatically routes to MCP vision tools when the current model doesn't support vision
+- **MCP Tools Available**: `ollama_vision_data`, `brain_analyze_image` for image analysis via llava:7b
+- **Installation**: `code --install-extension bin/superroo-3.54.8.vsix`
+
+> **Note**: This VSIX is the Kilo Code extension within the SuperRoo ecosystem. It provides the chat interface where image paste functionality works.
 
 See `.kilo/workflow.md` for complete documentation.
 

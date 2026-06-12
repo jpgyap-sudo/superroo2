@@ -5,6 +5,7 @@ import * as path from "path"
 
 import * as vscode from "vscode"
 import { Anthropic } from "@anthropic-ai/sdk"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { GlobalState, ProviderSettings, ModelInfo } from "@superroo/types"
 import { TelemetryService } from "@superroo/telemetry"
@@ -82,7 +83,11 @@ vi.mock("p-wait-for", () => ({
 
 vi.mock("vscode", () => {
 	const mockDisposable = { dispose: vi.fn() }
-	const mockEventEmitter = { event: vi.fn(), fire: vi.fn() }
+	class MockEventEmitter {
+		event = vi.fn()
+		fire = vi.fn()
+		dispose = vi.fn()
+	}
 	const mockTextDocument = { uri: { fsPath: "/mock/workspace/path/file.ts" } }
 	const mockTextEditor = { document: mockTextDocument }
 	const mockTab = { input: { uri: { fsPath: "/mock/workspace/path/file.ts" } } }
@@ -130,7 +135,7 @@ vi.mock("vscode", () => {
 			uriScheme: "vscode",
 			language: "en",
 		},
-		EventEmitter: vi.fn().mockImplementation(() => mockEventEmitter),
+		EventEmitter: MockEventEmitter,
 		Disposable: {
 			from: vi.fn(),
 		},
@@ -1562,6 +1567,75 @@ describe("Cline", () => {
 				task.submitUserMessage("follow-up message", ["image2.png"])
 
 				expect(handleResponseSpy).toHaveBeenCalledWith("messageResponse", "follow-up message", ["image2.png"])
+			})
+
+			it("should route attached images through Ollama MCP when the current model lacks vision", async () => {
+				const callTool = vi.fn().mockResolvedValue({
+					content: [{ type: "text", text: "The image shows a Kilo Code error dialog." }],
+				})
+				mockProvider.getMcpHub = vi.fn().mockReturnValue({ callTool })
+
+				const task = new Task({
+					provider: mockProvider,
+					apiConfiguration: mockApiConfig,
+					task: "initial task",
+					startTask: false,
+				})
+				;(task as any).api = {
+					getModel: vi.fn().mockReturnValue({ info: { supportsImages: false } }),
+				}
+
+				const handleResponseSpy = vi.spyOn(task, "handleWebviewAskResponse")
+
+				await task.submitUserMessage("read this screenshot", ["data:image/png;base64,ABC123"])
+
+				expect(callTool).toHaveBeenCalledWith("ollama", "ollama_vision_data", {
+					image_base64: "ABC123",
+					prompt: "read this screenshot",
+				})
+				expect(handleResponseSpy).toHaveBeenCalledWith(
+					"messageResponse",
+					"## Image Analysis Results\n\nThe image shows a Kilo Code error dialog.",
+					[],
+				)
+			})
+
+			it("should fall back to central-brain image analysis when Ollama MCP vision fails", async () => {
+				const callTool = vi
+					.fn()
+					.mockRejectedValueOnce(new Error("ollama unavailable"))
+					.mockResolvedValueOnce({
+						content: [{ type: "text", text: "Central Brain saw the screenshot text." }],
+					})
+				mockProvider.getMcpHub = vi.fn().mockReturnValue({ callTool })
+
+				const task = new Task({
+					provider: mockProvider,
+					apiConfiguration: mockApiConfig,
+					task: "initial task",
+					startTask: false,
+				})
+				;(task as any).api = {
+					getModel: vi.fn().mockReturnValue({ info: { supportsImages: false } }),
+				}
+
+				const handleResponseSpy = vi.spyOn(task, "handleWebviewAskResponse")
+
+				await task.submitUserMessage("read this screenshot", ["RAW_BASE64"])
+
+				expect(callTool).toHaveBeenNthCalledWith(1, "ollama", "ollama_vision_data", {
+					image_base64: "RAW_BASE64",
+					prompt: "read this screenshot",
+				})
+				expect(callTool).toHaveBeenNthCalledWith(2, "central-brain", "brain_analyze_image", {
+					image_base64: "RAW_BASE64",
+					prompt: "read this screenshot",
+				})
+				expect(handleResponseSpy).toHaveBeenCalledWith(
+					"messageResponse",
+					"## Image Analysis Results\n\nCentral Brain saw the screenshot text.",
+					[],
+				)
 			})
 
 			it("should handle undefined provider gracefully", async () => {

@@ -1367,14 +1367,21 @@ export class ClineProvider
 		// then convert it to a uri we can use in the webview.
 
 		// The CSS file from the React build output
-		const stylesUri = getUri(webview, this.contextProxy.extensionUri, [
+		const stylesUri = webview.asWebviewUri(vscode.Uri.file(path.join(
+			this.contextProxy.extensionPath ?? this.contextProxy.extensionUri.fsPath,
 			"webview-ui",
 			"build",
 			"assets",
 			"index.css",
-		])
+		)))
 
-		const scriptUri = getUri(webview, this.contextProxy.extensionUri, ["webview-ui", "build", "assets", "index.js"])
+		const scriptUri = webview.asWebviewUri(vscode.Uri.file(path.join(
+			this.contextProxy.extensionPath ?? this.contextProxy.extensionUri.fsPath,
+			"webview-ui",
+			"build",
+			"assets",
+			"index.js",
+		)))
 		const codiconsUri = getUri(webview, this.contextProxy.extensionUri, ["assets", "codicons", "codicon.css"])
 		const materialIconsUri = getUri(webview, this.contextProxy.extensionUri, [
 			"assets",

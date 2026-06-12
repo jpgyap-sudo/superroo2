@@ -956,8 +956,17 @@ async function handleAuthRoute(method, url, req, res) {
 	// Don't intercept Visual Crawler routes — handled by api.js directly
 	if (normalizedPath.startsWith("/visual-crawl/")) return false
 
-	// Don't intercept lessons sync — called by local dev machine sync script
+	// Don't intercept lessons sync/export — called by local dev machine sync scripts
 	if (normalizedPath === "/lessons/sync") return false
+	if (normalizedPath.startsWith("/lessons/export")) return false
+
+	// Don't intercept ML sync endpoints — agent-to-agent model sync (no user data)
+	if (normalizedPath === "/ml/model/upload") return false
+	if (normalizedPath.startsWith("/ml/model/latest")) return false
+	if (normalizedPath === "/ml/observations/sync") return false
+	if (normalizedPath === "/ml/model/merge") return false
+	if (normalizedPath === "/ml/sync/status") return false
+	if (normalizedPath.startsWith("/ml/observations")) return false
 
 	// Don't intercept Central Brain route — public manifest for AI bots
 	if (normalizedPath === "/brain") return false

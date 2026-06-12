@@ -3,7 +3,7 @@
 	"displayName": "%extension.displayName%",
 	"description": "%extension.description%",
 	"publisher": "SuperRoo",
-	"version": "3.53.6",
+	"version": "3.54.22",
 	"icon": "assets/icons/icon.png",
 	"galleryBanner": {
 		"color": "#617A91",
@@ -528,6 +528,7 @@
 		"@superroo/cloud": "workspace:^",
 		"@superroo/core": "workspace:^",
 		"@superroo/ipc": "workspace:^",
+		"@superroo/supercontinue": "workspace:^",
 		"@superroo/telemetry": "workspace:^",
 		"@superroo/types": "workspace:^",
 		"@vscode/codicons": "^0.0.36",

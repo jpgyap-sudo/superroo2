@@ -35,4 +35,9 @@ if [ -f "scripts/ollama-summarize-lesson.mjs" ]; then
   node scripts/ollama-summarize-lesson.mjs --quiet --last-only &
 fi
 
+# Regenerate ACTIVE_WORK.md from global task registry
+if [ -f "scripts/gen-active-work.mjs" ]; then
+  node scripts/gen-active-work.mjs 2>/dev/null &
+fi
+
 exit 0

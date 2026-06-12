@@ -34,12 +34,12 @@ Restart Ollama after running.
 Model                  Size      Purpose
 ────────────────────────────────────────────────
 hermes3 8B Q4_0        4.3 GB   Research, analysis, memory retrieval
-qwen2.5-coder:14b      8.4 GB   Complex coding (primary)
+qwen3:14b              8.9 GB   Complex coding (primary)
 qwen2.5-coder:7b       4.4 GB   Fast coding (quick edits)
 phi4 14.7B Q4_K_M      8.4 GB   Deep reasoning, architecture
 nomic-embed-text 137M  0.3 GB   RAG embeddings
 ────────────────────────────────────────────────
-All models loaded      25.8 GB  (of 64GB available)
+All models loaded      26.3 GB  (of 64GB available)
 Headroom for OS/KV     ~38 GB
 ```
 
@@ -47,7 +47,7 @@ Headroom for OS/KV     ~38 GB
 
 In Claude Code brain MCP: `warmup()`
 
-- Pre-loads hermes3, qwen2.5-coder:7b, qwen2.5-coder:14b
+- Pre-loads hermes3, qwen2.5-coder:7b, qwen3:14b
 - After warmup: ALL calls are instant (no cold start ever)
 - Takes ~10-15 seconds the first time per session
 

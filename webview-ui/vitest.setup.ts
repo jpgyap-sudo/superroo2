@@ -3,7 +3,11 @@ import "@testing-library/jest-dom/vitest"
 
 // Force React into development mode for tests
 // This is needed to enable act(...) function in React Testing Library
-globalThis.process = globalThis.process || {}
+declare global {
+	// eslint-disable-next-line no-var
+	var process: NodeJS.Process
+}
+globalThis.process = globalThis.process || ({} as NodeJS.Process)
 globalThis.process.env = globalThis.process.env || {}
 globalThis.process.env.NODE_ENV = "development"
 

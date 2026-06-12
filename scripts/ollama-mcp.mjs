@@ -19,7 +19,7 @@
  *     Generate embeddings using nomic-embed-text (primary use case)
  *
  *   - ollama_chat(message, model?, system?)
- *     Chat with an Ollama model (qwen2.5:0.5b)
+ *     Chat with an Ollama model (hermes3)
  *
  *   - ollama_list_models()
  *     List available models on the VPS Ollama instance
@@ -36,7 +36,7 @@
  *
  * Environment:
  *   OLLAMA_URL       (optional) — Ollama API URL (default: http://100.64.175.88:11434)
- *   OLLAMA_MODEL     (optional) — Default model (default: qwen2.5:0.5b)
+ *   OLLAMA_MODEL     (optional) — Default model (default: hermes3)
  *   OLLAMA_EMBED_MODEL (optional) — Embedding model (default: nomic-embed-text)
  *
  * NOTE: Uses curl.exe via .cmd helper for Ollama API calls to avoid
@@ -59,9 +59,18 @@ const TMP_DIR = fsSync.mkdtempSync(path.join(os.tmpdir(), "sr-ollama-mcp-"))
 
 const LOCAL_OLLAMA_URL = "http://127.0.0.1:11434"
 const VPS_OLLAMA_URL = "http://100.64.175.88:11434"
-// Prefer local Ollama; fall back to VPS via Tailscale if env var not set
-const OLLAMA_URL = process.env.OLLAMA_URL || LOCAL_OLLAMA_URL
-const DEFAULT_MODEL = process.env.OLLAMA_MODEL || "qwen2.5:0.5b"
+const OLLAMA_FALLBACK_URL = process.env.OLLAMA_FALLBACK_URL || VPS_OLLAMA_URL
+// Prefer local Ollama; fall back to VPS via Tailscale
+let OLLAMA_URL = process.env.OLLAMA_URL || LOCAL_OLLAMA_URL
+
+// Quick local reachability check — fall back to VPS if local is down
+try {
+  execSync(`curl -s --max-time 2 ${LOCAL_OLLAMA_URL}/api/tags -o NUL 2>&1`, { timeout: 3000, windowsHide: true })
+} catch {
+  OLLAMA_URL = OLLAMA_FALLBACK_URL
+  log(`Local Ollama unreachable — using fallback: ${OLLAMA_FALLBACK_URL}`)
+}
+const DEFAULT_MODEL = process.env.OLLAMA_MODEL || "hermes3"
 const EMBED_MODEL = process.env.OLLAMA_EMBED_MODEL || "nomic-embed-text"
 const OLLAMA_TIMEOUT_MS = parseInt(process.env.OLLAMA_TIMEOUT || "120000", 10)
 
@@ -139,7 +148,7 @@ function ollamaGet(endpoint) {
  * This function is kept for backward compatibility but produces low-quality results.
  */
 function handleSummarize(text, model) {
-	log("[DEPRECATED] ollama_summarize uses qwen2.5:0.5b — quality is poor. Use DeepSeek API instead.")
+	log("[DEPRECATED] ollama_summarize uses hermes3 — quality is poor. Use DeepSeek API instead.")
 	if (!text || typeof text !== "string") {
 		return { content: [{ type: "text", text: "Error: 'text' parameter is required" }] }
 	}
@@ -230,6 +239,83 @@ function handleChat(message, model, system) {
 		}
 	} catch (error) {
 		log(`chat failed: ${error.message}`)
+		return {
+			content: [{ type: "text", text: `Error: ${error.message}` }],
+			isError: true,
+		}
+	}
+}
+
+function handleVision(image_path, prompt, model) {
+	if (!image_path || typeof image_path !== "string") {
+		return { content: [{ type: "text", text: "Error: 'image_path' parameter is required" }] }
+	}
+
+	const useModel = model || "llava:7b"
+	const usePrompt = prompt || "Analyze this image and extract all text, UI elements, and key information."
+
+	// Read local image file
+	let imageData
+	try {
+		imageData = fsSync.readFileSync(image_path)
+	} catch (err) {
+		return {
+			content: [{ type: "text", text: `Error: Could not read image file: ${err.message}` }],
+			isError: true,
+		}
+	}
+
+	const base64Image = imageData.toString("base64")
+
+	try {
+		const data = ollamaFetch("/api/chat", {
+			model: useModel,
+			messages: [
+				{
+					role: "user",
+					content: usePrompt,
+					images: [base64Image]
+				}
+			],
+			stream: false,
+		})
+		return {
+			content: [{ type: "text", text: data.message?.content || "No analysis result" }],
+		}
+	} catch (error) {
+		log(`vision failed: ${error.message}`)
+		return {
+			content: [{ type: "text", text: `Error: ${error.message}` }],
+			isError: true,
+		}
+	}
+}
+
+function handleVisionData(image_base64, prompt, model) {
+	if (!image_base64 || typeof image_base64 !== "string") {
+		return { content: [{ type: "text", text: "Error: 'image_base64' parameter is required" }] }
+	}
+
+	const useModel = model || "llava:7b"
+	const usePrompt = prompt || "Analyze this image and extract all text, UI elements, and key information."
+
+	try {
+		const data = ollamaFetch("/api/chat", {
+			model: useModel,
+			messages: [
+				{
+					role: "user",
+					content: usePrompt,
+					images: [image_base64]
+				}
+			],
+			stream: false,
+		})
+		return {
+			content: [{ type: "text", text: data.message?.content || "No analysis result" }],
+		}
+	} catch (error) {
+		log(`vision_data failed: ${error.message}`)
 		return {
 			content: [{ type: "text", text: `Error: ${error.message}` }],
 			isError: true,
@@ -330,7 +416,7 @@ const TOOLS = [
 	{
 		name: "ollama_summarize",
 		description:
-			"[DEPRECATED] Summarize text using Ollama (qwen2.5:0.5b) — quality is poor. Use DeepSeek API instead: run build-agent-context.mjs for context compression or ollama-summarize-lesson.mjs for lesson summarization. Kept for backward compatibility only.",
+			"[DEPRECATED] Summarize text using Ollama (hermes3) — quality is poor. Use DeepSeek API instead: run build-agent-context.mjs for context compression or ollama-summarize-lesson.mjs for lesson summarization. Kept for backward compatibility only.",
 		inputSchema: {
 			type: "object",
 			properties: {
@@ -385,6 +471,52 @@ const TOOLS = [
 		},
 	},
 	{
+		name: "ollama_vision",
+		description:
+			"Analyze an image using a vision model (llava:7b). Use this for OCR, diagram understanding, UI analysis, or any task requiring image input. Provide image_path for local files.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				image_path: {
+					type: "string",
+					description: "Path to local image file",
+				},
+				prompt: {
+					type: "string",
+					description: "Analysis prompt (default: 'Analyze this image and extract all text, UI elements, and key information.')",
+				},
+				model: {
+					type: "string",
+					description: "Vision model to use (default: llava:7b)",
+				},
+			},
+			required: ["image_path"],
+		},
+	},
+	{
+		name: "ollama_vision_data",
+		description:
+			"Analyze image data directly (base64 encoded). Use this when you have image data from chat attachments or other sources.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				image_base64: {
+					type: "string",
+					description: "Base64 encoded image data (without data:image/png;base64, prefix)",
+				},
+				prompt: {
+					type: "string",
+					description: "Analysis prompt (default: 'Analyze this image and extract all text, UI elements, and key information.')",
+				},
+				model: {
+					type: "string",
+					description: "Vision model to use (default: llava:7b)",
+				},
+			},
+			required: ["image_base64"],
+		},
+	},
+	{
 		name: "ollama_list_models",
 		description: "List all available models on the VPS Ollama instance.",
 		inputSchema: {
@@ -413,6 +545,10 @@ function handleToolCall(name, args) {
 			return handleEmbed(args.text)
 		case "ollama_chat":
 			return handleChat(args.message, args.model, args.system)
+		case "ollama_vision":
+			return handleVision(args.image_path, args.prompt, args.model)
+		case "ollama_vision_data":
+			return handleVisionData(args.image_base64, args.prompt, args.model)
 		case "ollama_list_models":
 			return handleListModels()
 		case "ollama_status":

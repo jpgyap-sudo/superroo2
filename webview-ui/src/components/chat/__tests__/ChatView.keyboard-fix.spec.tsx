@@ -13,6 +13,8 @@ import ChatView, { ChatViewProps } from "../ChatView"
 vi.mock("@src/utils/vscode", () => ({
 	vscode: {
 		postMessage: vi.fn(),
+		getState: vi.fn(() => undefined),
+		setState: vi.fn(),
 	},
 }))
 

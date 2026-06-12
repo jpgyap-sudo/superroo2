@@ -1,8 +1,10 @@
 // pnpm --filter superroo test core/webview/__tests__/ClineProvider.spec.ts
 
+import { afterAll, beforeEach, describe, expect, test, vi } from "vitest"
 import Anthropic from "@anthropic-ai/sdk"
 import * as vscode from "vscode"
 import axios from "axios"
+import * as fs from "fs/promises"
 
 import {
 	type ProviderSettingsEntry,
@@ -33,11 +35,13 @@ vi.mock("p-wait-for", () => ({
 }))
 
 vi.mock("fs/promises", () => ({
+	__esModule: true,
 	mkdir: vi.fn().mockResolvedValue(undefined),
 	writeFile: vi.fn().mockResolvedValue(undefined),
 	readFile: vi.fn().mockResolvedValue(""),
 	unlink: vi.fn().mockResolvedValue(undefined),
 	rmdir: vi.fn().mockResolvedValue(undefined),
+	stat: vi.fn().mockResolvedValue({}) as any,
 }))
 
 vi.mock("axios", () => ({
@@ -309,6 +313,16 @@ afterAll(() => {
 })
 
 describe("ClineProvider", () => {
+	beforeEach(() => {
+		vi.clearAllMocks()
+		vi.mocked(axios.get).mockReset()
+		vi.mocked(axios.get).mockResolvedValue({ data: { data: [] } })
+		vi.mocked(fs.readFile).mockReset()
+		vi.mocked(fs.readFile).mockResolvedValue("")
+		vi.mocked(fs.stat).mockReset()
+		vi.mocked(fs.stat).mockResolvedValue({} as any)
+	})
+
 	beforeAll(() => {
 		vi.mocked(Task).mockImplementation((options: any) => {
 			const task: any = {
@@ -527,6 +541,12 @@ describe("ClineProvider", () => {
 			new ContextProxy(mockContext),
 		)
 		;(axios.get as any).mockRejectedValueOnce(new Error("Network error"))
+		vi.mocked(fs.readFile).mockResolvedValueOnce(
+			'<script type="module" crossorigin src="/assets/index.js"></script><link rel="stylesheet" crossorigin href="/assets/index.css">',
+		)
+		vi.mocked(fs.readFile).mockResolvedValueOnce(
+			'<script type="module" crossorigin src="/assets/index.js"></script><link rel="stylesheet" crossorigin href="/assets/index.css">',
+		)
 
 		await provider.resolveWebviewView(mockWebviewView)
 
@@ -549,6 +569,67 @@ describe("ClineProvider", () => {
 		expect(scriptSrcMatch![0]).toContain("'nonce-")
 		// Verify wasm-unsafe-eval is present for Shiki syntax highlighting
 		expect(scriptSrcMatch![0]).toContain("'wasm-unsafe-eval'")
+	})
+
+	test("getHtmlContent falls back to default assets when build index.html is missing", async () => {
+		provider = new ClineProvider(
+			{ ...mockContext, extensionMode: vscode.ExtensionMode.Production },
+			mockOutputChannel,
+			"sidebar",
+			new ContextProxy(mockContext),
+		)
+
+		;(vi.mocked(vscode.Uri.joinPath) as any).mockImplementation((_, ...pathList: string[]) => ({
+			path: `/${pathList.join("/")}`,
+		}))
+
+		mockWebviewView.webview.asWebviewUri = vi.fn((uri: any) =>
+			`vscode-webview://test-csp-source${uri?.path ?? "/webview-ui/build/assets/index.js"}`,
+		)
+
+		vi.mocked(fs.readFile).mockRejectedValueOnce(new Error("Missing build index.html"))
+		vi.mocked(fs.stat).mockResolvedValue({} as any)
+
+		const html = await (provider as any).getHtmlContent(mockWebviewView.webview)
+
+		expect(html).toContain("assets/index.js")
+		expect(html).toContain("assets/index.css")
+	})
+
+	test("resolveWebviewView includes nonce on HMR script when local dev server is running", async () => {
+		provider = new ClineProvider(
+			{ ...mockContext, extensionMode: vscode.ExtensionMode.Development },
+			mockOutputChannel,
+			"sidebar",
+			new ContextProxy(mockContext),
+		)
+
+		mockWebviewView.webview.asWebviewUri = vi.fn((uri: vscode.Uri | undefined) =>
+			`http://localhost:5173${uri?.path ?? "/src/index.tsx"}`,
+		)
+
+		const hmrHtml = await (provider as any).getHMRHtmlContent(mockWebviewView.webview)
+
+		expect(hmrHtml).toContain("<!DOCTYPE html>")
+		expect(hmrHtml).toContain("http://localhost:5173/src/index.tsx")
+		const scriptTagMatch = hmrHtml.match(/<script nonce="[^"]+" type="module" src="http:\/\/localhost:5173\/src\/index.tsx"><\/script>/)
+		expect(scriptTagMatch).not.toBeNull()
+	})
+
+	test("resolveWebviewView renders an error page if both bundled and HMR content fail", async () => {
+		provider = new ClineProvider(
+			{ ...mockContext, extensionMode: vscode.ExtensionMode.Development },
+			mockOutputChannel,
+			"sidebar",
+			new ContextProxy(mockContext),
+		)
+		;(axios.get as any).mockRejectedValueOnce(new Error("Network error"))
+		vi.mocked(fs.stat).mockRejectedValue(new Error("Missing built asset"))
+
+		await provider.resolveWebviewView(mockWebviewView)
+
+		expect(mockWebviewView.webview.html).toContain("SuperRoo failed to load")
+		expect(mockWebviewView.webview.html).toContain("Built webview assets not found on disk")
 	})
 
 	test("postMessageToWebview sends message to webview", async () => {

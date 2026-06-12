@@ -55,6 +55,7 @@ const telegramBot = require("./telegramBot")
 const telegramClassifier = require("./telegramClassifier")
 const healingMetrics = require("./routes/healing-metrics")
 const monitoring = require("./routes/monitoring")
+const monitoringAlerts = require("./routes/monitoring-alerts")
 const workflowCompliance = require("./routes/workflow-compliance")
 const { LspBridge } = require("./lsp-bridge")
 const visualCrawler = require("./visual-crawler")
@@ -288,7 +289,7 @@ async function callChatCompletion(apiBaseUrl, apiKey, model, messages) {
 	// Uses http.request instead of fetch because Node.js 20's built-in fetch (undici)
 	// has a default headersTimeout of ~20s, but Ollama can take ~30s on cold start.
 	const ollamaBaseUrl = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434"
-	const ollamaModel = process.env.OLLAMA_CHAT_MODEL || "qwen2.5:0.5b"
+	const ollamaModel = process.env.OLLAMA_CHAT_MODEL || "hermes3"
 	try {
 		const http = require("http")
 		const postData = JSON.stringify({
@@ -1879,7 +1880,7 @@ async function _handleMcpAction(action, params, orchestrator) {
 					"http://127.0.0.1:11434"
 				).replace(/\/$/, "")
 				// Canonical: OLLAMA_MODEL; legacy fallbacks: OLLAMA_SUMMARY_MODEL
-				const model = process.env.OLLAMA_MODEL || process.env.OLLAMA_SUMMARY_MODEL || "qwen2.5:0.5b"
+				const model = process.env.OLLAMA_MODEL || process.env.OLLAMA_SUMMARY_MODEL || "hermes3"
 				const timeoutMs = Number(process.env.OLLAMA_TIMEOUT_MS || 120000)
 
 				const systemPrompt = `You are SuperRoo's local Ollama log summarizer.
@@ -2203,15 +2204,15 @@ const PROVIDERS = [
 	{
 		id: "ollama",
 		name: "Ollama (Local)",
-		description: "Local Ollama models (qwen2.5:0.5b, qwen2.5:1.5b)",
+		description: "Local Ollama models (hermes3, qwen2.5:1.5b)",
 		envName: null,
 		website: "https://ollama.com",
 		docsUrl: "https://github.com/ollama/ollama",
 		apiBaseUrl: "http://127.0.0.1:11434/v1",
-		defaultModel: "qwen2.5:0.5b",
+		defaultModel: "hermes3",
 		local: true,
 		models: [
-			{ id: "qwen2.5:0.5b", name: "Qwen 2.5 0.5B" },
+			{ id: "hermes3", name: "Qwen 2.5 0.5B" },
 			{ id: "qwen2.5:1.5b", name: "Qwen 2.5 1.5B" },
 		],
 		capabilities: ["chat"],
@@ -5315,6 +5316,76 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 
+		// Phase Breakdown Monitor Hooks
+		const shouldTriggerPhaseBreakdownMonitor = (...parts) => {
+			const text = parts.filter(Boolean).join(" ").toLowerCase()
+			const triggers = [
+				"new feature",
+				"new app",
+				"build a new",
+				"create a new",
+				"add support for",
+				"architecture",
+				"architect",
+				"roadmap",
+				"break down",
+				"complex",
+				"uncertain",
+				"multiple systems",
+				"cross-service",
+				"cross system",
+				"debug",
+				"investigate",
+				"troubleshoot",
+				"triage",
+				"root cause",
+				"unknown failure",
+			]
+			return triggers.some((trigger) => text.includes(trigger))
+		}
+
+		const enqueuePhaseBreakdownMonitor = async ({ source, subjectId, title, description, metadata = {} }) => {
+			try {
+				const eventText = [
+					"Phase Breakdown Monitor event",
+					`Source: ${source}`,
+					`Subject: ${subjectId}`,
+					`Title: ${title}`,
+					`Description: ${description || ""}`,
+					`Metadata: ${JSON.stringify(metadata)}`,
+					"",
+					"Use .roo/skills/phase-breakdown/SKILL.md as the canonical reference.",
+				].join("\n")
+				const monitorJob = await queue.add(`phase-breakdown-monitor-${source}-${subjectId}`, {
+					task: `Phase Breakdown Monitor (${source}): ${title}`,
+					agentId: "phase-breakdown-monitor-agent",
+					network: "none",
+					commands: [
+						"pwd",
+						"node -v",
+						`printf '%s\n' ${JSON.stringify(eventText)} > phase-breakdown-event.txt`,
+					],
+				})
+				if (orchestrator?.events) {
+					orchestrator.events.info(
+						"phase_breakdown_monitor.triggered",
+						`Phase Breakdown Monitor triggered for ${source}: ${subjectId}`,
+						{ source, subjectId, jobId: monitorJob.id, ...metadata },
+					)
+				}
+				return monitorJob
+			} catch (e) {
+				if (orchestrator?.events) {
+					orchestrator.events.warn(
+						"phase_breakdown_monitor.enqueue_failed",
+						`Failed to enqueue Phase Breakdown Monitor for ${source}: ${subjectId}`,
+						{ source, subjectId, error: e.message, ...metadata },
+					)
+				}
+				return null
+			}
+		}
+
 		// Existing job enqueue
 		if (method === "POST" && url === "/job") {
 			const data = await parseBody(req)
@@ -5325,6 +5396,19 @@ const server = http.createServer(async (req, res) => {
 				agentId: data.agentId || undefined,
 			})
 			sendJson(res, 200, { success: true, jobId: job.id })
+			const agentId = String(data.agentId || "")
+			if (
+				agentId.includes("debug") ||
+				shouldTriggerPhaseBreakdownMonitor(data.task, agentId, Array.isArray(data.commands) ? data.commands.join(" ") : "")
+			) {
+				await enqueuePhaseBreakdownMonitor({
+					source: "job",
+					subjectId: job.id,
+					title: data.task || "untitled",
+					description: Array.isArray(data.commands) ? data.commands.join("\n") : "",
+					metadata: { jobId: job.id, agentId: data.agentId || null },
+				})
+			}
 			return
 		}
 
@@ -6848,6 +6932,9 @@ const server = http.createServer(async (req, res) => {
 		// Also handles /metrics for Prometheus scraping
 		if (normalizedUrl.startsWith("/monitoring/") || normalizedUrl === "/metrics") {
 			if (await monitoring.handleMonitoringRoute(method, url, req, res)) {
+				return
+			}
+			if (await monitoringAlerts.handleAlertRoute(method, url, req, res)) {
 				return
 			}
 		}
@@ -9708,6 +9795,17 @@ const server = http.createServer(async (req, res) => {
 			}
 			const feature = orchestrator.featureRegistry.create(data)
 			sendJson(res, 200, { success: true, feature })
+
+			if (shouldTriggerPhaseBreakdownMonitor(feature.name, feature.description)) {
+				await enqueuePhaseBreakdownMonitor({
+					source: "feature",
+					subjectId: feature.id,
+					title: feature.name,
+					description: feature.description || data.description || "",
+					metadata: { featureId: feature.id },
+				})
+			}
+
 			return
 		}
 
@@ -9783,6 +9881,28 @@ const server = http.createServer(async (req, res) => {
 			}
 			const bug = orchestrator.bugRegistry.create(data)
 			sendJson(res, 200, { success: true, bug })
+			if (
+				shouldTriggerPhaseBreakdownMonitor(
+					bug.title,
+					bug.description,
+					data.description,
+					data.stepsToReproduce,
+					bug.severity,
+					bug.featureId,
+				)
+			) {
+				await enqueuePhaseBreakdownMonitor({
+					source: "bug",
+					subjectId: bug.id,
+					title: bug.title,
+					description: bug.description || data.description || data.stepsToReproduce || "",
+					metadata: {
+						bugId: bug.id,
+						severity: bug.severity,
+						featureId: bug.featureId || data.featureId || null,
+					},
+				})
+			}
 			return
 		}
 
@@ -10891,6 +11011,23 @@ const server = http.createServer(async (req, res) => {
 		// Accepts array of lesson objects (lesson-index.jsonl format)
 		// Called by sync-lessons-to-central-brain.mjs running on dev machine
 		if (method === "POST" && (url === "/lessons/sync" || normalizedUrl === "/lessons/sync")) {
+			// Auth: require Bearer token matching one of the configured secrets.
+			// Falls back through accepted env vars so no container recreation is
+			// needed (SUPERROO_ML_API_TOKEN is already set in production).
+			const lessonsSyncToken =
+				process.env.SUPERROO_DAEMON_TOKEN ||
+				process.env.LEARNING_API_KEY ||
+				process.env.SUPERROO_ML_API_TOKEN ||
+				""
+			if (!lessonsSyncToken) {
+				sendJson(res, 503, { success: false, error: "lessons sync token not configured" })
+				return
+			}
+			const authHeader = req.headers["authorization"] || ""
+			if (authHeader !== `Bearer ${lessonsSyncToken}`) {
+				sendJson(res, 401, { success: false, error: "unauthorized" })
+				return
+			}
 			try {
 				const data = await parseBody(req)
 				const lessons = Array.isArray(data) ? data : data.lessons || []
@@ -10928,6 +11065,27 @@ const server = http.createServer(async (req, res) => {
 				sendJson(res, 200, { success: true, synced, failed: results.filter((r) => !r.success).length, results })
 			} catch (err) {
 				sendJson(res, 500, { success: false, error: err.message })
+			}
+			return
+		}
+
+		// GET /api/lessons/export — bulk export all lessons from PostgreSQL (paginated)
+		// Used by pull-vps-lessons.mjs to copy VPS lessons back to local repo
+		if (method === "GET" && (url.startsWith("/lessons/export") || normalizedUrl.startsWith("/lessons/export"))) {
+			try {
+				const store = orchestrator?.hermesClaw?.bugKnowledgeStore
+				if (!store) {
+					sendJson(res, 503, { ok: false, error: "BugKnowledgeStore not ready" })
+					return
+				}
+				const urlObj = new URL(url, "http://localhost")
+				const limit = Math.min(parseInt(urlObj.searchParams.get("limit") || "100", 10), 500)
+				const offset = parseInt(urlObj.searchParams.get("offset") || "0", 10)
+				const project = urlObj.searchParams.get("project") || null
+				const result = await store.getAllLessons({ limit, offset, project })
+				sendJson(res, 200, { ok: true, ...result })
+			} catch (err) {
+				sendJson(res, 500, { ok: false, error: err.message })
 			}
 			return
 		}
@@ -10988,7 +11146,7 @@ const server = http.createServer(async (req, res) => {
 					totalBugFixes: ks.totalBugFixes || 0,
 					totalLessons: ks.totalLessons || 0,
 					ollamaReady: true,
-					modelLoaded: orchestrator.hermesClaw.config?.ollamaModel || "qwen2.5:0.5b",
+					modelLoaded: orchestrator.hermesClaw.config?.ollamaModel || "hermes3",
 					knowledgeStore: ks,
 					stats: raw,
 				})
@@ -11018,7 +11176,7 @@ const server = http.createServer(async (req, res) => {
 					totalBugFixes: ks.totalBugFixes || 0,
 					totalLessons: ks.totalLessons || 0,
 					ollamaReady: true,
-					modelLoaded: orchestrator.hermesClaw.config?.ollamaModel || "qwen2.5:0.5b",
+					modelLoaded: orchestrator.hermesClaw.config?.ollamaModel || "hermes3",
 					knowledgeStore: ks,
 					stats: raw,
 				})
@@ -11656,7 +11814,7 @@ const server = http.createServer(async (req, res) => {
 							role: "Cheap Local Processing",
 							description:
 								"Handles cheap tasks: summarization, classification, tagging, embeddings, short replies",
-							models: ["qwen2.5:1.5b", "qwen2.5:0.5b", "nomic-embed-text"],
+							models: ["qwen2.5:1.5b", "hermes3", "nomic-embed-text"],
 							embeddingDimensions: 768,
 							baseUrl: "http://127.0.0.1:11434",
 						},
@@ -11780,7 +11938,7 @@ const server = http.createServer(async (req, res) => {
 								},
 								health: { method: "POST", path: "/api/brain/mcp", body: { action: "ollama_health" } },
 							},
-							models: ["qwen2.5:0.5b", "qwen2.5:1.5b", "nomic-embed-text"],
+							models: ["hermes3", "qwen2.5:1.5b", "nomic-embed-text"],
 							baseUrl: "http://127.0.0.1:11434",
 						},
 					},
@@ -14567,8 +14725,26 @@ const server = http.createServer(async (req, res) => {
 					containerFirst: body.containerFirst !== false,
 				})
 
-				const result = await autonomousLoop.start({ jobId: `debug-${Date.now()}` })
+				const debugJobId = `debug-${Date.now()}`
+				const result = await autonomousLoop.start({ jobId: debugJobId })
 				sendJson(res, result.success ? 200 : 400, result)
+				if (result.success) {
+					await enqueuePhaseBreakdownMonitor({
+						source: "debug-team",
+						subjectId: debugJobId,
+						title: `Debug team: ${target}`,
+						description: [
+							body.goal,
+							body.task,
+							body.description,
+							`target=${target}`,
+							`branch=${branch}`,
+						]
+							.filter(Boolean)
+							.join("\n"),
+						metadata: { jobId: debugJobId, target, branch },
+					})
+				}
 			} catch (err) {
 				sendJson(res, 500, { success: false, error: err.message })
 			}
@@ -15184,6 +15360,29 @@ Promise.all([loadEncryptedSecrets(), auth.loadStore()]).then(async () => {
 			console.error("[api] Cloud Orchestrator initialization failed (non-fatal):", err.message)
 			writeApiLog("error", "cloud-api", "Orchestrator init failed", { error: err.message })
 		})
+
+	// Start monitoring alert evaluator (every 60s)
+	setInterval(async () => {
+		try {
+			// Gather metrics from orchestrator if available
+			const orchestrator = global.__orchestrator
+			const metrics = {
+				errorRate: 0,
+				healingFailureRate: 0,
+				openIncidentCount: 0,
+				metricsStale: !orchestrator,
+				apiLatencyMs: 0,
+			}
+			if (orchestrator?.healingBus?.getStats) {
+				const hs = orchestrator.healingBus.getStats()
+				metrics.healingFailureRate = hs.failureRate ?? 0
+				metrics.openIncidentCount = hs.openIncidents ?? 0
+			}
+			await monitoringAlerts.evaluateAlerts(metrics)
+		} catch (err) {
+			console.error("[api] Alert evaluator error:", err.message)
+		}
+	}, 60000)
 
 	// Listen with retry to handle EADDRINUSE after PM2 restart
 	listenWithRetry(server, PORT).catch((err) => {

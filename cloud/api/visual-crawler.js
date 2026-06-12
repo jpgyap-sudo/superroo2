@@ -20,9 +20,18 @@
 const fs = require("fs").promises
 const fsSync = require("fs")
 const path = require("path")
-const { chromium } = require("playwright")
-const pixelmatch = require("pixelmatch")
-const { PNG } = require("pngjs")
+// Optional deps — visual crawling is disabled when these are not installed
+// (e.g. the slim 256MB API container has no playwright/browsers).
+let chromium = null
+let pixelmatch = null
+let PNG = null
+try {
+	;({ chromium } = require("playwright"))
+	pixelmatch = require("pixelmatch")
+	;({ PNG } = require("pngjs"))
+} catch (err) {
+	console.warn(`[visual-crawler] optional deps missing — visual crawling disabled: ${err.message}`)
+}
 
 const E2E_ROOT = path.join(__dirname, "..", "e2e")
 const REGISTRY_PATH = path.join(E2E_ROOT, "projects.json")

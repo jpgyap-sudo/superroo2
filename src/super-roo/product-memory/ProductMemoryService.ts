@@ -29,9 +29,17 @@ import type {
 	AgentNotesFile,
 } from "./types"
 
+import os from "os"
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const MEMORY_DIR = "server/src/memory"
+// Global product memory: accessible by Claude, Kilo Code, Codex, and any MCP tool.
+// Falls back to project-local if env var not set.
+const MEMORY_DIR =
+	process.env.SUPERROO_PRODUCT_MEMORY_DIR ||
+	(process.env.SUPERROO_HOME
+		? `${process.env.SUPERROO_HOME}/product-memory`
+		: `${os.homedir()}/.superroo/product-memory`)
 
 const DEFAULT_FILES: Record<string, unknown> = {
 	"product-features.json": { features: [] } satisfies ProductFeaturesFile,

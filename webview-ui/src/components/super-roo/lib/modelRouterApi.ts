@@ -19,6 +19,7 @@ export type TaskRouteType =
 	| "deployment"
 	| "architecture"
 	| "fast_fix"
+	| "condense_autocomplete"
 
 export type ModelCapability =
 	| "chat"
@@ -29,6 +30,7 @@ export type ModelCapability =
 	| "coding"
 	| "research"
 	| "fast"
+	| "condense_autocomplete"
 
 export interface ProviderModel {
 	id: string
@@ -182,4 +184,27 @@ export const modelRouterApi = {
 			method: "PATCH",
 			body: JSON.stringify(patch),
 		}),
+
+	/** Generate condense autocomplete completion. */
+	generateAutocomplete: (body: {
+		partialMessage: string
+		context?: string
+		maxTokens?: number
+	}) =>
+		json<
+			| {
+					completion: string
+					provider: string
+					model: string
+					isLocalFallback: boolean
+					latencyMs: number
+			  }
+			| { error: string; code: string }
+		>("/condense-autocomplete/generate", {
+			method: "POST",
+			body: JSON.stringify(body),
+		}),
+
+	/** Check if condense autocomplete is available. */
+	isAutocompleteAvailable: () => json<{ available: boolean }>("/condense-autocomplete/available"),
 }

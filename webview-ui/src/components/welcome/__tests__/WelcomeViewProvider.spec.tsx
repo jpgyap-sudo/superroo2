@@ -69,6 +69,8 @@ vi.mock("lucide-react", () => ({
 vi.mock("@src/utils/vscode", () => ({
 	vscode: {
 		postMessage: vi.fn(),
+		getState: vi.fn(() => undefined),
+		setState: vi.fn(),
 	},
 }))
 

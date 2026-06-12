@@ -178,6 +178,7 @@ const dynamicProviderExtras = {
 	lmstudio: {} as {}, // eslint-disable-line @typescript-eslint/no-empty-object-type
 	roo: {} as { apiKey?: string; baseUrl?: string },
 	poe: {} as { apiKey?: string; baseUrl?: string },
+	supercontinue: {} as {}, // eslint-disable-line @typescript-eslint/no-empty-object-type
 } as const satisfies Record<RouterName, object>
 
 // Build the dynamic options union from the map, intersected with CommonFetchParams
