@@ -1,11 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
-  <!-- Simplified tech-cat for light activity bar -->
-  <polygon points="7,5 5,1 10,3" fill="#0ea5e9"/>
-  <polygon points="17,5 19,1 14,3" fill="#0ea5e9"/>
-  <ellipse cx="12" cy="13" rx="7" ry="6" fill="#1e293b"/>
-  <path d="M 9 12 Q 12 10 15 12" fill="none" stroke="#e2e8f0" stroke-width="1.2" stroke-linecap="round"/>
-  <circle cx="10" cy="12" r="1.2" fill="#22d3ee"/>
-  <circle cx="14" cy="12" r="1.2" fill="#22d3ee"/>
-  <polygon points="11,14 12,15 13,14" fill="#f472b6"/>
-  <path d="M 12 15 L 12 16.5 M 12 16.5 Q 9 17.5 8 16 M 12 16.5 Q 15 17.5 16 16" fill="none" stroke="#cbd5e1" stroke-width="0.8" stroke-linecap="round"/>
+  <!-- Dragon head for the light panel (dark fill). Snout left, horns swept back. -->
+  <path fill-rule="evenodd" clip-rule="evenodd" fill="#1e293b" d="
+    M 1.8 12.6
+    Q 5 9.8 8.4 8.8
+    L 10.6 3.2 L 11.9 8.2
+    L 15.6 3.6 L 16.8 8.6
+    Q 20.4 9.4 20.6 13
+    Q 20.7 16.4 16.8 17.8
+    Q 13 19.2 9.7 18.2
+    L 8.4 21 L 7.5 17.6
+    Q 4.6 16.7 2.7 14.6
+    L 5.4 14.1 L 3 13.2
+    L 6 13 L 3.4 11.9 Z
+    M 12.6 11.6 a 1.15 1.15 0 1 0 0.02 0 Z
+  "/>
 </svg>

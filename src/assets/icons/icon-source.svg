@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0b1220"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="scale" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#5eead4"/>
+      <stop offset="50%" stop-color="#22d3ee"/>
+      <stop offset="100%" stop-color="#0e7490"/>
+    </linearGradient>
+    <linearGradient id="horn" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#cbd5e1"/>
+      <stop offset="100%" stop-color="#f8fafc"/>
+    </linearGradient>
+    <radialGradient id="eyeGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#fff7ed"/>
+      <stop offset="45%" stop-color="#fbbf24"/>
+      <stop offset="100%" stop-color="#b45309"/>
+    </radialGradient>
+  </defs>
+
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#bg)"/>
+  <rect x="9" y="9" width="110" height="110" rx="24" fill="none" stroke="#22d3ee" stroke-width="1.5" opacity="0.22"/>
+
+  <!-- Two separate curved horns sweeping UP-AND-BACK from the brow -->
+  <path d="M 60 46 Q 74 30 88 18 Q 80 34 70 48 Z" fill="url(#horn)"/>
+  <path d="M 69 47 Q 85 35 101 28 Q 89 42 78 50 Z" fill="url(#horn)"/>
+
+  <!-- Pointed frill spikes behind the jaw -->
+  <path d="M 84 60 L 96 56 L 90 66 L 100 64 L 92 74 L 84 70 Z" fill="#0e7490"/>
+
+  <!-- Upper head + snout: angular, brow ridge, snout dipping to the left -->
+  <path d="
+    M 12 64
+    L 30 60
+    L 40 56
+    Q 52 50 62 50
+    Q 60 56 66 58
+    Q 78 54 84 62
+    Q 90 72 82 80
+    Q 74 86 62 84
+    L 56 78
+    Q 40 80 30 74
+    L 26 68 Z
+  " fill="url(#scale)"/>
+
+  <!-- Lower jaw: separated, open mouth, angular -->
+  <path d="
+    M 14 67
+    L 30 70
+    Q 44 72 56 70
+    L 60 80
+    Q 46 86 32 82
+    Q 22 78 16 72 Z
+  " fill="url(#scale)" opacity="0.92"/>
+
+  <!-- Mouth gap (dark) between upper and lower jaw -->
+  <path d="M 16 66 Q 34 70 56 67 L 56 70 Q 34 73 16 70 Z" fill="#0b1220" opacity="0.55"/>
+
+  <!-- Fangs -->
+  <path d="M 22 67 L 25 73 L 28 67 Z M 32 68 L 35 73 L 38 68 Z M 48 67 L 50 72 L 53 67 Z" fill="#f8fafc"/>
+
+  <!-- Brow ridge shadow -->
+  <path d="M 46 54 Q 58 50 68 54 Q 58 53 50 58 Z" fill="#0b1220" opacity="0.4"/>
+
+  <!-- Nostril -->
+  <ellipse cx="19" cy="63" rx="2.3" ry="1.6" fill="#0b1220" opacity="0.75"/>
+
+  <!-- Fierce slit eye under the brow -->
+  <ellipse cx="52" cy="61" rx="7" ry="5.6" fill="#0b1220"/>
+  <circle cx="52" cy="61" r="4.3" fill="url(#eyeGlow)"/>
+  <ellipse cx="52" cy="61" rx="1.4" ry="4" fill="#0b1220"/>
+
+  <!-- Scale texture on cheek -->
+  <path d="M 64 66 q 4 -3 8 0 M 66 74 q 4 -3 8 0 M 58 72 q 3 -2 6 0" stroke="#0b1220" stroke-width="1.1" opacity="0.28" fill="none"/>
+
+  <!-- Ember spark from the nostril (SuperRoo cyan) -->
+  <circle cx="10" cy="61" r="1.8" fill="#22d3ee"/>
+  <circle cx="6" cy="58" r="1.1" fill="#22d3ee" opacity="0.7"/>
+</svg>

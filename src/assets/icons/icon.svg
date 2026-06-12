@@ -1,68 +1,20 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#0f172a"/>
-      <stop offset="100%" stop-color="#1e293b"/>
-    </linearGradient>
-    <linearGradient id="ear" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#38bdf8"/>
-      <stop offset="100%" stop-color="#0ea5e9"/>
-    </linearGradient>
-    <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#e2e8f0"/>
-      <stop offset="100%" stop-color="#cbd5e1"/>
-    </linearGradient>
-    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#22d3ee" stop-opacity="0.35"/>
-      <stop offset="100%" stop-color="#22d3ee" stop-opacity="0"/>
-    </radialGradient>
-  </defs>
-
-  <!-- Rounded background -->
-  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#bg)"/>
-
-  <!-- Subtle outer glow ring -->
-  <rect x="8" y="8" width="112" height="112" rx="24" fill="none" stroke="#38bdf8" stroke-width="1.5" opacity="0.25"/>
-
-  <!-- Ears -->
-  <polygon points="36,34 28,10 52,22" fill="url(#ear)"/>
-  <polygon points="92,34 100,10 76,22" fill="url(#ear)"/>
-  <polygon points="36,34 32,18 48,26" fill="#0ea5e9" opacity="0.4"/>
-  <polygon points="92,34 96,18 80,26" fill="#0ea5e9" opacity="0.4"/>
-
-  <!-- Head -->
-  <ellipse cx="64" cy="66" rx="38" ry="34" fill="url(#face)"/>
-
-  <!-- Eyes (futuristic visor / code brackets style) -->
-  <path d="M 42 62 Q 52 56 62 62 Q 52 68 42 62 Z" fill="#0f172a"/>
-  <path d="M 66 62 Q 76 56 86 62 Q 76 68 66 62 Z" fill="#0f172a"/>
-
-  <!-- Eye glow / pupils -->
-  <circle cx="52" cy="62" r="3.5" fill="#22d3ee"/>
-  <circle cx="76" cy="62" r="3.5" fill="#22d3ee"/>
-
-  <!-- Code bracket markings (innovative tech detail) -->
-  <path d="M 48 58 L 44 62 L 48 66" fill="none" stroke="#22d3ee" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>
-  <path d="M 80 58 L 84 62 L 80 66" fill="none" stroke="#22d3ee" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>
-
-  <!-- Nose -->
-  <polygon points="60,74 64,78 68,74" fill="#f472b6"/>
-
-  <!-- Mouth -->
-  <path d="M 64 78 L 64 82 M 64 82 Q 56 88 52 82 M 64 82 Q 72 88 76 82" fill="none" stroke="#64748b" stroke-width="1.6" stroke-linecap="round"/>
-
-  <!-- Whiskers -->
-  <line x1="30" y1="68" x2="14" y2="64" stroke="#94a3b8" stroke-width="1.2" stroke-linecap="round" opacity="0.6"/>
-  <line x1="30" y1="74" x2="12" y2="76" stroke="#94a3b8" stroke-width="1.2" stroke-linecap="round" opacity="0.6"/>
-  <line x1="98" y1="68" x2="114" y2="64" stroke="#94a3b8" stroke-width="1.2" stroke-linecap="round" opacity="0.6"/>
-  <line x1="98" y1="74" x2="116" y2="76" stroke="#94a3b8" stroke-width="1.2" stroke-linecap="round" opacity="0.6"/>
-
-  <!-- Circuit / node accent on cheek (tech vibe) -->
-  <circle cx="36" cy="82" r="2" fill="#38bdf8" opacity="0.8"/>
-  <circle cx="92" cy="82" r="2" fill="#38bdf8" opacity="0.8"/>
-  <line x1="36" y1="82" x2="36" y2="90" stroke="#38bdf8" stroke-width="1" opacity="0.5"/>
-  <line x1="92" y1="82" x2="92" y2="90" stroke="#38bdf8" stroke-width="1" opacity="0.5"/>
-
-  <!-- Soft chin shadow -->
-  <ellipse cx="64" cy="98" rx="18" ry="6" fill="#000" opacity="0.08"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+  <!-- Dragon head silhouette — designed as a MASK for the VS Code activity bar.
+       VS Code recolors opaque pixels with the theme foreground, so only the
+       outline + the evenodd eye cutout carry meaning. Snout points left, two
+       horns sweep up-and-back, lower jaw opens with a fang notch. -->
+  <path fill-rule="evenodd" clip-rule="evenodd" fill="currentColor" d="
+    M 1.8 12.6
+    Q 5 9.8 8.4 8.8
+    L 10.6 3.2 L 11.9 8.2
+    L 15.6 3.6 L 16.8 8.6
+    Q 20.4 9.4 20.6 13
+    Q 20.7 16.4 16.8 17.8
+    Q 13 19.2 9.7 18.2
+    L 8.4 21 L 7.5 17.6
+    Q 4.6 16.7 2.7 14.6
+    L 5.4 14.1 L 3 13.2
+    L 6 13 L 3.4 11.9 Z
+    M 12.6 11.6 a 1.15 1.15 0 1 0 0.02 0 Z
+  "/>
 </svg>
