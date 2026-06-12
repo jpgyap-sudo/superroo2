@@ -42,9 +42,12 @@ const OLLAMA_HOSTS = unique([
 const DEFAULTS = {
 	hermesModel: process.env.CODEX_BRAIN_HERMES_MODEL || "hermes3",
 	fastCoderModel: process.env.CODEX_BRAIN_FAST_CODER_MODEL || "qwen2.5-coder:7b",
-	proCoderModel: process.env.CODEX_BRAIN_PRO_CODER_MODEL || "qwen3:14b",
+	// Pro coder: qwen2.5-coder:14b beat qwen3:14b in the 2026-06-12 benchmark
+	// (qwen3's thinking mode burns the token budget and emits 0 code under a
+	// num_predict cap). qwen3:14b is reserved for reasoning, not codegen.
+	proCoderModel: process.env.CODEX_BRAIN_PRO_CODER_MODEL || "qwen2.5-coder:14b",
 	fallbackProCoderModel: process.env.CODEX_BRAIN_FALLBACK_PRO_MODEL || "qwen2.5-coder:7b",
-	reasoningModel: process.env.CODEX_BRAIN_REASONING_MODEL || "phi4",
+	reasoningModel: process.env.CODEX_BRAIN_REASONING_MODEL || "qwen3:14b",
 	embedModel: process.env.CODEX_BRAIN_EMBED_MODEL || "nomic-embed-text",
 }
 

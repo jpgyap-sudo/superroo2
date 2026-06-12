@@ -224,7 +224,7 @@ const TOOLS = [
 		prompt: string("Coding prompt"),
 		context: string("Optional context", false),
 	}, ["prompt"]),
-	tool("code_pro", "Complex local coder using qwen3:14b or fallback pro model.", {
+	tool("code_pro", "Complex local coder using qwen2.5-coder:14b or fallback pro model.", {
 		prompt: string("Coding prompt"),
 		context: string("Optional context", false),
 	}, ["prompt"]),
@@ -1608,7 +1608,7 @@ async function startDebugLoop({ bug, max_attempts = 8, vision = true, vps = true
 		``,
 		`Loop is running in background. Each iteration:`,
 		`  1. hermes3 generates hypothesis`,
-		`  2. qwen3:14b implements fix`,
+		`  2. qwen2.5-coder:14b implements fix`,
 		`  3. Docker sandbox tests it`,
 		`  4. llava:7b vision-verifies screenshots`,
 		`  5. VPS final environment test`,
@@ -1838,7 +1838,7 @@ reader.on("line", async (line) => {
 				workflowRules: {
 					version: "1.0",
 					defaultMemory: "codex-brain-local-hybrid-rag",
-					defaultCoder: "ollama/qwen2.5-coder:7b,qwen3:14b",
+					defaultCoder: "ollama/qwen2.5-coder:7b,qwen2.5-coder:14b",
 					appendOnlyLessons: true,
 				},
 			})

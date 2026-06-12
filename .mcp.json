@@ -34,7 +34,7 @@
         "CODEX_BRAIN_HERMES_MODEL": "hermes3:latest",
         "CODEX_BRAIN_EMBED_MODEL": "nomic-embed-text",
         "CODEX_BRAIN_FAST_CODER_MODEL": "qwen2.5-coder:7b",
-        "CODEX_BRAIN_PRO_CODER_MODEL": "qwen3:14b",
+        "CODEX_BRAIN_PRO_CODER_MODEL": "qwen2.5-coder:14b",
         "OLLAMA_MAX_PARALLEL": "4",
         "OLLAMA_NUM_PARALLEL": "4",
         "OLLAMA_KEEP_ALIVE": "10m",
