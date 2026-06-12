@@ -168,3 +168,13 @@ empty*.npmrc
 
 # SuperRoo shared credentials (canonical copy lives in ~/.superroo, outside git)
 credentials.env
+
+# Visual crawler artifacts (screenshots/diffs/reports are machine-local).
+# Crawls write per-project dirs: cloud/e2e/<project>/{baselines,current,diffs,reports}
+# (legacy flat dirs from old crawls remain tracked; new artifacts stay local)
+cloud/e2e/*/
+!cloud/e2e/projects.json
+cloud/e2e/screenshots/
+cloud/e2e/baselines/
+cloud/e2e/diffs/
+cloud/e2e/reports/
