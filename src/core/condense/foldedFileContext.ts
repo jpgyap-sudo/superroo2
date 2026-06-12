@@ -53,29 +53,41 @@ async function getCachedFoldedFileContext(
 	absolutePath: string,
 	rooIgnoreController?: RooIgnoreController,
 ): Promise<string | null> {
+	// The mtime-keyed cache is an optimization, not a gate: if stat fails (file
+	// deleted/renamed/virtual), we still attempt the parse — the tree-sitter
+	// service reports missing files via error strings, which we skip below.
+	let cacheKey: string | null = null
 	try {
 		const stat = await fs.stat(absolutePath)
-		const cacheKey = `${absolutePath}:${stat.mtimeMs}`
+		cacheKey = `${absolutePath}:${stat.mtimeMs}`
 		const cached = foldedFileContextCache.get(cacheKey)
 
-		if (cached) {
-			// Update access time for LRU
+		if (cached !== undefined) {
+			// Update access time for LRU. Empty string = cached parse failure → skip.
 			foldedFileContextAccessOrder.set(cacheKey, ++foldedFileContextAccessCounter)
-			return cached
+			return cached === "" ? null : cached
 		}
 
 		// Evict oldest entry if cache is full
 		evictIfNecessary()
+	} catch {
+		// stat failed — parse without caching
+	}
 
+	try {
 		const result = await parseSourceCodeDefinitionsForFile(absolutePath, rooIgnoreController)
 		if (!result || isTreeSitterErrorString(result)) {
-			foldedFileContextCache.set(cacheKey, "")
-			foldedFileContextAccessOrder.set(cacheKey, ++foldedFileContextAccessCounter)
-			return ""
+			if (cacheKey) {
+				foldedFileContextCache.set(cacheKey, "")
+				foldedFileContextAccessOrder.set(cacheKey, ++foldedFileContextAccessCounter)
+			}
+			return null
 		}
 
-		foldedFileContextCache.set(cacheKey, result)
-		foldedFileContextAccessOrder.set(cacheKey, ++foldedFileContextAccessCounter)
+		if (cacheKey) {
+			foldedFileContextCache.set(cacheKey, result)
+			foldedFileContextAccessOrder.set(cacheKey, ++foldedFileContextAccessCounter)
+		}
 		return result
 	} catch {
 		return null

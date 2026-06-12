@@ -27,6 +27,18 @@ const mockedGenerateFoldedFileContext = vi.mocked(generateFoldedFileContext)
 
 const mockedParseSourceCodeDefinitions = vi.mocked(parseSourceCodeDefinitionsForFile)
 
+// summarizeConversation now tries local Ollama FIRST — block real network calls
+// so tests exercise the API path deterministically (same pattern as condense.spec).
+const originalFetch = globalThis.fetch
+beforeAll(() => {
+	globalThis.fetch = (async () => {
+		throw new Error("Ollama not available in tests")
+	}) as typeof fetch
+})
+afterAll(() => {
+	globalThis.fetch = originalFetch
+})
+
 describe("foldedFileContext", () => {
 	beforeEach(() => {
 		vi.clearAllMocks()

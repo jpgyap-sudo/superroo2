@@ -890,7 +890,9 @@ describe("summarizeConversation", () => {
 		})
 
 		expect(result.error).toBeUndefined()
-		expect(result.summary).toContain("COMPACT_BRIEF_READY: true")
+		// Ollama is now the PRIMARY condensation path (tried before the API), so it
+		// returns the summary directly. The COMPACT_BRIEF_READY marker is reserved
+		// for the genuine rescue path (Ollama-first returns null, then API overflows).
 		expect(result.summary).toContain("Local Phi rescue summary")
 		expect(result.messages).toHaveLength(messages.length + 1)
 		expect(result.messages.at(-1)?.isSummary).toBe(true)
@@ -898,7 +900,7 @@ describe("summarizeConversation", () => {
 			expect.stringContaining("/api/generate"),
 			expect.objectContaining({
 				method: "POST",
-				body: expect.stringContaining('"model":"phi4:latest"'),
+				body: expect.stringContaining('"model":"qwen2.5-coder:1.5b"'),
 			}),
 		)
 	})

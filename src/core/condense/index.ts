@@ -126,31 +126,109 @@ export function isPureToolOutput(message: ApiMessage): boolean {
 }
 
 /**
- * Attempts to rescue context overflow by calling local Ollama Phi model.
- * This is a fallback when the primary model fails due to context size limits.
+ * Splits an array of messages into chunks of approximately maxChars characters.
  */
-async function tryLocalOllamaRescue(messages: ApiMessage[]): Promise<string | null> {
+function chunkMessages(messages: ApiMessage[], maxChars: number = 2000): string[] {
+	const chunks: string[] = []
+	let currentChunk = ""
+	for (const msg of messages) {
+		const text = `${msg.role}: ${typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content)}\n`
+		if (currentChunk.length + text.length > maxChars && currentChunk.length > 0) {
+			chunks.push(currentChunk.trim())
+			currentChunk = text
+		} else {
+			currentChunk += text
+		}
+	}
+	if (currentChunk.trim().length > 0) {
+		chunks.push(currentChunk.trim())
+	}
+	return chunks
+}
+
+/**
+ * Determines if a chunk is complex (contains code, JSON, or technical content) vs simple (plain conversation).
+ */
+function isComplexChunk(chunk: string): boolean {
+	const complexPatterns = [
+		/```[\s\S]*```/m,
+		/{[^}]*:[^}]*}/,
+		/\b(function|class|interface|import|export|const|let|async|await)\b/,
+		/\b(error|exception|traceback|stack|undefined|null|NaN)\b/i,
+	]
+	return complexPatterns.some((p) => p.test(chunk))
+}
+
+/**
+ * Calls an Ollama model with the given prompt and returns the response text, or null on failure.
+ */
+async function callOllama(model: string, prompt: string): Promise<string | null> {
 	try {
 		const response = await fetch("http://127.0.0.1:11434/api/generate", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
-				model: "phi4:latest",
-				prompt: `Summarize this conversation in 1-2 sentences:\n\n${messages
-					.map((m) => `${m.role}: ${typeof m.content === "string" ? m.content : JSON.stringify(m.content)}`)
-					.join("\n")}`,
+				model,
+				prompt,
 				stream: false,
 			}),
 		})
+		if (!response.ok) return null
+		const data = await response.json()
+		return data.response ?? null
+	} catch {
+		return null
+	}
+}
 
-		if (!response.ok) {
-			return null
+/**
+ * Builds a summarization prompt for a chunk based on its complexity.
+ */
+function buildChunkPrompt(chunk: string, isComplex: boolean): string {
+	if (isComplex) {
+		return `Summarize the following technical conversation excerpt. Focus on key decisions, code changes, errors, and outcomes:\n\n${chunk}`
+	}
+	return `Summarize the following conversation in 1-2 sentences:\n\n${chunk}`
+}
+
+/**
+ * Parallel Ollama condensation engine.
+ * Chunks messages, routes simple chunks to a fast summarizer and complex chunks
+ * to hermes3, executes concurrently, then merges with hermes3 if multiple chunks.
+ * Falls back to DeepSeek API if all Ollama calls fail.
+ *
+ * Simple-chunk model: qwen2.5-coder:1.5b — the 2026-06-12 summarizer benchmark
+ * showed it at 64.6 tok/s (14x faster than phi4's 4.5 tok/s) with the best
+ * technical accuracy of the lightweight models, and at 0.9GB it stays
+ * GPU-resident. Override with SUPERROO_SUMMARY_MODEL.
+ */
+const SIMPLE_SUMMARY_MODEL = process.env.SUPERROO_SUMMARY_MODEL || "qwen2.5-coder:1.5b"
+const COMPLEX_SUMMARY_MODEL = process.env.SUPERROO_SUMMARY_MERGE_MODEL || "hermes3:latest"
+
+async function summarizeWithOllama(messages: ApiMessage[]): Promise<string | null> {
+	try {
+		const chunks = chunkMessages(messages)
+		if (chunks.length === 0) return null
+
+		const results = await Promise.all(
+			chunks.map((chunk) => {
+				const complex = isComplexChunk(chunk)
+				const model = complex ? COMPLEX_SUMMARY_MODEL : SIMPLE_SUMMARY_MODEL
+				const prompt = buildChunkPrompt(chunk, complex)
+				return callOllama(model, prompt)
+			}),
+		)
+
+		const validResults = results.filter((r): r is string => r !== null)
+		if (validResults.length === 0) return null
+
+		if (validResults.length === 1) {
+			return validResults[0]
 		}
 
-		const data = await response.json()
-		const summary = data.response ?? null
-		// Prepend COMPACT_BRIEF_READY marker for context overflow rescue
-		return summary ? `COMPACT_BRIEF_READY: true\n\n${summary}` : null
+		const mergePrompt = `Combine the following summaries into a single coherent summary:\n\n${validResults.map((r, i) => `Summary ${i + 1}: ${r}`).join("\n")}`
+		const merged = await callOllama(COMPLEX_SUMMARY_MODEL, mergePrompt)
+		return merged ?? validResults.join("\n")
 	} catch {
 		return null
 	}
@@ -373,6 +451,36 @@ export async function summarizeConversation(options: SummarizeConversationOption
 	// Note: this doesn't need to be a stream, consider using something like apiHandler.completePrompt
 	const promptToUse = SUMMARY_PROMPT
 
+	// Try local Ollama first for zero-cost condensation
+	console.log("[summarizeConversation] Attempting local Ollama condensation first...")
+	try {
+		const ollamaSummary = await summarizeWithOllama(messagesToSummarize)
+		if (ollamaSummary) {
+			console.log("[summarizeConversation] Local Ollama condensation succeeded, returning early (cost: 0)")
+			const summaryContent: Anthropic.Messages.ContentBlockParam[] = [{ type: "text", text: ollamaSummary }]
+			const condenseId = crypto.randomUUID()
+			const lastMsgTs = fullMessages[fullMessages.length - 1]?.ts ?? Date.now()
+			const summaryMessage: ApiMessage = {
+				role: "user",
+				content: summaryContent,
+				ts: lastMsgTs + 1,
+				isSummary: true,
+				condenseId,
+			}
+			const newMessages = fullMessages.map((msg) => {
+				if (msg.condenseId && msg.isSummary) {
+					return msg
+				}
+				return { ...msg, condenseParent: condenseId }
+			})
+			newMessages.push(summaryMessage)
+			return { ...response, messages: newMessages, summary: ollamaSummary, cost: 0, condenseId }
+		}
+		console.log("[summarizeConversation] Local Ollama returned no summary, falling back to API...")
+	} catch (ollamaError) {
+		console.warn("[summarizeConversation] Local Ollama failed, falling back to API:", ollamaError)
+	}
+
 	// Validate that the API handler supports message creation
 	if (!apiHandler || typeof apiHandler.createMessage !== "function") {
 		console.error("API handler is invalid for condensing. Cannot proceed.")
@@ -405,7 +513,10 @@ export async function summarizeConversation(options: SummarizeConversationOption
 		if (error instanceof Error && error.name === "ContextOverflowError" && isAutomaticTrigger) {
 			console.log("[summarizeConversation] Context overflow detected, attempting local Ollama Phi rescue...")
 			try {
-				const rescueSummary = await tryLocalOllamaRescue(messagesToSummarize)
+				const rawRescue = await summarizeWithOllama(messagesToSummarize)
+				// Prepend COMPACT_BRIEF_READY marker — the context-overflow rescue
+				// contract (restored after the chunked summarizer rewrite dropped it).
+				const rescueSummary = rawRescue ? `COMPACT_BRIEF_READY: true\n\n${rawRescue}` : null
 				if (rescueSummary) {
 					// Build summary with rescue content
 					const summaryContent: Anthropic.Messages.ContentBlockParam[] = [
