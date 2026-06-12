@@ -80,33 +80,38 @@ const BOSS_CHAT_ID = process.env.BOSS_TELEGRAM_CHAT_ID || ""
  * Main dispatch — called from api.js
  * Returns true if the route was handled.
  */
-async function handleAlertRoute(method, url, req, res) {
-	const u = new URL(url, "http://localhost")
-	const pathname = u.pathname
+/**
+ * Main dispatch — called from api.js
+ * `path` is the normalized URL path (already stripped of /api prefix).
+ * Returns true if the route was handled.
+ */
+async function handleAlertRoute(method, path, req, res) {
+	// path is already normalized — strip query string if present
+	const pathname = path.split("?")[0]
 
-	// GET /api/monitoring/alerts
-	if (method === "GET" && pathname === "/api/monitoring/alerts") {
+	// GET /monitoring/alerts
+	if (method === "GET" && pathname === "/monitoring/alerts") {
 		return sendJson(res, { success: true, alerts: loadAlerts() })
 	}
 
-	// GET /api/monitoring/alerts/history
-	if (method === "GET" && pathname === "/api/monitoring/alerts/history") {
+	// GET /monitoring/alerts/history
+	if (method === "GET" && pathname === "/monitoring/alerts/history") {
 		return sendJson(res, { success: true, history: loadHistory() })
 	}
 
-	// POST /api/monitoring/alerts
-	if (method === "POST" && pathname === "/api/monitoring/alerts") {
+	// POST /monitoring/alerts
+	if (method === "POST" && pathname === "/monitoring/alerts") {
 		return handleCreateAlert(req, res)
 	}
 
-	// DELETE /api/monitoring/alerts/:id
-	const deleteMatch = pathname.match(/^\/api\/monitoring\/alerts\/([^/]+)$/)
+	// DELETE /monitoring/alerts/:id
+	const deleteMatch = pathname.match(/^\/monitoring\/alerts\/([^/]+)$/)
 	if (method === "DELETE" && deleteMatch) {
 		return handleDeleteAlert(deleteMatch[1], res)
 	}
 
-	// POST /api/monitoring/alerts/test
-	if (method === "POST" && pathname === "/api/monitoring/alerts/test") {
+	// POST /monitoring/alerts/test
+	if (method === "POST" && pathname === "/monitoring/alerts/test") {
 		return handleTestAlert(req, res)
 	}
 

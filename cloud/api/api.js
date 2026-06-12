@@ -6934,7 +6934,9 @@ const server = http.createServer(async (req, res) => {
 			if (await monitoring.handleMonitoringRoute(method, url, req, res)) {
 				return
 			}
-			if (await monitoringAlerts.handleAlertRoute(method, url, req, res)) {
+		}
+		if (normalizedUrl.startsWith("/monitoring/")) {
+			if (await monitoringAlerts.handleAlertRoute(method, normalizedUrl, req, res)) {
 				return
 			}
 		}
