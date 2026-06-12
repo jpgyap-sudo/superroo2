@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config"
+import { defineConfig, defaultExclude } from "vitest/config"
 import path from "path"
 import { resolveVerbosity } from "./utils/vitest-verbosity"
 
@@ -14,6 +14,8 @@ export default defineConfig({
 		testTimeout: 20_000,
 		hookTimeout: 20_000,
 		onConsoleLog,
+		// Kilo agent worktrees contain stale duplicate specs — never scan them
+		exclude: [...defaultExclude, "**/.kilo/worktrees/**", "**/worktrees/**"],
 	},
 	resolve: {
 		alias: {
