@@ -705,6 +705,10 @@
 			"mb": "MB",
 			"description": "Maximum cumulative size limit (in MB) for all images processed in a single read_file operation. When reading multiple images, each image's size is added to the total. If including another image would exceed this limit, it will be skipped."
 		},
+		"forceLocalImageAnalysis": {
+			"label": "Always analyze images locally",
+			"description": "Send pasted or attached images to the local Ollama vision model (llava) for analysis and inject the text result into the conversation, even when the current model can natively see images. Keeps image content on your machine and works with text-only models."
+		},
 		"diagnostics": {
 			"includeMessages": {
 				"label": "Automatically include diagnostics in context",

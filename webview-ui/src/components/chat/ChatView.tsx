@@ -957,7 +957,11 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 	const runAutonomousMode = useCallback(() => vscode.postMessage({ type: "runAutonomousSafe" }), [])
 	const runManualMode = useCallback(() => vscode.postMessage({ type: "runManualMode" }), [])
 
-	const shouldDisableImages = !model?.supportsImages || selectedImages.length >= MAX_IMAGES_PER_MESSAGE
+	// Images are always attachable regardless of the model's native vision
+	// support: non-vision models get local Ollama (llava) analysis via
+	// Task.analyzeImagesWithMcp, which injects a text description. So the only
+	// reason to disable image input is hitting the per-message image cap.
+	const shouldDisableImages = selectedImages.length >= MAX_IMAGES_PER_MESSAGE
 
 	const handleMessage = useCallback(
 		(e: MessageEvent) => {

@@ -1249,7 +1249,9 @@ export const ChatRowContent = ({
 											onSend={handleSaveEdit}
 											onSelectImages={handleSelectImages}
 											onPasteImagesFromClipboard={handlePasteImagesFromClipboard}
-											shouldDisableImages={!model?.supportsImages}
+											// Images are always attachable — non-vision models get local
+											// Ollama (llava) analysis server-side, so don't gate on supportsImages.
+											shouldDisableImages={editImages.length >= MAX_IMAGES_PER_MESSAGE}
 											mode={editMode}
 											setMode={setEditMode}
 											modeShortcutText=""
@@ -1295,22 +1297,25 @@ export const ChatRowContent = ({
 								{!isEditing && message.images && message.images.length > 0 && (
 									<Thumbnails images={message.images} style={{ marginTop: "8px" }} />
 								)}
-								{!isEditing && (() => {
-									const fileNames = extractAttachedFileNames(message.text)
-									if (fileNames.length === 0) return null
-									return (
-										<div className="flex flex-wrap gap-1 px-2 pb-2" style={{ marginTop: "4px" }}>
-											{fileNames.map((name, i) => (
-												<div
-													key={i}
-													className="flex items-center gap-1 px-2 py-0.5 rounded bg-vscode-button-secondaryBackground text-vscode-button-secondaryForeground text-xs">
-													<FileText className="w-3 h-3 shrink-0" />
-													<span className="truncate max-w-[200px]">{name}</span>
-												</div>
-											))}
-										</div>
-									)
-								})()}
+								{!isEditing &&
+									(() => {
+										const fileNames = extractAttachedFileNames(message.text)
+										if (fileNames.length === 0) return null
+										return (
+											<div
+												className="flex flex-wrap gap-1 px-2 pb-2"
+												style={{ marginTop: "4px" }}>
+												{fileNames.map((name, i) => (
+													<div
+														key={i}
+														className="flex items-center gap-1 px-2 py-0.5 rounded bg-vscode-button-secondaryBackground text-vscode-button-secondaryForeground text-xs">
+														<FileText className="w-3 h-3 shrink-0" />
+														<span className="truncate max-w-[200px]">{name}</span>
+													</div>
+												))}
+											</div>
+										)
+									})()}
 							</div>
 						</div>
 					)

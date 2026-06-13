@@ -34,6 +34,7 @@ type ContextManagementSettingsProps = HTMLAttributes<HTMLDivElement> & {
 	enableSubfolderRules?: boolean
 	maxImageFileSize?: number
 	maxTotalImageSize?: number
+	forceLocalImageAnalysis?: boolean
 	profileThresholds?: Record<string, number>
 	includeDiagnosticMessages?: boolean
 	maxDiagnosticMessages?: number
@@ -53,6 +54,7 @@ type ContextManagementSettingsProps = HTMLAttributes<HTMLDivElement> & {
 		| "enableSubfolderRules"
 		| "maxImageFileSize"
 		| "maxTotalImageSize"
+		| "forceLocalImageAnalysis"
 		| "profileThresholds"
 		| "includeDiagnosticMessages"
 		| "maxDiagnosticMessages"
@@ -75,6 +77,7 @@ export const ContextManagementSettings = ({
 	setCachedStateField,
 	maxImageFileSize,
 	maxTotalImageSize,
+	forceLocalImageAnalysis,
 	profileThresholds = {},
 	includeDiagnosticMessages,
 	maxDiagnosticMessages,
@@ -306,6 +309,23 @@ export const ContextManagementSettings = ({
 					</div>
 					<div className="text-vscode-descriptionForeground text-sm mt-2">
 						{t("settings:contextManagement.maxTotalImageSize.description")}
+					</div>
+				</SearchableSetting>
+
+				<SearchableSetting
+					settingId="context-force-local-image-analysis"
+					section="contextManagement"
+					label={t("settings:contextManagement.forceLocalImageAnalysis.label")}>
+					<VSCodeCheckbox
+						checked={forceLocalImageAnalysis}
+						onChange={(e: any) => setCachedStateField("forceLocalImageAnalysis", e.target.checked)}
+						data-testid="force-local-image-analysis-checkbox">
+						<span className="font-medium">
+							{t("settings:contextManagement.forceLocalImageAnalysis.label")}
+						</span>
+					</VSCodeCheckbox>
+					<div className="text-vscode-descriptionForeground text-sm mt-2">
+						{t("settings:contextManagement.forceLocalImageAnalysis.description")}
 					</div>
 				</SearchableSetting>
 

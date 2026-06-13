@@ -26,6 +26,8 @@ import { customToolRegistry } from "@superroo/core"
 import { CloudService } from "@superroo/cloud"
 import { TelemetryService } from "@superroo/telemetry"
 
+import { buildApiHandler } from "../../api"
+import { analyzeImagesWithMcp } from "../vision/localImageAnalysis"
 import { type ApiMessage } from "../task-persistence/apiMessages"
 import { saveTaskMessages } from "../task-persistence"
 
@@ -143,129 +145,130 @@ async function handleSuperRooMessage(provider: ClineProvider, message: Record<st
 
 		// ── VPS Health monitoring ──────────────────────────────────────────
 		case "superRoo:getVpsAggregatedLogs":
-		case "superRoo:getVpsAggregatedStats": {
-			try {
-				const http = await import("http")
-				const vpsIp = "100.64.175.88"
-				const vpsPort = 8787
+		case "superRoo:getVpsAggregatedStats":
+			{
+				try {
+					const http = await import("http")
+					const vpsIp = "100.64.175.88"
+					const vpsPort = 8787
 
-				let path = "/api/monitoring/"
-				if (type === "superRoo:getVpsAggregatedLogs") {
-					const params = new URLSearchParams()
-					const limit = message.limit as number | undefined
-					const level = message.level as string | undefined
-					const source = message.source as string | undefined
-					const search = message.search as string | undefined
-					const since = message.since as string | undefined
-					const offset = message.offset as number | undefined
-					if (limit !== undefined) params.set("limit", String(limit))
-					if (level) params.set("level", level)
-					if (source) params.set("source", source)
-					if (search) params.set("search", search)
-					if (since) params.set("since", since)
-					if (offset !== undefined) params.set("offset", String(offset))
-					path = "/api/monitoring/aggregated-logs?" + params.toString()
-				} else {
-					path = "/api/monitoring/aggregated-stats"
-				}
+					let path = "/api/monitoring/"
+					if (type === "superRoo:getVpsAggregatedLogs") {
+						const params = new URLSearchParams()
+						const limit = message.limit as number | undefined
+						const level = message.level as string | undefined
+						const source = message.source as string | undefined
+						const search = message.search as string | undefined
+						const since = message.since as string | undefined
+						const offset = message.offset as number | undefined
+						if (limit !== undefined) params.set("limit", String(limit))
+						if (level) params.set("level", level)
+						if (source) params.set("source", source)
+						if (search) params.set("search", search)
+						if (since) params.set("since", since)
+						if (offset !== undefined) params.set("offset", String(offset))
+						path = "/api/monitoring/aggregated-logs?" + params.toString()
+					} else {
+						path = "/api/monitoring/aggregated-stats"
+					}
 
-				const data = await new Promise<string>((resolve, reject) => {
-					const req = http.get({ hostname: vpsIp, port: vpsPort, path, timeout: 15000 }, (res) => {
-						let body = ""
-						res.on("data", (chunk: Buffer) => (body += chunk.toString()))
-						res.on("end", () => resolve(body))
+					const data = await new Promise<string>((resolve, reject) => {
+						const req = http.get({ hostname: vpsIp, port: vpsPort, path, timeout: 15000 }, (res) => {
+							let body = ""
+							res.on("data", (chunk: Buffer) => (body += chunk.toString()))
+							res.on("end", () => resolve(body))
+						})
+						req.on("error", reject)
+						req.on("timeout", () => {
+							req.destroy()
+							reject(new Error("timeout"))
+						})
 					})
-					req.on("error", reject)
-					req.on("timeout", () => {
-						req.destroy()
-						reject(new Error("timeout"))
-					})
-				})
 
-				const parsed = JSON.parse(data)
+					const parsed = JSON.parse(data)
 
-				if (type === "superRoo:getVpsAggregatedLogs") {
+					if (type === "superRoo:getVpsAggregatedLogs") {
+						await provider.postMessageToWebview({
+							type: "superRoo:vpsAggregatedLogs",
+							rows: parsed.rows || [],
+							total: parsed.total || 0,
+							limit: parsed.limit || 50,
+							offset: parsed.offset || 0,
+						} as unknown as import("@superroo/types").ExtensionMessage)
+					} else {
+						await provider.postMessageToWebview({
+							type: "superRoo:vpsAggregatedStats",
+							total: parsed.total || 0,
+							last24h: parsed.last24h || 0,
+							errors24h: parsed.errors24h || 0,
+							levelDistribution: parsed.levelDistribution || [],
+							sourceDistribution: parsed.sourceDistribution || [],
+						} as unknown as import("@superroo/types").ExtensionMessage)
+					}
+				} catch (error) {
+					provider.log(
+						`[superRoo] VPS health fetch error: ${error instanceof Error ? error.message : String(error)}`,
+					)
 					await provider.postMessageToWebview({
-						type: "superRoo:vpsAggregatedLogs",
-						rows: parsed.rows || [],
-						total: parsed.total || 0,
-						limit: parsed.limit || 50,
-						offset: parsed.offset || 0,
-					} as unknown as import("@superroo/types").ExtensionMessage)
-				} else {
-					await provider.postMessageToWebview({
-						type: "superRoo:vpsAggregatedStats",
-						total: parsed.total || 0,
-						last24h: parsed.last24h || 0,
-						errors24h: parsed.errors24h || 0,
-						levelDistribution: parsed.levelDistribution || [],
-						sourceDistribution: parsed.sourceDistribution || [],
+						type: "superRoo:error",
+						message: `Failed to fetch VPS health data: ${error instanceof Error ? error.message : String(error)}`,
 					} as unknown as import("@superroo/types").ExtensionMessage)
 				}
-			} catch (error) {
-				provider.log(
-					`[superRoo] VPS health fetch error: ${error instanceof Error ? error.message : String(error)}`,
-				)
+				break
+			}
+
+			// ── Helpers ────────────────────────────────────────────────────────
+
+			/** Build and send the dashboard snapshot from real provider data. */
+			async function postDashboardSnapshot() {
+				const running = provider.getCurrentTask() !== undefined
+				const recentTaskIds = provider.getRecentTasks()
+				const recentTasks = recentTaskIds
+					.slice(0, 20)
+					.map((id) => {
+						const item = provider.taskHistoryStore.get(id)
+						if (!item) return null
+						return {
+							id: item.id,
+							agent: "roo",
+							goal: item.task,
+							priority: "normal" as const,
+							status: (() => {
+								if (item.status === "active" || item.status === "delegated") return "running" as const
+								if (item.status === "completed") return "succeeded" as const
+								return "pending" as const
+							})(),
+							createdAt: item.ts,
+							updatedAt: item.ts,
+							attempts: 1,
+							resultSummary: item.completionResultSummary,
+							parentTaskId: item.parentTaskId,
+						}
+					})
+					.filter((t): t is NonNullable<typeof t> => t !== null)
+
+				const syncStatus = (provider.getSyncStatus as (() => unknown) | undefined)?.() ?? null
+
 				await provider.postMessageToWebview({
-					type: "superRoo:error",
-					message: `Failed to fetch VPS health data: ${error instanceof Error ? error.message : String(error)}`,
+					type: "superRoo:dashboard",
+					snapshot: {
+						mode: provider.superRooSafetyMode,
+						selfImprove: provider.superRooSelfImprove,
+						running,
+						queue: {
+							pending: 0,
+							running: running ? 1 : 0,
+							succeeded24h: 0,
+							failed24h: 0,
+							blocked24h: 0,
+						},
+						agents: [],
+						recentTasks,
+						recentEvents: [],
+						syncStatus,
+					},
 				} as unknown as import("@superroo/types").ExtensionMessage)
 			}
-			break
-		}
-
-		// ── Helpers ────────────────────────────────────────────────────────
-
-		/** Build and send the dashboard snapshot from real provider data. */
-		async function postDashboardSnapshot() {
-			const running = provider.getCurrentTask() !== undefined
-			const recentTaskIds = provider.getRecentTasks()
-			const recentTasks = recentTaskIds
-				.slice(0, 20)
-				.map((id) => {
-					const item = provider.taskHistoryStore.get(id)
-					if (!item) return null
-					return {
-						id: item.id,
-						agent: "roo",
-						goal: item.task,
-						priority: "normal" as const,
-						status: (() => {
-							if (item.status === "active" || item.status === "delegated") return "running" as const
-							if (item.status === "completed") return "succeeded" as const
-							return "pending" as const
-						})(),
-						createdAt: item.ts,
-						updatedAt: item.ts,
-						attempts: 1,
-						resultSummary: item.completionResultSummary,
-						parentTaskId: item.parentTaskId,
-					}
-				})
-				.filter((t): t is NonNullable<typeof t> => t !== null)
-
-			const syncStatus = (provider.getSyncStatus as (() => unknown) | undefined)?.() ?? null
-
-			await provider.postMessageToWebview({
-				type: "superRoo:dashboard",
-				snapshot: {
-					mode: provider.superRooSafetyMode,
-					selfImprove: provider.superRooSelfImprove,
-					running,
-					queue: {
-						pending: 0,
-						running: running ? 1 : 0,
-						succeeded24h: 0,
-						failed24h: 0,
-						blocked24h: 0,
-					},
-					agents: [],
-					recentTasks,
-					recentEvents: [],
-					syncStatus,
-				},
-			} as unknown as import("@superroo/types").ExtensionMessage)
-		}
 
 		// ── SuperRoo Dashboard data requests ─────────────────────────────
 		case "superRoo:getDashboard": {
@@ -344,7 +347,9 @@ async function handleSuperRooMessage(provider: ClineProvider, message: Record<st
 				await provider.createTask(goal)
 				await postDashboardSnapshot()
 			} catch (error) {
-				provider.log(`[superRoo] Failed to create task: ${error instanceof Error ? error.message : String(error)}`)
+				provider.log(
+					`[superRoo] Failed to create task: ${error instanceof Error ? error.message : String(error)}`,
+				)
 				await provider.postMessageToWebview({
 					type: "superRoo:error",
 					message: error instanceof Error ? error.message : "Failed to create task",
@@ -414,7 +419,9 @@ async function handleSuperRooMessage(provider: ClineProvider, message: Record<st
 					settings,
 				} as unknown as import("@superroo/types").ExtensionMessage)
 			} catch (error) {
-				provider.log(`[superRoo] getFullSettings error: ${error instanceof Error ? error.message : String(error)}`)
+				provider.log(
+					`[superRoo] getFullSettings error: ${error instanceof Error ? error.message : String(error)}`,
+				)
 				await provider.postMessageToWebview({
 					type: "superRoo:fullSettings",
 					settings: {},
@@ -598,6 +605,34 @@ export const webviewMessageHandler = async (
 			maxImageFileSize: state.maxImageFileSize,
 			maxTotalImageSize: state.maxTotalImageSize,
 		})
+
+		// When the active model can't natively see images (or the user enabled
+		// "Always analyze images locally"), run pasted/attached images through the
+		// local Ollama vision tool and inject the description as text. Without this,
+		// a text-only model receives an image it can't read and asks the user to
+		// save it to a file. Covers the newTask + askResponse send paths.
+		if (resolved.images && resolved.images.length > 0) {
+			let supportsImages = false
+			try {
+				const handler = currentTask?.api ?? buildApiHandler(state.apiConfiguration)
+				supportsImages = handler.getModel().info.supportsImages ?? false
+			} catch {
+				supportsImages = false
+			}
+
+			if (!supportsImages || state.forceLocalImageAnalysis) {
+				const analysis = await analyzeImagesWithMcp(provider.getMcpHub(), resolved.images, resolved.text)
+				if (analysis) {
+					const prefix = resolved.text ? `${resolved.text}\n\n` : ""
+					return {
+						...resolved,
+						text: `${prefix}## Image analysis (local vision)\n\n${analysis}`,
+						images: [],
+					}
+				}
+			}
+		}
+
 		return resolved
 	}
 
@@ -966,7 +1001,7 @@ export const webviewMessageHandler = async (
 		return
 	}
 
-switch (message.type) {
+	switch (message.type) {
 		case "webviewDidLaunch":
 			// Hydration must not depend on optional launch-time setup succeeding.
 			// If custom mode loading fails, still send the core state so the UI can render.
@@ -976,14 +1011,18 @@ switch (message.type) {
 				await updateGlobalState("customModes", customModes)
 				provider.log(`[webviewDidLaunch] Loaded ${customModes.length} custom modes`)
 			} catch (error) {
-				provider.log(`[webviewDidLaunch] Failed to load custom modes: ${error instanceof Error ? error.message : String(error)}`)
+				provider.log(
+					`[webviewDidLaunch] Failed to load custom modes: ${error instanceof Error ? error.message : String(error)}`,
+				)
 			}
 
 			try {
 				await provider.postStateToWebview()
 				provider.log("[webviewDidLaunch] State sent to webview successfully")
 			} catch (error) {
-				provider.log(`[webviewDidLaunch] Failed to send state: ${error instanceof Error ? error.message : String(error)}`)
+				provider.log(
+					`[webviewDidLaunch] Failed to send state: ${error instanceof Error ? error.message : String(error)}`,
+				)
 			}
 			provider.workspaceTracker?.initializeFilePaths() // Don't await.
 
