@@ -246,15 +246,84 @@ function handleChat(message, model, system) {
 	}
 }
 
+// ── Image Analyzer Agent ────────────────────────────────────────────────────
+// Two-tier vision: a fast primary model (moondream — lightest vision encoder,
+// ~6s/image on a 6GB-VRAM laptop) handles most pastes; if its reading looks
+// poor (empty, too short, refusal/uncertainty), escalate to a higher-quality
+// model (gemma3:4b — heavier SigLIP encoder, slower but more accurate OCR).
+// Env overrides: OLLAMA_VISION_MODEL (primary), OLLAMA_VISION_FALLBACK_MODEL
+// (escalation target), OLLAMA_VISION_NO_ESCALATE=1 to disable escalation.
+const DEFAULT_VISION_PROMPT = "Analyze this image and extract all text, UI elements, and key information."
+
+function visionPrimaryModel() {
+	return process.env.OLLAMA_VISION_MODEL || "moondream:latest"
+}
+function visionFallbackModel() {
+	return process.env.OLLAMA_VISION_FALLBACK_MODEL || "gemma3:4b"
+}
+
+function singleVisionCall(model, base64Image, prompt) {
+	const data = ollamaFetch("/api/chat", {
+		model,
+		messages: [{ role: "user", content: prompt, images: [base64Image] }],
+		stream: false,
+		// Keep the vision model resident so chat image pastes don't pay a
+		// multi-GB cold load every time; cap output for snappy responses.
+		keep_alive: process.env.OLLAMA_VISION_KEEP_ALIVE || "30m",
+		options: { num_predict: 500, temperature: 0.2 },
+	})
+	return (data.message?.content || "").trim()
+}
+
+// Heuristic: is this analysis too poor to trust? Triggers escalation.
+function visionQualityIsPoor(text) {
+	if (!text) return true
+	const t = text.trim()
+	if (t.length < 40) return true
+	const lower = t.toLowerCase()
+	const weakSignals = [
+		"i cannot", "i can't", "unable to", "i'm not able", "i am not able",
+		"i don't see", "i do not see", "cannot identify", "can't make out",
+		"no text", "no visible text", "appears to be blank", "image is blank",
+		"difficult to", "hard to tell", "not clear", "unclear", "sorry",
+	]
+	return weakSignals.some((p) => lower.includes(p))
+}
+
+// Run the analyzer agent. Returns { text, model, escalated }.
+function analyzeImageAgent(base64Image, prompt) {
+	const primary = visionPrimaryModel()
+	const fallback = visionFallbackModel()
+	const escalateEnabled = process.env.OLLAMA_VISION_NO_ESCALATE !== "1"
+
+	let text = ""
+	try {
+		text = singleVisionCall(primary, base64Image, prompt)
+	} catch (error) {
+		log(`vision primary (${primary}) failed: ${error.message}`)
+	}
+
+	if (escalateEnabled && fallback !== primary && visionQualityIsPoor(text)) {
+		log(`vision: poor result from ${primary} (${text.length} chars), escalating to ${fallback}`)
+		try {
+			const better = singleVisionCall(fallback, base64Image, prompt)
+			// Prefer the fallback if it cleared the quality bar, or is simply richer.
+			if (better && (!visionQualityIsPoor(better) || better.length > text.length)) {
+				return { text: better, model: fallback, escalated: true }
+			}
+		} catch (error) {
+			log(`vision fallback (${fallback}) failed: ${error.message}`)
+		}
+	}
+
+	return { text, model: primary, escalated: false }
+}
+
 function handleVision(image_path, prompt, model) {
 	if (!image_path || typeof image_path !== "string") {
 		return { content: [{ type: "text", text: "Error: 'image_path' parameter is required" }] }
 	}
 
-	const useModel = model || "llava:7b"
-	const usePrompt = prompt || "Analyze this image and extract all text, UI elements, and key information."
-
-	// Read local image file
 	let imageData
 	try {
 		imageData = fsSync.readFileSync(image_path)
@@ -265,30 +334,7 @@ function handleVision(image_path, prompt, model) {
 		}
 	}
 
-	const base64Image = imageData.toString("base64")
-
-	try {
-		const data = ollamaFetch("/api/chat", {
-			model: useModel,
-			messages: [
-				{
-					role: "user",
-					content: usePrompt,
-					images: [base64Image]
-				}
-			],
-			stream: false,
-		})
-		return {
-			content: [{ type: "text", text: data.message?.content || "No analysis result" }],
-		}
-	} catch (error) {
-		log(`vision failed: ${error.message}`)
-		return {
-			content: [{ type: "text", text: `Error: ${error.message}` }],
-			isError: true,
-		}
-	}
+	return handleVisionData(imageData.toString("base64"), prompt, model)
 }
 
 function handleVisionData(image_base64, prompt, model) {
@@ -296,24 +342,17 @@ function handleVisionData(image_base64, prompt, model) {
 		return { content: [{ type: "text", text: "Error: 'image_base64' parameter is required" }] }
 	}
 
-	const useModel = model || "llava:7b"
-	const usePrompt = prompt || "Analyze this image and extract all text, UI elements, and key information."
+	const usePrompt = prompt || DEFAULT_VISION_PROMPT
 
 	try {
-		const data = ollamaFetch("/api/chat", {
-			model: useModel,
-			messages: [
-				{
-					role: "user",
-					content: usePrompt,
-					images: [image_base64]
-				}
-			],
-			stream: false,
-		})
-		return {
-			content: [{ type: "text", text: data.message?.content || "No analysis result" }],
+		// An explicit model pins to a single call (no escalation); otherwise run
+		// the fast-then-escalate analyzer agent.
+		if (model) {
+			const text = singleVisionCall(model, image_base64, usePrompt)
+			return { content: [{ type: "text", text: text || "No analysis result" }] }
 		}
+		const result = analyzeImageAgent(image_base64, usePrompt)
+		return { content: [{ type: "text", text: result.text || "No analysis result" }] }
 	} catch (error) {
 		log(`vision_data failed: ${error.message}`)
 		return {
